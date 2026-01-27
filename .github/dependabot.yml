@@ -40,7 +40,7 @@ updates:
           - "Microsoft.NET.Test.Sdk"
           - "coverlet*"
     
-    ignore:
+    # ignore:
       # Example: Ignore major versions for stability
       # - dependency-name: "Microsoft.AspNetCore.*"
       #   update-types: ["version-update:semver-major"]
