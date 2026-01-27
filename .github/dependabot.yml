@@ -1,0 +1,66 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "Granuch"
+    labels:
+      - "dependencies"
+      - "nuget"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      building-blocks:
+        patterns:
+          - "EShop.BuildingBlocks.*"
+      
+      microsoft-packages:
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+        
+      entity-framework:
+        patterns:
+          - "Microsoft.EntityFrameworkCore*"
+          - "Npgsql.EntityFrameworkCore*"
+      
+      messaging:
+        patterns:
+          - "MassTransit*"
+          - "RabbitMQ*"
+      
+      test-packages:
+        patterns:
+          - "xunit*"
+          - "Microsoft.NET.Test.Sdk"
+          - "coverlet*"
+    
+    ignore:
+      # Example: Ignore major versions for stability
+      # - dependency-name: "Microsoft.AspNetCore.*"
+      #   update-types: ["version-update:semver-major"]
+      
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
