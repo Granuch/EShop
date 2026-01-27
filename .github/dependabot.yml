@@ -3,64 +3,129 @@ updates:
   - package-ecosystem: "nuget"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"         
+      day: "monday"                
       time: "09:00"
-    open-pull-requests-limit: 10
-    reviewers:
-      - "Granuch"
+      timezone: "Europe/Kyiv"
+    open-pull-requests-limit: 5 
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
     labels:
       - "dependencies"
       - "nuget"
-    commit-message:
-      prefix: "chore"
-      include: "scope"
+    reviewers:
+      - "Granuch"
+    
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    
+    versioning-strategy: increase
+
+    rebase-strategy: auto
+
     groups:
-      building-blocks:
+      dotnet-runtime:
         patterns:
-          - "EShop.BuildingBlocks.*"
-      
-      microsoft-packages:
-        patterns:
-          - "Microsoft.*"
+          - "Microsoft.NETCore.*"
+          - "Microsoft.AspNetCore.*"
           - "System.*"
-        
+        update-types:
+          - "minor"
+          - "patch"
+      
       entity-framework:
         patterns:
           - "Microsoft.EntityFrameworkCore*"
           - "Npgsql.EntityFrameworkCore*"
+        update-types:
+          - "minor"
+          - "patch"
       
       messaging:
         patterns:
           - "MassTransit*"
           - "RabbitMQ*"
+        update-types:
+          - "minor"
+          - "patch"
       
-      test-packages:
+      cqrs:
+        patterns:
+          - "FluentValidation*"
+          - "MediatR*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      testing:
         patterns:
           - "xunit*"
           - "Microsoft.NET.Test.Sdk"
           - "coverlet*"
-    
-    # ignore:
-      # Example: Ignore major versions for stability
-      # - dependency-name: "Microsoft.AspNetCore.*"
-      #   update-types: ["version-update:semver-major"]
+        update-types:
+          - "minor"
+          - "patch"
       
+      identity:
+        patterns:
+          - "Microsoft.AspNetCore.Identity*"
+          - "Microsoft.AspNetCore.Authentication*"
+          - "Microsoft.IdentityModel*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      caching:
+        patterns:
+          - "StackExchange.Redis"
+          - "Microsoft.Extensions.Caching*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      infrastructure:
+        patterns:
+          - "MailKit"
+          - "MimeKit"
+        update-types:
+          - "minor"
+          - "patch"
+          
+      internal-packages:
+        patterns:
+          - "EShop.BuildingBlocks.*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "ci(deps)"
     labels:
       - "dependencies"
       - "github-actions"
-    commit-message:
-      prefix: "ci"
+    rebase-strategy: auto
 
+
+  # Docker
   - package-ecosystem: "docker"
-    directory: - "/**"
+    directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(docker)"
     labels:
       - "dependencies"
       - "docker"
-    commit-message:
-      prefix: "chore"
+    rebase-strategy: auto
