@@ -1,0 +1,6 @@
+@EShop.Payment.API_HostAddress = http://localhost:5273
+
+GET {{EShop.Payment.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

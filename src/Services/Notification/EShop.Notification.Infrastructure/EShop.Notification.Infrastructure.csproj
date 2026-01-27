@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EShop.Notification.Domain\EShop.Notification.Domain.csproj" />
+    <ProjectReference Include="..\EShop.Notification.Application\EShop.Notification.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\EShop.BuildingBlocks.Infrastructure\EShop.BuildingBlocks.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

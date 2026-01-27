@@ -1,0 +1,6 @@
+@EShop.Basket.API_HostAddress = http://localhost:5055
+
+GET {{EShop.Basket.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
