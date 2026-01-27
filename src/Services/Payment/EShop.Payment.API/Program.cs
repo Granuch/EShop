@@ -1,12 +1,59 @@
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// TODO: Configure Serilog for structured logging
+// builder.Host.UseSerilog((context, configuration) => 
+//     configuration.ReadFrom.Configuration(context.Configuration));
+
+// TODO: Add Payment Processor service (Mock or Real)
+// builder.Services.AddScoped<IPaymentProcessor, MockPaymentProcessor>();
+
+// TODO: Add MassTransit with RabbitMQ for consuming OrderCreatedEvent
+// builder.Services.AddMassTransit(x =>
+// {
+//     // Register consumer
+//     x.AddConsumer<OrderCreatedConsumer>();
+//
+//     x.UsingRabbitMq((context, cfg) =>
+//     {
+//         cfg.Host(builder.Configuration["RabbitMQ:Host"], h =>
+//         {
+//             h.Username(builder.Configuration["RabbitMQ:Username"]!);
+//             h.Password(builder.Configuration["RabbitMQ:Password"]!);
+//         });
+//
+//         // Configure retry policy for failed payments
+//         cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+//
+//         cfg.ConfigureEndpoints(context);
+//     });
+// });
+
+// TODO: Add Polly for resilience (Circuit Breaker, Retry)
+// builder.Services.AddResiliencePipeline("payment-pipeline", builder =>
+// {
+//     builder.AddRetry(new RetryStrategyOptions
+//     {
+//         MaxRetryAttempts = 3,
+//         Delay = TimeSpan.FromSeconds(2)
+//     });
+//     builder.AddCircuitBreaker(new CircuitBreakerStrategyOptions
+//     {
+//         FailureRatio = 0.5,
+//         SamplingDuration = TimeSpan.FromSeconds(30)
+//     });
+// });
+
+// TODO: Add Health Checks
+// builder.Services.AddHealthChecks()
+//     .AddRabbitMQ(builder.Configuration["RabbitMQ:Host"]!);
+
+// Add OpenAPI
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -14,28 +61,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+// TODO: Map Health Checks
+// app.MapHealthChecks("/health");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
