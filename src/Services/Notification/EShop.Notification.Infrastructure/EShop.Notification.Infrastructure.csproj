@@ -7,7 +7,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MailKit" Version="4.8.0" />
+    <PackageReference Include="MailKit" Version="4.14.1" />
   </ItemGroup>
 
   <PropertyGroup>
