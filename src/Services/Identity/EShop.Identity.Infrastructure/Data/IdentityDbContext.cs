@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using EShop.BuildingBlocks.Infrastructure.Data;
 using EShop.Identity.Domain.Entities;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 
 namespace EShop.Identity.Infrastructure.Data;
@@ -10,6 +10,8 @@ namespace EShop.Identity.Infrastructure.Data;
 /// </summary>
 public class IdentityDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
 {
+    public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
+
     public IdentityDbContext(DbContextOptions<IdentityDbContext> options) : base(options)
     {
     }
@@ -18,15 +20,56 @@ public class IdentityDbContext : IdentityDbContext<ApplicationUser, ApplicationR
     {
         base.OnModelCreating(builder);
 
-        // TODO: Configure ApplicationUser entity
-        // builder.Entity<ApplicationUser>(entity => { ... });
+        // Configure ApplicationUser entity
+        builder.Entity<ApplicationUser>(entity =>
+        {
+            entity.ToTable("users");
+            entity.Property(u => u.FirstName).HasMaxLength(50).IsRequired();
+            entity.Property(u => u.LastName).HasMaxLength(50).IsRequired();
+            entity.Property(u => u.ProfilePictureUrl).HasMaxLength(500);
+            entity.Property(u => u.GoogleId).HasMaxLength(100);
+            entity.Property(u => u.GitHubId).HasMaxLength(100);
+            entity.Property(u => u.TwoFactorSecret).HasMaxLength(200);
+            entity.Property(u => u.LastLoginIp).HasMaxLength(50);
 
-        // TODO: Configure ApplicationRole entity
-        // builder.Entity<ApplicationRole>(entity => { ... });
+            entity.HasIndex(u => u.GoogleId).IsUnique().HasFilter("\"GoogleId\" IS NOT NULL");
+            entity.HasIndex(u => u.GitHubId).IsUnique().HasFilter("\"GitHubId\" IS NOT NULL");
+        });
 
-        // TODO: Apply custom configurations from assembly
-        // builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+        // Configure ApplicationRole entity
+        builder.Entity<ApplicationRole>(entity =>
+        {
+            entity.ToTable("roles");
+            entity.Property(r => r.Description).HasMaxLength(250);
+        });
 
-        // TODO: Seed default roles and admin user
+        // Configure RefreshToken entity
+        builder.Entity<RefreshTokenEntity>(entity =>
+        {
+            entity.ToTable("refresh_tokens");
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.Token).HasMaxLength(500).IsRequired();
+            entity.Property(t => t.UserId).IsRequired();
+            entity.Property(t => t.CreatedByIp).HasMaxLength(50);
+            entity.Property(t => t.RevokedByIp).HasMaxLength(50);
+            entity.Property(t => t.ReplacedByToken).HasMaxLength(500);
+            entity.Property(t => t.RevokeReason).HasMaxLength(250);
+
+            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasIndex(t => t.UserId);
+            entity.HasIndex(t => new { t.UserId, t.ExpiresAt });
+
+            entity.HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Rename Identity tables
+        builder.Entity<IdentityUserRole<string>>().ToTable("user_roles");
+        builder.Entity<IdentityUserClaim<string>>().ToTable("user_claims");
+        builder.Entity<IdentityUserLogin<string>>().ToTable("user_logins");
+        builder.Entity<IdentityUserToken<string>>().ToTable("user_tokens");
+        builder.Entity<IdentityRoleClaim<string>>().ToTable("role_claims");
     }
 }
