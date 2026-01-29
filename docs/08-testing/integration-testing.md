@@ -84,18 +84,27 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
 ### Example: ProductsController
 
 ```csharp
-public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
+[TestFixture]
+public class ProductsControllerTests
 {
-    private readonly HttpClient _client;
-    private readonly CatalogApiFactory _factory;
+    private CatalogApiFactory _factory = null!;
+    private HttpClient _client = null!;
 
-    public ProductsControllerTests(CatalogApiFactory factory)
+    [OneTimeSetUp]
+    public void OneTimeSetUp()
     {
-        _factory = factory;
-        _client = factory.CreateClient();
+        _factory = new CatalogApiFactory();
+        _client = _factory.CreateClient();
     }
 
-    [Fact]
+    [OneTimeTearDown]
+    public void OneTimeTearDown()
+    {
+        _client.Dispose();
+        _factory.Dispose();
+    }
+
+    [Test]
     public async Task GET_Products_ShouldReturn200WithProducts()
     {
         // Arrange
@@ -114,7 +123,7 @@ public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
         content.TotalCount.Should().BeGreaterThan(0);
     }
 
-    [Fact]
+    [Test]
     public async Task GET_ProductById_WithValidId_ShouldReturn200()
     {
         // Arrange
@@ -132,7 +141,7 @@ public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
         product!.Id.Should().Be(productId);
     }
 
-    [Fact]
+    [Test]
     public async Task GET_ProductById_WithInvalidId_ShouldReturn404()
     {
         // Arrange
@@ -146,7 +155,7 @@ public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    [Fact]
+    [Test]
     public async Task POST_Products_WithValidData_ShouldReturn201()
     {
         // Arrange
@@ -175,7 +184,7 @@ public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact]
+    [Test]
     public async Task POST_Products_WithDuplicateSku_ShouldReturn400()
     {
         // Arrange
@@ -199,7 +208,7 @@ public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
         error!.Code.Should().Be("SKU_EXISTS");
     }
 
-    [Fact]
+    [Test]
     public async Task PUT_Products_WithValidData_ShouldReturn204()
     {
         // Arrange
@@ -224,7 +233,7 @@ public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
         product.Price.Should().Be(request.Price);
     }
 
-    [Fact]
+    [Test]
     public async Task DELETE_Products_WithValidId_ShouldReturn204()
     {
         // Arrange
@@ -313,16 +322,24 @@ public class AuthenticatedApiFactory : CatalogApiFactory
 ### Authorization Tests
 
 ```csharp
-public class ProductsControllerAuthTests : IClassFixture<AuthenticatedApiFactory>
+[TestFixture]
+public class ProductsControllerAuthTests
 {
-    private readonly AuthenticatedApiFactory _factory;
+    private AuthenticatedApiFactory _factory = null!;
 
-    public ProductsControllerAuthTests(AuthenticatedApiFactory factory)
+    [OneTimeSetUp]
+    public void OneTimeSetUp()
     {
-        _factory = factory;
+        _factory = new AuthenticatedApiFactory();
     }
 
-    [Fact]
+    [OneTimeTearDown]
+    public void OneTimeTearDown()
+    {
+        _factory.Dispose();
+    }
+
+    [Test]
     public async Task POST_Products_WithoutAuth_ShouldReturn401()
     {
         // Arrange
@@ -336,7 +353,7 @@ public class ProductsControllerAuthTests : IClassFixture<AuthenticatedApiFactory
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    [Fact]
+    [Test]
     public async Task POST_Products_WithUserRole_ShouldReturn403()
     {
         // Arrange
@@ -350,7 +367,7 @@ public class ProductsControllerAuthTests : IClassFixture<AuthenticatedApiFactory
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
-    [Fact]
+    [Test]
     public async Task POST_Products_WithAdminRole_ShouldReturn201()
     {
         // Arrange
@@ -380,21 +397,26 @@ public class ProductsControllerAuthTests : IClassFixture<AuthenticatedApiFactory
 ### Setup Testcontainers
 
 ```csharp
-public class IntegrationTestFixture : IAsyncLifetime
+[TestFixture]
+public class IntegrationTestFixture
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16")
-        .WithDatabase("testdb")
-        .WithUsername("test")
-        .WithPassword("test")
-        .Build();
+    private PostgreSqlContainer _postgres = null!;
 
-    public async Task InitializeAsync()
+    [OneTimeSetUp]
+    public async Task OneTimeSetUp()
     {
+        _postgres = new PostgreSqlBuilder()
+            .WithImage("postgres:16")
+            .WithDatabase("testdb")
+            .WithUsername("test")
+            .WithPassword("test")
+            .Build();
+            
         await _postgres.StartAsync();
     }
 
-    public async Task DisposeAsync()
+    [OneTimeTearDown]
+    public async Task OneTimeTearDown()
     {
         await _postgres.DisposeAsync();
     }

@@ -32,7 +32,7 @@ Best practices для написання unit tests.
 **Arrange** → **Act** → **Assert**
 
 ```csharp
-[Fact]
+[Test]
 public void UpdatePrice_WithValidPrice_ShouldUpdateSuccessfully()
 {
     // Arrange (Setup)
@@ -77,9 +77,10 @@ ValidateProduct()
 ### Example: Product Entity
 
 ```csharp
+[TestFixture]
 public class ProductTests
 {
-    [Fact]
+    [Test]
     public void Create_WithValidData_ShouldCreateProduct()
     {
         // Arrange
@@ -110,10 +111,9 @@ public class ProductTests
         product.DomainEvents.First().Should().BeOfType<ProductCreatedEvent>();
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData(null)]
-    [InlineData("   ")]
+    [TestCase("")]
+    [TestCase(null)]
+    [TestCase("   ")]
     public void Create_WithInvalidName_ShouldThrowDomainException(string invalidName)
     {
         // Arrange
@@ -134,7 +134,7 @@ public class ProductTests
             .WithMessage("Product name is required");
     }
 
-    [Fact]
+    [Test]
     public void UpdatePrice_WithNegativePrice_ShouldThrowDomainException()
     {
         // Arrange
@@ -149,7 +149,7 @@ public class ProductTests
             .WithMessage("Price must be greater than zero");
     }
 
-    [Fact]
+    [Test]
     public void Publish_WithZeroStock_ShouldThrowDomainException()
     {
         // Arrange
@@ -164,7 +164,7 @@ public class ProductTests
             .WithMessage("Cannot publish product with zero stock");
     }
 
-    [Fact]
+    [Test]
     public void UpdateStock_WithValidQuantity_ShouldUpdateStock()
     {
         // Arrange
@@ -178,7 +178,7 @@ public class ProductTests
         product.StockQuantity.Should().Be(newQuantity);
     }
 
-    [Fact]
+    [Test]
     public void AddImage_WithValidData_ShouldAddImageToCollection()
     {
         // Arrange
@@ -204,9 +204,10 @@ public class ProductTests
 ### Example: Money Value Object
 
 ```csharp
+[TestFixture]
 public class MoneyTests
 {
-    [Fact]
+    [Test]
     public void Constructor_WithValidAmount_ShouldCreateMoney()
     {
         // Arrange & Act
@@ -217,7 +218,7 @@ public class MoneyTests
         money.Currency.Should().Be("USD");
     }
 
-    [Fact]
+    [Test]
     public void Constructor_WithNegativeAmount_ShouldThrowArgumentException()
     {
         // Act
@@ -228,7 +229,7 @@ public class MoneyTests
             .WithMessage("Amount cannot be negative");
     }
 
-    [Fact]
+    [Test]
     public void Add_WithSameCurrency_ShouldReturnNewMoney()
     {
         // Arrange
@@ -243,7 +244,7 @@ public class MoneyTests
         result.Currency.Should().Be("USD");
     }
 
-    [Fact]
+    [Test]
     public void Add_WithDifferentCurrency_ShouldThrowInvalidOperationException()
     {
         // Arrange
@@ -258,7 +259,7 @@ public class MoneyTests
             .WithMessage("Cannot add different currencies");
     }
 
-    [Fact]
+    [Test]
     public void Equals_WithSameValues_ShouldReturnTrue()
     {
         // Arrange
@@ -270,7 +271,7 @@ public class MoneyTests
         (money1 == money2).Should().BeTrue();
     }
 
-    [Fact]
+    [Test]
     public void Equals_WithDifferentValues_ShouldReturnFalse()
     {
         // Arrange
@@ -290,13 +291,15 @@ public class MoneyTests
 ### Example: CreateProductCommandHandler
 
 ```csharp
+[TestFixture]
 public class CreateProductCommandHandlerTests
 {
-    private readonly Mock<IProductRepository> _repositoryMock;
-    private readonly Mock<ICategoryRepository> _categoryRepositoryMock;
-    private readonly CreateProductCommandHandler _handler;
+    private Mock<IProductRepository> _repositoryMock = null!;
+    private Mock<ICategoryRepository> _categoryRepositoryMock = null!;
+    private CreateProductCommandHandler _handler = null!;
 
-    public CreateProductCommandHandlerTests()
+    [SetUp]
+    public void SetUp()
     {
         _repositoryMock = new Mock<IProductRepository>();
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
@@ -306,7 +309,7 @@ public class CreateProductCommandHandlerTests
             Mock.Of<ILogger<CreateProductCommandHandler>>());
     }
 
-    [Fact]
+    [Test]
     public async Task Handle_WithValidCommand_ShouldCreateProduct()
     {
         // Arrange
@@ -345,7 +348,7 @@ public class CreateProductCommandHandlerTests
             Times.Once);
     }
 
-    [Fact]
+    [Test]
     public async Task Handle_WithDuplicateSku_ShouldReturnFailure()
     {
         // Arrange
@@ -369,7 +372,7 @@ public class CreateProductCommandHandlerTests
             Times.Never);
     }
 
-    [Fact]
+    [Test]
     public async Task Handle_WithNonExistentCategory_ShouldReturnFailure()
     {
         // Arrange
@@ -396,16 +399,18 @@ public class CreateProductCommandHandlerTests
 ### Example: CreateProductCommandValidator
 
 ```csharp
+[TestFixture]
 public class CreateProductCommandValidatorTests
 {
-    private readonly CreateProductCommandValidator _validator;
+    private CreateProductCommandValidator _validator = null!;
 
-    public CreateProductCommandValidatorTests()
+    [SetUp]
+    public void SetUp()
     {
         _validator = new CreateProductCommandValidator();
     }
 
-    [Fact]
+    [Test]
     public void Validate_WithValidCommand_ShouldPassValidation()
     {
         // Arrange
@@ -427,10 +432,9 @@ public class CreateProductCommandValidatorTests
         result.Errors.Should().BeEmpty();
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData(null)]
-    [InlineData("   ")]
+    [TestCase("")]
+    [TestCase(null)]
+    [TestCase("   ")]
     public void Validate_WithInvalidName_ShouldFailValidation(string invalidName)
     {
         // Arrange
@@ -444,9 +448,8 @@ public class CreateProductCommandValidatorTests
         result.Errors.Should().ContainSingle(e => e.PropertyName == "Name");
     }
 
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(0)]
+    [TestCase(-1)]
+    [TestCase(0)]
     public void Validate_WithInvalidPrice_ShouldFailValidation(decimal invalidPrice)
     {
         // Arrange
@@ -460,7 +463,7 @@ public class CreateProductCommandValidatorTests
         result.Errors.Should().Contain(e => e.PropertyName == "Price");
     }
 
-    [Fact]
+    [Test]
     public void Validate_WithLongName_ShouldFailValidation()
     {
         // Arrange

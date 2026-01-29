@@ -12,7 +12,7 @@ public class ApplicationUser : IdentityUser
     public string? ProfilePictureUrl { get; set; }
 
     // Audit fields
-    public DateTime CreatedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
     public string? LastLoginIp { get; set; }
 
@@ -30,8 +30,4 @@ public class ApplicationUser : IdentityUser
 
     // Computed property
     public string FullName => $"{FirstName} {LastName}".Trim();
-
-    // TODO: Add email confirmation token expiration
-    // TODO: Add password reset token with expiration
-    // TODO: Add account lockout tracking
 }
