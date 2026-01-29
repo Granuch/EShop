@@ -1,6 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Logging;
+using Serilog;
 
 namespace EShop.Identity.Infrastructure.Data;
 
@@ -26,11 +26,11 @@ public static class SeedData
                     Description = $"{role} role for the application",
                     CreatedAt = DateTime.UtcNow
                 };
-                
+
                 var result = await roleManager.CreateAsync(applicationRole);
                 if (result.Succeeded)
                 {
-                    logger?.LogInformation("Created role: {Role}", role);
+                    logger?.Information("Created role: {Role}", role);
                 }
             }
         }
@@ -38,7 +38,7 @@ public static class SeedData
         // Create admin user if not exists
         var adminEmail = "admin@eshop.com";
         var adminUser = await userManager.FindByEmailAsync(adminEmail);
-        
+
         if (adminUser == null)
         {
             adminUser = new ApplicationUser
@@ -56,12 +56,12 @@ public static class SeedData
             if (result.Succeeded)
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
-                logger?.LogInformation("Created admin user: {Email}", adminEmail);
+                logger?.Information("Created admin user: {Email}", adminEmail);
             }
             else
             {
                 var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-                logger?.LogError("Failed to create admin user: {Errors}", errors);
+                logger?.Error("Failed to create admin user: {Errors}", errors);
             }
         }
     }
