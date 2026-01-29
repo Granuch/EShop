@@ -38,12 +38,12 @@
 - Validators
 - CQRS handlers (mocked dependencies)
 
-**Tools**: xUnit, FluentAssertions, Moq
+**Tools**: NUnit, FluentAssertions, Moq
 
 **Example**:
 
 ```csharp
-[Fact]
+[Test]
 public void Create_WithValidData_ShouldCreateProduct()
 {
     // Arrange
@@ -77,16 +77,25 @@ dotnet test tests/**/*UnitTests.csproj
 - Database interactions
 - External service integration (mocked)
 
-**Tools**: xUnit, WebApplicationFactory, Testcontainers
+**Tools**: NUnit, WebApplicationFactory, Testcontainers
 
 **Example**:
 
 ```csharp
-public class ProductsControllerTests : IClassFixture<CatalogApiFactory>
+[TestFixture]
+public class ProductsControllerTests
 {
-    private readonly HttpClient _client;
+    private CatalogApiFactory _factory = null!;
+    private HttpClient _client = null!;
     
-    [Fact]
+    [OneTimeSetUp]
+    public void OneTimeSetUp()
+    {
+        _factory = new CatalogApiFactory();
+        _client = _factory.CreateClient();
+    }
+    
+    [Test]
     public async Task GET_Products_ShouldReturn200WithProducts()
     {
         // Arrange
@@ -290,6 +299,7 @@ var products = ProductBuilder.CreateMany(10);
 ### 2. Test Fixtures (Shared Context)
 
 ```csharp
+[TestFixture]
 public class DatabaseFixture : IDisposable
 {
     public CatalogDbContext DbContext { get; }
@@ -314,13 +324,21 @@ public class DatabaseFixture : IDisposable
 }
 
 // Usage
-public class ProductRepositoryTests : IClassFixture<DatabaseFixture>
+[TestFixture]
+public class ProductRepositoryTests
 {
-    private readonly DatabaseFixture _fixture;
+    private DatabaseFixture _fixture = null!;
     
-    public ProductRepositoryTests(DatabaseFixture fixture)
+    [OneTimeSetUp]
+    public void OneTimeSetUp()
     {
-        _fixture = fixture;
+        _fixture = new DatabaseFixture();
+    }
+    
+    [OneTimeTearDown]
+    public void OneTimeTearDown()
+    {
+        _fixture.Dispose();
     }
 }
 ```
@@ -330,21 +348,26 @@ public class ProductRepositoryTests : IClassFixture<DatabaseFixture>
 ### 3. Testcontainers (Real Database)
 
 ```csharp
-public class IntegrationTestFixture : IAsyncLifetime
+[TestFixture]
+public class IntegrationTestFixture
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16")
-        .WithDatabase("testdb")
-        .WithUsername("test")
-        .WithPassword("test")
-        .Build();
+    private PostgreSqlContainer _postgres = null!;
 
-    public async Task InitializeAsync()
+    [OneTimeSetUp]
+    public async Task OneTimeSetUp()
     {
+        _postgres = new PostgreSqlBuilder()
+            .WithImage("postgres:16")
+            .WithDatabase("testdb")
+            .WithUsername("test")
+            .WithPassword("test")
+            .Build();
+            
         await _postgres.StartAsync();
     }
 
-    public async Task DisposeAsync()
+    [OneTimeTearDown]
+    public async Task OneTimeTearDown()
     {
         await _postgres.DisposeAsync();
     }
@@ -382,18 +405,20 @@ public class IntegrationTestFixture : IAsyncLifetime
 
 ```csharp
 // Mock repository
+[TestFixture]
 public class CreateProductCommandHandlerTests
 {
-    private readonly Mock<IProductRepository> _repositoryMock;
-    private readonly CreateProductCommandHandler _handler;
+    private Mock<IProductRepository> _repositoryMock = null!;
+    private CreateProductCommandHandler _handler = null!;
 
-    public CreateProductCommandHandlerTests()
+    [SetUp]
+    public void SetUp()
     {
         _repositoryMock = new Mock<IProductRepository>();
         _handler = new CreateProductCommandHandler(_repositoryMock.Object);
     }
 
-    [Fact]
+    [Test]
     public async Task Handle_WithValidCommand_ShouldCreateProduct()
     {
         // Arrange
