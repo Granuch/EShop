@@ -9,7 +9,4 @@ public record EmailConfirmationToken
     public string UserId { get; init; } = string.Empty;
     public DateTime ExpiresAt { get; init; }
     public bool IsExpired => DateTime.UtcNow >= ExpiresAt;
-
-    // TODO: Implement token generation with cryptographically secure random
-    // TODO: Add email sending rate limiting
 }

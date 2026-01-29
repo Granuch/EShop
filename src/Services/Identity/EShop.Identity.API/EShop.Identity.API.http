@@ -1,6 +1,80 @@
 @EShop.Identity.API_HostAddress = http://localhost:5210
+@accessToken = {{loginResponse.response.body.accessToken}}
 
-GET {{EShop.Identity.API_HostAddress}}/weatherforecast/
+### Health Check
+GET {{EShop.Identity.API_HostAddress}}/health
 Accept: application/json
+
+### Register a new user
+# @name registerResponse
+POST {{EShop.Identity.API_HostAddress}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "testuser@example.com",
+  "password": "TestP@ss123",
+  "firstName": "Test",
+  "lastName": "User"
+}
+
+### Login
+# @name loginResponse
+POST {{EShop.Identity.API_HostAddress}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@eshop.com",
+  "password": "Admin@123456"
+}
+
+### Login as test user
+# @name loginTestUser
+POST {{EShop.Identity.API_HostAddress}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "testuser@example.com",
+  "password": "TestP@ss123"
+}
+
+### Get user profile (requires authentication)
+GET {{EShop.Identity.API_HostAddress}}/api/v1/account/profile
+Authorization: Bearer {{accessToken}}
+
+### Update user profile (requires authentication)
+PUT {{EShop.Identity.API_HostAddress}}/api/v1/account/profile
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "firstName": "Updated",
+  "lastName": "Name"
+}
+
+### Change password (requires authentication)
+POST {{EShop.Identity.API_HostAddress}}/api/v1/account/change-password
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "currentPassword": "Admin@123456",
+  "newPassword": "NewAdmin@123456"
+}
+
+### Refresh token
+POST {{EShop.Identity.API_HostAddress}}/api/v1/auth/refresh-token
+Content-Type: application/json
+
+{
+  "refreshToken": "your-refresh-token-here"
+}
+
+### Revoke token (logout)
+POST {{EShop.Identity.API_HostAddress}}/api/v1/auth/revoke-token
+Content-Type: application/json
+
+{
+  "refreshToken": "your-refresh-token-here"
+}
 
 ###

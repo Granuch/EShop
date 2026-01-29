@@ -1,0 +1,20 @@
+using MediatR;
+using EShop.BuildingBlocks.Application;
+
+namespace EShop.Identity.Application.Auth.Commands.ResetPassword;
+
+/// <summary>
+/// Command to reset password with token
+/// </summary>
+public record ResetPasswordCommand : IRequest<Result<ResetPasswordResponse>>
+{
+    public string UserId { get; init; } = string.Empty;
+    public string Token { get; init; } = string.Empty;
+    public string NewPassword { get; init; } = string.Empty;
+}
+
+public record ResetPasswordResponse
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+}

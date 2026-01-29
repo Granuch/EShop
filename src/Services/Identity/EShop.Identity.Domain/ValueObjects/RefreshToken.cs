@@ -17,7 +17,4 @@ public record RefreshToken
     public bool IsExpired => DateTime.UtcNow >= ExpiresAt;
     public bool IsRevoked => RevokedAt != null;
     public bool IsActive => !IsRevoked && !IsExpired;
-
-    // TODO: Implement token rotation strategy
-    // TODO: Add device information tracking
 }

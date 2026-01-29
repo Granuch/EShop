@@ -10,7 +10,7 @@ Identity Service відповідає за:
 - ✅ Реєстрацію користувачів
 - ✅ Автентифікацію (Login/Logout)
 - ✅ JWT Token Management (Access + Refresh)
-- ✅ OAuth2 (Google, GitHub)
+- ⬜ OAuth2 (Google, GitHub) - TODO
 - ✅ Двофакторну автентифікацію (2FA/TOTP)
 - ✅ Email Confirmation
 - ✅ Password Reset
@@ -18,6 +18,7 @@ Identity Service відповідає за:
 - ✅ Rate Limiting
 - ✅ Управління профілем користувача
 - ✅ Ролі та права доступу (RBAC)
+- ✅ Structured Logging (Serilog)
 
 ---
 
@@ -27,15 +28,15 @@ Identity Service відповідає за:
 
 | Компонент | Технологія | Призначення |
 |-----------|------------|-------------|
-| **Framework** | ASP.NET Core 9.0 | Web API |
+| **Framework** | ASP.NET Core 10.0 | Web API |
 | **Database** | PostgreSQL | User storage |
-| **Cache** | Redis (Optional) | Token blacklist, rate limiting |
+| **Logging** | Serilog | Structured logging |
 | **Identity** | ASP.NET Core Identity | User management |
 | **JWT** | System.IdentityModel.Tokens.Jwt | Token generation |
-| **OAuth** | Microsoft.AspNetCore.Authentication.OAuth | Social login |
 | **2FA** | TOTP (RFC 6238) | Two-factor authentication |
 | **Validation** | FluentValidation | Input validation |
 | **CQRS** | MediatR | Command/Query separation |
+| **API Docs** | Scalar | OpenAPI documentation |
 
 ### Clean Architecture Layers
 
@@ -45,26 +46,26 @@ EShop.Identity.API/
 │   ├── AuthController.cs           # Login, Register, Refresh Token
 │   ├── AccountController.cs        # Profile, Password, 2FA
 │   └── RolesController.cs          # Admin: Manage roles
-├── Endpoints/                       # (Optional) Minimal API альтернатива
-├── Middleware/
-│   └── RateLimitingMiddleware.cs
-├── Program.cs
-└── appsettings.json
+├── Program.cs                      # Serilog configuration
+├── appsettings.json               # Serilog sinks configuration
+└── logs/                          # Log files (daily rolling)
 
 EShop.Identity.Domain/
 ├── Entities/
 │   ├── ApplicationUser.cs          # Extends IdentityUser
-│   └── ApplicationRole.cs          # Extends IdentityRole
+│   ├── ApplicationRole.cs          # Extends IdentityRole
+│   └── RefreshTokenEntity.cs       # DB-stored refresh tokens
 ├── ValueObjects/
 │   ├── RefreshToken.cs
 │   └── EmailConfirmationToken.cs
 ├── Interfaces/
 │   ├── ITokenService.cs
+│   ├── IRefreshTokenRepository.cs
 │   └── IUserRepository.cs
 └── Events/
     ├── UserRegisteredEvent.cs
     ├── UserEmailConfirmedEvent.cs
-    └── UserPasswordResetEvent.cs
+    └── UserPasswordResetRequestedEvent.cs
 
 EShop.Identity.Application/
 ├── Auth/
@@ -72,42 +73,106 @@ EShop.Identity.Application/
 │   │   ├── RegisterCommand.cs
 │   │   ├── LoginCommand.cs
 │   │   ├── RefreshTokenCommand.cs
-│   │   └── RevokeTokenCommand.cs
+│   │   ├── RevokeTokenCommand.cs
+│   │   ├── ConfirmEmailCommand.cs
+│   │   ├── ForgotPasswordCommand.cs
+│   │   └── ResetPasswordCommand.cs
 │   └── Queries/
 │       └── GetUserByEmailQuery.cs
 ├── Account/
 │   ├── Commands/
 │   │   ├── UpdateProfileCommand.cs
 │   │   ├── ChangePasswordCommand.cs
-│   │   ├── ResetPasswordCommand.cs
 │   │   ├── Enable2FACommand.cs
-│   │   └── Verify2FACommand.cs
+│   │   ├── Verify2FACommand.cs
+│   │   └── Disable2FACommand.cs
 │   └── Queries/
-│       └── GetUserProfileQuery.cs
-└── Common/
-    ├── DTOs/
-    │   ├── AuthResponse.cs
-    │   └── UserProfileDto.cs
-    └── Validators/
-        ├── RegisterCommandValidator.cs
-        └── LoginCommandValidator.cs
+│       └── GetProfileQuery.cs
+└── Extensions/
+    └── ServiceCollectionExtensions.cs
 
 EShop.Identity.Infrastructure/
 ├── Data/
 │   ├── IdentityDbContext.cs
-│   ├── Configurations/
-│   │   └── ApplicationUserConfiguration.cs
+│   ├── SeedData.cs
 │   └── Migrations/
 ├── Repositories/
-│   └── UserRepository.cs
+│   ├── UserRepository.cs
+│   └── RefreshTokenRepository.cs
 ├── Services/
-│   ├── TokenService.cs             # JWT generation & validation
-│   ├── EmailService.cs             # Send confirmation emails
-│   ├── TwoFactorService.cs         # TOTP generation
-│   └── OAuthProviderService.cs     # Google/GitHub integration
+│   └── TokenService.cs             # JWT generation & refresh token storage
+├── Configuration/
+│   └── JwtSettings.cs
 └── Extensions/
     └── ServiceCollectionExtensions.cs
 ```
+
+---
+
+## Logging (Serilog)
+
+Identity Service використовує **Serilog** для structured logging.
+
+### Конфігурація
+
+```json
+// appsettings.json
+{
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "Microsoft.AspNetCore": "Warning",
+        "Microsoft.EntityFrameworkCore": "Warning"
+      }
+    },
+    "WriteTo": [
+      {
+        "Name": "Console",
+        "Args": {
+          "outputTemplate": "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"
+        }
+      },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "logs/identity-.log",
+          "rollingInterval": "Day",
+          "retainedFileCountLimit": 7
+        }
+      }
+    ],
+    "Enrich": [ "FromLogContext", "WithMachineName", "WithThreadId" ]
+  }
+}
+```
+
+### Request Logging
+
+Кожен HTTP запит автоматично логується:
+
+```
+[14:32:15 INF] HTTP POST /api/v1/auth/login responded 200 in 45.2345 ms
+```
+
+### Enrichers
+
+Логи автоматично збагачуються:
+- `Application` - назва сервісу
+- `MachineName` - ім'я серверу
+- `ThreadId` - ID потоку
+- `EnvironmentName` - Development/Production
+- `RequestHost` - хост запиту
+- `UserAgent` - браузер/клієнт
+- `RemoteIP` - IP адреса клієнта
+
+### Log Files
+
+- Зберігаються в `logs/` директорії
+- Rolling: новий файл щодня
+- Retention: 7 днів
+- Format: `identity-20260129.log`
 
 ---
 
@@ -124,44 +189,51 @@ public class ApplicationUser : IdentityUser
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string? ProfilePictureUrl { get; set; }
-    
+
     // Audit
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public string? LastLoginIp { get; set; }
-    
+
     // Account Status
     public bool IsActive { get; set; } = true;
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }
-    
+
     // OAuth
     public string? GoogleId { get; set; }
     public string? GitHubId { get; set; }
-    
+
     // 2FA
     public bool TwoFactorEnabled { get; set; } = false;
     public string? TwoFactorSecret { get; set; }
-    
+
     // Computed properties
     public string FullName => $"{FirstName} {LastName}".Trim();
 }
 ```
 
-### RefreshToken (Value Object)
+### RefreshTokenEntity
 
 ```csharp
-// EShop.Identity.Domain/ValueObjects/RefreshToken.cs
+// EShop.Identity.Domain/Entities/RefreshTokenEntity.cs
 
-public record RefreshToken
+public class RefreshTokenEntity
 {
-    public string Token { get; init; } = string.Empty;
-    public string UserId { get; init; } = string.Empty;
-    public DateTime CreatedAt { get; init; }
-    public DateTime ExpiresAt { get; init; }
-    public string? CreatedByIp { get; init; }
+    public Guid Id { get; set; }
+    public string Token { get; set; } = string.Empty;
+    public string UserId { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public string? CreatedByIp { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string? RevokedByIp { get; set; }
+    public string? ReplacedByToken { get; set; }
+    public string? RevokeReason { get; set; }
+
     public bool IsExpired => DateTime.UtcNow >= ExpiresAt;
-    public bool IsActive => !IsExpired;
+    public bool IsRevoked => RevokedAt != null;
+    public bool IsActive => !IsRevoked && !IsExpired;
 }
 ```
 
