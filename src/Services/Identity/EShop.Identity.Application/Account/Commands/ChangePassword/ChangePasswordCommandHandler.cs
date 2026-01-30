@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -27,6 +28,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
         var user = await _userManager.FindByIdAsync(request.UserId);
         if (user == null)
         {
+            IdentityTelemetry.RecordPasswordChange(false);
             return Result<ChangePasswordResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }
 
@@ -34,11 +36,13 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            _logger.LogWarning("Failed to change password for user {UserId}: {Errors}", request.UserId, errors);
+            _logger.LogWarning("Failed to change password. UserId={UserId}, Errors={Errors}", request.UserId, errors);
+            IdentityTelemetry.RecordPasswordChange(false);
             return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
         }
 
-        _logger.LogInformation("Password changed for user {UserId}", request.UserId);
+        _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
+        IdentityTelemetry.RecordPasswordChange(true);
 
         return Result<ChangePasswordResponse>.Success(new ChangePasswordResponse
         {

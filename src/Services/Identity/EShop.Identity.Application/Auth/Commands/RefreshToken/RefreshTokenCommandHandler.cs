@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -28,8 +29,11 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
 
     public async Task<Result<RefreshTokenResponse>> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
     {
+        using var timer = IdentityTelemetry.MeasureTokenGeneration();
+
         if (string.IsNullOrEmpty(request.RefreshToken))
         {
+            IdentityTelemetry.RecordTokenRefreshFailure("missing_token");
             return Result<RefreshTokenResponse>.Failure(new Error("Auth.InvalidToken", "Refresh token is required"));
         }
 
@@ -38,14 +42,17 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
 
         if (!isValid || user == null || oldToken == null)
         {
-            _logger.LogWarning("Invalid refresh token attempt");
+            _logger.LogWarning("Invalid refresh token attempt. IP={IpAddress}", request.IpAddress);
+            IdentityTelemetry.RecordTokenRefreshFailure("invalid_token");
             return Result<RefreshTokenResponse>.Failure(new Error("Auth.InvalidToken", "Invalid or expired refresh token"));
         }
 
         // Check if user is still active
         if (!user.IsActive || user.IsDeleted)
         {
-            _logger.LogWarning("Refresh token attempt for disabled user: {UserId}", user.Id);
+            _logger.LogWarning("Refresh token attempt for disabled user. UserId={UserId}, IsActive={IsActive}, IsDeleted={IsDeleted}",
+                user.Id, user.IsActive, user.IsDeleted);
+            IdentityTelemetry.RecordTokenRefreshFailure("account_disabled");
             return Result<RefreshTokenResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
         }
 
@@ -58,7 +65,9 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         // Generate new access token
         var accessToken = await _tokenService.GenerateAccessTokenAsync(user, cancellationToken);
 
-        _logger.LogInformation("Token refreshed successfully for user: {UserId}", user.Id);
+        _logger.LogInformation("Token refreshed successfully. UserId={UserId}, IP={IpAddress}",
+            user.Id, request.IpAddress);
+        IdentityTelemetry.RecordTokenRefreshSuccess();
 
         return Result<RefreshTokenResponse>.Success(new RefreshTokenResponse
         {

@@ -1,0 +1,50 @@
+# Prometheus configuration for EShop microservices
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Rule files (optional)
+# rule_files:
+#   - "first_rules.yml"
+#   - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # EShop Identity Service
+  - job_name: 'identity-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5210']  # Adjust port as needed
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'identity-api'
+
+  # EShop Catalog Service (when ready)
+  # - job_name: 'catalog-service'
+  #   metrics_path: '/metrics'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:5002']
+
+  # EShop Basket Service (when ready)
+  # - job_name: 'basket-service'
+  #   metrics_path: '/metrics'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:5003']
+
+  # EShop Ordering Service (when ready)
+  # - job_name: 'ordering-service'
+  #   metrics_path: '/metrics'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:5004']

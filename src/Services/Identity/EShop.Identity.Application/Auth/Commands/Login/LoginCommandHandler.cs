@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -31,25 +32,33 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
     public async Task<Result<LoginResponse>> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
+        using var timer = IdentityTelemetry.MeasureLoginDuration();
+
         // Find user by email
         var user = await _userManager.FindByEmailAsync(request.Email);
         if (user == null)
         {
-            _logger.LogWarning("Login attempt with non-existent email: {Email}", request.Email);
+            _logger.LogWarning("Login attempt failed: user not found. Email={Email}, IP={IpAddress}",
+                request.Email, request.IpAddress);
+            IdentityTelemetry.RecordLoginFailure("user_not_found");
             return Result<LoginResponse>.Failure(new Error("Auth.InvalidCredentials", "Invalid email or password"));
         }
 
         // Check if user is active and not deleted
         if (!user.IsActive || user.IsDeleted)
         {
-            _logger.LogWarning("Login attempt for inactive/deleted user: {Email}", request.Email);
+            _logger.LogWarning("Login attempt for inactive/deleted user. UserId={UserId}, Email={Email}, IsActive={IsActive}, IsDeleted={IsDeleted}",
+                user.Id, request.Email, user.IsActive, user.IsDeleted);
+            IdentityTelemetry.RecordLoginFailure("account_disabled");
             return Result<LoginResponse>.Failure(new Error("Auth.AccountDisabled", "Your account has been disabled"));
         }
 
         // Check account lockout
         if (await _userManager.IsLockedOutAsync(user))
         {
-            _logger.LogWarning("Login attempt for locked account: {Email}", request.Email);
+            _logger.LogWarning("Login attempt for locked account. UserId={UserId}, Email={Email}, LockoutEnd={LockoutEnd}",
+                user.Id, request.Email, user.LockoutEnd);
+            IdentityTelemetry.RecordLoginFailure("account_locked");
             return Result<LoginResponse>.Failure(new Error("Auth.AccountLocked", "Your account is locked. Please try again later"));
         }
 
@@ -59,17 +68,23 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         {
             if (result.IsLockedOut)
             {
-                _logger.LogWarning("Account locked after failed attempts: {Email}", request.Email);
+                _logger.LogWarning("Account locked after failed attempts. UserId={UserId}, Email={Email}",
+                    user.Id, request.Email);
+                IdentityTelemetry.RecordLoginFailure("lockout_triggered");
                 return Result<LoginResponse>.Failure(new Error("Auth.AccountLocked", "Your account is locked due to multiple failed attempts"));
             }
-            
-            _logger.LogWarning("Invalid password for user: {Email}", request.Email);
+
+            _logger.LogWarning("Invalid password attempt. UserId={UserId}, Email={Email}, IP={IpAddress}",
+                user.Id, request.Email, request.IpAddress);
+            IdentityTelemetry.RecordLoginFailure("invalid_password");
             return Result<LoginResponse>.Failure(new Error("Auth.InvalidCredentials", "Invalid email or password"));
         }
 
         // Check if 2FA is enabled
         if (user.TwoFactorEnabled && string.IsNullOrEmpty(request.TwoFactorCode))
         {
+            _logger.LogInformation("2FA required for login. UserId={UserId}", user.Id);
+            IdentityTelemetry.RecordLogin2FARequired();
             return Result<LoginResponse>.Success(new LoginResponse
             {
                 Requires2FA = true
@@ -83,9 +98,11 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 user, 
                 _userManager.Options.Tokens.AuthenticatorTokenProvider, 
                 request.TwoFactorCode);
-            
+
             if (!is2faValid)
             {
+                _logger.LogWarning("Invalid 2FA code. UserId={UserId}", user.Id);
+                IdentityTelemetry.RecordLoginFailure("invalid_2fa");
                 return Result<LoginResponse>.Failure(new Error("Auth.Invalid2FA", "Invalid two-factor code"));
             }
         }
@@ -102,7 +119,9 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         // Get user roles
         var roles = await _userManager.GetRolesAsync(user);
 
-        _logger.LogInformation("User logged in successfully: {UserId}", user.Id);
+        _logger.LogInformation("User logged in successfully. UserId={UserId}, Email={Email}, IP={IpAddress}, Roles={Roles}",
+            user.Id, user.Email, request.IpAddress, string.Join(",", roles));
+        IdentityTelemetry.RecordLoginSuccess();
 
         return Result<LoginResponse>.Success(new LoginResponse
         {

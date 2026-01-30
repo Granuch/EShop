@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -32,7 +33,8 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
         var existingUser = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
         if (existingUser != null)
         {
-            _logger.LogWarning("Registration attempt with existing email: {Email}", request.Email);
+            _logger.LogWarning("Registration attempt with existing email. Email={Email}", request.Email);
+            IdentityTelemetry.RecordRegistrationFailure("email_exists");
             return Result<RegisterResponse>.Failure(new Error("Auth.EmailExists", "A user with this email already exists"));
         }
 
@@ -53,7 +55,8 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
         if (!createResult.Succeeded)
         {
             var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
-            _logger.LogError("Failed to create user: {Errors}", errors);
+            _logger.LogError("Failed to create user. Email={Email}, Errors={Errors}", request.Email, errors);
+            IdentityTelemetry.RecordRegistrationFailure("create_failed");
             return Result<RegisterResponse>.Failure(new Error("Auth.CreateFailed", errors));
         }
 
@@ -61,13 +64,15 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
         var roleResult = await _userManager.AddToRoleAsync(user, "User");
         if (!roleResult.Succeeded)
         {
-            _logger.LogWarning("Failed to assign User role to {Email}", request.Email);
+            _logger.LogWarning("Failed to assign User role. UserId={UserId}, Email={Email}", user.Id, request.Email);
         }
 
         // Generate email confirmation token (for future email confirmation feature)
         var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-        
-        _logger.LogInformation("User registered successfully: {UserId}, {Email}", user.Id, user.Email);
+
+        _logger.LogInformation("User registered successfully. UserId={UserId}, Email={Email}, FirstName={FirstName}, LastName={LastName}",
+            user.Id, user.Email, user.FirstName, user.LastName);
+        IdentityTelemetry.RecordRegistrationSuccess();
 
         return Result<RegisterResponse>.Success(new RegisterResponse
         {

@@ -27,8 +27,12 @@ public class UpdateProfileCommandHandler : IRequestHandler<UpdateProfileCommand,
         var user = await _userManager.FindByIdAsync(request.UserId);
         if (user == null)
         {
+            _logger.LogWarning("Profile update attempt for non-existent user. UserId={UserId}", request.UserId);
             return Result<UpdateProfileResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }
+
+        var oldFirstName = user.FirstName;
+        var oldLastName = user.LastName;
 
         user.FirstName = request.FirstName;
         user.LastName = request.LastName;
@@ -38,11 +42,12 @@ public class UpdateProfileCommandHandler : IRequestHandler<UpdateProfileCommand,
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            _logger.LogError("Failed to update profile for user {UserId}: {Errors}", request.UserId, errors);
+            _logger.LogError("Failed to update profile. UserId={UserId}, Errors={Errors}", request.UserId, errors);
             return Result<UpdateProfileResponse>.Failure(new Error("Account.UpdateFailed", errors));
         }
 
-        _logger.LogInformation("Profile updated for user {UserId}", request.UserId);
+        _logger.LogInformation("Profile updated successfully. UserId={UserId}, Email={Email}, OldName={OldFirstName} {OldLastName}, NewName={NewFirstName} {NewLastName}",
+            request.UserId, user.Email, oldFirstName, oldLastName, request.FirstName, request.LastName);
 
         return Result<UpdateProfileResponse>.Success(new UpdateProfileResponse
         {

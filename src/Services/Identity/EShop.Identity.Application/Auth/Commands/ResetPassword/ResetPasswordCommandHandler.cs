@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -32,13 +33,16 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
 
         if (user == null)
         {
-            _logger.LogWarning("Password reset attempt for non-existent user: {UserId}", request.UserId);
+            _logger.LogWarning("Password reset attempt for non-existent user. UserId={UserId}", request.UserId);
+            IdentityTelemetry.RecordPasswordReset(false);
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.UserNotFound", "Invalid password reset request"));
         }
 
         if (!user.IsActive || user.IsDeleted)
         {
-            _logger.LogWarning("Password reset attempt for disabled user: {UserId}", user.Id);
+            _logger.LogWarning("Password reset attempt for disabled user. UserId={UserId}, IsActive={IsActive}, IsDeleted={IsDeleted}",
+                user.Id, user.IsActive, user.IsDeleted);
+            IdentityTelemetry.RecordPasswordReset(false);
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
         }
 
@@ -47,7 +51,8 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            _logger.LogWarning("Password reset failed for user {UserId}: {Errors}", user.Id, errors);
+            _logger.LogWarning("Password reset failed. UserId={UserId}, Errors={Errors}", user.Id, errors);
+            IdentityTelemetry.RecordPasswordReset(false);
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.ResetFailed", errors));
         }
 
@@ -58,7 +63,8 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             cancellationToken: cancellationToken);
         await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Password reset successfully for user: {UserId}", user.Id);
+        _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        IdentityTelemetry.RecordPasswordReset(true);
 
         return Result<ResetPasswordResponse>.Success(new ResetPasswordResponse
         {
