@@ -1,0 +1,14 @@
+# Grafana dashboards provisioning
+apiVersion: 1
+
+providers:
+  - name: 'EShop Dashboards'
+    orgId: 1
+    folder: 'EShop'
+    folderUid: 'eshop'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

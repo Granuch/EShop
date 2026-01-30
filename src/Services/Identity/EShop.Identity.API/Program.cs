@@ -3,6 +3,9 @@ using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Extensions;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Application.Extensions;
+using EShop.Identity.Application.Telemetry;
+using EShop.Identity.API.Infrastructure.HealthChecks;
+using EShop.Identity.API.Infrastructure.Metrics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -13,6 +16,8 @@ using System.Threading.RateLimiting;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
+using Prometheus;
+using HealthChecks.UI.Client;
 
 // Configure Serilog early to catch startup errors
 Log.Logger = new LoggerConfiguration()
@@ -44,6 +49,9 @@ try
 
     // Add Application services (MediatR, FluentValidation, etc.)
     builder.Services.AddIdentityApplication();
+
+    // Add Metrics
+    builder.Services.AddSingleton<IIdentityMetrics, IdentityMetrics>();
 
     // Configure JWT Authentication
     var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()!;
@@ -118,7 +126,16 @@ try
 
     // Add Health Checks
     builder.Services.AddHealthChecks()
-        .AddNpgSql(builder.Configuration.GetConnectionString("IdentityDb")!);
+        .AddNpgSql(
+            builder.Configuration.GetConnectionString("IdentityDb")!,
+            name: "postgresql",
+            tags: ["db", "ready"])
+        .AddCheck<IdentityReadinessHealthCheck>(
+            "identity-readiness",
+            tags: ["ready"])
+        .AddCheck<IdentityLivenessHealthCheck>(
+            "identity-liveness",
+            tags: ["live"]);
 
     // Add Controllers and OpenAPI
     builder.Services.AddControllers();
@@ -126,6 +143,10 @@ try
     builder.Services.AddOpenApi();
 
     var app = builder.Build();
+
+    // Initialize telemetry
+    var metrics = app.Services.GetRequiredService<IIdentityMetrics>();
+    IdentityTelemetry.Initialize(metrics);
 
     // Add Serilog request logging
     app.UseSerilogRequestLogging(options =>
@@ -155,7 +176,7 @@ try
     // Configure the HTTP request pipeline
     if (app.Environment.IsDevelopment())
     {
-        // OpenAPI JSON endpoint
+        // OpenAPI JSON endpoint - must be mapped first
         app.MapOpenApi();
 
         // Scalar UI for API documentation
@@ -164,8 +185,11 @@ try
             options
                 .WithTitle("EShop Identity API")
                 .WithTheme(ScalarTheme.Purple)
-                .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+                .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
+                .WithOpenApiRoutePattern("/openapi/{documentName}.json");
         });
+
+        Log.Information("Scalar API documentation available at /scalar/v1");
     }
 
     // Add Rate Limiting middleware
@@ -176,11 +200,37 @@ try
 
     app.UseHttpsRedirection();
 
+    // Add Prometheus HTTP metrics middleware
+    app.UseHttpMetrics(options =>
+    {
+        options.AddCustomLabel("service", context => "identity");
+    });
+
     app.UseAuthentication();
     app.UseAuthorization();
 
     app.MapControllers();
-    app.MapHealthChecks("/health");
+
+    // Map Prometheus metrics endpoint
+    app.MapMetrics();
+
+    // Health check endpoints with detailed response
+    app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    });
+
+    app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("ready"),
+        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    });
+
+    app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("live"),
+        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    });
 
     Log.Information("Identity Service started successfully");
     app.Run();
