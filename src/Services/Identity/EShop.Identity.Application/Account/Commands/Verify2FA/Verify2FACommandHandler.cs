@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +29,7 @@ public class Verify2FACommandHandler : IRequestHandler<Verify2FACommand, Result<
 
         if (user == null)
         {
+            IdentityTelemetry.Record2FAVerify(false);
             return Result<Verify2FAResponse>.Failure(new Error("Account.UserNotFound", "User not found"));
         }
 
@@ -39,7 +41,8 @@ public class Verify2FACommandHandler : IRequestHandler<Verify2FACommand, Result<
 
         if (!isCodeValid)
         {
-            _logger.LogWarning("Invalid 2FA verification code for user: {UserId}", user.Id);
+            _logger.LogWarning("Invalid 2FA verification code. UserId={UserId}", user.Id);
+            IdentityTelemetry.Record2FAVerify(false);
             return Result<Verify2FAResponse>.Failure(new Error("Account.InvalidCode", "Invalid verification code"));
         }
 
@@ -49,7 +52,9 @@ public class Verify2FACommandHandler : IRequestHandler<Verify2FACommand, Result<
         // Generate recovery codes
         var recoveryCodes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10);
 
-        _logger.LogInformation("2FA enabled for user: {UserId}", user.Id);
+        _logger.LogInformation("2FA enabled successfully. UserId={UserId}, Email={Email}, RecoveryCodesGenerated={Count}",
+            user.Id, user.Email, recoveryCodes?.Count() ?? 0);
+        IdentityTelemetry.Record2FAVerify(true);
 
         return Result<Verify2FAResponse>.Success(new Verify2FAResponse
         {
