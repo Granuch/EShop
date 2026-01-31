@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
+using EShop.Catalog.Application.Products.Queries.GetProductsById;
 
 namespace EShop.Catalog.API.Endpoints;
 
@@ -20,7 +21,17 @@ public static class ProductEndpoints
         //     IMediator mediator) => { ... });
 
         // TODO: Implement GET /api/v1/products/{id}
-        // group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) => { ... });
+        group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) =>
+        {
+            var query = new GetProductByIdQuery
+            {
+                ProductId = id
+            };
+
+            var result = await mediator.Send(query);
+
+            return result.IsSuccess ? Results.Ok(result.Value) : Results.NotFound(result.Error);
+        });
 
         // TODO: Implement POST /api/v1/products (admin only)
         // group.MapPost("/", async (CreateProductCommand command, IMediator mediator) => { ... })

@@ -17,18 +17,86 @@ public class CatalogDbContext : BaseDbContext
     {
     }
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+   protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // TODO: Configure Product entity (table name, indexes, relationships)
-        // modelBuilder.Entity<Product>(entity => { ... });
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.ToTable("Products");
 
-        // TODO: Configure Category entity with self-referencing relationship
-        // modelBuilder.Entity<Category>(entity => { ... });
+            entity.HasKey(p => p.Id);
 
-        // TODO: Add indexes for SKU, Name, CategoryId
-        // TODO: Add soft delete query filter
-        // TODO: Seed sample data
+            entity.Property(p => p.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(p => p.Sku)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(p => p.Price)
+                .HasColumnType("decimal(18,2)");
+
+            entity.Property(p => p.DiscountPrice)
+                .HasColumnType("decimal(18,2)");
+
+            entity.HasIndex(p => p.Sku).IsUnique();
+            entity.HasIndex(p => p.Name);
+            entity.HasIndex(p => p.CategoryId);
+
+            entity.HasMany(p => p.Images)
+                .WithOne()
+                .HasForeignKey(pi => pi.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(p => p.Attributes)
+                .WithOne()
+                .HasForeignKey(pa => pa.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasQueryFilter(p => !p.IsDeleted);
+        });
+
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.ToTable("Categories");
+
+            entity.HasKey(c => c.Id);
+
+            entity.Property(c => c.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(c => c.Slug)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.HasOne(c => c.ParentCategory)
+                .WithMany(c => c.ChildCategories)
+                .HasForeignKey(c => c.ParentCategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }).IsUnique();
+
+            entity.HasQueryFilter(c => !c.IsActive);
+        });
+
+        modelBuilder.Entity<ProductImage>(entity =>
+        {
+            entity.ToTable("ProductImages");
+
+            entity.HasKey(pi => pi.Id);
+
+            entity.Property(pi => pi.Url)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            entity.Property(pi => pi.AltText)
+                .HasMaxLength(200);
+
+            entity.HasIndex(pi => pi.ProductId);
+        });
 
         base.OnModelCreating(modelBuilder);
     }
+
 }
