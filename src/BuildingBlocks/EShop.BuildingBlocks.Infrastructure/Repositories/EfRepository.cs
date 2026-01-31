@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 
@@ -18,51 +19,46 @@ public class EfRepository<T, TId> : IRepository<T, TId> where T : AggregateRoot<
         _dbSet = context.Set<T>();
     }
 
-    public async Task<T?> GetByIdAsync(TId id, CancellationToken cancellationToken = default)
+    public IUnitOfWork UnitOfWork => _context as IUnitOfWork 
+        ?? throw new InvalidOperationException("DbContext does not implement IUnitOfWork");
+
+    public virtual async Task<T?> GetByIdAsync(TId id, CancellationToken cancellationToken = default)
     {
-        // TODO: Implement with tracking/no-tracking options
-        // TODO: Include related entities if needed
-        throw new NotImplementedException();
+        return await _dbSet.FindAsync([id], cancellationToken);
     }
 
-    public async Task<IEnumerable<T>> GetAllAsync(CancellationToken cancellationToken = default)
+    public virtual async Task<IEnumerable<T>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        // TODO: Implement with pagination support
-        // TODO: Consider adding filters for soft-deleted entities
-        throw new NotImplementedException();
+        return await _dbSet.ToListAsync(cancellationToken);
     }
 
-    public async Task<IEnumerable<T>> FindAsync(
+    public virtual async Task<IEnumerable<T>> FindAsync(
         Expression<Func<T, bool>> predicate, 
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement with predicate filtering
-        throw new NotImplementedException();
+        return await _dbSet.Where(predicate).ToListAsync(cancellationToken);
     }
 
-    public async Task<T> AddAsync(T entity, CancellationToken cancellationToken = default)
+    public virtual async Task<T> AddAsync(T entity, CancellationToken cancellationToken = default)
     {
-        // TODO: Add entity to DbSet
-        // TODO: Return added entity
-        throw new NotImplementedException();
+        var entry = await _dbSet.AddAsync(entity, cancellationToken);
+        return entry.Entity;
     }
 
-    public async Task UpdateAsync(T entity, CancellationToken cancellationToken = default)
+    public virtual Task UpdateAsync(T entity, CancellationToken cancellationToken = default)
     {
-        // TODO: Update entity
-        // TODO: Handle concurrency conflicts
-        throw new NotImplementedException();
+        _context.Entry(entity).State = EntityState.Modified;
+        return Task.CompletedTask;
     }
 
-    public async Task DeleteAsync(T entity, CancellationToken cancellationToken = default)
+    public virtual Task DeleteAsync(T entity, CancellationToken cancellationToken = default)
     {
-        // TODO: Implement soft delete vs hard delete
-        throw new NotImplementedException();
+        _dbSet.Remove(entity);
+        return Task.CompletedTask;
     }
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        // TODO: Delegate to DbContext.SaveChangesAsync
-        throw new NotImplementedException();
+        return await _context.SaveChangesAsync(cancellationToken);
     }
 }

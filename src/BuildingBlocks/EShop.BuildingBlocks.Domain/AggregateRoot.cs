@@ -1,9 +1,14 @@
 namespace EShop.BuildingBlocks.Domain;
 
 /// <summary>
+/// Marker interface for aggregate roots (used for domain event detection in DbContext)
+/// </summary>
+public interface IAggregateRootMarker { }
+
+/// <summary>
 /// Base class for aggregate roots in DDD
 /// </summary>
-public abstract class AggregateRoot<TId> : Entity<TId>
+public abstract class AggregateRoot<TId> : Entity<TId>, IAggregateRootMarker
 {
     private readonly List<IDomainEvent> _domainEvents = new();
 
@@ -19,6 +24,8 @@ public abstract class AggregateRoot<TId> : Entity<TId>
         _domainEvents.Clear();
     }
 
-    // TODO: Implement versioning for optimistic concurrency control
-    // public int Version { get; protected set; }
+    /// <summary>
+    /// Version for optimistic concurrency control
+    /// </summary>
+    public int Version { get; protected set; }
 }

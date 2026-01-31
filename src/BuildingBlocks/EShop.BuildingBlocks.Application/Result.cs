@@ -26,9 +26,34 @@ public class Result<T>
     public static Result<T> Success(T value) => new(true, value, null);
     public static Result<T> Failure(Error error) => new(false, default, error);
 
-    // TODO: Add implicit conversion operators for easier usage
-    // TODO: Add Match method for functional approach
-    // public TResult Match<TResult>(Func<T, TResult> onSuccess, Func<Error, TResult> onFailure)
+    /// <summary>
+    /// Pattern matching for Result - executes one of two functions based on success/failure
+    /// </summary>
+    public TResult Match<TResult>(Func<T, TResult> onSuccess, Func<Error, TResult> onFailure)
+    {
+        return IsSuccess ? onSuccess(Value!) : onFailure(Error!);
+    }
+
+    /// <summary>
+    /// Executes an action based on success/failure
+    /// </summary>
+    public void Switch(Action<T> onSuccess, Action<Error> onFailure)
+    {
+        if (IsSuccess)
+            onSuccess(Value!);
+        else
+            onFailure(Error!);
+    }
+
+    /// <summary>
+    /// Implicit conversion from value to successful Result
+    /// </summary>
+    public static implicit operator Result<T>(T value) => Success(value);
+
+    /// <summary>
+    /// Implicit conversion from Error to failed Result
+    /// </summary>
+    public static implicit operator Result<T>(Error error) => Failure(error);
 }
 
 /// <summary>
@@ -48,4 +73,28 @@ public class Result
 
     public static Result Success() => new(true, null);
     public static Result Failure(Error error) => new(false, error);
+
+    /// <summary>
+    /// Pattern matching for Result - executes one of two functions based on success/failure
+    /// </summary>
+    public TResult Match<TResult>(Func<TResult> onSuccess, Func<Error, TResult> onFailure)
+    {
+        return IsSuccess ? onSuccess() : onFailure(Error!);
+    }
+
+    /// <summary>
+    /// Executes an action based on success/failure
+    /// </summary>
+    public void Switch(Action onSuccess, Action<Error> onFailure)
+    {
+        if (IsSuccess)
+            onSuccess();
+        else
+            onFailure(Error!);
+    }
+
+    /// <summary>
+    /// Implicit conversion from Error to failed Result
+    /// </summary>
+    public static implicit operator Result(Error error) => Failure(error);
 }

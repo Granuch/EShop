@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Events;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
@@ -15,15 +16,18 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserRepository _userRepository;
+    private readonly IMediator _mediator;
     private readonly ILogger<RegisterCommandHandler> _logger;
 
     public RegisterCommandHandler(
         UserManager<ApplicationUser> userManager,
         IUserRepository userRepository,
+        IMediator mediator,
         ILogger<RegisterCommandHandler> logger)
     {
         _userManager = userManager;
         _userRepository = userRepository;
+        _mediator = mediator;
         _logger = logger;
     }
 
@@ -69,6 +73,14 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
 
         // Generate email confirmation token (for future email confirmation feature)
         var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+
+        // Publish domain event
+        await _mediator.Publish(new UserRegisteredEvent
+        {
+            UserId = user.Id,
+            Email = user.Email!,
+            FullName = user.FullName
+        }, cancellationToken);
 
         _logger.LogInformation("User registered successfully. UserId={UserId}, Email={Email}, FirstName={FirstName}, LastName={LastName}",
             user.Id, user.Email, user.FirstName, user.LastName);

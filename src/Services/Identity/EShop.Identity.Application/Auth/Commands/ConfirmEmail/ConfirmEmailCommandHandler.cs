@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Events;
 using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,16 @@ namespace EShop.Identity.Application.Auth.Commands.ConfirmEmail;
 public class ConfirmEmailCommandHandler : IRequestHandler<ConfirmEmailCommand, Result<ConfirmEmailResponse>>
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IMediator _mediator;
     private readonly ILogger<ConfirmEmailCommandHandler> _logger;
 
     public ConfirmEmailCommandHandler(
         UserManager<ApplicationUser> userManager,
+        IMediator mediator,
         ILogger<ConfirmEmailCommandHandler> logger)
     {
         _userManager = userManager;
+        _mediator = mediator;
         _logger = logger;
     }
 
@@ -53,6 +57,13 @@ public class ConfirmEmailCommandHandler : IRequestHandler<ConfirmEmailCommand, R
             IdentityTelemetry.RecordEmailConfirmation(false);
             return Result<ConfirmEmailResponse>.Failure(new Error("Auth.InvalidToken", "Invalid or expired confirmation token"));
         }
+
+        // Publish domain event
+        await _mediator.Publish(new UserEmailConfirmedEvent
+        {
+            UserId = user.Id,
+            Email = user.Email!
+        }, cancellationToken);
 
         _logger.LogInformation("Email confirmed successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
         IdentityTelemetry.RecordEmailConfirmation(true);

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="NUnit" Version="4.3.2" />
@@ -24,6 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\BuildingBlocks\EShop.BuildingBlocks.Application\EShop.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\..\..\src\BuildingBlocks\EShop.BuildingBlocks.Domain\EShop.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="..\..\..\..\src\BuildingBlocks\EShop.BuildingBlocks.Infrastructure\EShop.BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Domain\EShop.Identity.Domain.csproj" />
     <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Application\EShop.Identity.Application.csproj" />
     <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Infrastructure\EShop.Identity.Infrastructure.csproj" />

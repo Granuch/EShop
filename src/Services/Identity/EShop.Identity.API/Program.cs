@@ -6,6 +6,7 @@ using EShop.Identity.Application.Extensions;
 using EShop.Identity.Application.Telemetry;
 using EShop.Identity.API.Infrastructure.HealthChecks;
 using EShop.Identity.API.Infrastructure.Metrics;
+using EShop.Identity.API.Infrastructure.Middleware;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -148,6 +149,9 @@ try
     var metrics = app.Services.GetRequiredService<IIdentityMetrics>();
     IdentityTelemetry.Initialize(metrics);
 
+    // Global Exception Handler - must be first middleware
+    app.UseGlobalExceptionHandler();
+
     // Add Serilog request logging
     app.UseSerilogRequestLogging(options =>
     {
@@ -172,6 +176,7 @@ try
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, Log.Logger);
     }
+
 
     // Configure the HTTP request pipeline
     if (app.Environment.IsDevelopment())
