@@ -30,6 +30,9 @@ public class TokenService : ITokenService
         _refreshTokenRepository = refreshTokenRepository;
     }
 
+    /// <inheritdoc />
+    public int AccessTokenExpirationSeconds => _jwtSettings.AccessTokenExpirationMinutes * 60;
+
     public async Task<string> GenerateAccessTokenAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
         var roles = await _userManager.GetRolesAsync(user);
@@ -60,10 +63,15 @@ public class TokenService : ITokenService
 
     public async Task<string> GenerateRefreshTokenAsync(string userId, string ipAddress, CancellationToken cancellationToken = default)
     {
+        return await GenerateRefreshTokenInternalAsync(userId, ipAddress, saveChanges: true, cancellationToken);
+    }
+
+    private async Task<string> GenerateRefreshTokenInternalAsync(string userId, string ipAddress, bool saveChanges, CancellationToken cancellationToken = default)
+    {
         var randomBytes = new byte[64];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
-        
+
         var tokenString = Convert.ToBase64String(randomBytes);
 
         var refreshToken = new RefreshTokenEntity
@@ -77,7 +85,11 @@ public class TokenService : ITokenService
         };
 
         await _refreshTokenRepository.AddAsync(refreshToken, cancellationToken);
-        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
+
+        if (saveChanges)
+        {
+            await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
+        }
 
         return tokenString;
     }
@@ -149,16 +161,19 @@ public class TokenService : ITokenService
         string ipAddress, 
         CancellationToken cancellationToken = default)
     {
-        var newTokenString = await GenerateRefreshTokenAsync(oldToken.UserId, ipAddress, cancellationToken);
-        
+        // Generate new token without saving yet
+        var newTokenString = await GenerateRefreshTokenInternalAsync(oldToken.UserId, ipAddress, saveChanges: false, cancellationToken);
+
         oldToken.RevokedAt = DateTime.UtcNow;
         oldToken.RevokedByIp = ipAddress;
         oldToken.ReplacedByToken = newTokenString;
         oldToken.RevokeReason = "Rotated";
-        
+
         await _refreshTokenRepository.UpdateAsync(oldToken, cancellationToken);
+
+        // Single save for both operations
         await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
-        
+
         return newTokenString;
     }
 }

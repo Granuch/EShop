@@ -8,7 +8,7 @@ public interface IDomainEventDispatcher
     /// <summary>
     /// Dispatches all domain events from the given aggregate roots
     /// </summary>
-    Task DispatchEventsAsync(IEnumerable<AggregateRoot<object>> aggregateRoots, CancellationToken cancellationToken = default);
+    Task DispatchEventsAsync(IEnumerable<IAggregateRootMarker> aggregateRoots, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Dispatches a single domain event

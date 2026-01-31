@@ -127,7 +127,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         {
             AccessToken = accessToken,
             RefreshToken = refreshToken,
-            ExpiresIn = 3600, // 1 hour
+            ExpiresIn = _tokenService.AccessTokenExpirationSeconds,
             TokenType = "Bearer",
             Requires2FA = false,
             User = new UserDto

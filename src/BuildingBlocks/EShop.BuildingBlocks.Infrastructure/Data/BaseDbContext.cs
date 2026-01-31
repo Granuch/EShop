@@ -146,9 +146,18 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
         base.OnModelCreating(modelBuilder);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _currentTransaction?.Dispose();
         base.Dispose();
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (_currentTransaction != null)
+        {
+            await _currentTransaction.DisposeAsync();
+        }
+        await base.DisposeAsync();
     }
 }

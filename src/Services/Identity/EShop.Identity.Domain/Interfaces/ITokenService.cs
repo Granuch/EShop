@@ -8,6 +8,11 @@ namespace EShop.Identity.Domain.Interfaces;
 public interface ITokenService
 {
     /// <summary>
+    /// Gets the access token expiration time in seconds
+    /// </summary>
+    int AccessTokenExpirationSeconds { get; }
+
+    /// <summary>
     /// Generates an access token with user claims
     /// </summary>
     Task<string> GenerateAccessTokenAsync(ApplicationUser user, CancellationToken cancellationToken = default);
