@@ -20,7 +20,8 @@ public record UserProfileResponse
     public string? ProfilePictureUrl { get; init; }
     public bool EmailConfirmed { get; init; }
     public bool TwoFactorEnabled { get; init; }
+    public bool IsActive { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime? LastLoginAt { get; init; }
-    public List<string> Roles { get; init; } = new();
+    public List<string> Roles { get; init; } = [];
 }

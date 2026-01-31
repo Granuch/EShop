@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,16 @@ namespace EShop.Identity.Application.Account.Commands.ChangePassword;
 public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordCommand, Result<ChangePasswordResponse>>
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IRefreshTokenRepository _refreshTokenRepository;
     private readonly ILogger<ChangePasswordCommandHandler> _logger;
 
     public ChangePasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
+        IRefreshTokenRepository refreshTokenRepository,
         ILogger<ChangePasswordCommandHandler> logger)
     {
         _userManager = userManager;
+        _refreshTokenRepository = refreshTokenRepository;
         _logger = logger;
     }
 
@@ -40,6 +44,13 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             IdentityTelemetry.RecordPasswordChange(false);
             return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
         }
+
+        // Revoke all refresh tokens after password change (security measure)
+        await _refreshTokenRepository.RevokeAllUserTokensAsync(
+            user.Id,
+            "Password changed",
+            cancellationToken: cancellationToken);
+        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
         IdentityTelemetry.RecordPasswordChange(true);

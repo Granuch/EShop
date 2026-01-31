@@ -1,4 +1,4 @@
-﻿namespace EShop.Identity.IntegrationTests;
+namespace EShop.Identity.IntegrationTests;
 
 [TestFixture]
 public class UnitTest1
