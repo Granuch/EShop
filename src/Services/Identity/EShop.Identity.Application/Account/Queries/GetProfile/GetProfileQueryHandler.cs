@@ -20,9 +20,15 @@ public class GetProfileQueryHandler : IRequestHandler<GetProfileQuery, Result<Us
     public async Task<Result<UserProfileResponse>> Handle(GetProfileQuery request, CancellationToken cancellationToken)
     {
         var user = await _userManager.FindByIdAsync(request.UserId);
-        if (user == null)
+
+        if (user == null || user.IsDeleted)
         {
             return Result<UserProfileResponse>.Failure(new Error("Account.NotFound", "User not found"));
+        }
+
+        if (!user.IsActive)
+        {
+            return Result<UserProfileResponse>.Failure(new Error("Account.Disabled", "Account is disabled"));
         }
 
         var roles = await _userManager.GetRolesAsync(user);
@@ -36,6 +42,7 @@ public class GetProfileQueryHandler : IRequestHandler<GetProfileQuery, Result<Us
             ProfilePictureUrl = user.ProfilePictureUrl,
             EmailConfirmed = user.EmailConfirmed,
             TwoFactorEnabled = user.TwoFactorEnabled,
+            IsActive = user.IsActive,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
             Roles = roles.ToList()

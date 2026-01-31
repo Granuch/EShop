@@ -48,10 +48,7 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         // Example:
         // await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id, token);
 
-        // For now, log the token (remove in production!)
-        _logger.LogWarning("PASSWORD RESET TOKEN (remove in production): UserId={UserId}, Token={Token}", user.Id, token);
-
-        _logger.LogInformation("Password reset requested. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        _logger.LogInformation("Password reset token generated. UserId={UserId}, Email={Email}", user.Id, user.Email);
         IdentityTelemetry.RecordForgotPassword();
 
         return Result<ForgotPasswordResponse>.Success(new ForgotPasswordResponse

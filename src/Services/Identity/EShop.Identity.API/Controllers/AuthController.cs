@@ -86,6 +86,12 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
+            // Validation errors return BadRequest
+            if (result.Error!.Code == "Validation.Failed")
+            {
+                return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            }
+
             return Unauthorized(new { error = result.Error!.Code, message = result.Error.Message });
         }
 
@@ -145,12 +151,19 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("forgot-password")]
     [ProducesResponseType(typeof(ForgotPasswordResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         var command = new ForgotPasswordCommand { Email = request.Email };
         var result = await _mediator.Send(command);
 
-        // Always return success to prevent email enumeration
+        // For validation errors, return BadRequest
+        if (result.IsFailure && result.Error!.Code == "Validation.Failed")
+        {
+            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+        }
+
+        // For all other cases (including user not found), return success to prevent email enumeration
         return Ok(result.Value);
     }
 

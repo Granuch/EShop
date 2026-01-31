@@ -15,20 +15,28 @@ public class MediatRDomainEventDispatcher : IDomainEventDispatcher
         _mediator = mediator;
     }
 
-    public async Task DispatchEventsAsync(IEnumerable<AggregateRoot<object>> aggregateRoots, CancellationToken cancellationToken = default)
+    public async Task DispatchEventsAsync(IEnumerable<IAggregateRootMarker> aggregateRoots, CancellationToken cancellationToken = default)
     {
-        var domainEvents = aggregateRoots
-            .SelectMany(ar => ar.DomainEvents)
-            .ToList();
+        var domainEvents = new List<IDomainEvent>();
+
+        foreach (var entity in aggregateRoots)
+        {
+            var eventsProperty = entity.GetType().GetProperty("DomainEvents");
+            if (eventsProperty?.GetValue(entity) is IReadOnlyList<IDomainEvent> events)
+            {
+                domainEvents.AddRange(events);
+            }
+        }
+
+        foreach (var entity in aggregateRoots)
+        {
+            var clearMethod = entity.GetType().GetMethod("ClearDomainEvents");
+            clearMethod?.Invoke(entity, null);
+        }
 
         foreach (var domainEvent in domainEvents)
         {
             await DispatchEventAsync(domainEvent, cancellationToken);
-        }
-
-        foreach (var aggregateRoot in aggregateRoots)
-        {
-            aggregateRoot.ClearDomainEvents();
         }
     }
 

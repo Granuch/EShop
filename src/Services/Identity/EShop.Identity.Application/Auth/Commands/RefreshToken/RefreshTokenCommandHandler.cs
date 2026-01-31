@@ -73,7 +73,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         {
             AccessToken = accessToken,
             RefreshToken = newRefreshToken,
-            ExpiresIn = 3600 // 1 hour in seconds
+            ExpiresIn = _tokenService.AccessTokenExpirationSeconds
         });
     }
 }

@@ -46,7 +46,8 @@ try
         .Enrich.WithProperty("Application", "EShop.Identity.API"));
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
-    builder.Services.AddIdentityInfrastructure(builder.Configuration);
+    var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+    builder.Services.AddIdentityInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 
     // Add Application services (MediatR, FluentValidation, etc.)
     builder.Services.AddIdentityApplication();
@@ -126,11 +127,18 @@ try
     });
 
     // Add Health Checks
-    builder.Services.AddHealthChecks()
-        .AddNpgSql(
+    var healthChecksBuilder = builder.Services.AddHealthChecks();
+
+    // Only add PostgreSQL health check if not in Testing environment
+    if (!useInMemoryDb)
+    {
+        healthChecksBuilder.AddNpgSql(
             builder.Configuration.GetConnectionString("IdentityDb")!,
             name: "postgresql",
-            tags: ["db", "ready"])
+            tags: ["db", "ready"]);
+    }
+
+    healthChecksBuilder
         .AddCheck<IdentityReadinessHealthCheck>(
             "identity-readiness",
             tags: ["ready"])

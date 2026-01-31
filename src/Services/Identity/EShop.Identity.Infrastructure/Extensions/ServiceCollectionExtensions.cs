@@ -18,11 +18,22 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddIdentityInfrastructure(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        bool useInMemoryDatabase = false,
+        string? inMemoryDatabaseName = null)
     {
         // Add DbContext
-        services.AddDbContext<IdentityDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("IdentityDb")));
+        if (useInMemoryDatabase)
+        {
+            var dbName = inMemoryDatabaseName ?? $"IdentityTestDb_{Guid.NewGuid()}";
+            services.AddDbContext<IdentityDbContext>(options =>
+                options.UseInMemoryDatabase(dbName));
+        }
+        else
+        {
+            services.AddDbContext<IdentityDbContext>(options =>
+                options.UseNpgsql(configuration.GetConnectionString("IdentityDb")));
+        }
 
         // Add ASP.NET Core Identity
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>

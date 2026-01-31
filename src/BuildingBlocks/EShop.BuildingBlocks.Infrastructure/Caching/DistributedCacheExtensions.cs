@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Caching.Distributed;
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace EShop.BuildingBlocks.Infrastructure.Caching;
@@ -13,6 +14,9 @@ public static class DistributedCacheExtensions
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
     };
+
+    // Lock dictionary to prevent cache stampede
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
 
     /// <summary>
     /// Gets a value from cache and deserializes it to the specified type
@@ -60,7 +64,8 @@ public static class DistributedCacheExtensions
     }
 
     /// <summary>
-    /// Gets a value from cache or creates it using the factory if not found
+    /// Gets a value from cache or creates it using the factory if not found.
+    /// Uses locking to prevent cache stampede (multiple concurrent calls to factory).
     /// </summary>
     public static async Task<T?> GetOrSetAsync<T>(
         this IDistributedCache cache,
@@ -69,21 +74,46 @@ public static class DistributedCacheExtensions
         TimeSpan? absoluteExpiration = null,
         CancellationToken cancellationToken = default)
     {
+        // First check - without lock
         var cached = await cache.GetAsync<T>(key, cancellationToken);
-
         if (cached != null)
         {
             return cached;
         }
 
-        var value = await factory();
+        // Get or create a lock for this specific key
+        var keyLock = Locks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
 
-        if (value != null)
+        await keyLock.WaitAsync(cancellationToken);
+        try
         {
-            await cache.SetAsync(key, value, absoluteExpiration, cancellationToken: cancellationToken);
-        }
+            // Double-check after acquiring lock
+            cached = await cache.GetAsync<T>(key, cancellationToken);
+            if (cached != null)
+            {
+                return cached;
+            }
 
-        return value;
+            // Call factory and cache the result
+            var value = await factory();
+
+            if (value != null)
+            {
+                await cache.SetAsync(key, value, absoluteExpiration, cancellationToken: cancellationToken);
+            }
+
+            return value;
+        }
+        finally
+        {
+            keyLock.Release();
+
+            // Clean up the lock if no one is waiting
+            if (keyLock.CurrentCount == 1)
+            {
+                Locks.TryRemove(key, out _);
+            }
+        }
     }
 
     /// <summary>
