@@ -1,34 +1,66 @@
+using System.Diagnostics;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace EShop.BuildingBlocks.Application.Behaviors;
 
 /// <summary>
-/// Pipeline behavior for logging all requests
+/// Pipeline behavior for logging all requests with performance monitoring
 /// </summary>
 public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
-    // TODO: Inject ILogger
-    // private readonly ILogger<LoggingBehavior<TRequest, TResponse>> _logger;
+    private readonly ILogger<LoggingBehavior<TRequest, TResponse>> _logger;
+
+    public LoggingBehavior(ILogger<LoggingBehavior<TRequest, TResponse>> logger)
+    {
+        _logger = logger;
+    }
 
     public async Task<TResponse> Handle(
         TRequest request, 
         RequestHandlerDelegate<TResponse> next, 
         CancellationToken cancellationToken)
     {
-        // TODO: Log request start with correlation ID
-        // _logger.LogInformation("Handling {RequestName}", typeof(TRequest).Name);
+        var requestName = typeof(TRequest).Name;
+        var requestId = Guid.NewGuid().ToString()[..8];
 
-        // TODO: Start timer for performance monitoring
-        // var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "[{RequestId}] Handling {RequestName} {@Request}",
+            requestId, requestName, request);
 
-        var response = await next();
+        var stopwatch = Stopwatch.StartNew();
 
-        // TODO: Log request completion with duration
-        // stopwatch.Stop();
-        // _logger.LogInformation("Handled {RequestName} in {ElapsedMilliseconds}ms", 
-        //     typeof(TRequest).Name, stopwatch.ElapsedMilliseconds);
+        try
+        {
+            var response = await next();
 
-        return response;
+            stopwatch.Stop();
+
+            if (stopwatch.ElapsedMilliseconds > 500)
+            {
+                _logger.LogWarning(
+                    "[{RequestId}] Long running request: {RequestName} completed in {ElapsedMilliseconds}ms",
+                    requestId, requestName, stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[{RequestId}] Handled {RequestName} in {ElapsedMilliseconds}ms",
+                    requestId, requestName, stopwatch.ElapsedMilliseconds);
+            }
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+
+            _logger.LogError(ex,
+                "[{RequestId}] Request {RequestName} failed after {ElapsedMilliseconds}ms with error: {ErrorMessage}",
+                requestId, requestName, stopwatch.ElapsedMilliseconds, ex.Message);
+
+            throw;
+        }
     }
 }

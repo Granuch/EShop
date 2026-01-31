@@ -1,3 +1,5 @@
+using FluentValidation.Results;
+
 namespace EShop.BuildingBlocks.Application.Exceptions;
 
 /// <summary>
@@ -19,5 +21,11 @@ public class ValidationException : Exception
         Errors = failures.ToDictionary(k => k.Key, v => v.Value);
     }
 
-    // TODO: Add integration with FluentValidation.Results.ValidationResult
+    public ValidationException(IEnumerable<ValidationFailure> failures)
+        : this()
+    {
+        Errors = failures
+            .GroupBy(e => e.PropertyName, e => e.ErrorMessage)
+            .ToDictionary(g => g.Key, g => g.ToArray());
+    }
 }
