@@ -34,18 +34,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     {
         using var timer = IdentityTelemetry.MeasureLoginDuration();
 
-        // Step 1: Fetch user (timing is consistent regardless of result)
         var user = await _userManager.FindByEmailAsync(request.Email);
 
-        // Step 2: ALWAYS perform password verification to prevent timing attacks
-        // This is critical - we must hash the password even if user doesn't exist
         bool isPasswordValid = false;
         bool isLockedOut = false;
         string? failureReason = null;
 
         if (user != null)
         {
-            // Real password verification with lockout protection
             var signInResult = await _signInManager.CheckPasswordSignInAsync(
                 user, 
                 request.Password, 
@@ -56,22 +52,16 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         }
         else
         {
-            // CRITICAL: Perform dummy password hash to prevent timing side-channel
-            // This ensures similar execution time whether user exists or not
             var passwordHasher = new PasswordHasher<ApplicationUser>();
             var dummyUser = new ApplicationUser { Email = request.Email };
 
-            // Use a realistic dummy hash (PBKDF2 format from Identity)
             const string dummyHash = "AQAAAAIAAYagAAAAEJKt5pCLQs+Y8VK0GBH5RLhHMDWNz0W9EJkWJu7gf9LVvHdFYjQYGKLVQFQVnRPW3Q==";
             passwordHasher.VerifyHashedPassword(dummyUser, dummyHash, request.Password);
 
-            // Password is always invalid for non-existent users
             isPasswordValid = false;
             failureReason = "user_not_found";
         }
 
-        // Step 3: Validate all conditions WITHOUT early returns
-        // This maintains consistent code path length
         bool canProceed = true;
 
         if (user == null)
@@ -101,13 +91,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 user.Id, request.Email, request.IpAddress);
         }
 
-        // Step 4: Handle failures with generic error message (prevents user enumeration)
         if (!canProceed)
         {
             IdentityTelemetry.RecordLoginFailure(failureReason ?? "unknown");
 
-            // SECURITY: Return generic error regardless of specific failure reason
-            // This prevents attackers from determining if a user exists
             var errorMessage = failureReason == "account_locked"
                 ? "Your account is locked. Please try again later"
                 : "Invalid email or password";
@@ -119,7 +106,6 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             return Result<LoginResponse>.Failure(new Error(errorCode, errorMessage));
         }
 
-        // Step 5: Handle 2FA (only reached if credentials are valid)
         if (user!.TwoFactorEnabled && string.IsNullOrEmpty(request.TwoFactorCode))
         {
             _logger.LogInformation("2FA required for login. UserId={UserId}", user.Id);
@@ -145,7 +131,6 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             }
         }
 
-        // Step 6: Generate tokens and complete successful login
         var accessToken = await _tokenService.GenerateAccessTokenAsync(user, cancellationToken);
         var refreshToken = await _tokenService.GenerateRefreshTokenAsync(user.Id, request.IpAddress ?? "unknown", cancellationToken);
 
