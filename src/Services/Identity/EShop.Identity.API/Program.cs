@@ -49,6 +49,28 @@ try
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
     builder.Services.AddIdentityInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 
+    // Add Distributed Cache for brute-force protection
+    // In production, replace with Redis for multi-instance deployments
+    // For development/testing, use in-memory cache
+    // TODO: Uncomment and add Microsoft.Extensions.Caching.StackExchangeRedis package for production
+    /*
+    if (builder.Configuration.GetConnectionString("Redis") != null && !builder.Environment.IsDevelopment())
+    {
+        // Production: Use Redis for distributed caching (horizontal scaling support)
+        builder.Services.AddStackExchangeRedisCache(options =>
+        {
+            options.Configuration = builder.Configuration.GetConnectionString("Redis");
+            options.InstanceName = "EShop_Identity_";
+        });
+    }
+    else
+    */
+    {
+        // Development/Testing: Use in-memory distributed cache
+        // Note: Not suitable for production multi-instance deployments
+        builder.Services.AddDistributedMemoryCache();
+    }
+
     // Add Application services (MediatR, FluentValidation, etc.)
     builder.Services.AddIdentityApplication();
 
@@ -159,6 +181,10 @@ try
 
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
+
+    // Uniform Response Timing - prevents account enumeration through timing attacks
+    // Must come early in pipeline to measure total response time
+    app.UseMiddleware<UniformResponseTimingMiddleware>();
 
     // Add Serilog request logging
     app.UseSerilogRequestLogging(options =>

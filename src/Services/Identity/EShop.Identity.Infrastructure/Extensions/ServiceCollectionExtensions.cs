@@ -1,9 +1,11 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
+using EShop.Identity.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -62,12 +64,19 @@ public static class ServiceCollectionExtensions
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
 
+        // Configure brute-force protection settings
+        services.Configure<BruteForceProtectionSettings>(
+            configuration.GetSection(BruteForceProtectionSettings.SectionName));
+
         // Add repositories
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
 
         // Add services
         services.AddScoped<ITokenService, TokenService>();
+
+        // Add security services
+        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
         return services;
     }

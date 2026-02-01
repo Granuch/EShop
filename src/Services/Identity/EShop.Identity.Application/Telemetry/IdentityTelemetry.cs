@@ -43,6 +43,14 @@ public static class IdentityTelemetry
 
     // Email metrics
     public static void RecordEmailConfirmation(bool success) => _metrics?.RecordEmailConfirmation(success);
+
+    // Security metrics - Brute force protection
+    public static void RecordThrottledAttempt(int delaySeconds) => _metrics?.RecordThrottledAttempt(delaySeconds);
+    public static void RecordAccountLocked(string reason) => _metrics?.RecordAccountLocked(reason);
+    public static void RecordIpBlocked(string reason) => _metrics?.RecordIpBlocked(reason);
+    public static void RecordDistributedAttackDetected() => _metrics?.RecordDistributedAttackDetected();
+    public static void UpdateActiveAccountLocks(int count) => _metrics?.UpdateActiveAccountLocks(count);
+    public static void UpdateActiveIpBlocks(int count) => _metrics?.UpdateActiveIpBlocks(count);
 }
 
 /// <summary>
@@ -54,22 +62,30 @@ public interface IIdentityMetrics
     void RecordLoginFailure(string reason);
     void RecordLogin2FARequired();
     IDisposable MeasureLoginDuration();
-    
+
     void RecordRegistrationSuccess();
     void RecordRegistrationFailure(string reason);
-    
+
     void RecordTokenRefreshSuccess();
     void RecordTokenRefreshFailure(string reason);
     void RecordTokenRevocation();
     IDisposable MeasureTokenGeneration();
-    
+
     void RecordPasswordChange(bool success);
     void RecordPasswordReset(bool success);
     void RecordForgotPassword();
-    
+
     void Record2FAEnable(bool success);
     void Record2FAVerify(bool success);
     void Record2FADisable(bool success);
-    
+
     void RecordEmailConfirmation(bool success);
+
+    // Security metrics - Brute force protection
+    void RecordThrottledAttempt(int delaySeconds);
+    void RecordAccountLocked(string reason);
+    void RecordIpBlocked(string reason);
+    void RecordDistributedAttackDetected();
+    void UpdateActiveAccountLocks(int count);
+    void UpdateActiveIpBlocks(int count);
 }
