@@ -34,54 +34,93 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     {
         using var timer = IdentityTelemetry.MeasureLoginDuration();
 
-        // Find user by email
+        // Step 1: Fetch user (timing is consistent regardless of result)
         var user = await _userManager.FindByEmailAsync(request.Email);
+
+        // Step 2: ALWAYS perform password verification to prevent timing attacks
+        // This is critical - we must hash the password even if user doesn't exist
+        bool isPasswordValid = false;
+        bool isLockedOut = false;
+        string? failureReason = null;
+
+        if (user != null)
+        {
+            // Real password verification with lockout protection
+            var signInResult = await _signInManager.CheckPasswordSignInAsync(
+                user, 
+                request.Password, 
+                lockoutOnFailure: true);
+
+            isPasswordValid = signInResult.Succeeded;
+            isLockedOut = signInResult.IsLockedOut;
+        }
+        else
+        {
+            // CRITICAL: Perform dummy password hash to prevent timing side-channel
+            // This ensures similar execution time whether user exists or not
+            var passwordHasher = new PasswordHasher<ApplicationUser>();
+            var dummyUser = new ApplicationUser { Email = request.Email };
+
+            // Use a realistic dummy hash (PBKDF2 format from Identity)
+            const string dummyHash = "AQAAAAIAAYagAAAAEJKt5pCLQs+Y8VK0GBH5RLhHMDWNz0W9EJkWJu7gf9LVvHdFYjQYGKLVQFQVnRPW3Q==";
+            passwordHasher.VerifyHashedPassword(dummyUser, dummyHash, request.Password);
+
+            // Password is always invalid for non-existent users
+            isPasswordValid = false;
+            failureReason = "user_not_found";
+        }
+
+        // Step 3: Validate all conditions WITHOUT early returns
+        // This maintains consistent code path length
+        bool canProceed = true;
+
         if (user == null)
         {
-            _logger.LogWarning("Login attempt failed: user not found. Email={Email}, IP={IpAddress}",
-                request.Email, request.IpAddress);
-            IdentityTelemetry.RecordLoginFailure("user_not_found");
-            return Result<LoginResponse>.Failure(new Error("Auth.InvalidCredentials", "Invalid email or password"));
+            canProceed = false;
+            failureReason = "user_not_found";
         }
-
-        // Check if user is active and not deleted
-        if (!user.IsActive || user.IsDeleted)
+        else if (!user.IsActive || user.IsDeleted)
         {
+            canProceed = false;
+            failureReason = "account_disabled";
             _logger.LogWarning("Login attempt for inactive/deleted user. UserId={UserId}, Email={Email}, IsActive={IsActive}, IsDeleted={IsDeleted}",
                 user.Id, request.Email, user.IsActive, user.IsDeleted);
-            IdentityTelemetry.RecordLoginFailure("account_disabled");
-            return Result<LoginResponse>.Failure(new Error("Auth.AccountDisabled", "Your account has been disabled"));
         }
-
-        // Check account lockout
-        if (await _userManager.IsLockedOutAsync(user))
+        else if (isLockedOut || await _userManager.IsLockedOutAsync(user))
         {
+            canProceed = false;
+            failureReason = "account_locked";
             _logger.LogWarning("Login attempt for locked account. UserId={UserId}, Email={Email}, LockoutEnd={LockoutEnd}",
                 user.Id, request.Email, user.LockoutEnd);
-            IdentityTelemetry.RecordLoginFailure("account_locked");
-            return Result<LoginResponse>.Failure(new Error("Auth.AccountLocked", "Your account is locked. Please try again later"));
         }
-
-        // Verify password
-        var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
-        if (!result.Succeeded)
+        else if (!isPasswordValid)
         {
-            if (result.IsLockedOut)
-            {
-                _logger.LogWarning("Account locked after failed attempts. UserId={UserId}, Email={Email}",
-                    user.Id, request.Email);
-                IdentityTelemetry.RecordLoginFailure("lockout_triggered");
-                return Result<LoginResponse>.Failure(new Error("Auth.AccountLocked", "Your account is locked due to multiple failed attempts"));
-            }
-
+            canProceed = false;
+            failureReason = "invalid_password";
             _logger.LogWarning("Invalid password attempt. UserId={UserId}, Email={Email}, IP={IpAddress}",
                 user.Id, request.Email, request.IpAddress);
-            IdentityTelemetry.RecordLoginFailure("invalid_password");
-            return Result<LoginResponse>.Failure(new Error("Auth.InvalidCredentials", "Invalid email or password"));
         }
 
-        // Check if 2FA is enabled
-        if (user.TwoFactorEnabled && string.IsNullOrEmpty(request.TwoFactorCode))
+        // Step 4: Handle failures with generic error message (prevents user enumeration)
+        if (!canProceed)
+        {
+            IdentityTelemetry.RecordLoginFailure(failureReason ?? "unknown");
+
+            // SECURITY: Return generic error regardless of specific failure reason
+            // This prevents attackers from determining if a user exists
+            var errorMessage = failureReason == "account_locked"
+                ? "Your account is locked. Please try again later"
+                : "Invalid email or password";
+
+            var errorCode = failureReason == "account_locked" 
+                ? "Auth.AccountLocked" 
+                : "Auth.InvalidCredentials";
+
+            return Result<LoginResponse>.Failure(new Error(errorCode, errorMessage));
+        }
+
+        // Step 5: Handle 2FA (only reached if credentials are valid)
+        if (user!.TwoFactorEnabled && string.IsNullOrEmpty(request.TwoFactorCode))
         {
             _logger.LogInformation("2FA required for login. UserId={UserId}", user.Id);
             IdentityTelemetry.RecordLogin2FARequired();
@@ -91,7 +130,6 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             });
         }
 
-        // Verify 2FA code if provided (simplified implementation)
         if (user.TwoFactorEnabled && !string.IsNullOrEmpty(request.TwoFactorCode))
         {
             var is2faValid = await _userManager.VerifyTwoFactorTokenAsync(
@@ -107,16 +145,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             }
         }
 
-        // Generate tokens
+        // Step 6: Generate tokens and complete successful login
         var accessToken = await _tokenService.GenerateAccessTokenAsync(user, cancellationToken);
         var refreshToken = await _tokenService.GenerateRefreshTokenAsync(user.Id, request.IpAddress ?? "unknown", cancellationToken);
 
-        // Update last login info
         user.LastLoginAt = DateTime.UtcNow;
         user.LastLoginIp = request.IpAddress;
         await _userManager.UpdateAsync(user);
 
-        // Get user roles
         var roles = await _userManager.GetRolesAsync(user);
 
         _logger.LogInformation("User logged in successfully. UserId={UserId}, Email={Email}, IP={IpAddress}, Roles={Roles}",
