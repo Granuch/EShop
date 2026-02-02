@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Extensions;
@@ -31,10 +32,11 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
-            // Remove existing DbContext registrations
+            // Remove existing DbContext and IUnitOfWork registrations
             var descriptorsToRemove = services
                 .Where(d => d.ServiceType == typeof(DbContextOptions<IdentityDbContext>) ||
-                            d.ServiceType == typeof(IdentityDbContext))
+                            d.ServiceType == typeof(IdentityDbContext) ||
+                            d.ServiceType == typeof(IUnitOfWork))
                 .ToList();
             foreach (var descriptor in descriptorsToRemove)
             {
@@ -46,6 +48,9 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
             {
                 options.UseInMemoryDatabase(_databaseName);
             });
+
+            // Re-register IUnitOfWork with the new DbContext
+            services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
         });
     }
 

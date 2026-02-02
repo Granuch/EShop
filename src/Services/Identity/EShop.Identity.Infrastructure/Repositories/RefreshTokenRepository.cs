@@ -60,7 +60,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
                 token.RevokeReason = revokeReason;
             }
 
-            await _context.SaveChangesAsync(cancellationToken);
+            // Entities are already tracked by EF Core, changes will be saved by caller
         }
         else
         {
@@ -95,7 +95,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
             refreshToken.ReplacedByToken = replacedByToken;
             refreshToken.RevokeReason = revokeReason;
 
-            await _context.SaveChangesAsync(cancellationToken);
+            // Entity is already tracked by EF Core, changes will be saved by CommitTransaction
             return 1;
         }
         else

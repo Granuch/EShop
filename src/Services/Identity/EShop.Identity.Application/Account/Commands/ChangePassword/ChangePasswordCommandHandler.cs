@@ -40,42 +40,39 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             return Result<ChangePasswordResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }
 
-        // Begin transaction to ensure password change and token revocation are atomic
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        // Change password (UserManager handles its own transaction)
+        var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+            _logger.LogWarning("Failed to change password. UserId={UserId}, Errors={Errors}", request.UserId, errors);
+            IdentityTelemetry.RecordPasswordChange(false);
+            return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
+        }
 
+        // Revoke all refresh tokens after password change (security measure)
+        // NOTE: This is done in a separate operation after password change succeeds
+        // If this fails, password is still changed (fail-safe approach)
         try
         {
-            var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
-            if (!result.Succeeded)
-            {
-                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-                _logger.LogWarning("Failed to change password. UserId={UserId}, Errors={Errors}", request.UserId, errors);
-                IdentityTelemetry.RecordPasswordChange(false);
-                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-                return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
-            }
-
-            // Revoke all refresh tokens after password change (security measure)
-            // This happens within the same transaction to ensure atomicity
             await _refreshTokenRepository.RevokeAllUserTokensAsync(
                 user.Id,
                 "Password changed",
                 cancellationToken: cancellationToken);
-
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
-
-            _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
-            IdentityTelemetry.RecordPasswordChange(true);
-
-            return Result<ChangePasswordResponse>.Success(new ChangePasswordResponse
-            {
-                Message = "Password changed successfully"
-            });
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch
+        catch (Exception ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
+            _logger.LogError(ex, "Failed to revoke tokens after password change. UserId={UserId}", request.UserId);
+            // Don't fail the operation - password was changed successfully
         }
+
+        _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
+        IdentityTelemetry.RecordPasswordChange(true);
+
+        return Result<ChangePasswordResponse>.Success(new ChangePasswordResponse
+        {
+            Message = "Password changed successfully"
+        });
     }
 }

@@ -46,11 +46,24 @@ public abstract class BaseIdentityDbContext<TUser, TRole, TKey> : IdentityDbCont
             return;
         }
 
+        // In-memory database doesn't support real transactions, skip it
+        if (Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            return;
+        }
+
         _currentTransaction = await Database.BeginTransactionAsync(cancellationToken);
     }
 
     public async Task CommitTransactionAsync(CancellationToken cancellationToken = default)
     {
+        // For in-memory database, just save changes without transaction
+        if (Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            await SaveChangesAsync(cancellationToken);
+            return;
+        }
+
         if (_currentTransaction == null)
         {
             throw new InvalidOperationException("No transaction to commit");
@@ -75,6 +88,12 @@ public abstract class BaseIdentityDbContext<TUser, TRole, TKey> : IdentityDbCont
 
     public async Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
     {
+        // In-memory database doesn't support transactions
+        if (Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            return;
+        }
+
         if (_currentTransaction == null)
         {
             return;

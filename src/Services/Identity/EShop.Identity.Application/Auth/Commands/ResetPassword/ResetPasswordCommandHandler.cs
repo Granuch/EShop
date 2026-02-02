@@ -50,44 +50,41 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
         }
 
-        // Begin transaction to ensure password reset and token revocation are atomic
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        // Reset password (UserManager handles its own transaction)
+        var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
 
+        if (!result.Succeeded)
+        {
+            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+            _logger.LogWarning("Password reset failed. UserId={UserId}, Errors={Errors}", user.Id, errors);
+            IdentityTelemetry.RecordPasswordReset(false);
+            return Result<ResetPasswordResponse>.Failure(new Error("Auth.ResetFailed", errors));
+        }
+
+        // Revoke all refresh tokens after password reset (security measure)
+        // NOTE: This is done in a separate operation after password reset succeeds
+        // If this fails, password is still reset (fail-safe approach)
         try
         {
-            var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
-
-            if (!result.Succeeded)
-            {
-                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-                _logger.LogWarning("Password reset failed. UserId={UserId}, Errors={Errors}", user.Id, errors);
-                IdentityTelemetry.RecordPasswordReset(false);
-                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-                return Result<ResetPasswordResponse>.Failure(new Error("Auth.ResetFailed", errors));
-            }
-
-            // Revoke all refresh tokens after password reset (security measure)
-            // This happens within the same transaction to ensure atomicity
             await _refreshTokenRepository.RevokeAllUserTokensAsync(
                 user.Id, 
                 "Password reset", 
                 cancellationToken: cancellationToken);
-
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
-
-            _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
-            IdentityTelemetry.RecordPasswordReset(true);
-
-            return Result<ResetPasswordResponse>.Success(new ResetPasswordResponse
-            {
-                Success = true,
-                Message = "Password has been reset successfully"
-            });
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch
+        catch (Exception ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
+            _logger.LogError(ex, "Failed to revoke tokens after password reset. UserId={UserId}", user.Id);
+            // Don't fail the operation - password was reset successfully
         }
+
+        _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        IdentityTelemetry.RecordPasswordReset(true);
+
+        return Result<ResetPasswordResponse>.Success(new ResetPasswordResponse
+        {
+            Success = true,
+            Message = "Password has been reset successfully"
+        });
     }
 }
