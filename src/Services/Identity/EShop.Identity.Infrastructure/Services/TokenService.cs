@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Infrastructure.Configuration;
@@ -19,15 +20,18 @@ public class TokenService : ITokenService
     private readonly JwtSettings _jwtSettings;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IUnitOfWork _unitOfWork;
 
     public TokenService(
         IOptions<JwtSettings> jwtSettings, 
         UserManager<ApplicationUser> userManager,
-        IRefreshTokenRepository refreshTokenRepository)
+        IRefreshTokenRepository refreshTokenRepository,
+        IUnitOfWork unitOfWork)
     {
         _jwtSettings = jwtSettings.Value;
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
+        _unitOfWork = unitOfWork;
     }
 
     /// <inheritdoc />
@@ -88,7 +92,7 @@ public class TokenService : ITokenService
 
         if (saveChanges)
         {
-            await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
         return tokenString;
@@ -124,15 +128,15 @@ public class TokenService : ITokenService
     public async Task RevokeTokenAsync(string token, string ipAddress, CancellationToken cancellationToken = default)
     {
         var refreshToken = await _refreshTokenRepository.GetByTokenAsync(token, cancellationToken);
-        
+
         if (refreshToken != null && refreshToken.IsActive)
         {
             refreshToken.RevokedAt = DateTime.UtcNow;
             refreshToken.RevokedByIp = ipAddress;
             refreshToken.RevokeReason = "Revoked by user";
-            
+
             await _refreshTokenRepository.UpdateAsync(refreshToken, cancellationToken);
-            await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
     }
 
@@ -155,7 +159,9 @@ public class TokenService : ITokenService
 
     /// <summary>
     /// Rotates refresh token - revokes old one and creates new
-    /// Uses atomic database operation to prevent race conditions in concurrent refresh scenarios
+    /// CRITICAL: Uses explicit database transaction to ensure atomicity.
+    /// This prevents orphaned tokens if SaveChangesAsync fails after revocation.
+    /// Security invariant: Token rotation must be all-or-nothing.
     /// </summary>
     public async Task<string> RotateRefreshTokenAsync(
         RefreshTokenEntity oldToken, 
@@ -164,37 +170,55 @@ public class TokenService : ITokenService
     {
         var now = DateTime.UtcNow;
 
+        // Generate new token string
         var randomBytes = new byte[64];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
         var newTokenString = Convert.ToBase64String(randomBytes);
 
-        var affectedRows = await _refreshTokenRepository.RevokeTokenAtomicallyAsync(
-            oldToken.Token,
-            now,
-            ipAddress,
-            newTokenString,
-            "Rotated",
-            cancellationToken);
+        // Begin explicit transaction to ensure atomicity
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (affectedRows == 0)
+        try
         {
-            throw new InvalidOperationException("Token has already been used or revoked");
+            // Step 1: Atomically revoke the old token (with race condition protection)
+            var affectedRows = await _refreshTokenRepository.RevokeTokenAtomicallyAsync(
+                oldToken.Token,
+                now,
+                ipAddress,
+                newTokenString,
+                "Rotated",
+                cancellationToken);
+
+            if (affectedRows == 0)
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                throw new InvalidOperationException("Token has already been used or revoked");
+            }
+
+            // Step 2: Create and persist the new refresh token
+            var newRefreshToken = new RefreshTokenEntity
+            {
+                Id = Guid.NewGuid(),
+                Token = newTokenString,
+                UserId = oldToken.UserId,
+                CreatedAt = now,
+                ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenExpirationDays),
+                CreatedByIp = ipAddress
+            };
+
+            await _refreshTokenRepository.AddAsync(newRefreshToken, cancellationToken);
+
+            // Step 3: Commit transaction - both operations succeed or both fail
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            return newTokenString;
         }
-
-        var newRefreshToken = new RefreshTokenEntity
+        catch
         {
-            Id = Guid.NewGuid(),
-            Token = newTokenString,
-            UserId = oldToken.UserId,
-            CreatedAt = now,
-            ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenExpirationDays),
-            CreatedByIp = ipAddress
-        };
-
-        await _refreshTokenRepository.AddAsync(newRefreshToken, cancellationToken);
-        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
-
-        return newTokenString;
+            // Ensure rollback on any failure
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 }

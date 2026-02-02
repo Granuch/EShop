@@ -14,7 +14,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-eshop_identity}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMeInProduction}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qweasdz1}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-ChangeMeInProduction}
+      --requirepass ${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf}
       --appendonly yes
       --appendfsync everysec
       --maxmemory 256mb
@@ -79,17 +79,17 @@ services:
       ASPNETCORE_URLS: http://+:8080
 
       # Database
-      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-ChangeMeInProduction}"
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-qweasdz1}"
 
       # Redis
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-ChangeMeInProduction},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
 
       # Seq (centralized logging)
       Serilog__WriteTo__1__Name: Seq
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
 
       # JWT
-      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-ChangeMeInProduction_MustBe32CharactersOrMore_SecureKey12345}
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-duHbxp5ADlMhUk95kPVwdk8tgml3vVF0cDSSZ4KfaupX8oxJ3erikMDLHiFKj0gxOKis2mlaStiHSlbglngbjy}
       JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
       JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
       JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
@@ -132,11 +132,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-ChangeMeInProduction}"
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-ChangeMeInProduction},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-qweasdz1}"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
       Serilog__WriteTo__1__Name: Seq
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
-      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-ChangeMeInProduction_MustBe32CharactersOrMore_SecureKey12345}
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-duHbxp5ADlMhUk95kPVwdk8tgml3vVF0cDSSZ4KfaupX8oxJ3erikMDLHiFKj0gxOKis2mlaStiHSlbglngbjy}
       JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
       JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
       JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
@@ -182,17 +182,17 @@ services:
       ASPNETCORE_URLS: http://+:8080
 
       # Database
-      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-ChangeMeInProduction}"
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-qweasdz1}"
 
       # Redis
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-ChangeMeInProduction},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
 
       # Seq (centralized logging)
       Serilog__WriteTo__1__Name: Seq
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
 
       # JWT - Use same keys as production for testing
-      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-ChangeMeInProduction_MustBe32CharactersOrMore_SecureKey12345}
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-duHbxp5ADlMhUk95kPVwdk8tgml3vVF0cDSSZ4KfaupX8oxJ3erikMDLHiFKj0gxOKis2mlaStiHSlbglngbjy}
       JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
       JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
       JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
@@ -231,7 +231,7 @@ services:
         condition: service_healthy
     environment:
       REDIS_ADDR: redis:6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-ChangeMeInProduction}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf}
     ports:
       - "${REDIS_EXPORTER_PORT:-9121}:9121"
     networks:
@@ -251,7 +251,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-ChangeMeInProduction}
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf}
     ports:
       - "${REDIS_COMMANDER_PORT:-8081}:8081"
     networks:

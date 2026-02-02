@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Application.Telemetry;
@@ -15,15 +16,18 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ChangePasswordCommandHandler> _logger;
 
     public ChangePasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
+        IUnitOfWork unitOfWork,
         ILogger<ChangePasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -36,27 +40,42 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             return Result<ChangePasswordResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }
 
-        var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
-        if (!result.Succeeded)
+        // Begin transaction to ensure password change and token revocation are atomic
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+        try
         {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            _logger.LogWarning("Failed to change password. UserId={UserId}, Errors={Errors}", request.UserId, errors);
-            IdentityTelemetry.RecordPasswordChange(false);
-            return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
+            var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+            if (!result.Succeeded)
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                _logger.LogWarning("Failed to change password. UserId={UserId}, Errors={Errors}", request.UserId, errors);
+                IdentityTelemetry.RecordPasswordChange(false);
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
+            }
+
+            // Revoke all refresh tokens after password change (security measure)
+            // This happens within the same transaction to ensure atomicity
+            await _refreshTokenRepository.RevokeAllUserTokensAsync(
+                user.Id,
+                "Password changed",
+                cancellationToken: cancellationToken);
+
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
+            IdentityTelemetry.RecordPasswordChange(true);
+
+            return Result<ChangePasswordResponse>.Success(new ChangePasswordResponse
+            {
+                Message = "Password changed successfully"
+            });
         }
-
-        // Revoke all refresh tokens after password change (security measure)
-        await _refreshTokenRepository.RevokeAllUserTokensAsync(
-            user.Id,
-            "Password changed",
-            cancellationToken: cancellationToken);
-
-        _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
-        IdentityTelemetry.RecordPasswordChange(true);
-
-        return Result<ChangePasswordResponse>.Success(new ChangePasswordResponse
+        catch
         {
-            Message = "Password changed successfully"
-        });
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 }

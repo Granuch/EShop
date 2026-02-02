@@ -118,9 +118,4 @@ public class RefreshTokenRepository : IRefreshTokenRepository
                     cancellationToken);
         }
     }
-
-    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
-    {
-        await _context.SaveChangesAsync(cancellationToken);
-    }
 }

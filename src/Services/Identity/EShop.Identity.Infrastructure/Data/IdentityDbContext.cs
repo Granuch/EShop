@@ -1,18 +1,24 @@
 using Microsoft.EntityFrameworkCore;
 using EShop.Identity.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using EShop.BuildingBlocks.Infrastructure.Data;
+using MediatR;
 
 namespace EShop.Identity.Infrastructure.Data;
 
 /// <summary>
 /// DbContext for Identity service
+/// Inherits from BaseIdentityDbContext to get UnitOfWork, domain events, and audit field support
 /// </summary>
-public class IdentityDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
+public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, ApplicationRole, string>
 {
     public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
 
     public IdentityDbContext(DbContextOptions<IdentityDbContext> options) : base(options)
+    {
+    }
+
+    public IdentityDbContext(DbContextOptions<IdentityDbContext> options, IMediator mediator) : base(options, mediator)
     {
     }
 

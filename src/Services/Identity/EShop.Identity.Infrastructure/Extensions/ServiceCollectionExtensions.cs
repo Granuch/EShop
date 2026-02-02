@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
@@ -71,6 +72,9 @@ public static class ServiceCollectionExtensions
         // Add repositories
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
+
+        // Register IUnitOfWork (implemented by IdentityDbContext)
+        services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
 
         // Add services
         services.AddScoped<ITokenService, TokenService>();

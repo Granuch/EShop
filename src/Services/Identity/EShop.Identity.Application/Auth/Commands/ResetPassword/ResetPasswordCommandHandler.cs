@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Application.Telemetry;
@@ -15,15 +16,18 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ResetPasswordCommandHandler> _logger;
 
     public ResetPasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
+        IUnitOfWork unitOfWork,
         ILogger<ResetPasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -46,29 +50,44 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
         }
 
-        var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+        // Begin transaction to ensure password reset and token revocation are atomic
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        if (!result.Succeeded)
+        try
         {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            _logger.LogWarning("Password reset failed. UserId={UserId}, Errors={Errors}", user.Id, errors);
-            IdentityTelemetry.RecordPasswordReset(false);
-            return Result<ResetPasswordResponse>.Failure(new Error("Auth.ResetFailed", errors));
+            var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+
+            if (!result.Succeeded)
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                _logger.LogWarning("Password reset failed. UserId={UserId}, Errors={Errors}", user.Id, errors);
+                IdentityTelemetry.RecordPasswordReset(false);
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return Result<ResetPasswordResponse>.Failure(new Error("Auth.ResetFailed", errors));
+            }
+
+            // Revoke all refresh tokens after password reset (security measure)
+            // This happens within the same transaction to ensure atomicity
+            await _refreshTokenRepository.RevokeAllUserTokensAsync(
+                user.Id, 
+                "Password reset", 
+                cancellationToken: cancellationToken);
+
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
+            IdentityTelemetry.RecordPasswordReset(true);
+
+            return Result<ResetPasswordResponse>.Success(new ResetPasswordResponse
+            {
+                Success = true,
+                Message = "Password has been reset successfully"
+            });
         }
-
-        // Revoke all refresh tokens after password reset (security measure)
-        await _refreshTokenRepository.RevokeAllUserTokensAsync(
-            user.Id, 
-            "Password reset", 
-            cancellationToken: cancellationToken);
-
-        _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
-        IdentityTelemetry.RecordPasswordReset(true);
-
-        return Result<ResetPasswordResponse>.Success(new ResetPasswordResponse
+        catch
         {
-            Success = true,
-            Message = "Password has been reset successfully"
-        });
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 }
