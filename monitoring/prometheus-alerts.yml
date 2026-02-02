@@ -1,0 +1,121 @@
+# Prometheus Alert Rules for EShop Identity Service
+
+groups:
+  - name: identity_api_alerts
+    interval: 30s
+    rules:
+      # Identity API is down
+      - alert: IdentityAPIDown
+        expr: up{job=~"identity-api.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Identity API instance {{ $labels.instance }} is down"
+          description: "Identity API instance {{ $labels.instance }} has been down for more than 1 minute."
+
+      # High login failure rate
+      - alert: HighLoginFailureRate
+        expr: rate(identity_login_attempts_total{status="failure"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High login failure rate detected"
+          description: "Login failure rate is {{ $value }} failures/sec over 5 minutes."
+
+      # Distributed brute-force attack detected
+      - alert: DistributedBruteForceAttack
+        expr: rate(identity_distributed_attacks_detected_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Distributed brute-force attack detected"
+          description: "Identity service is detecting distributed brute-force attacks ({{ $value }} attacks/sec)."
+
+      # High account lockout rate
+      - alert: HighAccountLockoutRate
+        expr: rate(identity_bruteforce_attempts_total{event_type="account_locked"}[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High account lockout rate"
+          description: "Account lockout rate is {{ $value }} lockouts/sec over 5 minutes."
+
+      # High IP block rate
+      - alert: HighIpBlockRate
+        expr: rate(identity_bruteforce_attempts_total{event_type="ip_blocked"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High IP block rate detected"
+          description: "IP blocking rate is {{ $value }} blocks/sec. Possible DDoS attack."
+
+      # Many active account locks
+      - alert: ManyActiveAccountLocks
+        expr: identity_account_locks_active > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Many active account locks"
+          description: "{{ $value }} accounts are currently locked. Possible coordinated attack."
+
+  - name: redis_alerts
+    interval: 30s
+    rules:
+      # Redis is down
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 1 minute."
+
+      # High Redis memory usage
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis is using {{ $value | humanizePercentage }} of max memory."
+
+      # Too many Redis connections
+      - alert: RedisTooManyConnections
+        expr: redis_connected_clients > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis has too many connections"
+          description: "Redis has {{ $value }} connected clients."
+
+      # Redis slow commands
+      - alert: RedisSlowCommands
+        expr: rate(redis_slowlog_length[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis has slow commands"
+          description: "Redis is experiencing slow commands at rate {{ $value }}."
+
+  - name: system_alerts
+    interval: 30s
+    rules:
+      # Database connection issues
+      - alert: DatabaseConnectionFailures
+        expr: rate(identity_login_attempts_total{status="failure",reason="database_error"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failures detected"
+          description: "Database connection failures at rate {{ $value }}/sec."

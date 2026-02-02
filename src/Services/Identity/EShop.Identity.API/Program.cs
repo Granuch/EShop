@@ -19,6 +19,7 @@ using Serilog;
 using Serilog.Events;
 using Prometheus;
 using HealthChecks.UI.Client;
+using StackExchange.Redis;
 
 // Configure Serilog early to catch startup errors
 Log.Logger = new LoggerConfiguration()
@@ -50,24 +51,45 @@ try
     builder.Services.AddIdentityInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 
     // Add Distributed Cache for brute-force protection
-    // In production, replace with Redis for multi-instance deployments
-    // For development/testing, use in-memory cache
-    // TODO: Uncomment and add Microsoft.Extensions.Caching.StackExchangeRedis package for production
-    /*
-    if (builder.Configuration.GetConnectionString("Redis") != null && !builder.Environment.IsDevelopment())
+    // Production/Sandbox: Redis for multi-instance horizontal scaling
+    // Testing: In-memory cache
+    var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+
+    if (!string.IsNullOrEmpty(redisConnectionString) && !builder.Environment.IsEnvironment("Testing"))
     {
-        // Production: Use Redis for distributed caching (horizontal scaling support)
+        Log.Information("Configuring Redis distributed cache: {RedisEndpoint}", 
+            redisConnectionString.Split(',')[0]); // Log only host, not password
+
         builder.Services.AddStackExchangeRedisCache(options =>
         {
-            options.Configuration = builder.Configuration.GetConnectionString("Redis");
+            options.Configuration = redisConnectionString;
             options.InstanceName = "EShop_Identity_";
+
+            // Advanced connection configuration for production reliability
+            options.ConfigurationOptions = StackExchange.Redis.ConfigurationOptions.Parse(redisConnectionString);
+            options.ConfigurationOptions.AbortOnConnectFail = false;
+            options.ConfigurationOptions.ConnectTimeout = 5000;
+            options.ConfigurationOptions.SyncTimeout = 5000;
+            options.ConfigurationOptions.ConnectRetry = 3;
+            options.ConfigurationOptions.KeepAlive = 60;
+            options.ConfigurationOptions.ReconnectRetryPolicy = new StackExchange.Redis.LinearRetry(5000);
+
+            // Enable command logging for troubleshooting (disable in production if not needed)
+            // options.ConfigurationOptions.ClientName = $"EShop_Identity_{Environment.MachineName}";
         });
+
+        Log.Information("Redis distributed cache configured successfully");
+    }
+    else if (builder.Environment.IsEnvironment("Testing"))
+    {
+        // Testing only: Use in-memory distributed cache
+        Log.Warning("Using in-memory distributed cache for Testing environment");
+        builder.Services.AddDistributedMemoryCache();
     }
     else
-    */
     {
-        // Development/Testing: Use in-memory distributed cache
-        // Note: Not suitable for production multi-instance deployments
+        // Redis connection string not found
+        Log.Warning("Redis connection string not configured. Using in-memory cache. NOT suitable for multi-instance!");
         builder.Services.AddDistributedMemoryCache();
     }
 
@@ -175,6 +197,37 @@ try
 
     var app = builder.Build();
 
+    // Apply database migrations automatically (Production/Development/Sandbox)
+    // Skip for Testing environment (uses in-memory database)
+    if (!useInMemoryDb)
+    {
+        try
+        {
+            Log.Information("Applying database migrations...");
+            using var scope = app.Services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+
+            // Apply pending migrations
+            await dbContext.Database.MigrateAsync();
+            Log.Information("Database migrations applied successfully");
+
+            // Seed default roles and admin user in Development and Sandbox environments
+            if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
+            {
+                Log.Information("Seeding default roles and admin user...");
+                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+                var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+                await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, Log.Logger);
+                Log.Information("Seeding completed successfully");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Fatal(ex, "Failed to apply database migrations or seed data");
+            throw;
+        }
+    }
+
     // Initialize telemetry
     var metrics = app.Services.GetRequiredService<IIdentityMetrics>();
     IdentityTelemetry.Initialize(metrics);
@@ -198,22 +251,10 @@ try
         };
     });
 
-    // Apply database migrations and seed data in Development
-    if (app.Environment.IsDevelopment())
-    {
-        using var scope = app.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
-        await dbContext.Database.MigrateAsync();
-
-        // Seed default roles and admin user
-        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, Log.Logger);
-    }
-
 
     // Configure the HTTP request pipeline
-    if (app.Environment.IsDevelopment())
+    // OpenAPI and Scalar UI - available in Development and Production (not in Testing)
+    if (!app.Environment.IsEnvironment("Testing"))
     {
         // OpenAPI JSON endpoint - must be mapped first
         app.MapOpenApi();
@@ -270,6 +311,33 @@ try
         Predicate = check => check.Tags.Contains("live"),
         ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
     });
+
+    // Root endpoint - API info and available endpoints
+    app.MapGet("/", () => Results.Ok(new
+    {
+        service = "EShop Identity API",
+        version = "1.0.0",
+        environment = app.Environment.EnvironmentName,
+        endpoints = new
+        {
+            documentation = !app.Environment.IsEnvironment("Testing") ? "/scalar/v1" : "Not available in Testing",
+            openapi = !app.Environment.IsEnvironment("Testing") ? "/openapi/v1.json" : "Not available in Testing",
+            health = "/health",
+            healthReady = "/health/ready",
+            healthLive = "/health/live",
+            metrics = "/metrics",
+            authentication = new
+            {
+                register = "POST /api/v1/auth/register",
+                login = "POST /api/v1/auth/login",
+                refresh = "POST /api/v1/auth/refresh",
+                logout = "POST /api/v1/auth/logout"
+            }
+        }
+    }))
+    .WithName("GetApiInfo")
+    .WithTags("Info")
+    .Produces<object>(StatusCodes.Status200OK);
 
     Log.Information("Identity Service started successfully");
     app.Run();

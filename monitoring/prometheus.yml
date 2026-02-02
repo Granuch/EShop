@@ -1,4 +1,5 @@
-# Prometheus configuration for EShop microservices
+# Prometheus Configuration for EShop Identity Service
+
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -13,35 +14,36 @@ alerting:
         - targets: []
           # - alertmanager:9093
 
-# Load alert rules
+# Load rules
 rule_files:
   - 'alerts.yml'
 
+# Scrape configurations
 scrape_configs:
-  # Prometheus self-monitoring
+  # Prometheus itself
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  # EShop Identity Service - Instance 1 (Docker network)
+  # Identity API - Instance 1
   - job_name: 'identity-api-1'
-    metrics_path: '/metrics'
     static_configs:
       - targets: ['identity-api:8080']
         labels:
           service: 'identity-api'
           instance: '1'
+    metrics_path: '/metrics'
     scrape_interval: 15s
     scrape_timeout: 10s
 
-  # EShop Identity Service - Instance 2 (if multi-instance enabled)
+  # Identity API - Instance 2 (if enabled)
   - job_name: 'identity-api-2'
-    metrics_path: '/metrics'
     static_configs:
       - targets: ['identity-api-2:8080']
         labels:
           service: 'identity-api'
           instance: '2'
+    metrics_path: '/metrics'
     scrape_interval: 15s
     scrape_timeout: 10s
 
@@ -53,21 +55,3 @@ scrape_configs:
           service: 'redis'
     scrape_interval: 15s
     scrape_timeout: 10s
-
-  # EShop Catalog Service (when ready)
-  # - job_name: 'catalog-service'
-  #   metrics_path: '/metrics'
-  #   static_configs:
-  #     - targets: ['catalog-api:8080']
-
-  # EShop Basket Service (when ready)
-  # - job_name: 'basket-service'
-  #   metrics_path: '/metrics'
-  #   static_configs:
-  #     - targets: ['basket-api:8080']
-
-  # EShop Ordering Service (when ready)
-  # - job_name: 'ordering-service'
-  #   metrics_path: '/metrics'
-  #   static_configs:
-  #     - targets: ['ordering-api:8080']

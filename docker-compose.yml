@@ -1,0 +1,364 @@
+# ============================================
+# EShop Identity Service - Complete Stack
+# All services in one docker-compose
+# ============================================
+
+services:
+  # ============================================
+  # PostgreSQL Database for Identity
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: eshop-identity-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-eshop_identity}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMeInProduction}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # Redis Cache for Brute-Force Protection
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: eshop-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-ChangeMeInProduction}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Identity API - Instance 1
+  # ============================================
+  identity-api:
+    build:
+      context: .
+      dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
+    image: eshop/identity-api:latest
+    container_name: eshop-identity-api-1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # ASP.NET Core
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+
+      # Database
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-ChangeMeInProduction}"
+
+      # Redis
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-ChangeMeInProduction},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # Seq (centralized logging)
+      Serilog__WriteTo__1__Name: Seq
+      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
+
+      # JWT
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-ChangeMeInProduction_MustBe32CharactersOrMore_SecureKey12345}
+      JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
+      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
+      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
+
+      # CORS
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # Serilog
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+    ports:
+      - "${IDENTITY_API_PORT_1:-7001}:8080"
+    volumes:
+      - identity-logs:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================
+  # Identity API - Instance 2 (for multi-instance testing)
+  # ============================================
+  identity-api-2:
+    build:
+      context: .
+      dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
+    image: eshop/identity-api:latest
+    container_name: eshop-identity-api-2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-ChangeMeInProduction}"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-ChangeMeInProduction},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+      Serilog__WriteTo__1__Name: Seq
+      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-ChangeMeInProduction_MustBe32CharactersOrMore_SecureKey12345}
+      JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
+      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
+      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+    ports:
+      - "${IDENTITY_API_PORT_2:-7002}:8080"
+    volumes:
+      - identity-logs-2:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - multi-instance
+
+  # ============================================
+  # Identity API - Sandbox (Full test environment with seeding)
+  # ============================================
+  identity-api-sandbox:
+    build:
+      context: .
+      dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
+    image: eshop/identity-api:latest
+    container_name: eshop-identity-api-sandbox
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    environment:
+      # Sandbox environment - includes seeding and full monitoring
+      ASPNETCORE_ENVIRONMENT: Sandbox
+      ASPNETCORE_URLS: http://+:8080
+
+      # Database
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-ChangeMeInProduction}"
+
+      # Redis
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-ChangeMeInProduction},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # Seq (centralized logging)
+      Serilog__WriteTo__1__Name: Seq
+      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
+
+      # JWT - Use same keys as production for testing
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-ChangeMeInProduction_MustBe32CharactersOrMore_SecureKey12345}
+      JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
+      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
+      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
+
+      # CORS - Allow all for testing
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # Logging - Debug level for sandbox
+      Serilog__MinimumLevel__Default: Debug
+    ports:
+      - "${IDENTITY_API_SANDBOX_PORT:-7003}:8080"
+    volumes:
+      - identity-logs-sandbox:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - sandbox
+
+  # ============================================
+  # Redis Exporter (Prometheus Metrics)
+  # ============================================
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: eshop-redis-exporter
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ChangeMeInProduction}
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+      - sandbox
+
+  # ============================================
+  # Redis Commander (Web UI for Redis)
+  # ============================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: eshop-redis-commander
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-ChangeMeInProduction}
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    networks:
+      - eshop-network
+    profiles:
+      - development
+      - monitoring
+      - sandbox
+
+  # ============================================
+  # Seq - Centralized Structured Logging
+  # ============================================
+  seq:
+    image: datalust/seq:2025.1
+    container_name: eshop-seq
+    restart: unless-stopped
+    ports:
+      - "${SEQ_UI_PORT:-5341}:80"      # Web UI and ingestion
+      - "${SEQ_INGEST_PORT:-5342}:5341" # Ingestion only
+    environment:
+      ACCEPT_EULA: Y
+    volumes:
+      - seq-data:/data
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+      - sandbox
+
+  # ============================================
+  # Prometheus (Metrics Collection)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: eshop-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      # Use existing infrastructure config if available, fallback to monitoring
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+      - sandbox
+
+  # ============================================
+  # Grafana (Visualization)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: eshop-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - seq
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      # Use existing infrastructure config if available, fallback to monitoring
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+      - sandbox
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  eshop-network:
+    name: eshop-network
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  postgres-data:
+    name: eshop-postgres-data
+  redis-data:
+    name: eshop-redis-data
+  identity-logs:
+    name: eshop-identity-logs
+  identity-logs-2:
+    name: eshop-identity-logs-2
+  identity-logs-sandbox:
+    name: eshop-identity-logs-sandbox
+  seq-data:
+    name: eshop-seq-data
+  prometheus-data:
+    name: eshop-prometheus-data
+  grafana-data:
+    name: eshop-grafana-data
