@@ -155,23 +155,44 @@ public class TokenService : ITokenService
 
     /// <summary>
     /// Rotates refresh token - revokes old one and creates new
+    /// Uses atomic database operation to prevent race conditions in concurrent refresh scenarios
     /// </summary>
     public async Task<string> RotateRefreshTokenAsync(
         RefreshTokenEntity oldToken, 
         string ipAddress, 
         CancellationToken cancellationToken = default)
     {
-        // Generate new token without saving yet
-        var newTokenString = await GenerateRefreshTokenInternalAsync(oldToken.UserId, ipAddress, saveChanges: false, cancellationToken);
+        var now = DateTime.UtcNow;
 
-        oldToken.RevokedAt = DateTime.UtcNow;
-        oldToken.RevokedByIp = ipAddress;
-        oldToken.ReplacedByToken = newTokenString;
-        oldToken.RevokeReason = "Rotated";
+        var randomBytes = new byte[64];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(randomBytes);
+        var newTokenString = Convert.ToBase64String(randomBytes);
 
-        await _refreshTokenRepository.UpdateAsync(oldToken, cancellationToken);
+        var affectedRows = await _refreshTokenRepository.RevokeTokenAtomicallyAsync(
+            oldToken.Token,
+            now,
+            ipAddress,
+            newTokenString,
+            "Rotated",
+            cancellationToken);
 
-        // Single save for both operations
+        if (affectedRows == 0)
+        {
+            throw new InvalidOperationException("Token has already been used or revoked");
+        }
+
+        var newRefreshToken = new RefreshTokenEntity
+        {
+            Id = Guid.NewGuid(),
+            Token = newTokenString,
+            UserId = oldToken.UserId,
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenExpirationDays),
+            CreatedByIp = ipAddress
+        };
+
+        await _refreshTokenRepository.AddAsync(newRefreshToken, cancellationToken);
         await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
 
         return newTokenString;

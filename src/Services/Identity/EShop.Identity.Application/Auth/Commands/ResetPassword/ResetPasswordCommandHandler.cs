@@ -61,7 +61,6 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             user.Id, 
             "Password reset", 
             cancellationToken: cancellationToken);
-        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
         IdentityTelemetry.RecordPasswordReset(true);

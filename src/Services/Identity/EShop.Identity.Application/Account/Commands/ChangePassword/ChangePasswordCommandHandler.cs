@@ -50,7 +50,6 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             user.Id,
             "Password changed",
             cancellationToken: cancellationToken);
-        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
         IdentityTelemetry.RecordPasswordChange(true);
