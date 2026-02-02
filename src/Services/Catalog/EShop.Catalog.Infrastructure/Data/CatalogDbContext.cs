@@ -54,6 +54,8 @@ public class CatalogDbContext : BaseDbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasQueryFilter(p => !p.IsDeleted);
+            
+            
         });
 
         modelBuilder.Entity<Category>(entity =>
@@ -77,7 +79,7 @@ public class CatalogDbContext : BaseDbContext
 
             entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }).IsUnique();
 
-            entity.HasQueryFilter(c => !c.IsActive);
+            entity.HasQueryFilter(c => c.IsActive);
         });
 
         modelBuilder.Entity<ProductImage>(entity =>

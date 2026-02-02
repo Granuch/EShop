@@ -1,6 +1,7 @@
 using System.Reflection;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.Catalog.API.Endpoints;
+using EShop.Catalog.Application.Categories.Queries.GetCategoryById;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Domain.Interfaces;
@@ -121,25 +122,26 @@ try
               .AddOtlpExporter(options => 
                   options.Endpoint = new Uri(builder.Configuration["Jaeger:Endpoint"]!)));
 
-     // TODO: Add Output Caching for GET requests
-     // builder.Services.AddOutputCache(options =>
-     // {
-     //     options.AddBasePolicy(builder => builder.Expire(TimeSpan.FromMinutes(5)));
-     // });
+     // Output Caching for GET requests
+     builder.Services.AddOutputCache(options =>
+     {
+          options.AddBasePolicy(caching => caching.Expire(TimeSpan.FromMinutes(5)));
+     });
 
      // Add OpenAPI
      builder.Services.AddEndpointsApiExplorer();
      builder.Services.AddOpenApi();
 
      var app = builder.Build();
-
-     // TODO: Apply database migrations automatically in Development
-     // if (app.Environment.IsDevelopment())
-     // {
-     //     using var scope = app.Services.CreateScope();
-     //     var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
-     //     await dbContext.Database.MigrateAsync();
-     // }
+     
+     // Apply database migrations automatically in Development
+     if (app.Environment.IsDevelopment())
+     { 
+          using var scope = app.Services.CreateScope(); 
+          var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>(); 
+          await dbContext.Database.MigrateAsync();
+     }
+     
      if (app.Environment.IsDevelopment())
      {
           // OpenAPI JSON endpoint
@@ -170,9 +172,8 @@ try
      // Add Authentication & Authorization
      app.UseAuthentication();
      app.UseAuthorization();
-
-     // Add Output Caching
-     // app.UseOutputCache();
+     
+     app.UseOutputCache();
 
      // Map Minimal API endpoints
      app.MapProductEndpoints();

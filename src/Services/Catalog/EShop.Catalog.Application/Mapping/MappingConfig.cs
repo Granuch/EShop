@@ -1,3 +1,4 @@
+using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Domain.Entities;
 
@@ -15,5 +16,10 @@ public class MappingConfig
                     .OrderBy(i => i.DisplayOrder)
                     .Select(i => i.Url)
                     .FirstOrDefault());
+        
+        TypeAdapterConfig<Category, CategoryDto>.NewConfig()
+            .Map(dest => dest.ParentCategoryName, src => src.ParentCategory != null ? src.ParentCategory.Name : null)
+            .Map(dest => dest.ChildCategories, src => src.ChildCategories.Select(cc => cc.Adapt<CategoryDto>()).ToList())
+            .PreserveReference(true);
     }
 }

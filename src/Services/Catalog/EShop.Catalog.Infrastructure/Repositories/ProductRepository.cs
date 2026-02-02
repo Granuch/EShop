@@ -28,7 +28,13 @@ public class ProductRepository : IProductRepository
         if (_cache.TryGetValue(cacheKey, out Product? cachedProduct))
             return cachedProduct;
         
-        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        var product = await _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Images)
+            .Include(p => p.Attributes)
+            .AsSplitQuery()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
         if (product != null)
         {
