@@ -50,6 +50,18 @@ try
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
     builder.Services.AddIdentityInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 
+    // Configure Token Cleanup Settings
+    builder.Services.Configure<EShop.Identity.Infrastructure.Configuration.TokenCleanupSettings>(
+        builder.Configuration.GetSection(EShop.Identity.Infrastructure.Configuration.TokenCleanupSettings.SectionName));
+
+    // Add Background Services
+    // Only run cleanup service in non-Testing environments
+    if (!useInMemoryDb)
+    {
+        builder.Services.AddHostedService<EShop.Identity.Infrastructure.BackgroundJobs.ExpiredTokenCleanupService>();
+        Log.Information("Expired Token Cleanup Service registered");
+    }
+
     // Add Distributed Cache for brute-force protection
     // Production/Sandbox: Redis for multi-instance horizontal scaling
     // Testing: In-memory cache

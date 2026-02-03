@@ -78,6 +78,7 @@ public static class ServiceCollectionExtensions
 
         // Add services
         services.AddScoped<ITokenService, TokenService>();
+        services.AddScoped<ITokenCleanupService, TokenCleanupService>();
 
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
