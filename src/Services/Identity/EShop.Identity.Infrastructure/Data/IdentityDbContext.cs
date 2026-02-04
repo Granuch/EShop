@@ -2,13 +2,14 @@ using Microsoft.EntityFrameworkCore;
 using EShop.Identity.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using EShop.BuildingBlocks.Infrastructure.Data;
+using EShop.BuildingBlocks.Application.Abstractions;
 using MediatR;
 
 namespace EShop.Identity.Infrastructure.Data;
 
 /// <summary>
 /// DbContext for Identity service
-/// Inherits from BaseIdentityDbContext to get UnitOfWork, domain events, and audit field support
+/// Inherits from BaseIdentityDbContext to get UnitOfWork, domain events, outbox, and audit field support
 /// </summary>
 public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, ApplicationRole, string>
 {
@@ -21,6 +22,19 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
     public IdentityDbContext(DbContextOptions<IdentityDbContext> options, IMediator mediator) : base(options, mediator)
     {
     }
+
+    public IdentityDbContext(
+        DbContextOptions<IdentityDbContext> options, 
+        IMediator mediator,
+        ICurrentUserContext currentUserContext) : base(options, mediator, currentUserContext)
+    {
+    }
+
+    /// <summary>
+    /// Disable outbox for Identity service as it primarily uses ASP.NET Identity
+    /// which has its own event model. Enable this when you add domain aggregates.
+    /// </summary>
+    protected override bool UseOutbox => false;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

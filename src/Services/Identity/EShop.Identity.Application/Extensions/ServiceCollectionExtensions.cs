@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application.Behaviors;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.Identity.Application.Auth.Commands.Register;
 using FluentValidation;
 using MediatR;
@@ -24,7 +25,19 @@ public static class ServiceCollectionExtensions
         // Add FluentValidation
         services.AddValidatorsFromAssembly(assembly);
 
-        // Add pipeline behaviors
+        // Configure caching options
+        services.Configure<CachingBehaviorOptions>(options =>
+        {
+            options.KeyPrefix = "identity:";
+            options.DefaultDuration = TimeSpan.FromMinutes(5);
+        });
+
+        // Add pipeline behaviors in correct order:
+        // 1. Transaction (wraps everything in a transaction)
+        // 2. Validation (validates before handler executes)
+        // 3. Logging (logs request/response)
+        // Note: CachingBehavior is registered in Infrastructure layer
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(TransactionBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
 

@@ -1,4 +1,7 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
@@ -7,10 +10,13 @@ using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
 using EShop.Identity.Infrastructure.Security;
+using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace EShop.Identity.Infrastructure.Extensions;
 
@@ -25,6 +31,14 @@ public static class ServiceCollectionExtensions
         bool useInMemoryDatabase = false,
         string? inMemoryDatabaseName = null)
     {
+        // Add ICurrentUserContext for audit field population
+        services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+
+        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
+
         // Add DbContext
         if (useInMemoryDatabase)
         {

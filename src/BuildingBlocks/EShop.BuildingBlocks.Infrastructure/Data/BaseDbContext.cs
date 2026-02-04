@@ -1,17 +1,43 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Outbox;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using System.Text.Json;
 
 namespace EShop.BuildingBlocks.Infrastructure.Data;
 
 /// <summary>
-/// Base DbContext with domain event dispatching and Unit of Work support
+/// Base DbContext with domain event dispatching via Outbox pattern, Unit of Work support,
+/// and automatic audit field population (CreatedBy, UpdatedBy).
+/// 
+/// The Outbox pattern ensures domain events are persisted transactionally with aggregate changes,
+/// providing reliable event delivery even when the message broker is unavailable.
 /// </summary>
 public abstract class BaseDbContext : DbContext, IUnitOfWork
 {
     private readonly IMediator? _mediator;
+    private readonly ICurrentUserContext? _currentUserContext;
     private IDbContextTransaction? _currentTransaction;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
+    /// <summary>
+    /// When true, uses the Outbox pattern for reliable event delivery.
+    /// When false, publishes events directly via MediatR (for backward compatibility or testing).
+    /// Default is true for production safety.
+    /// </summary>
+    protected virtual bool UseOutbox => true;
+
+    /// <summary>
+    /// Outbox messages DbSet. Override this in derived contexts if you need a custom table name.
+    /// </summary>
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected BaseDbContext(DbContextOptions options) : base(options)
     {
@@ -20,6 +46,12 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
     protected BaseDbContext(DbContextOptions options, IMediator mediator) : base(options)
     {
         _mediator = mediator;
+    }
+
+    protected BaseDbContext(DbContextOptions options, IMediator mediator, ICurrentUserContext currentUserContext) : base(options)
+    {
+        _mediator = mediator;
+        _currentUserContext = currentUserContext;
     }
 
     public bool HasActiveTransaction => _currentTransaction != null;
@@ -109,60 +141,120 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
         var entries = ChangeTracker.Entries()
             .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
 
+        var now = DateTime.UtcNow;
+        var currentUserId = _currentUserContext?.UserId;
+
         foreach (var entry in entries)
         {
-            var now = DateTime.UtcNow;
+            var entityType = entry.Entity.GetType();
 
             if (entry.State == EntityState.Added)
             {
-                if (entry.Entity.GetType().GetProperty("CreatedAt") is { } createdAtProp)
+                // Set CreatedAt
+                if (entityType.GetProperty("CreatedAt") is { } createdAtProp 
+                    && createdAtProp.CanWrite)
                 {
                     createdAtProp.SetValue(entry.Entity, now);
                 }
+
+                // Set CreatedBy (only if we have a user context and property exists)
+                if (entityType.GetProperty("CreatedBy") is { } createdByProp 
+                    && createdByProp.CanWrite 
+                    && currentUserId != null)
+                {
+                    createdByProp.SetValue(entry.Entity, currentUserId);
+                }
             }
 
-            if (entry.Entity.GetType().GetProperty("UpdatedAt") is { } updatedAtProp)
+            // Set UpdatedAt (always on modification)
+            if (entityType.GetProperty("UpdatedAt") is { } updatedAtProp 
+                && updatedAtProp.CanWrite)
             {
                 updatedAtProp.SetValue(entry.Entity, now);
+            }
+
+            // Set UpdatedBy (on modification, if we have a user context)
+            if (entry.State == EntityState.Modified 
+                && entityType.GetProperty("UpdatedBy") is { } updatedByProp 
+                && updatedByProp.CanWrite 
+                && currentUserId != null)
+            {
+                updatedByProp.SetValue(entry.Entity, currentUserId);
             }
         }
     }
 
     private async Task DispatchDomainEventsAsync(CancellationToken cancellationToken)
     {
-        if (_mediator == null) return;
-
         var aggregateRoots = ChangeTracker.Entries()
             .Where(e => e.Entity is IAggregateRootMarker)
             .Select(e => e.Entity)
             .ToList();
 
-        var domainEvents = new List<IDomainEvent>();
+        var domainEvents = new List<(IDomainEvent Event, string? AggregateType, string? AggregateId)>();
 
         foreach (var entity in aggregateRoots)
         {
             var eventsProperty = entity.GetType().GetProperty("DomainEvents");
-            if (eventsProperty?.GetValue(entity) is IReadOnlyList<IDomainEvent> events)
+            if (eventsProperty?.GetValue(entity) is IReadOnlyList<IDomainEvent> events && events.Count > 0)
             {
-                domainEvents.AddRange(events);
+                var aggregateType = entity.GetType().Name;
+                var aggregateId = entity.GetType().GetProperty("Id")?.GetValue(entity)?.ToString();
+
+                foreach (var evt in events)
+                {
+                    domainEvents.Add((evt, aggregateType, aggregateId));
+                }
             }
         }
 
+        // Clear events from all aggregates
         foreach (var entity in aggregateRoots)
         {
             var clearMethod = entity.GetType().GetMethod("ClearDomainEvents");
             clearMethod?.Invoke(entity, null);
         }
 
-        foreach (var domainEvent in domainEvents)
+        if (domainEvents.Count == 0)
         {
-            await _mediator.Publish(domainEvent, cancellationToken);
+            return;
+        }
+
+        var correlationId = _currentUserContext?.CorrelationId;
+
+        if (UseOutbox)
+        {
+            // Outbox pattern: Persist events to the outbox table
+            // They will be published by the OutboxProcessorService
+            foreach (var (domainEvent, aggregateType, aggregateId) in domainEvents)
+            {
+                var payload = JsonSerializer.Serialize(domainEvent, domainEvent.GetType(), JsonOptions);
+                var outboxMessage = OutboxMessage.Create(
+                    domainEvent,
+                    payload,
+                    correlationId,
+                    aggregateType,
+                    aggregateId);
+
+                OutboxMessages.Add(outboxMessage);
+            }
+        }
+        else if (_mediator != null)
+        {
+            // Direct publishing (for backward compatibility or in-memory testing)
+            foreach (var (domainEvent, _, _) in domainEvents)
+            {
+                await _mediator.Publish(domainEvent, cancellationToken);
+            }
         }
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Apply Outbox configuration
+        modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
     }
 
     public override void Dispose()
