@@ -44,20 +44,78 @@ public class RefreshTokenRepository : IRefreshTokenRepository
 
     public async Task RevokeAllUserTokensAsync(string userId, string? reason = null, string? ipAddress = null, CancellationToken cancellationToken = default)
     {
-        var activeTokens = await _context.RefreshTokens
-            .Where(t => t.UserId == userId && t.RevokedAt == null)
-            .ToListAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        var revokeReason = reason ?? "Revoked by user";
 
-        foreach (var token in activeTokens)
+        if (_context.Database.IsInMemory())
         {
-            token.RevokedAt = DateTime.UtcNow;
-            token.RevokedByIp = ipAddress;
-            token.RevokeReason = reason ?? "Revoked by user";
+            var activeTokens = await _context.RefreshTokens
+                .Where(t => t.UserId == userId && t.RevokedAt == null)
+                .ToListAsync(cancellationToken);
+
+            foreach (var token in activeTokens)
+            {
+                token.RevokedAt = now;
+                token.RevokedByIp = ipAddress;
+                token.RevokeReason = revokeReason;
+            }
+
+            // Entities are already tracked by EF Core, changes will be saved by caller
+        }
+        else
+        {
+            await _context.RefreshTokens
+                .Where(t => t.UserId == userId && t.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.RevokedAt, now)
+                    .SetProperty(t => t.RevokedByIp, ipAddress)
+                    .SetProperty(t => t.RevokeReason, revokeReason),
+                    cancellationToken);
         }
     }
 
-    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
+    public async Task<int> RevokeTokenAtomicallyAsync(
+        string token,
+        DateTime revokedAt,
+        string? revokedByIp,
+        string? replacedByToken,
+        string revokeReason,
+        CancellationToken cancellationToken = default)
     {
-        await _context.SaveChangesAsync(cancellationToken);
+        if (_context.Database.IsInMemory())
+        {
+            var refreshToken = await _context.RefreshTokens
+                .FirstOrDefaultAsync(t => t.Token == token && t.RevokedAt == null && t.ExpiresAt > revokedAt, cancellationToken);
+
+            if (refreshToken == null)
+                return 0;
+
+            refreshToken.RevokedAt = revokedAt;
+            refreshToken.RevokedByIp = revokedByIp;
+            refreshToken.ReplacedByToken = replacedByToken;
+            refreshToken.RevokeReason = revokeReason;
+
+            // Entity is already tracked by EF Core, changes will be saved by CommitTransaction
+            return 1;
+        }
+        else
+        {
+            var trackedEntity = _context.RefreshTokens.Local
+                .FirstOrDefault(t => t.Token == token);
+
+            if (trackedEntity != null)
+            {
+                _context.Entry(trackedEntity).State = EntityState.Detached;
+            }
+
+            return await _context.RefreshTokens
+                .Where(t => t.Token == token && t.RevokedAt == null && t.ExpiresAt > revokedAt)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.RevokedAt, revokedAt)
+                    .SetProperty(t => t.RevokedByIp, revokedByIp)
+                    .SetProperty(t => t.ReplacedByToken, replacedByToken)
+                    .SetProperty(t => t.RevokeReason, revokeReason),
+                    cancellationToken);
+        }
     }
 }

@@ -41,9 +41,19 @@ public interface IUserRepository
     /// Adds a user to a role
     /// </summary>
     Task AddToRoleAsync(ApplicationUser user, string role, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Gets all roles for a user
     /// </summary>
     Task<IList<string>> GetRolesAsync(ApplicationUser user, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets roles for multiple users in a single database query (prevents N+1 queries)
+    /// </summary>
+    /// <param name="userIds">Collection of user IDs to get roles for</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Dictionary mapping user IDs to their role lists</returns>
+    Task<IDictionary<string, IReadOnlyList<string>>> GetRolesForUsersAsync(
+        IEnumerable<string> userIds,
+        CancellationToken cancellationToken = default);
 }

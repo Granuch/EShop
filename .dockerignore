@@ -1,0 +1,78 @@
+# Docker ignore file for EShop Identity Service
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+docs/
+ARCHITECTURE_DIAGRAM.md
+BRUTE_FORCE_PROTECTION.md
+IMPLEMENTATION_SUMMARY.md
+PRODUCTION_DEPLOYMENT_SUMMARY.md
+QUICK_REFERENCE.md
+QUICK_START.md
+REDIS_DEPLOYMENT_GUIDE.md
+REDIS_SETUP_GUIDE.md
+
+# Build outputs
+**/bin/
+**/obj/
+**/out/
+**/.vs/
+**/.vscode/
+**/TestResults/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Package managers
+**/node_modules/
+**/packages/
+
+# Tests
+**/tests/
+**/*.Tests/
+**/*.UnitTests/
+**/*.IntegrationTests/
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+.env*
+
+# Scripts (not needed in container)
+scripts/
+
+# Monitoring (not needed in container)
+monitoring/
+
+# Redis data (not needed in container)
+redis/
+
+# Temp files
+*.tmp
+*.temp
+*.cache

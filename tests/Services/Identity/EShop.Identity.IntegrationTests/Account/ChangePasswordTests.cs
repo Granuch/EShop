@@ -1,6 +1,6 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using EShop.Identity.IntegrationTests.Helpers;
 using EShop.Identity.IntegrationTests.Models;
 using FluentAssertions;
 
@@ -10,46 +10,46 @@ namespace EShop.Identity.IntegrationTests.Account;
 /// Integration tests for Password Change endpoint
 /// </summary>
 [TestFixture]
+[Category("Integration")]
 public class ChangePasswordTests : IntegrationTestBase
 {
-    private const string LoginEndpoint = "/api/v1/auth/login";
-    private const string RefreshEndpoint = "/api/v1/auth/refresh-token";
     private const string ChangePasswordEndpoint = "/api/v1/account/change-password";
+    private const string RefreshEndpoint = "/api/v1/auth/refresh-token";
 
-    private async Task<(string AccessToken, string RefreshToken)> LoginAsync(string email, string password)
+    private string _testUserId = null!;
+    private string _testUserEmail = null!;
+    private const string _testUserPassword = "Test@123456";
+
+    [SetUp]
+    public override async Task SetUpAsync()
     {
-        var loginRequest = new LoginRequest { Email = email, Password = password };
-        var response = await Client.PostAsJsonAsync(LoginEndpoint, loginRequest);
-        
-        if (!response.IsSuccessStatusCode)
-        {
-            var content = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Login failed: {response.StatusCode}, {content}");
-        }
-        
-        var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
-        return (result!.AccessToken, result.RefreshToken);
+        await base.SetUpAsync();
+
+        // Create isolated test user for each test
+        _testUserEmail = $"test_{Guid.NewGuid()}@test.com";
+        _testUserId = await CreateTestUserAsync(_testUserEmail, _testUserPassword);
     }
 
-    private void SetAuthHeader(string token)
+    [TearDown]
+    public override async Task TearDownAsync()
     {
-        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        // Clean up test user
+        await DeleteTestUserAsync(_testUserId);
+        await base.TearDownAsync();
     }
 
     [Test]
     public async Task ChangePassword_WithValidData_ShouldSucceed()
     {
-        // Arrange - use seeded user
-        var email = "user@test.com";
-        var oldPassword = "User@123456";
-        var newPassword = "NewUser@123456";
-        
-        var (accessToken, _) = await LoginAsync(email, oldPassword);
-        SetAuthHeader(accessToken);
+        // Arrange
+        var newPassword = "NewTest@123456";
+
+        var accessToken = await Client.GetAccessTokenAsync(_testUserEmail, _testUserPassword);
+        Client.SetBearerToken(accessToken);
 
         var request = new ChangePasswordRequest
         {
-            CurrentPassword = oldPassword,
+            CurrentPassword = _testUserPassword,
             NewPassword = newPassword
         };
 
@@ -60,36 +60,24 @@ public class ChangePasswordTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Verify can login with new password
-        Client.DefaultRequestHeaders.Authorization = null;
-        var loginRequest = new LoginRequest { Email = email, Password = newPassword };
-        var loginResponse = await Client.PostAsJsonAsync(LoginEndpoint, loginRequest);
-        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        
-        // Restore password for other tests
-        var (newAccessToken, _) = await LoginAsync(email, newPassword);
-        SetAuthHeader(newAccessToken);
-        var restoreRequest = new ChangePasswordRequest
-        {
-            CurrentPassword = newPassword,
-            NewPassword = oldPassword
-        };
-        await Client.PostAsJsonAsync(ChangePasswordEndpoint, restoreRequest);
+        Client.ClearBearerToken();
+        var loginResponse = await Client.LoginAsync(_testUserEmail, newPassword);
+        loginResponse.Should().NotBeNull();
+        loginResponse.AccessToken.Should().NotBeNullOrEmpty();
     }
 
     [Test]
     public async Task ChangePassword_ShouldInvalidateRefreshTokens()
     {
-        // Arrange - use seeded admin user
-        var email = "admin@test.com";
-        var oldPassword = "Admin@123456";
-        var newPassword = "NewAdmin@123456";
-        
-        var (accessToken, refreshToken) = await LoginAsync(email, oldPassword);
-        SetAuthHeader(accessToken);
+        // Arrange
+        var newPassword = "NewTest@123456";
+
+        var (accessToken, refreshToken) = await Client.GetTokensAsync(_testUserEmail, _testUserPassword);
+        Client.SetBearerToken(accessToken);
 
         var changeRequest = new ChangePasswordRequest
         {
-            CurrentPassword = oldPassword,
+            CurrentPassword = _testUserPassword,
             NewPassword = newPassword
         };
 
@@ -106,24 +94,14 @@ public class ChangePasswordTests : IntegrationTestBase
 
         // Assert - Refresh token should be invalid
         refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        
-        // Restore password for other tests
-        var (newAccessToken, _) = await LoginAsync(email, newPassword);
-        SetAuthHeader(newAccessToken);
-        var restoreRequest = new ChangePasswordRequest
-        {
-            CurrentPassword = newPassword,
-            NewPassword = oldPassword
-        };
-        await Client.PostAsJsonAsync(ChangePasswordEndpoint, restoreRequest);
     }
 
     [Test]
     public async Task ChangePassword_WithWrongCurrentPassword_ShouldReturnBadRequest()
     {
         // Arrange
-        var (accessToken, _) = await LoginAsync("user@test.com", "User@123456");
-        SetAuthHeader(accessToken);
+        var accessToken = await Client.GetAccessTokenAsync(_testUserEmail, _testUserPassword);
+        Client.SetBearerToken(accessToken);
 
         var request = new ChangePasswordRequest
         {
@@ -142,8 +120,8 @@ public class ChangePasswordTests : IntegrationTestBase
     public async Task ChangePassword_WithEmptyCurrentPassword_ShouldReturnBadRequest()
     {
         // Arrange
-        var (accessToken, _) = await LoginAsync("user@test.com", "User@123456");
-        SetAuthHeader(accessToken);
+        var accessToken = await Client.GetAccessTokenAsync(_testUserEmail, _testUserPassword);
+        Client.SetBearerToken(accessToken);
 
         var request = new ChangePasswordRequest
         {
@@ -162,12 +140,12 @@ public class ChangePasswordTests : IntegrationTestBase
     public async Task ChangePassword_WithEmptyNewPassword_ShouldReturnBadRequest()
     {
         // Arrange
-        var (accessToken, _) = await LoginAsync("user@test.com", "User@123456");
-        SetAuthHeader(accessToken);
+        var accessToken = await Client.GetAccessTokenAsync(_testUserEmail, _testUserPassword);
+        Client.SetBearerToken(accessToken);
 
         var request = new ChangePasswordRequest
         {
-            CurrentPassword = "User@123456",
+            CurrentPassword = _testUserPassword,
             NewPassword = ""
         };
 
@@ -182,7 +160,7 @@ public class ChangePasswordTests : IntegrationTestBase
     public async Task ChangePassword_WithoutToken_ShouldReturnUnauthorized()
     {
         // Arrange
-        Client.DefaultRequestHeaders.Authorization = null;
+        Client.ClearBearerToken();
 
         var request = new ChangePasswordRequest
         {
@@ -201,12 +179,12 @@ public class ChangePasswordTests : IntegrationTestBase
     public async Task ChangePassword_WithWeakNewPassword_ShouldReturnBadRequest()
     {
         // Arrange
-        var (accessToken, _) = await LoginAsync("user@test.com", "User@123456");
-        SetAuthHeader(accessToken);
+        var accessToken = await Client.GetAccessTokenAsync(_testUserEmail, _testUserPassword);
+        Client.SetBearerToken(accessToken);
 
         var request = new ChangePasswordRequest
         {
-            CurrentPassword = "User@123456",
+            CurrentPassword = _testUserPassword,
             NewPassword = "weak" // Too weak
         };
 

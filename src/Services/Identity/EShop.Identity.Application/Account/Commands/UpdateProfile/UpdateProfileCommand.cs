@@ -1,17 +1,25 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Identity.Application.Account.Commands.UpdateProfile;
 
 /// <summary>
-/// Command to update user profile
+/// Command to update user profile.
+/// Implements ICacheInvalidatingCommand to invalidate the profile cache after update.
 /// </summary>
-public record UpdateProfileCommand : IRequest<Result<UpdateProfileResponse>>
+public record UpdateProfileCommand : IRequest<Result<UpdateProfileResponse>>, ICacheInvalidatingCommand
 {
     public string UserId { get; init; } = string.Empty;
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;
     public string? ProfilePictureUrl { get; init; }
+
+    /// <summary>
+    /// Invalidates the user's profile cache after successful update.
+    /// Uses the same key format as GetProfileQuery.CacheKey.
+    /// </summary>
+    public IEnumerable<string> CacheKeysToInvalidate => [$"profile:{UserId}"];
 }
 
 public record UpdateProfileResponse

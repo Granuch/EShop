@@ -2,18 +2,20 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    cluster: 'eshop-identity'
+    environment: 'production'
 
-# Alertmanager configuration (optional)
-# alerting:
-#   alertmanagers:
-#     - static_configs:
-#         - targets:
-#           - alertmanager:9093
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - alertmanager:9093
 
-# Rule files (optional)
-# rule_files:
-#   - "first_rules.yml"
-#   - "second_rules.yml"
+# Load alert rules
+rule_files:
+  - 'alerts.yml'
 
 scrape_configs:
   # Prometheus self-monitoring
@@ -21,30 +23,51 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # EShop Identity Service
-  - job_name: 'identity-service'
+  # EShop Identity Service - Instance 1 (Docker network)
+  - job_name: 'identity-api-1'
     metrics_path: '/metrics'
     static_configs:
-      - targets: ['host.docker.internal:5210']  # Adjust port as needed
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: instance
-        replacement: 'identity-api'
+      - targets: ['identity-api:8080']
+        labels:
+          service: 'identity-api'
+          instance: '1'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # EShop Identity Service - Instance 2 (if multi-instance enabled)
+  - job_name: 'identity-api-2'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['identity-api-2:8080']
+        labels:
+          service: 'identity-api'
+          instance: '2'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+    scrape_interval: 15s
+    scrape_timeout: 10s
 
   # EShop Catalog Service (when ready)
   # - job_name: 'catalog-service'
   #   metrics_path: '/metrics'
   #   static_configs:
-  #     - targets: ['host.docker.internal:5002']
+  #     - targets: ['catalog-api:8080']
 
   # EShop Basket Service (when ready)
   # - job_name: 'basket-service'
   #   metrics_path: '/metrics'
   #   static_configs:
-  #     - targets: ['host.docker.internal:5003']
+  #     - targets: ['basket-api:8080']
 
   # EShop Ordering Service (when ready)
   # - job_name: 'ordering-service'
   #   metrics_path: '/metrics'
   #   static_configs:
-  #     - targets: ['host.docker.internal:5004']
+  #     - targets: ['ordering-api:8080']

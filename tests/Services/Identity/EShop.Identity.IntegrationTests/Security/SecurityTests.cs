@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.Identity.IntegrationTests.Fixtures;
+using EShop.Identity.IntegrationTests.Helpers;
+using EShop.Identity.IntegrationTests.Infrastructure;
 using EShop.Identity.IntegrationTests.Models;
 using FluentAssertions;
 
@@ -7,57 +10,66 @@ namespace EShop.Identity.IntegrationTests.Security;
 
 /// <summary>
 /// Integration tests for Rate Limiting
+/// Note: These tests require proper rate limiting configuration.
+/// Currently marked as Explicit until RateLimitingApiFactory is properly configured.
 /// </summary>
 [TestFixture]
+[Category("Integration")]
+[Category("Security")]
+[Explicit("Rate limiting configuration requires WebApplicationBuilder access")]
 public class RateLimitingTests : IntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
     private const string RegisterEndpoint = "/api/v1/auth/register";
 
+    protected override IdentityApiFactory CreateFactory()
+    {
+        return new RateLimitingApiFactory();
+    }
+
     [Test]
-    [Ignore("Rate limiting may need specific configuration for testing")]
     public async Task Login_ExceedingRateLimit_ShouldReturn429()
     {
         // Arrange
         var loginRequest = new LoginRequest
         {
-            Email = "admin@test.com",
+            Email = TestUsers.Admin.Email,
             Password = "WrongPassword@123"
         };
 
-        // Act - Make many requests quickly
-        var responses = new List<HttpResponseMessage>();
-        for (int i = 0; i < 20; i++)
-        {
-            var response = await Client.PostAsJsonAsync(LoginEndpoint, loginRequest);
-            responses.Add(response);
-        }
+        // Act - Make requests exceeding the limit (5 per 10 seconds)
+        var tasks = Enumerable.Range(0, 10)
+            .Select(_ => Client.PostAsJsonAsync(LoginEndpoint, loginRequest));
+
+        var responses = await Task.WhenAll(tasks);
 
         // Assert - At least some should be rate limited
-        responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests);
+        responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,
+            "because we exceeded the rate limit of 5 requests");
     }
 
     [Test]
-    [Ignore("Rate limiting may need specific configuration for testing")]
     public async Task Register_ExceedingRateLimit_ShouldReturn429()
     {
         // Arrange & Act
-        var responses = new List<HttpResponseMessage>();
-        for (int i = 0; i < 20; i++)
-        {
-            var request = new RegisterRequest
+        var tasks = Enumerable.Range(0, 10)
+            .Select(i => 
             {
-                Email = $"ratelimit{i}@test.com",
-                Password = "Test@123456",
-                FirstName = "Test",
-                LastName = "User"
-            };
-            var response = await Client.PostAsJsonAsync(RegisterEndpoint, request);
-            responses.Add(response);
-        }
+                var request = new RegisterRequest
+                {
+                    Email = $"ratelimit{i}@test.com",
+                    Password = "Test@123456",
+                    FirstName = "Test",
+                    LastName = "User"
+                };
+                return Client.PostAsJsonAsync(RegisterEndpoint, request);
+            });
+
+        var responses = await Task.WhenAll(tasks);
 
         // Assert - At least some should be rate limited
-        responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests);
+        responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,
+            "because we exceeded the rate limit");
     }
 }
 
@@ -65,6 +77,8 @@ public class RateLimitingTests : IntegrationTestBase
 /// Integration tests for Security headers and CORS
 /// </summary>
 [TestFixture]
+[Category("Integration")]
+[Category("Security")]
 public class SecurityHeadersTests : IntegrationTestBase
 {
     [Test]
@@ -83,8 +97,8 @@ public class SecurityHeadersTests : IntegrationTestBase
         // Arrange
         var loginRequest = new LoginRequest
         {
-            Email = "admin@test.com",
-            Password = "Admin@123456"
+            Email = TestUsers.Admin.Email,
+            Password = TestUsers.Admin.Password
         };
 
         // Act

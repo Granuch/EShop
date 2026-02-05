@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Application.Telemetry;
@@ -15,15 +16,18 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ChangePasswordCommandHandler> _logger;
 
     public ChangePasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
+        IUnitOfWork unitOfWork,
         ILogger<ChangePasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -36,6 +40,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             return Result<ChangePasswordResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }
 
+        // Change password (UserManager handles its own transaction)
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
         {
@@ -46,11 +51,21 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
         }
 
         // Revoke all refresh tokens after password change (security measure)
-        await _refreshTokenRepository.RevokeAllUserTokensAsync(
-            user.Id,
-            "Password changed",
-            cancellationToken: cancellationToken);
-        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
+        // NOTE: This is done in a separate operation after password change succeeds
+        // If this fails, password is still changed (fail-safe approach)
+        try
+        {
+            await _refreshTokenRepository.RevokeAllUserTokensAsync(
+                user.Id,
+                "Password changed",
+                cancellationToken: cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to revoke tokens after password change. UserId={UserId}", request.UserId);
+            // Don't fail the operation - password was changed successfully
+        }
 
         _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
         IdentityTelemetry.RecordPasswordChange(true);

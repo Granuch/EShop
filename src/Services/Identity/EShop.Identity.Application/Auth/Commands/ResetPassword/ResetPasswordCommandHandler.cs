@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Application.Telemetry;
@@ -15,15 +16,18 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ResetPasswordCommandHandler> _logger;
 
     public ResetPasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
+        IUnitOfWork unitOfWork,
         ILogger<ResetPasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -46,6 +50,7 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
         }
 
+        // Reset password (UserManager handles its own transaction)
         var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
 
         if (!result.Succeeded)
@@ -57,11 +62,21 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
         }
 
         // Revoke all refresh tokens after password reset (security measure)
-        await _refreshTokenRepository.RevokeAllUserTokensAsync(
-            user.Id, 
-            "Password reset", 
-            cancellationToken: cancellationToken);
-        await _refreshTokenRepository.SaveChangesAsync(cancellationToken);
+        // NOTE: This is done in a separate operation after password reset succeeds
+        // If this fails, password is still reset (fail-safe approach)
+        try
+        {
+            await _refreshTokenRepository.RevokeAllUserTokensAsync(
+                user.Id, 
+                "Password reset", 
+                cancellationToken: cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to revoke tokens after password reset. UserId={UserId}", user.Id);
+            // Don't fail the operation - password was reset successfully
+        }
 
         _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
         IdentityTelemetry.RecordPasswordReset(true);

@@ -6,16 +6,19 @@ datasources:
     type: prometheus
     uid: prometheus
     access: proxy
-    url: http://eshop-prometheus:9090
+    url: http://prometheus:9090
     isDefault: true
-    editable: false
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
 
-  # Seq datasource - disabled due to plugin loading order issues
-  # Uncomment after first Grafana startup
+  # Seq datasource - requires yesoreyeram-infinity-datasource plugin
+  # Uncomment after Grafana starts and plugin is installed
   # - name: Seq
   #   type: yesoreyeram-infinity-datasource
   #   access: proxy
-  #   url: http://eshop-seq:80
+  #   url: http://seq:80
   #   editable: false
   #   jsonData:
   #     auth_method: "none"

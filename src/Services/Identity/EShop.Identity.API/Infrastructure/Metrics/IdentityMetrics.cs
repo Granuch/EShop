@@ -60,6 +60,27 @@ public class IdentityMetrics : IIdentityMetrics
             LabelNames = ["operation", "status"]
         });
 
+    // Security metrics - Brute force protection
+    private static readonly Counter BruteForceAttemptsTotal = Prometheus.Metrics.CreateCounter(
+        "identity_bruteforce_attempts_total",
+        "Total number of brute force protection events",
+        new CounterConfiguration
+        {
+            LabelNames = ["event_type", "reason"]
+        });
+
+    private static readonly Gauge AccountLocksActive = Prometheus.Metrics.CreateGauge(
+        "identity_account_locks_active",
+        "Number of currently locked accounts");
+
+    private static readonly Gauge IpBlocksActive = Prometheus.Metrics.CreateGauge(
+        "identity_ip_blocks_active",
+        "Number of currently blocked IP addresses");
+
+    private static readonly Counter DistributedAttacksDetected = Prometheus.Metrics.CreateCounter(
+        "identity_distributed_attacks_detected_total",
+        "Total number of distributed attack patterns detected");
+
     private static readonly Histogram LoginDuration = Prometheus.Metrics.CreateHistogram(
         "identity_login_duration_seconds",
         "Duration of login operations in seconds",
@@ -132,4 +153,23 @@ public class IdentityMetrics : IIdentityMetrics
     // Email metrics
     public void RecordEmailConfirmation(bool success) =>
         EmailOperationsTotal.WithLabels("confirm", success ? "success" : "failure").Inc();
+
+    // Security metrics - Brute force protection
+    public void RecordThrottledAttempt(int delaySeconds) =>
+        BruteForceAttemptsTotal.WithLabels("throttled", $"delay_{delaySeconds}s").Inc();
+
+    public void RecordAccountLocked(string reason) =>
+        BruteForceAttemptsTotal.WithLabels("account_locked", reason).Inc();
+
+    public void RecordIpBlocked(string reason) =>
+        BruteForceAttemptsTotal.WithLabels("ip_blocked", reason).Inc();
+
+    public void RecordDistributedAttackDetected() =>
+        DistributedAttacksDetected.Inc();
+
+    public void UpdateActiveAccountLocks(int count) =>
+        AccountLocksActive.Set(count);
+
+    public void UpdateActiveIpBlocks(int count) =>
+        IpBlocksActive.Set(count);
 }

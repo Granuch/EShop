@@ -57,10 +57,22 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         }
 
         // Rotate refresh token (revoke old, create new)
-        var newRefreshToken = await _tokenService.RotateRefreshTokenAsync(
-            oldToken, 
-            request.IpAddress ?? "unknown", 
-            cancellationToken);
+        // This is an atomic operation that prevents concurrent token reuse
+        string newRefreshToken;
+        try
+        {
+            newRefreshToken = await _tokenService.RotateRefreshTokenAsync(
+                oldToken, 
+                request.IpAddress ?? "unknown", 
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning("Token rotation failed (possible replay attack). UserId={UserId}, IP={IpAddress}, Error={Error}",
+                user.Id, request.IpAddress, ex.Message);
+            IdentityTelemetry.RecordTokenRefreshFailure("rotation_failed");
+            return Result<RefreshTokenResponse>.Failure(new Error("Auth.TokenAlreadyUsed", "This refresh token has already been used"));
+        }
 
         // Generate new access token
         var accessToken = await _tokenService.GenerateAccessTokenAsync(user, cancellationToken);

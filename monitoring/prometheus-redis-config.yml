@@ -1,0 +1,117 @@
+# Prometheus Scrape Configuration for Redis Monitoring
+
+# Add this to your prometheus.yml file
+
+scrape_configs:
+  # Redis Exporter for Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['localhost:9121']
+        labels:
+          service: 'eshop-redis'
+          environment: 'production'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+
+  # Identity API metrics (includes brute-force protection metrics)
+  - job_name: 'identity-api'
+    static_configs:
+      - targets: ['localhost:7001']
+        labels:
+          service: 'eshop-identity'
+          environment: 'production'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+
+# Alert Rules for Redis and Brute-Force Protection
+# Add this to your alert.rules.yml or create a new file
+
+groups:
+  - name: redis_alerts
+    interval: 30s
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance {{ $labels.instance }} has been down for more than 1 minute."
+
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis instance {{ $labels.instance }} is using {{ $value | humanizePercentage }} of max memory."
+
+      - alert: RedisTooManyConnections
+        expr: redis_connected_clients > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis has too many connections"
+          description: "Redis instance {{ $labels.instance }} has {{ $value }} connected clients."
+
+      - alert: RedisSlowCommands
+        expr: rate(redis_slowlog_length[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis has slow commands"
+          description: "Redis instance {{ $labels.instance }} is experiencing slow commands."
+
+  - name: identity_security_alerts
+    interval: 30s
+    rules:
+      - alert: DistributedBruteForceAttack
+        expr: rate(identity_distributed_attacks_detected_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Distributed brute-force attack detected"
+          description: "Identity service is detecting distributed brute-force attacks ({{ $value }} attacks/sec over 5 minutes)."
+
+      - alert: HighAccountLockoutRate
+        expr: rate(identity_bruteforce_attempts_total{event_type="account_locked"}[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High account lockout rate"
+          description: "Identity service has a high rate of account lockouts ({{ $value }} lockouts/sec over 5 minutes)."
+
+      - alert: HighIpBlockRate
+        expr: rate(identity_bruteforce_attempts_total{event_type="ip_blocked"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High IP block rate"
+          description: "Identity service is blocking IPs at a high rate ({{ $value }} blocks/sec over 5 minutes). Possible DDoS."
+
+      - alert: HighLoginFailureRate
+        expr: rate(identity_login_attempts_total{status="failure"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "High login failure rate"
+          description: "Identity service has a high login failure rate ({{ $value }} failures/sec over 5 minutes)."
+
+      - alert: ManyActiveAccountLocks
+        expr: identity_account_locks_active > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Many active account locks"
+          description: "Identity service has {{ $value }} active account locks. Possible coordinated attack."
