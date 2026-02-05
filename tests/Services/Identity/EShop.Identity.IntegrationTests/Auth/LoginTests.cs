@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.Identity.IntegrationTests.Helpers;
 using EShop.Identity.IntegrationTests.Models;
 using FluentAssertions;
 
@@ -9,6 +10,7 @@ namespace EShop.Identity.IntegrationTests.Auth;
 /// Integration tests for User Login endpoint
 /// </summary>
 [TestFixture]
+[Category("Integration")]
 public class LoginTests : IntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
@@ -19,8 +21,8 @@ public class LoginTests : IntegrationTestBase
         // Arrange
         var request = new LoginRequest
         {
-            Email = "admin@test.com",
-            Password = "Admin@123456"
+            Email = TestUsers.Admin.Email,
+            Password = TestUsers.Admin.Password
         };
 
         // Act
@@ -28,7 +30,7 @@ public class LoginTests : IntegrationTestBase
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        
+
         var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
         result.Should().NotBeNull();
         result!.AccessToken.Should().NotBeNullOrEmpty();
@@ -37,8 +39,10 @@ public class LoginTests : IntegrationTestBase
         result.TokenType.Should().Be("Bearer");
         result.Requires2FA.Should().BeFalse();
         result.User.Should().NotBeNull();
-        result.User!.Email.Should().Be("admin@test.com");
-        result.User.Roles.Should().Contain("Admin");
+        result.User!.Email.Should().Be(TestUsers.Admin.Email);
+        result.User.FirstName.Should().Be(TestUsers.Admin.FirstName);
+        result.User.LastName.Should().Be(TestUsers.Admin.LastName);
+        result.User.Roles.Should().Contain(TestUsers.Roles.Admin);
     }
 
     [Test]
@@ -47,8 +51,8 @@ public class LoginTests : IntegrationTestBase
         // Arrange
         var request = new LoginRequest
         {
-            Email = "user@test.com",
-            Password = "User@123456"
+            Email = TestUsers.RegularUser.Email,
+            Password = TestUsers.RegularUser.Password
         };
 
         // Act
@@ -56,12 +60,12 @@ public class LoginTests : IntegrationTestBase
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        
+
         var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
         result.Should().NotBeNull();
         result!.User.Should().NotBeNull();
-        result.User!.Roles.Should().Contain("User");
-        result.User.Roles.Should().NotContain("Admin");
+        result.User!.Roles.Should().Contain(TestUsers.Roles.User);
+        result.User.Roles.Should().NotContain(TestUsers.Roles.Admin);
     }
 
     [Test]
@@ -70,7 +74,7 @@ public class LoginTests : IntegrationTestBase
         // Arrange
         var request = new LoginRequest
         {
-            Email = "admin@test.com",
+            Email = TestUsers.Admin.Email,
             Password = "WrongPassword@123"
         };
 
@@ -79,7 +83,7 @@ public class LoginTests : IntegrationTestBase
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        
+
         var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
         error.Should().NotBeNull();
         error!.error.Should().Be("Auth.InvalidCredentials");

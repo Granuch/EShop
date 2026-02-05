@@ -1,6 +1,9 @@
-using System.Diagnostics;
+using EShop.BuildingBlocks.Domain;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using System.Collections;
+using System.Diagnostics;
+using System.Reflection;
 
 namespace EShop.BuildingBlocks.Application.Behaviors;
 
@@ -18,23 +21,24 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     }
 
     public async Task<TResponse> Handle(
-        TRequest request, 
-        RequestHandlerDelegate<TResponse> next, 
+        TRequest request,
+        RequestHandlerDelegate<TResponse> next,
         CancellationToken cancellationToken)
     {
-        var requestName = typeof(TRequest).Name;
         var requestId = Guid.NewGuid().ToString()[..8];
+        var requestName = typeof(TRequest).Name;
+
+        var safeRequest = SafeLog(request);
 
         _logger.LogInformation(
             "[{RequestId}] Handling {RequestName} {@Request}",
-            requestId, requestName, request);
+            requestId, requestName, safeRequest);
 
         var stopwatch = Stopwatch.StartNew();
 
         try
         {
             var response = await next();
-
             stopwatch.Stop();
 
             if (stopwatch.ElapsedMilliseconds > 500)
@@ -55,12 +59,54 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
         catch (Exception ex)
         {
             stopwatch.Stop();
-
             _logger.LogError(ex,
                 "[{RequestId}] Request {RequestName} failed after {ElapsedMilliseconds}ms with error: {ErrorMessage}",
                 requestId, requestName, stopwatch.ElapsedMilliseconds, ex.Message);
-
             throw;
         }
     }
+
+    private static object SafeLog(object obj)
+    {
+        if (obj == null) return null;
+
+        if (obj is ISafeLoggable loggable)
+            return loggable.ToSafeLog();
+
+        var type = obj.GetType();
+
+        if (type.IsPrimitive || obj is string || obj is decimal || obj is DateTime)
+            return obj;
+
+        if (obj is SecretString)
+            return "****";
+
+        if (obj is IEnumerable enumerable)
+            return enumerable.Cast<object>().Select(SafeLog).ToList();
+
+        var dict = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .ToDictionary(
+                prop => prop.Name,
+                prop =>
+                {
+                    var isSensitive = prop.GetCustomAttribute<SensitiveDataAttribute>() != null;
+                    var value = prop.GetValue(obj);
+                    return isSensitive ? "****" : SafeLog(value);
+                });
+
+        return dict;
+    }
+}
+
+public interface ISafeLoggable
+{
+    object ToSafeLog();
+}
+
+public readonly struct SecretString
+{
+    private readonly string _value;
+    public SecretString(string value) => _value = value;
+    public override string ToString() => "****";
+    public string GetValue() => _value;
 }

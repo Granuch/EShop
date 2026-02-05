@@ -1,0 +1,57 @@
+# Prometheus Configuration for EShop Identity Service
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'eshop-identity'
+    environment: 'production'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - alertmanager:9093
+
+# Load rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Identity API - Instance 1
+  - job_name: 'identity-api-1'
+    static_configs:
+      - targets: ['identity-api:8080']
+        labels:
+          service: 'identity-api'
+          instance: '1'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Identity API - Instance 2 (if enabled)
+  - job_name: 'identity-api-2'
+    static_configs:
+      - targets: ['identity-api-2:8080']
+        labels:
+          service: 'identity-api'
+          instance: '2'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+    scrape_interval: 15s
+    scrape_timeout: 10s

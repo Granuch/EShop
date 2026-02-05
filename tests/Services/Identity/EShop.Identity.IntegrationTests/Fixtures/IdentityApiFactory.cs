@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Extensions;
@@ -19,10 +20,14 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName;
     private bool _databaseSeeded = false;
+    private readonly bool _useSharedDatabase;
 
-    public IdentityApiFactory()
+    public IdentityApiFactory(bool useSharedDatabase = false)
     {
-        _databaseName = $"IdentityTestDb_{Guid.NewGuid()}";
+        _useSharedDatabase = useSharedDatabase;
+        _databaseName = useSharedDatabase 
+            ? "SharedIdentityTestDb" 
+            : $"IdentityTestDb_{Guid.NewGuid()}";
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -31,10 +36,11 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
-            // Remove existing DbContext registrations
+            // Remove existing DbContext and IUnitOfWork registrations
             var descriptorsToRemove = services
                 .Where(d => d.ServiceType == typeof(DbContextOptions<IdentityDbContext>) ||
-                            d.ServiceType == typeof(IdentityDbContext))
+                            d.ServiceType == typeof(IdentityDbContext) ||
+                            d.ServiceType == typeof(IUnitOfWork))
                 .ToList();
             foreach (var descriptor in descriptorsToRemove)
             {
@@ -46,7 +52,21 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
             {
                 options.UseInMemoryDatabase(_databaseName);
             });
+
+            // Re-register IUnitOfWork with the new DbContext
+            services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
+
+            // Allow derived classes to configure additional services
+            ConfigureTestServices(services);
         });
+    }
+
+    /// <summary>
+    /// Override this method in derived factories to add test-specific service configurations
+    /// </summary>
+    protected virtual void ConfigureTestServices(IServiceCollection services)
+    {
+        // Default implementation does nothing
     }
 
     public async Task InitializeDatabaseAsync()
