@@ -7,13 +7,17 @@ using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace EShop.Identity.Infrastructure.Services;
 
 /// <summary>
-/// Service for JWT token generation and validation
+/// Service for JWT token generation and validation.
+/// Uses Redis caching for:
+/// - User roles (via ICachedUserRolesService)
+/// - Revoked token tracking (via IRevokedTokenCache)
 /// </summary>
 public class TokenService : ITokenService
 {
@@ -21,17 +25,26 @@ public class TokenService : ITokenService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICachedUserRolesService? _cachedUserRolesService;
+    private readonly IRevokedTokenCache? _revokedTokenCache;
+    private readonly ILogger<TokenService>? _logger;
 
     public TokenService(
         IOptions<JwtSettings> jwtSettings, 
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICachedUserRolesService? cachedUserRolesService = null,
+        IRevokedTokenCache? revokedTokenCache = null,
+        ILogger<TokenService>? logger = null)
     {
         _jwtSettings = jwtSettings.Value;
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
         _unitOfWork = unitOfWork;
+        _cachedUserRolesService = cachedUserRolesService;
+        _revokedTokenCache = revokedTokenCache;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -39,7 +52,16 @@ public class TokenService : ITokenService
 
     public async Task<string> GenerateAccessTokenAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
-        var roles = await _userManager.GetRolesAsync(user);
+        // Use cached roles service if available, otherwise fallback to UserManager
+        IList<string> roles;
+        if (_cachedUserRolesService != null)
+        {
+            roles = await _cachedUserRolesService.GetRolesAsync(user, cancellationToken);
+        }
+        else
+        {
+            roles = await _userManager.GetRolesAsync(user);
+        }
 
         var claims = new List<Claim>
         {
@@ -137,15 +159,35 @@ public class TokenService : ITokenService
 
             await _refreshTokenRepository.UpdateAsync(refreshToken, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Add to revoked token cache for faster validation
+            if (_revokedTokenCache != null)
+            {
+                await _revokedTokenCache.AddRevokedTokenAsync(token, refreshToken.ExpiresAt, cancellationToken);
+            }
+
+            _logger?.LogInformation("Refresh token revoked and added to cache. UserId={UserId}", refreshToken.UserId);
         }
     }
 
     /// <summary>
-    /// Validates refresh token and returns associated user
+    /// Validates refresh token and returns associated user.
+    /// Uses revoked token cache for faster validation.
     /// </summary>
     public async Task<(bool IsValid, ApplicationUser? User, RefreshTokenEntity? Token)> ValidateRefreshTokenAsync(
         string token, CancellationToken cancellationToken = default)
     {
+        // Check revoked token cache first for faster validation
+        if (_revokedTokenCache != null)
+        {
+            var isRevoked = await _revokedTokenCache.IsTokenRevokedAsync(token, cancellationToken);
+            if (isRevoked == true)
+            {
+                _logger?.LogDebug("Token found in revoked cache, rejecting without DB lookup");
+                return (false, null, null);
+            }
+        }
+
         var refreshToken = await _refreshTokenRepository.GetByTokenAsync(token, cancellationToken);
         
         if (refreshToken == null)

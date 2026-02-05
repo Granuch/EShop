@@ -94,6 +94,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<ITokenCleanupService, TokenCleanupService>();
 
+        // Add cached services for performance optimization
+        services.AddScoped<ICachedUserRolesService, CachedUserRolesService>();
+        services.AddSingleton<IRevokedTokenCache, RevokedTokenCache>();
+
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 

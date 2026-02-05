@@ -1,9 +1,11 @@
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using MediatR;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Reflection;
 
 namespace EShop.BuildingBlocks.Infrastructure.Behaviors;
 
@@ -17,11 +19,17 @@ namespace EShop.BuildingBlocks.Infrastructure.Behaviors;
 /// - Cache stampede prevention via locking
 /// - Versioned cache keys for easy invalidation
 /// - Safe serialization with proper error handling
+/// - Smart Result<T> unwrapping: caches only payload, not the wrapper
 /// 
 /// Usage:
 /// 1. Implement ICacheableQuery on your query class
 /// 2. Define the CacheKey property with query parameters
 /// 3. Optionally set CacheDuration and SlidingExpiration
+/// 
+/// Result<T> Support:
+/// - If TResponse is Result<T>, only the payload (T) is cached
+/// - On cache hit: returns Result<T>.Success(cachedPayload)
+/// - On failure: Result<T>.Failure(...) is NOT cached
 /// </summary>
 public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
@@ -54,18 +62,40 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
         var cacheKey = BuildCacheKey(cacheableQuery);
         var requestName = typeof(TRequest).Name;
 
+        // Check if TResponse is Result<T>
+        var isResultType = IsResultType(typeof(TResponse), out var payloadType);
+
         try
         {
             // Try to get from cache first
-            var cachedResponse = await _cache.GetAsync<TResponse>(cacheKey, cancellationToken);
-            
-            if (cachedResponse != null)
+            if (isResultType && payloadType != null)
             {
-                _logger.LogDebug(
-                    "Cache hit for {RequestName} with key {CacheKey}",
-                    requestName, cacheKey);
-                
-                return cachedResponse;
+                // TResponse is Result<T>, cache only the payload (T)
+                var cachedPayload = await GetCachedPayloadAsync(cacheKey, payloadType, cancellationToken);
+                if (cachedPayload != null)
+                {
+                    _logger.LogDebug(
+                        "Cache hit for {RequestName} with key {CacheKey}. Wrapping payload in Result<T>",
+                        requestName, cacheKey);
+
+                    // Wrap payload in Result<T>.Success()
+                    var resultResponse = CreateSuccessResult(payloadType, cachedPayload);
+                    return (TResponse)resultResponse!;
+                }
+            }
+            else
+            {
+                // TResponse is NOT Result<T>, cache the whole response
+                var cachedResponse = await _cache.GetAsync<TResponse>(cacheKey, cancellationToken);
+
+                if (cachedResponse != null)
+                {
+                    _logger.LogDebug(
+                        "Cache hit for {RequestName} with key {CacheKey}",
+                        requestName, cacheKey);
+
+                    return cachedResponse;
+                }
             }
 
             _logger.LogDebug(
@@ -91,16 +121,50 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
                 var duration = cacheableQuery.CacheDuration ?? _options.DefaultDuration;
                 var sliding = cacheableQuery.SlidingExpiration;
 
-                await _cache.SetAsync(
-                    cacheKey,
-                    response,
-                    absoluteExpiration: duration,
-                    slidingExpiration: sliding,
-                    cancellationToken: cancellationToken);
+                if (isResultType && payloadType != null)
+                {
+                    // TResponse is Result<T>
+                    // Only cache if Result.IsSuccess == true
+                    var isSuccess = GetIsSuccessProperty(response);
+                    if (isSuccess)
+                    {
+                        var payload = GetValueProperty(response, payloadType);
+                        if (payload != null)
+                        {
+                            await SetCachedPayloadAsync(
+                                cacheKey,
+                                payload,
+                                payloadType,
+                                duration,
+                                sliding,
+                                cancellationToken);
 
-                _logger.LogDebug(
-                    "Cached response for {RequestName} with key {CacheKey}. Duration: {Duration}",
-                    requestName, cacheKey, duration);
+                            _logger.LogDebug(
+                                "Cached Result<T> payload for {RequestName} with key {CacheKey}. Duration: {Duration}",
+                                requestName, cacheKey, duration);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug(
+                            "Skipping cache for {RequestName} with key {CacheKey} because Result.IsSuccess = false",
+                            requestName, cacheKey);
+                    }
+                }
+                else
+                {
+                    // TResponse is NOT Result<T>, cache the whole response
+                    await _cache.SetAsync(
+                        cacheKey,
+                        response,
+                        absoluteExpiration: duration,
+                        slidingExpiration: sliding,
+                        cancellationToken: cancellationToken);
+
+                    _logger.LogDebug(
+                        "Cached response for {RequestName} with key {CacheKey}. Duration: {Duration}",
+                        requestName, cacheKey, duration);
+                }
             }
             catch (Exception ex)
             {
@@ -117,13 +181,97 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     private string BuildCacheKey(ICacheableQuery query)
     {
         var baseKey = query.CacheKey;
-        
+
         if (_options.UseVersioning)
         {
             return $"{_options.KeyPrefix}{_options.Version}:{baseKey}";
         }
 
         return $"{_options.KeyPrefix}{baseKey}";
+    }
+
+    /// <summary>
+    /// Checks if type is Result<T> and extracts T
+    /// </summary>
+    private static bool IsResultType(Type type, out Type? payloadType)
+    {
+        payloadType = null;
+
+        if (!type.IsGenericType)
+            return false;
+
+        var genericTypeDef = type.GetGenericTypeDefinition();
+        if (genericTypeDef != typeof(Result<>))
+            return false;
+
+        payloadType = type.GetGenericArguments()[0];
+        return true;
+    }
+
+    /// <summary>
+    /// Gets payload from cache (using reflection to handle generic T)
+    /// </summary>
+    private async Task<object?> GetCachedPayloadAsync(string cacheKey, Type payloadType, CancellationToken cancellationToken)
+    {
+        // Call: await _cache.GetAsync<T>(cacheKey, cancellationToken)
+        var method = typeof(Caching.DistributedCacheExtensions)
+            .GetMethod(nameof(Caching.DistributedCacheExtensions.GetAsync), BindingFlags.Public | BindingFlags.Static)!
+            .MakeGenericMethod(payloadType);
+
+        var task = (Task)method.Invoke(null, new object[] { _cache, cacheKey, cancellationToken })!;
+        await task.ConfigureAwait(false);
+
+        var resultProperty = task.GetType().GetProperty("Result")!;
+        return resultProperty.GetValue(task);
+    }
+
+    /// <summary>
+    /// Sets payload to cache (using reflection to handle generic T)
+    /// </summary>
+    private async Task SetCachedPayloadAsync(
+        string cacheKey,
+        object payload,
+        Type payloadType,
+        TimeSpan duration,
+        TimeSpan? sliding,
+        CancellationToken cancellationToken)
+    {
+        // Call: await _cache.SetAsync<T>(cacheKey, payload, duration, sliding, cancellationToken)
+        var method = typeof(Caching.DistributedCacheExtensions)
+            .GetMethod(nameof(Caching.DistributedCacheExtensions.SetAsync), BindingFlags.Public | BindingFlags.Static)!
+            .MakeGenericMethod(payloadType);
+
+        var task = (Task)method.Invoke(null, new object?[] { _cache, cacheKey, payload, duration, sliding, cancellationToken })!;
+        await task.ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Creates Result<T>.Success(payload) using reflection
+    /// </summary>
+    private static object? CreateSuccessResult(Type payloadType, object payload)
+    {
+        // Call: Result<T>.Success(payload)
+        var resultType = typeof(Result<>).MakeGenericType(payloadType);
+        var successMethod = resultType.GetMethod("Success", BindingFlags.Public | BindingFlags.Static)!;
+        return successMethod.Invoke(null, new[] { payload });
+    }
+
+    /// <summary>
+    /// Gets Result<T>.IsSuccess property value
+    /// </summary>
+    private static bool GetIsSuccessProperty(object result)
+    {
+        var isSuccessProperty = result.GetType().GetProperty("IsSuccess")!;
+        return (bool)isSuccessProperty.GetValue(result)!;
+    }
+
+    /// <summary>
+    /// Gets Result<T>.Value property value
+    /// </summary>
+    private static object? GetValueProperty(object result, Type payloadType)
+    {
+        var valueProperty = result.GetType().GetProperty("Value")!;
+        return valueProperty.GetValue(result);
     }
 }
 

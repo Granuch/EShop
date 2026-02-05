@@ -108,11 +108,12 @@ public static class DistributedCacheExtensions
         {
             keyLock.Release();
 
-            // Clean up the lock if no one is waiting
-            if (keyLock.CurrentCount == 1)
-            {
-                Locks.TryRemove(key, out _);
-            }
+            // Note: We intentionally do NOT remove the lock from the dictionary.
+            // Removing creates a race condition where a new caller could create a new lock
+            // while another caller is still using the old one.
+            // The memory overhead of keeping locks is minimal (one SemaphoreSlim per unique key).
+            // For production systems with many unique keys, consider using a bounded LRU cache
+            // or allowing periodic cleanup during low-traffic periods.
         }
     }
 
