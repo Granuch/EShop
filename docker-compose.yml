@@ -241,7 +241,32 @@ services:
       - sandbox
 
   # ============================================
-  # Redis Commander (Web UI for Redis)
+  # RedisInsight - Modern Redis GUI (recommended)
+  # ============================================
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: eshop-redis-insight
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # RedisInsight configuration
+      REDISINSIGHT_HOST: 0.0.0.0
+      REDISINSIGHT_PORT: 5540
+    ports:
+      - "${REDIS_INSIGHT_PORT:-8001}:5540"
+    volumes:
+      - redis-insight-data:/data
+    networks:
+      - eshop-network
+    profiles:
+      - development
+      - monitoring
+      - sandbox
+
+  # ============================================
+  # Redis Commander (Web UI for Redis - alternative)
   # ============================================
   redis-commander:
     image: rediscommander/redis-commander:latest
@@ -350,6 +375,8 @@ volumes:
     name: eshop-postgres-data
   redis-data:
     name: eshop-redis-data
+  redis-insight-data:
+    name: eshop-redis-insight-data
   identity-logs:
     name: eshop-identity-logs
   identity-logs-2:
