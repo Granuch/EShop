@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MediatR;
 using EShop.Identity.Application.Auth.Commands.Register;
 using EShop.Identity.Application.Auth.Commands.Login;
@@ -15,6 +16,7 @@ namespace EShop.Identity.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/[controller]")]
+[EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -48,6 +50,7 @@ public class AuthController : ControllerBase
     /// Login user and get tokens
     /// </summary>
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -150,6 +153,7 @@ public class AuthController : ControllerBase
     /// Request password reset
     /// </summary>
     [HttpPost("forgot-password")]
+    [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ForgotPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request)
@@ -171,6 +175,7 @@ public class AuthController : ControllerBase
     /// Reset password with token
     /// </summary>
     [HttpPost("reset-password")]
+    [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ResetPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ResetPasswordRequest request)

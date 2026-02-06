@@ -75,6 +75,9 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
             entity.Property(t => t.ReplacedByToken).HasMaxLength(500);
             entity.Property(t => t.RevokeReason).HasMaxLength(250);
 
+            // Optimistic concurrency token for token rotation race condition protection
+            entity.Property(t => t.Version).IsRowVersion();
+
             entity.HasIndex(t => t.Token).IsUnique();
             entity.HasIndex(t => t.UserId);
             entity.HasIndex(t => new { t.UserId, t.ExpiresAt });
