@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Identity.Application.Auth.Commands.ResetPassword;
 
@@ -9,7 +10,9 @@ namespace EShop.Identity.Application.Auth.Commands.ResetPassword;
 public record ResetPasswordCommand : IRequest<Result<ResetPasswordResponse>>
 {
     public string UserId { get; init; } = string.Empty;
+    [SensitiveData]
     public string Token { get; init; } = string.Empty;
+    [SensitiveData]
     public string NewPassword { get; init; } = string.Empty;
 }
 

@@ -12,8 +12,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Threading.RateLimiting;
+using System.Net;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
@@ -45,6 +47,33 @@ try
         .Enrich.WithMachineName()
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Identity.API"));
+
+    var forwardedProxies = builder.Configuration
+        .GetSection("ForwardedHeaders:KnownProxies")
+        .Get<string[]>() ?? [];
+
+    if (forwardedProxies.Length > 0)
+    {
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.ForwardLimit = 1;
+            options.KnownNetworks.Clear();
+            options.KnownProxies.Clear();
+
+            foreach (var proxy in forwardedProxies)
+            {
+                if (IPAddress.TryParse(proxy, out var ipAddress))
+                {
+                    options.KnownProxies.Add(ipAddress);
+                }
+            }
+        });
+    }
+    else
+    {
+        Log.Warning("Forwarded headers are not configured with known proxies. X-Forwarded-For will be ignored.");
+    }
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
@@ -304,6 +333,11 @@ try
 
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
+
+    if (forwardedProxies.Length > 0)
+    {
+        app.UseForwardedHeaders();
+    }
 
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time

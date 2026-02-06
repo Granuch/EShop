@@ -62,14 +62,12 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
-            var error = result.Error!;
-            return error.Code switch
+            if (result.Error?.Code == "Validation.Failed")
             {
-                "Auth.InvalidCredentials" => Unauthorized(new { error = error.Code, message = error.Message }),
-                "Auth.AccountLocked" => StatusCode(StatusCodes.Status423Locked, new { error = error.Code, message = error.Message }),
-                "Auth.AccountDisabled" => BadRequest(new { error = error.Code, message = error.Message }),
-                _ => BadRequest(new { error = error.Code, message = error.Message })
-            };
+                return BadRequest(new { error = result.Error.Code, message = result.Error.Message });
+            }
+
+            return Unauthorized(new { error = "Auth.InvalidCredentials", message = "Invalid email or password" });
         }
 
         return Ok(result.Value);
@@ -199,12 +197,6 @@ public class AuthController : ControllerBase
 
     private string? GetClientIpAddress()
     {
-        var forwardedFor = Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            return forwardedFor.Split(',').First().Trim();
-        }
-        
         return HttpContext.Connection.RemoteIpAddress?.ToString();
     }
 }
