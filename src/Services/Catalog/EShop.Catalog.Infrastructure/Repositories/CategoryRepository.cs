@@ -32,4 +32,27 @@ public class CategoryRepository : ICategoryRepository
         await _context.Categories.AddAsync(category, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
     }
+    
+    public async Task DeleteAsync(Category category, CancellationToken cancellationToken = default)
+    {
+        _context.Categories.Remove(category);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateAsync(Category category, CancellationToken cancellationToken = default)
+    {
+        _context.Categories.Update(category);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+    
+    public async Task<List<Category>> GetRootCategories(CancellationToken ct = default)
+    {
+        return await _context.Categories
+            .Where(c => c.ParentCategoryId == null)
+            .Include(c => c.ChildCategories)
+            .ThenInclude(c => c.ChildCategories) // load next level (can repeat)
+            .Include(c => c.Products)
+            .AsNoTracking()
+            .ToListAsync(ct);
+    }
 }

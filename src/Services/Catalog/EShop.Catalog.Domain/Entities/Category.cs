@@ -57,6 +57,12 @@ public class Category : Entity<Guid>
         _childCategories.Add(juniorCategory);
     }
 
+    public void UpdateCategory(string name, string description)
+    {
+        Name = name;
+        Description = description;
+    }
+
     public static string GenerateSlug(string name)
     {
         var slug = name.ToLowerInvariant();
