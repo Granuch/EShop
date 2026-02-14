@@ -7,10 +7,10 @@ namespace EShop.Catalog.Domain.Interfaces;
 /// </summary>
 public interface IProductRepository
 {
-    // TODO: Implement query methods
+    // Query methods
     Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Product?> GetBySkuAsync(string sku, CancellationToken cancellationToken = default);
-    Task<IEnumerable<Product>> GetByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default);
+    Task<IEnumerable<Product?>> GetByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default);
     
     // TODO: Implement search and filtering
     Task<IEnumerable<Product>> SearchAsync(string searchTerm, CancellationToken cancellationToken = default);
@@ -22,5 +22,6 @@ public interface IProductRepository
     Task AddAsync(Product product, CancellationToken cancellationToken = default);
     Task UpdateAsync(Product product, CancellationToken cancellationToken = default);
     Task DeleteAsync(Product product, CancellationToken cancellationToken = default);
-    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    //Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    public IQueryable<Product> Query();
 }

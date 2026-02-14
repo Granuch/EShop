@@ -1,3 +1,5 @@
+using EShop.Catalog.Domain.Entities;
+
 namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 
 /// <summary>
@@ -12,8 +14,8 @@ public record ProductDto
     public decimal Price { get; init; }
     public decimal? DiscountPrice { get; init; }
     public int StockQuantity { get; init; }
-    public string Status { get; init; } = string.Empty;
-    public string CategoryName { get; init; } = string.Empty;
+    public ProductStatus Status { get; init; }
+    public Guid CategoryId  { get; init; }
     public string? MainImageUrl { get; init; }
     public DateTime CreatedAt { get; init; }
 }

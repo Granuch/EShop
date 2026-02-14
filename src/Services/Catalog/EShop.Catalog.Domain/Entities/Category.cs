@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Catalog.Domain.Entities;
@@ -22,11 +23,63 @@ public class Category : Entity<Guid>
     public IReadOnlyCollection<Product> Products => _products.AsReadOnly();
 
     private Category() { }
+    
+    public static Category Create(string name, string? slug, Guid? parentCategoryId)
+    {
+        if(string.IsNullOrWhiteSpace(name))
+            throw new ArgumentNullException(nameof(name));
+        
+        var finalSlug = (slug ?? GenerateSlug(name)).Trim();
+        
+        var newCategory = new Category
+        {
+            Name = name.Trim(),
+            Slug = finalSlug,
+            ParentCategoryId = parentCategoryId
+        };
 
-    // TODO: Implement factory method Create()
-    // public static Category Create(string name, string slug, Guid? parentCategoryId)
+        return newCategory;
+    }
+    
+    // It creates new category might change later
+    public void AddChildCategory(string name, string? slug = null)
+    {
+        if (!IsActive)
+            throw new Exception("Cannot add a child to a deleted category.");
 
-    // TODO: Implement AddChildCategory()
-    // TODO: Implement slug generation from name
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Child category name cannot be empty.");
+
+        string newSlug = (slug ?? GenerateSlug(name)).Trim();
+        
+        var juniorCategory = Category.Create(name, newSlug, Id);
+        
+        _childCategories.Add(juniorCategory);
+    }
+
+    public void UpdateCategory(string name, string description)
+    {
+        Name = name;
+        Description = description;
+    }
+
+    public static string GenerateSlug(string name)
+    {
+        var slug = name.ToLowerInvariant();
+        slug = Regex.Replace(slug, @"[^a-z0-9\s-]", ""); // remove invalid chars
+        slug = Regex.Replace(slug, @"\s+", "-"); // replace spaces with dash
+        slug = Regex.Replace(slug, @"-+", "-"); // remove multiple dashes
+        return slug;
+    }
     // TODO: Add validation to prevent circular parent-child relationships
+    private bool IsAncestorOf(Guid categoryId)
+    {
+        if (ParentCategoryId == null)
+            return false;
+
+        if (ParentCategoryId == categoryId)
+            return true;
+
+        return ParentCategory?.IsAncestorOf(categoryId) ?? false;
+    }
 }
