@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Identity.Application.Auth.Commands.Login;
 
@@ -9,6 +10,8 @@ namespace EShop.Identity.Application.Auth.Commands.Login;
 public record LoginCommand : IRequest<Result<LoginResponse>>
 {
     public string Email { get; init; } = string.Empty;
+
+    [SensitiveData]
     public string Password { get; init; } = string.Empty;
     public string? TwoFactorCode { get; init; }
     public string? IpAddress { get; init; }

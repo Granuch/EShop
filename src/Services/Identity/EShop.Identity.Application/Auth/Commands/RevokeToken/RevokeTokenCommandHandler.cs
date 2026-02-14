@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace EShop.Identity.Application.Auth.Commands.RevokeToken;
@@ -33,7 +34,8 @@ public class RevokeTokenCommandHandler : IRequestHandler<RevokeTokenCommand, Res
             request.IpAddress ?? "unknown", 
             cancellationToken);
 
-        _logger.LogInformation("Token revoked successfully");
+        _logger.LogInformation("Token revoked successfully. IP={IpAddress}", request.IpAddress);
+        IdentityTelemetry.RecordTokenRevocation();
 
         return Result<bool>.Success(true);
     }

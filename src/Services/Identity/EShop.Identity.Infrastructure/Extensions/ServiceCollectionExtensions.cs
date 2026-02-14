@@ -1,13 +1,22 @@
+using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
+using EShop.Identity.Infrastructure.Security;
+using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace EShop.Identity.Infrastructure.Extensions;
 
@@ -18,11 +27,30 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddIdentityInfrastructure(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        bool useInMemoryDatabase = false,
+        string? inMemoryDatabaseName = null)
     {
+        // Add ICurrentUserContext for audit field population
+        services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+
+        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
+
         // Add DbContext
-        services.AddDbContext<IdentityDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("IdentityDb")));
+        if (useInMemoryDatabase)
+        {
+            var dbName = inMemoryDatabaseName ?? $"IdentityTestDb_{Guid.NewGuid()}";
+            services.AddDbContext<IdentityDbContext>(options =>
+                options.UseInMemoryDatabase(dbName));
+        }
+        else
+        {
+            services.AddDbContext<IdentityDbContext>(options =>
+                options.UseNpgsql(configuration.GetConnectionString("IdentityDb")));
+        }
 
         // Add ASP.NET Core Identity
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
@@ -51,12 +79,27 @@ public static class ServiceCollectionExtensions
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
 
+        // Configure brute-force protection settings
+        services.Configure<BruteForceProtectionSettings>(
+            configuration.GetSection(BruteForceProtectionSettings.SectionName));
+
         // Add repositories
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
 
+        // Register IUnitOfWork (implemented by IdentityDbContext)
+        services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
+
         // Add services
         services.AddScoped<ITokenService, TokenService>();
+        services.AddScoped<ITokenCleanupService, TokenCleanupService>();
+
+        // Add cached services for performance optimization
+        services.AddScoped<ICachedUserRolesService, CachedUserRolesService>();
+        services.AddSingleton<IRevokedTokenCache, RevokedTokenCache>();
+
+        // Add security services
+        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
         return services;
     }

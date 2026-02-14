@@ -9,13 +9,18 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="FluentAssertions" Version="8.3.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="NUnit" Version="4.3.2" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
     <PackageReference Include="NUnit.Analyzers" Version="4.6.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.4.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +29,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.API\EShop.Identity.API.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Application\EShop.Identity.Application.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Infrastructure\EShop.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Domain\EShop.Identity.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Caching\" />
   </ItemGroup>
 
 </Project>

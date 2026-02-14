@@ -1,5 +1,6 @@
 using EShop.Identity.Application.Auth.Commands.ConfirmEmail;
 using EShop.Identity.Domain.Entities;
+using MediatR;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -10,6 +11,7 @@ namespace EShop.Identity.UnitTests.Auth;
 public class ConfirmEmailCommandHandlerTests
 {
     private Mock<UserManager<ApplicationUser>> _userManagerMock = null!;
+    private Mock<IMediator> _mediatorMock = null!;
     private Mock<ILogger<ConfirmEmailCommandHandler>> _loggerMock = null!;
     private ConfirmEmailCommandHandler _handler = null!;
 
@@ -17,8 +19,9 @@ public class ConfirmEmailCommandHandlerTests
     public void SetUp()
     {
         _userManagerMock = MockUserManager();
+        _mediatorMock = new Mock<IMediator>();
         _loggerMock = new Mock<ILogger<ConfirmEmailCommandHandler>>();
-        _handler = new ConfirmEmailCommandHandler(_userManagerMock.Object, _loggerMock.Object);
+        _handler = new ConfirmEmailCommandHandler(_userManagerMock.Object, _mediatorMock.Object, _loggerMock.Object);
     }
 
     [Test]
@@ -26,7 +29,7 @@ public class ConfirmEmailCommandHandlerTests
     {
         // Arrange
         var command = new ConfirmEmailCommand { UserId = "non-existent", Token = "token" };
-        
+
         _userManagerMock.Setup(x => x.FindByIdAsync(It.IsAny<string>()))
             .ReturnsAsync((ApplicationUser?)null);
 
@@ -44,7 +47,7 @@ public class ConfirmEmailCommandHandlerTests
         // Arrange
         var command = new ConfirmEmailCommand { UserId = "1", Token = "token" };
         var user = new ApplicationUser { Id = "1", EmailConfirmed = true };
-        
+
         _userManagerMock.Setup(x => x.FindByIdAsync(It.IsAny<string>()))
             .ReturnsAsync(user);
 
@@ -62,7 +65,7 @@ public class ConfirmEmailCommandHandlerTests
         // Arrange
         var command = new ConfirmEmailCommand { UserId = "1", Token = "invalid-token" };
         var user = new ApplicationUser { Id = "1", EmailConfirmed = false };
-        
+
         _userManagerMock.Setup(x => x.FindByIdAsync(It.IsAny<string>()))
             .ReturnsAsync(user);
 
@@ -82,8 +85,8 @@ public class ConfirmEmailCommandHandlerTests
     {
         // Arrange
         var command = new ConfirmEmailCommand { UserId = "1", Token = "valid-token" };
-        var user = new ApplicationUser { Id = "1", EmailConfirmed = false };
-        
+        var user = new ApplicationUser { Id = "1", Email = "test@test.com", EmailConfirmed = false };
+
         _userManagerMock.Setup(x => x.FindByIdAsync(It.IsAny<string>()))
             .ReturnsAsync(user);
 
@@ -96,6 +99,11 @@ public class ConfirmEmailCommandHandlerTests
         // Assert
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value.Success, Is.True);
+
+        // Verify domain event was published
+        _mediatorMock.Verify(m => m.Publish(
+            It.IsAny<EShop.Identity.Domain.Events.UserEmailConfirmedEvent>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static Mock<UserManager<ApplicationUser>> MockUserManager()

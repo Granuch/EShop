@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -31,17 +32,20 @@ public class Enable2FACommandHandler : IRequestHandler<Enable2FACommand, Result<
 
         if (user == null)
         {
+            IdentityTelemetry.Record2FAEnable(false);
             return Result<Enable2FAResponse>.Failure(new Error("Account.UserNotFound", "User not found"));
         }
 
         if (user.TwoFactorEnabled)
         {
+            _logger.LogWarning("2FA enable attempt but already enabled. UserId={UserId}", user.Id);
+            IdentityTelemetry.Record2FAEnable(false);
             return Result<Enable2FAResponse>.Failure(new Error("Account.2FAAlreadyEnabled", "Two-factor authentication is already enabled"));
         }
 
         // Get or generate the authenticator key
         var unformattedKey = await _userManager.GetAuthenticatorKeyAsync(user);
-        
+
         if (string.IsNullOrEmpty(unformattedKey))
         {
             await _userManager.ResetAuthenticatorKeyAsync(user);
@@ -50,17 +54,20 @@ public class Enable2FACommandHandler : IRequestHandler<Enable2FACommand, Result<
 
         if (string.IsNullOrEmpty(unformattedKey))
         {
+            _logger.LogError("Failed to generate authenticator key. UserId={UserId}", user.Id);
+            IdentityTelemetry.Record2FAEnable(false);
             return Result<Enable2FAResponse>.Failure(new Error("Account.2FAError", "Failed to generate authenticator key"));
         }
 
         // Format the key for display
         var sharedKey = FormatKey(unformattedKey);
-        
+
         // Generate QR code URI
         var email = await _userManager.GetEmailAsync(user);
         var qrCodeUri = GenerateQrCodeUri("EShop", email!, unformattedKey);
 
-        _logger.LogInformation("2FA setup initiated for user: {UserId}", user.Id);
+        _logger.LogInformation("2FA setup initiated. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        IdentityTelemetry.Record2FAEnable(true);
 
         return Result<Enable2FAResponse>.Success(new Enable2FAResponse
         {
@@ -74,13 +81,13 @@ public class Enable2FACommandHandler : IRequestHandler<Enable2FACommand, Result<
     {
         var result = new StringBuilder();
         var currentPosition = 0;
-        
+
         while (currentPosition + 4 < unformattedKey.Length)
         {
             result.Append(unformattedKey.AsSpan(currentPosition, 4)).Append(' ');
             currentPosition += 4;
         }
-        
+
         if (currentPosition < unformattedKey.Length)
         {
             result.Append(unformattedKey.AsSpan(currentPosition));

@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Events;
+using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -30,7 +31,8 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         // Always return success to prevent email enumeration attacks
         if (user == null || !user.IsActive || user.IsDeleted)
         {
-            _logger.LogInformation("Password reset requested for non-existent or inactive email: {Email}", request.Email);
+            _logger.LogInformation("Password reset requested for non-existent or inactive email. Email={Email}", request.Email);
+            IdentityTelemetry.RecordForgotPassword();
             return Result<ForgotPasswordResponse>.Success(new ForgotPasswordResponse
             {
                 Success = true,
@@ -45,11 +47,9 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         // Send email with reset link using IEmailService
         // Example:
         // await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id, token);
-        
-        // For now, log the token (remove in production!)
-        _logger.LogWarning("PASSWORD RESET TOKEN (remove in production): UserId={UserId}, Token={Token}", user.Id, token);
 
-        _logger.LogInformation("Password reset requested for user: {UserId}", user.Id);
+        _logger.LogInformation("Password reset token generated. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        IdentityTelemetry.RecordForgotPassword();
 
         return Result<ForgotPasswordResponse>.Success(new ForgotPasswordResponse
         {

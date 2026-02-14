@@ -1,0 +1,24 @@
+# Grafana data sources provisioning
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+
+  # Seq datasource - requires yesoreyeram-infinity-datasource plugin
+  # Uncomment after Grafana starts and plugin is installed
+  # - name: Seq
+  #   type: yesoreyeram-infinity-datasource
+  #   access: proxy
+  #   url: http://seq:80
+  #   editable: false
+  #   jsonData:
+  #     auth_method: "none"
