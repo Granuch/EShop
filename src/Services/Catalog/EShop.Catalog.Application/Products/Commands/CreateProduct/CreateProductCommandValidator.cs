@@ -9,25 +9,21 @@ public class CreateProductCommandValidator : AbstractValidator<CreateProductComm
 {
     public CreateProductCommandValidator()
     {
-        // TODO: Validate product name
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("Product name is required")
-            .MaximumLength(200);
+            .MaximumLength(200).WithMessage("Product name must not exceed 200 characters");
 
-        // TODO: Validate SKU uniqueness and format
         RuleFor(x => x.Sku)
             .NotEmpty().WithMessage("SKU is required")
-            .MaximumLength(50);
+            .MaximumLength(50).WithMessage("SKU must not exceed 50 characters")
+            .Matches(@"^[A-Za-z0-9\-_]+$").WithMessage("SKU must contain only alphanumeric characters, hyphens, and underscores");
 
-        // TODO: Validate price is positive
         RuleFor(x => x.Price)
             .GreaterThan(0).WithMessage("Price must be greater than 0");
 
-        // TODO: Validate stock quantity
         RuleFor(x => x.StockQuantity)
             .GreaterThanOrEqualTo(0).WithMessage("Stock quantity cannot be negative");
 
-        // TODO: Validate category exists
         RuleFor(x => x.CategoryId)
             .NotEmpty().WithMessage("Category is required");
     }
