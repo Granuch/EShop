@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using EShop.BuildingBlocks.Infrastructure.Data;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.Catalog.Domain.Entities;
+using MediatR;
 
 namespace EShop.Catalog.Infrastructure.Data;
 
 /// <summary>
-/// DbContext for Catalog service
+/// DbContext for Catalog service.
+/// Inherits from BaseDbContext to get UnitOfWork, domain events, outbox, and audit field support.
 /// </summary>
 public class CatalogDbContext : BaseDbContext
 {
@@ -14,6 +17,19 @@ public class CatalogDbContext : BaseDbContext
     public DbSet<ProductImage> ProductImages => Set<ProductImage>();
 
     public CatalogDbContext(DbContextOptions<CatalogDbContext> options) : base(options)
+    {
+    }
+
+    public CatalogDbContext(DbContextOptions<CatalogDbContext> options, IMediator mediator)
+        : base(options, mediator)
+    {
+    }
+
+    public CatalogDbContext(
+        DbContextOptions<CatalogDbContext> options,
+        IMediator mediator,
+        ICurrentUserContext currentUserContext)
+        : base(options, mediator, currentUserContext)
     {
     }
 
@@ -39,9 +55,21 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(p => p.DiscountPrice)
                 .HasColumnType("decimal(18,2)");
 
+            // Optimistic concurrency token
+            entity.Property(p => p.Version)
+                .IsConcurrencyToken()
+                .HasDefaultValue(0);
+
+            // Audit fields
+            entity.Property(p => p.CreatedAt).IsRequired();
+            entity.Property(p => p.CreatedBy).HasMaxLength(100);
+            entity.Property(p => p.UpdatedAt);
+            entity.Property(p => p.UpdatedBy).HasMaxLength(100);
+
             entity.HasIndex(p => p.Sku).IsUnique();
             entity.HasIndex(p => p.Name);
             entity.HasIndex(p => p.CategoryId);
+            entity.HasIndex(p => p.CreatedAt);
 
             entity.HasMany(p => p.Images)
                 .WithOne()
@@ -54,8 +82,6 @@ public class CatalogDbContext : BaseDbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasQueryFilter(p => !p.IsDeleted);
-            
-            
         });
 
         modelBuilder.Entity<Category>(entity =>
@@ -72,12 +98,24 @@ public class CatalogDbContext : BaseDbContext
                 .IsRequired()
                 .HasMaxLength(200);
 
+            // Optimistic concurrency token
+            entity.Property(c => c.Version)
+                .IsConcurrencyToken()
+                .HasDefaultValue(0);
+
+            // Audit fields
+            entity.Property(c => c.CreatedAt).IsRequired();
+            entity.Property(c => c.CreatedBy).HasMaxLength(100);
+            entity.Property(c => c.UpdatedAt);
+            entity.Property(c => c.UpdatedBy).HasMaxLength(100);
+
             entity.HasOne(c => c.ParentCategory)
                 .WithMany(c => c.ChildCategories)
                 .HasForeignKey(c => c.ParentCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }).IsUnique();
+            entity.HasIndex(c => c.CreatedAt);
 
             entity.HasQueryFilter(c => c.IsActive);
         });
