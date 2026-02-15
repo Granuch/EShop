@@ -8,36 +8,22 @@
 
   <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
-    <PackageReference Include="FluentValidation" Version="12.1.1" />
-    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
-    <PackageReference Include="MediatR" Version="14.0.0" />
-    <PackageReference Include="MediatR.Extensions.Autofac.DependencyInjection" Version="13.1.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.2" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
-    <PackageReference Include="OpenTelemetry" Version="1.15.0" />
-    <PackageReference Include="OpenTelemetry.Api" Version="1.15.0" />
-    <PackageReference Include="OpenTelemetry.Api.ProviderBuilderExtensions" Version="1.15.0" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.15.0-beta.1" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.2" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.12.27" />
-    <PackageReference Include="Scalar.AspNetCore.Microsoft" Version="2.12.27" />
-    <PackageReference Include="Serilog" Version="4.3.1-dev-02406" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
-    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
-    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
-    <PackageReference Include="SharpAbp.Abp.OpenTelemetry.Exporter.Otlp" Version="4.6.5" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Identity\EShop.Identity.Infrastructure\EShop.Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\EShop.Catalog.Application\EShop.Catalog.Application.csproj" />
     <ProjectReference Include="..\EShop.Catalog.Infrastructure\EShop.Catalog.Infrastructure.csproj" />
   </ItemGroup>
