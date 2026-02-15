@@ -12,8 +12,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Threading.RateLimiting;
+using System.Net;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
@@ -46,6 +48,33 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Identity.API"));
 
+    var forwardedProxies = builder.Configuration
+        .GetSection("ForwardedHeaders:KnownProxies")
+        .Get<string[]>() ?? [];
+
+    if (forwardedProxies.Length > 0)
+    {
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.ForwardLimit = 1;
+            options.KnownNetworks.Clear();
+            options.KnownProxies.Clear();
+
+            foreach (var proxy in forwardedProxies)
+            {
+                if (IPAddress.TryParse(proxy, out var ipAddress))
+                {
+                    options.KnownProxies.Add(ipAddress);
+                }
+            }
+        });
+    }
+    else
+    {
+        Log.Warning("Forwarded headers are not configured with known proxies. X-Forwarded-For will be ignored.");
+    }
+
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
     builder.Services.AddIdentityInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
@@ -66,6 +95,24 @@ try
     // Production/Sandbox: Redis for multi-instance horizontal scaling
     // Testing: In-memory cache
     var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+
+    // Validate connection strings in production-like environments
+    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+    {
+        var identityDbConn = builder.Configuration.GetConnectionString("IdentityDb");
+        if (string.IsNullOrEmpty(identityDbConn) || identityDbConn.Contains("#{"))
+        {
+            throw new InvalidOperationException(
+                $"IdentityDb connection string is not configured or contains unresolved placeholder in {builder.Environment.EnvironmentName}.");
+        }
+
+        if (string.IsNullOrEmpty(redisConnectionString) || redisConnectionString.Contains("#{"))
+        {
+            Log.Warning("Redis connection string is not configured or contains unresolved placeholder in {Environment}. " +
+                "Distributed cache will not work correctly in multi-instance deployments.",
+                builder.Environment.EnvironmentName);
+        }
+    }
 
     if (!string.IsNullOrEmpty(redisConnectionString) && !builder.Environment.IsEnvironment("Testing"))
     {
@@ -113,6 +160,34 @@ try
 
     // Configure JWT Authentication
     var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()!;
+
+    // Startup-time validation for critical JWT configuration
+    if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey))
+    {
+        throw new InvalidOperationException(
+            "JWT SecretKey is not configured. Set JwtSettings:SecretKey in configuration or environment variables.");
+    }
+
+    if (jwtSettings.SecretKey.Length < 32)
+    {
+        throw new InvalidOperationException(
+            $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
+    }
+
+    // Detect placeholder patterns that must be replaced before deployment
+    var placeholderPatterns = new[] { "#{" , "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
+    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+    {
+        foreach (var pattern in placeholderPatterns)
+        {
+            if (jwtSettings.SecretKey.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"JWT SecretKey contains placeholder pattern '{pattern}'. Replace with a secure secret before deploying to {builder.Environment.EnvironmentName}.");
+            }
+        }
+    }
+
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -136,38 +211,41 @@ try
     // Add Authorization
     builder.Services.AddAuthorization();
 
-    // Add Rate Limiting
-    builder.Services.AddRateLimiter(options =>
+    // Add Rate Limiting (disable in Testing to avoid throttling integration tests)
+    if (!builder.Environment.IsEnvironment("Testing"))
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-        // Global rate limiter - 100 requests per minute per IP
-        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-                factory: _ => new FixedWindowRateLimiterOptions
-                {
-                    AutoReplenishment = true,
-                    PermitLimit = 100,
-                    Window = TimeSpan.FromMinutes(1)
-                }));
-
-        // Strict rate limiter for auth endpoints - 10 requests per minute
-        options.AddFixedWindowLimiter("auth", limiterOptions =>
+        builder.Services.AddRateLimiter(options =>
         {
-            limiterOptions.AutoReplenishment = true;
-            limiterOptions.PermitLimit = 10;
-            limiterOptions.Window = TimeSpan.FromMinutes(1);
-        });
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-        // Login rate limiter - 5 attempts per minute (more strict)
-        options.AddFixedWindowLimiter("login", limiterOptions =>
-        {
-            limiterOptions.AutoReplenishment = true;
-            limiterOptions.PermitLimit = 5;
-            limiterOptions.Window = TimeSpan.FromMinutes(1);
+            // Global rate limiter - 100 requests per minute per IP
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        AutoReplenishment = true,
+                        PermitLimit = 100,
+                        Window = TimeSpan.FromMinutes(1)
+                    }));
+
+            // Strict rate limiter for auth endpoints - 10 requests per minute
+            options.AddFixedWindowLimiter("auth", limiterOptions =>
+            {
+                limiterOptions.AutoReplenishment = true;
+                limiterOptions.PermitLimit = 10;
+                limiterOptions.Window = TimeSpan.FromMinutes(1);
+            });
+
+            // Login rate limiter - 5 attempts per minute (more strict)
+            options.AddFixedWindowLimiter("login", limiterOptions =>
+            {
+                limiterOptions.AutoReplenishment = true;
+                limiterOptions.PermitLimit = 5;
+                limiterOptions.Window = TimeSpan.FromMinutes(1);
+            });
         });
-    });
+    }
 
     // Add CORS
     builder.Services.AddCors(options =>
@@ -192,6 +270,15 @@ try
             builder.Configuration.GetConnectionString("IdentityDb")!,
             name: "postgresql",
             tags: ["db", "ready"]);
+    }
+
+    // Add Redis health check if Redis is configured
+    if (!string.IsNullOrEmpty(redisConnectionString) && !builder.Environment.IsEnvironment("Testing"))
+    {
+        healthChecksBuilder.AddRedis(
+            redisConnectionString,
+            name: "redis",
+            tags: ["cache", "ready"]);
     }
 
     healthChecksBuilder
@@ -247,6 +334,11 @@ try
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
 
+    if (forwardedProxies.Length > 0)
+    {
+        app.UseForwardedHeaders();
+    }
+
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time
     app.UseMiddleware<UniformResponseTimingMiddleware>();
@@ -285,7 +377,10 @@ try
     }
 
     // Add Rate Limiting middleware
-    app.UseRateLimiter();
+    if (!app.Environment.IsEnvironment("Testing"))
+    {
+        app.UseRateLimiter();
+    }
 
     // Add CORS
     app.UseCors("AllowFrontend");
