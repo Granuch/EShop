@@ -1,13 +1,16 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
 
 namespace EShop.Catalog.Application.Categories.Commands.CreateCategory;
 
-public record CreateCategoryCommand : IRequest<Result>
+public record CreateCategoryCommand : IRequest<Result<Guid>>, ICacheInvalidatingCommand
 {
-    public string Name { get; set; } = string.Empty;
-        
-    public string? Slug { get; set; }
+    public string Name { get; init; } = string.Empty;
 
-    public Guid? ParentCategoryId { get; set; }
+    public string? Slug { get; init; }
+
+    public Guid? ParentCategoryId { get; init; }
+
+    public IEnumerable<string> CacheKeysToInvalidate => ["categories:all"];
 }
