@@ -5,12 +5,13 @@ using EShop.Catalog.Application.Categories.Queries.GetCategories;
 using EShop.Catalog.Application.Categories.Queries.GetCategoryById;
 using EShop.Catalog.Application.Products.Queries.GetProductByCategory;
 using MediatR;
-using Microsoft.AspNetCore.OutputCaching;
 
 namespace EShop.Catalog.API.Endpoints;
 
 /// <summary>
-/// Category endpoints using Minimal API
+/// Category endpoints using Minimal API.
+/// Caching is handled by CachingBehavior in the MediatR pipeline via ICacheableQuery.
+/// Cache invalidation is handled by CacheInvalidationBehavior via ICacheInvalidatingCommand.
 /// </summary>
 public static class CategoryEndpoints
 {
@@ -19,68 +20,87 @@ public static class CategoryEndpoints
         var group = app.MapGroup("/api/v1/categories")
             .WithTags("Categories");
 
-        // Implement GET /api/v1/categories (hierarchical structure)
+        // GET /api/v1/categories (hierarchical structure)
         group.MapGet("/", async (IMediator mediator) =>
         {
             var result = await mediator.Send(new GetCategoriesQuery());
-            
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.BadRequest(result.Error);
-        }).CacheOutput(p => p.Tag("categories"));
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => Results.BadRequest(new { error = error.Code, message = error.Message }));
+        })
+        .WithName("GetCategories")
+        .Produces<object>(StatusCodes.Status200OK);
 
         // GET /api/v1/categories/{id}
         group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) =>
         {
-            var query = new GetCategoryByIdQuery
-            {
-                Id = id
-            };
-            
-            var result = await mediator.Send(query);
-            
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.NotFound();
-        });
+            var result = await mediator.Send(new GetCategoryByIdQuery { Id = id });
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => Results.NotFound(new { error = error.Code, message = error.Message }));
+        })
+        .WithName("GetCategoryById")
+        .Produces<object>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
 
         // GET /api/v1/categories/{id}/products
         group.MapGet("/{id:guid}/products", async (Guid id, IMediator mediator) =>
         {
-            var query = new GetProductByCategoryQuery
-            {
-                CategoryId = id
-            };
-            
-            var result = await mediator.Send(query);
-            
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.NotFound();
-        });
+            var result = await mediator.Send(new GetProductByCategoryQuery { CategoryId = id });
 
-        // Implement POST /api/v1/categories (admin only)
-        group.MapPost("/categories", async (CreateCategoryCommand command, IMediator mediator, IOutputCacheStore cache) =>
+            return result.Match(
+                value => Results.Ok(value),
+                error => Results.NotFound(new { error = error.Code, message = error.Message }));
+        })
+        .WithName("GetProductsByCategory")
+        .Produces<object>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/categories (admin only)
+        group.MapPost("/", async (CreateCategoryCommand command, IMediator mediator) =>
         {
             var result = await mediator.Send(command);
-            await cache.EvictByTagAsync("categories", CancellationToken.None);
-            
-            return Results.Created($"/api/v1/categories", result);
-        });
-        // Implement PUT /api/v1/categories/{id} (admin only)
-        group.MapPut("/{id:guid}", async (UpdateCategoryCommand command, IMediator mediator, IOutputCacheStore cache, Guid id) =>
+
+            return result.Match(
+                value => Results.Created($"/api/v1/categories/{value}", new { id = value }),
+                error => Results.BadRequest(new { error = error.Code, message = error.Message }));
+        })
+        .WithName("CreateCategory")
+        .RequireAuthorization("Admin")
+        .Produces<object>(StatusCodes.Status201Created)
+        .Produces(StatusCodes.Status400BadRequest);
+
+        // PUT /api/v1/categories/{id} (admin only)
+        group.MapPut("/{id:guid}", async (Guid id, UpdateCategoryCommand command, IMediator mediator) =>
         {
-            command.Id = id;
+            if (id != command.Id)
+                return Results.BadRequest(new { error = "Validation.IdMismatch", message = "Route ID does not match command ID." });
+
             var result = await mediator.Send(command);
-            await cache.EvictByTagAsync("categories", CancellationToken.None);
-            
-            return result.IsSuccess ? Results.Ok() :  Results.BadRequest(result.Error);
-        });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.BadRequest(new { error = error.Code, message = error.Message }));
+        })
+        .WithName("UpdateCategory")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces(StatusCodes.Status400BadRequest);
+
         // DELETE /api/v1/categories/{id} (admin only)
-        group.MapDelete("/{id:Guid}", async (Guid id, IMediator mediator, IOutputCacheStore cache) =>
+        group.MapDelete("/{id:guid}", async (Guid id, IMediator mediator) =>
         {
-            var command = new DeleteCategoryCommand
-            {
-                Id = id
-            };
-            
-            var result = await mediator.Send(command);
-            await cache.EvictByTagAsync("categories", CancellationToken.None);
-            return result.IsSuccess ? Results.Ok() : Results.NotFound();
-        });
+            var result = await mediator.Send(new DeleteCategoryCommand { Id = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.NotFound(new { error = error.Code, message = error.Message }));
+        })
+        .WithName("DeleteCategory")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces(StatusCodes.Status404NotFound);
     }
 }
