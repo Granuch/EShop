@@ -16,6 +16,12 @@ public class RefreshTokenEntity
     public string? ReplacedByToken { get; set; }
     public string? RevokeReason { get; set; }
 
+    /// <summary>
+    /// Optimistic concurrency token for race condition protection during token rotation.
+    /// EF Core will include this in WHERE clause of UPDATE statements.
+    /// </summary>
+    public uint Version { get; set; }
+
     public bool IsExpired => DateTime.UtcNow >= ExpiresAt;
     public bool IsRevoked => RevokedAt != null;
     public bool IsActive => !IsRevoked && !IsExpired;

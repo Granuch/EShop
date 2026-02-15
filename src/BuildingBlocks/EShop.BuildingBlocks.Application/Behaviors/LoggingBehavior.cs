@@ -13,6 +13,21 @@ namespace EShop.BuildingBlocks.Application.Behaviors;
 public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
+    private static readonly HashSet<string> RedactedPropertyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Password",
+        "NewPassword",
+        "CurrentPassword",
+        "Token",
+        "RefreshToken",
+        "AccessToken",
+        "Secret",
+        "SecretKey",
+        "ApiKey",
+        "TwoFactorCode",
+        "Code"
+    };
+
     private readonly ILogger<LoggingBehavior<TRequest, TResponse>> _logger;
 
     public LoggingBehavior(ILogger<LoggingBehavior<TRequest, TResponse>> logger)
@@ -89,7 +104,8 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
                 prop => prop.Name,
                 prop =>
                 {
-                    var isSensitive = prop.GetCustomAttribute<SensitiveDataAttribute>() != null;
+                    var isSensitive = prop.GetCustomAttribute<SensitiveDataAttribute>() != null
+                                      || RedactedPropertyNames.Contains(prop.Name);
                     var value = prop.GetValue(obj);
                     return isSensitive ? "****" : SafeLog(value);
                 });

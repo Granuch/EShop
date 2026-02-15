@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Identity.Application.Auth.Commands.Register;
 
@@ -9,6 +10,7 @@ namespace EShop.Identity.Application.Auth.Commands.Register;
 public record RegisterCommand : IRequest<Result<RegisterResponse>>
 {
     public string Email { get; init; } = string.Empty;
+    [SensitiveData]
     public string Password { get; init; } = string.Empty;
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;

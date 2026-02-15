@@ -3,6 +3,7 @@ using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Events;
 using EShop.Identity.Application.Telemetry;
+using EShop.Identity.Domain.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -31,7 +32,8 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         // Always return success to prevent email enumeration attacks
         if (user == null || !user.IsActive || user.IsDeleted)
         {
-            _logger.LogInformation("Password reset requested for non-existent or inactive email. Email={Email}", request.Email);
+            _logger.LogInformation("Password reset requested for non-existent or inactive email. HashedEmail={HashedEmail}",
+                IdentifierHasher.HashShort(request.Email));
             IdentityTelemetry.RecordForgotPassword();
             return Result<ForgotPasswordResponse>.Success(new ForgotPasswordResponse
             {
@@ -48,7 +50,7 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         // Example:
         // await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id, token);
 
-        _logger.LogInformation("Password reset token generated. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        _logger.LogInformation("Password reset token generated. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordForgotPassword();
 
         return Result<ForgotPasswordResponse>.Success(new ForgotPasswordResponse

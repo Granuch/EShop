@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MediatR;
 using EShop.Identity.Application.Auth.Commands.Register;
 using EShop.Identity.Application.Auth.Commands.Login;
@@ -15,6 +16,7 @@ namespace EShop.Identity.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/[controller]")]
+[EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -48,6 +50,7 @@ public class AuthController : ControllerBase
     /// Login user and get tokens
     /// </summary>
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -59,14 +62,12 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
-            var error = result.Error!;
-            return error.Code switch
+            if (result.Error?.Code == "Validation.Failed")
             {
-                "Auth.InvalidCredentials" => Unauthorized(new { error = error.Code, message = error.Message }),
-                "Auth.AccountLocked" => StatusCode(StatusCodes.Status423Locked, new { error = error.Code, message = error.Message }),
-                "Auth.AccountDisabled" => BadRequest(new { error = error.Code, message = error.Message }),
-                _ => BadRequest(new { error = error.Code, message = error.Message })
-            };
+                return BadRequest(new { error = result.Error.Code, message = result.Error.Message });
+            }
+
+            return Unauthorized(new { error = "Auth.InvalidCredentials", message = "Invalid email or password" });
         }
 
         return Ok(result.Value);
@@ -150,6 +151,7 @@ public class AuthController : ControllerBase
     /// Request password reset
     /// </summary>
     [HttpPost("forgot-password")]
+    [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ForgotPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request)
@@ -171,6 +173,7 @@ public class AuthController : ControllerBase
     /// Reset password with token
     /// </summary>
     [HttpPost("reset-password")]
+    [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ResetPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ResetPasswordRequest request)
@@ -194,12 +197,6 @@ public class AuthController : ControllerBase
 
     private string? GetClientIpAddress()
     {
-        var forwardedFor = Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            return forwardedFor.Split(',').First().Trim();
-        }
-        
         return HttpContext.Connection.RemoteIpAddress?.ToString();
     }
 }

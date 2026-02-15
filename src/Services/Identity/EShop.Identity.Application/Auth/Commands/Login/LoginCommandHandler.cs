@@ -54,15 +54,15 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 case BlockReason.Throttled:
                     IdentityTelemetry.RecordThrottledAttempt(validation.ThrottleDelaySeconds!.Value);
                     _logger.LogWarning(
-                        "Login attempt throttled. Email={Email}, IP={IpAddress}, DelaySeconds={DelaySeconds}",
-                        request.Email, ipAddress, validation.ThrottleDelaySeconds);
+                        "Login attempt throttled. HashedEmail={HashedEmail}, IP={IpAddress}, DelaySeconds={DelaySeconds}",
+                        IdentifierHasher.HashShort(request.Email), ipAddress, validation.ThrottleDelaySeconds);
                     break;
 
                 case BlockReason.AccountLocked:
                     IdentityTelemetry.RecordAccountLocked("brute_force_protection");
                     _logger.LogWarning(
-                        "Login attempt for locked account. Email={Email}, IP={IpAddress}",
-                        request.Email, ipAddress);
+                        "Login attempt for locked account. HashedEmail={HashedEmail}, IP={IpAddress}",
+                        IdentifierHasher.HashShort(request.Email), ipAddress);
                     break;
 
                 case BlockReason.IpBlocked:
@@ -75,8 +75,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 case BlockReason.DistributedAttackDetected:
                     IdentityTelemetry.RecordDistributedAttackDetected();
                     _logger.LogWarning(
-                        "Distributed attack pattern detected. Email={Email}, IP={IpAddress}",
-                        request.Email, ipAddress);
+                        "Distributed attack pattern detected. HashedEmail={HashedEmail}, IP={IpAddress}",
+                        IdentifierHasher.HashShort(request.Email), ipAddress);
                     break;
             }
 
@@ -132,22 +132,22 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         {
             canProceed = false;
             failureReason = "account_disabled";
-            _logger.LogWarning("Login attempt for inactive/deleted user. UserId={UserId}, Email={Email}, IsActive={IsActive}, IsDeleted={IsDeleted}",
-                user.Id, request.Email, user.IsActive, user.IsDeleted);
+            _logger.LogWarning("Login attempt for inactive/deleted user. UserId={UserId}, IsActive={IsActive}, IsDeleted={IsDeleted}",
+                user.Id, user.IsActive, user.IsDeleted);
         }
         else if (isLockedOut || await _userManager.IsLockedOutAsync(user))
         {
             canProceed = false;
             failureReason = "account_locked";
-            _logger.LogWarning("Login attempt for locked account. UserId={UserId}, Email={Email}, LockoutEnd={LockoutEnd}",
-                user.Id, request.Email, user.LockoutEnd);
+            _logger.LogWarning("Login attempt for locked account. UserId={UserId}, LockoutEnd={LockoutEnd}",
+                user.Id, user.LockoutEnd);
         }
         else if (!isPasswordValid)
         {
             canProceed = false;
             failureReason = "invalid_password";
-            _logger.LogWarning("Invalid password attempt. UserId={UserId}, Email={Email}, IP={IpAddress}",
-                user.Id, request.Email, request.IpAddress);
+            _logger.LogWarning("Invalid password attempt. UserId={UserId}, IP={IpAddress}",
+                user.Id, request.IpAddress);
         }
 
         // Step 4: Handle failed login attempts
@@ -225,8 +225,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
         var roles = await _userManager.GetRolesAsync(user);
 
-        _logger.LogInformation("User logged in successfully. UserId={UserId}, Email={Email}, IP={IpAddress}, Roles={Roles}",
-            user.Id, user.Email, request.IpAddress, string.Join(",", roles));
+        _logger.LogInformation("User logged in successfully. UserId={UserId}, IP={IpAddress}",
+            user.Id, request.IpAddress);
         IdentityTelemetry.RecordLoginSuccess();
 
         return Result<LoginResponse>.Success(new LoginResponse

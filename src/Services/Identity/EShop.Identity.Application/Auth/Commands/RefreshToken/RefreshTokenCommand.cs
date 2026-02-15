@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Identity.Application.Auth.Commands.RefreshToken;
 
@@ -8,6 +9,7 @@ namespace EShop.Identity.Application.Auth.Commands.RefreshToken;
 /// </summary>
 public record RefreshTokenCommand : IRequest<Result<RefreshTokenResponse>>
 {
+    [SensitiveData]
     public string RefreshToken { get; init; } = string.Empty;
     public string? IpAddress { get; init; }
 }

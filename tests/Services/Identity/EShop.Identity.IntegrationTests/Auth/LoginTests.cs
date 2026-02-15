@@ -111,7 +111,7 @@ public class LoginTests : IntegrationTestBase
     }
 
     [Test]
-    public async Task Login_WithInactiveUser_ShouldReturnBadRequest()
+    public async Task Login_WithInactiveUser_ShouldReturnUnauthorized()
     {
         // Arrange
         var request = new LoginRequest
@@ -124,11 +124,11 @@ public class LoginTests : IntegrationTestBase
         var response = await Client.PostAsJsonAsync(LoginEndpoint, request);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         
         var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
         error.Should().NotBeNull();
-        error!.error.Should().Be("Auth.AccountDisabled");
+        error!.error.Should().Be("Auth.InvalidCredentials");
     }
 
     [Test]
