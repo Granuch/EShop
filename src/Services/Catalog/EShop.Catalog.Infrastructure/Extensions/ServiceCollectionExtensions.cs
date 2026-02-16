@@ -1,8 +1,12 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Catalog.Domain.Interfaces;
+using EShop.Catalog.Infrastructure.Consumers;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.Infrastructure.Repositories;
 using MediatR;
@@ -52,6 +56,58 @@ public static class ServiceCollectionExtensions
 
         // Register IUnitOfWork (implemented by CatalogDbContext via BaseDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<CatalogDbContext>());
+
+        // Register DbContext base type for OutboxProcessorService
+        services.AddScoped<DbContext>(provider => provider.GetRequiredService<CatalogDbContext>());
+
+        // Register Outbox Processor background service
+        services.AddSingleton(new OutboxProcessorOptions
+        {
+            BatchSize = 20,
+            PollingIntervalMs = 1000,
+            MaxRetries = 5,
+            ErrorRetryDelayMs = 5000
+        });
+        services.AddHostedService<OutboxProcessorService>();
+
+        // Register Outbox Cleanup background service
+        services.AddSingleton(new OutboxCleanupOptions
+        {
+            RetentionDays = 7,
+            CleanupIntervalHours = 6
+        });
+        services.AddHostedService<OutboxCleanupService>();
+
+        // Register Outbox health check for dead-letter and depth monitoring
+        services.AddSingleton(new OutboxHealthCheckOptions
+        {
+            DeadLetterWarningThreshold = 10,
+            PendingWarningThreshold = 100
+        });
+        services.AddHealthChecks()
+            .AddCheck<OutboxHealthCheck>(
+                "outbox",
+                tags: ["ready", "outbox"]);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Adds MassTransit with RabbitMQ transport for the Catalog service.
+    /// </summary>
+    public static IServiceCollection AddCatalogMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        bool isDevelopment)
+    {
+        services.AddMessaging<CatalogDbContext>(
+            configuration,
+            isDevelopment,
+            bus =>
+            {
+                // Register consumers from this assembly
+                bus.AddConsumer<UserRegisteredConsumer>();
+            });
 
         return services;
     }

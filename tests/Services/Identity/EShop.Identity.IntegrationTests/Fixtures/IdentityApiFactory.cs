@@ -40,6 +40,7 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
             var descriptorsToRemove = services
                 .Where(d => d.ServiceType == typeof(DbContextOptions<IdentityDbContext>) ||
                             d.ServiceType == typeof(IdentityDbContext) ||
+                            d.ServiceType == typeof(DbContext) ||
                             d.ServiceType == typeof(IUnitOfWork))
                 .ToList();
             foreach (var descriptor in descriptorsToRemove)
@@ -55,6 +56,9 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
 
             // Re-register IUnitOfWork with the new DbContext
             services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
+
+            // Re-register DbContext base type for OutboxProcessorService
+            services.AddScoped<DbContext>(provider => provider.GetRequiredService<IdentityDbContext>());
 
             // Allow derived classes to configure additional services
             ConfigureTestServices(services);

@@ -47,7 +47,16 @@ public class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage
         builder.Property(x => x.AggregateId)
             .HasMaxLength(100);
 
+        builder.Property(x => x.Status)
+            .HasDefaultValue(OutboxMessageStatus.Pending)
+            .IsRequired();
+
         // Index for efficient polling of unprocessed messages
+        // Covers: WHERE "Status" = 0 ORDER BY OccurredOnUtc
+        builder.HasIndex(x => new { x.Status, x.OccurredOnUtc })
+            .HasDatabaseName("IX_OutboxMessages_Status_OccurredOnUtc");
+
+        // Index for efficient polling of unprocessed messages (legacy — kept for backward compat with raw SQL)
         // Covers: WHERE ProcessedOnUtc IS NULL ORDER BY OccurredOnUtc
         builder.HasIndex(x => new { x.ProcessedOnUtc, x.OccurredOnUtc })
             .HasDatabaseName("IX_OutboxMessages_ProcessedOnUtc_OccurredOnUtc");

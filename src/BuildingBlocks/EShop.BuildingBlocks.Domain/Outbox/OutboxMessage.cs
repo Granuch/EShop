@@ -58,6 +58,12 @@ public sealed class OutboxMessage
     /// </summary>
     public string? AggregateId { get; private set; }
 
+    /// <summary>
+    /// Explicit processing status for queryability.
+    /// Distinguishes between pending, successfully processed, and dead-lettered messages.
+    /// </summary>
+    public OutboxMessageStatus Status { get; private set; } = OutboxMessageStatus.Pending;
+
     private OutboxMessage() { } // For EF Core
 
     public static OutboxMessage Create(
@@ -70,7 +76,7 @@ public sealed class OutboxMessage
         return new OutboxMessage
         {
             Id = domainEvent.EventId,
-            Type = domainEvent.GetType().AssemblyQualifiedName!,
+            Type = domainEvent.GetType().FullName!,
             Payload = payload,
             OccurredOnUtc = domainEvent.OccurredOn,
             ProcessedOnUtc = null,
@@ -83,12 +89,49 @@ public sealed class OutboxMessage
     }
 
     /// <summary>
+    /// Creates an outbox message for an integration event (cross-service).
+    /// </summary>
+    public static OutboxMessage CreateForIntegration(
+        Guid eventId,
+        Type eventType,
+        string payload,
+        DateTime occurredOnUtc,
+        string? correlationId = null)
+    {
+        return new OutboxMessage
+        {
+            Id = eventId,
+            Type = eventType.FullName!,
+            Payload = payload,
+            OccurredOnUtc = occurredOnUtc,
+            ProcessedOnUtc = null,
+            RetryCount = 0,
+            LastError = null,
+            CorrelationId = correlationId,
+            AggregateType = null,
+            AggregateId = null
+        };
+    }
+
+    /// <summary>
     /// Marks the message as successfully processed.
     /// </summary>
     public void MarkAsProcessed()
     {
         ProcessedOnUtc = DateTime.UtcNow;
         LastError = null;
+        Status = OutboxMessageStatus.Processed;
+    }
+
+    /// <summary>
+    /// Marks the message as permanently failed (dead-lettered).
+    /// The message will not be retried and requires manual investigation.
+    /// </summary>
+    public void MarkAsDeadLettered(string error)
+    {
+        ProcessedOnUtc = DateTime.UtcNow;
+        LastError = error?.Length > 4000 ? error[..4000] : error;
+        Status = OutboxMessageStatus.DeadLettered;
     }
 
     /// <summary>
@@ -103,5 +146,5 @@ public sealed class OutboxMessage
     /// <summary>
     /// Indicates whether this message can be retried.
     /// </summary>
-    public bool CanRetry(int maxRetries = 5) => RetryCount < maxRetries && ProcessedOnUtc == null;
+    public bool CanRetry(int maxRetries = 5) => RetryCount < maxRetries && Status == OutboxMessageStatus.Pending;
 }

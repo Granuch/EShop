@@ -59,6 +59,30 @@ services:
       start_period: 10s
 
   # ============================================
+  # RabbitMQ Message Broker
+  # ============================================
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: eshop-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"       # AMQP protocol
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672" # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ============================================
   # PostgreSQL Database for Catalog
   # ============================================
   catalog-postgres:
@@ -97,6 +121,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -107,6 +133,12 @@ services:
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # RabbitMQ
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__1__Name: Seq
@@ -153,6 +185,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -163,6 +197,12 @@ services:
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # RabbitMQ
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__2__Name: Seq
@@ -207,6 +247,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       seq:
         condition: service_started
     environment:
@@ -219,6 +261,12 @@ services:
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # RabbitMQ
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__2__Name: Seq
@@ -265,11 +313,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-eshop_identity};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-qweasdz1}"
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
       Serilog__WriteTo__1__Name: Seq
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
       JwtSettings__SecretKey: ${JWT_SECRET_KEY:-duHbxp5ADlMhUk95kPVwdk8tgml3vVF0cDSSZ4KfaupX8oxJ3erikMDLHiFKj0gxOKis2mlaStiHSlbglngbjy}
@@ -310,6 +364,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       seq:
         condition: service_started
     environment:
@@ -322,6 +378,12 @@ services:
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # RabbitMQ
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__1__Name: Seq
@@ -511,6 +573,8 @@ volumes:
     name: eshop-postgres-data
   catalog-postgres-data:
     name: eshop-catalog-postgres-data
+  rabbitmq-data:
+    name: eshop-rabbitmq-data
   redis-data:
     name: eshop-redis-data
   redis-insight-data:

@@ -1,5 +1,8 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Events;
 using EShop.Identity.Domain.Interfaces;
@@ -11,24 +14,32 @@ using Microsoft.Extensions.Logging;
 namespace EShop.Identity.Application.Auth.Commands.Register;
 
 /// <summary>
-/// Handler for user registration
+/// Handler for user registration.
+/// Wraps user creation and integration event publishing in a single transaction
+/// to prevent the dual-write problem.
 /// </summary>
 public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<RegisterResponse>>
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserRepository _userRepository;
-    private readonly IMediator _mediator;
+    private readonly IIntegrationEventOutbox _outbox;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ICurrentUserContext _currentUserContext;
     private readonly ILogger<RegisterCommandHandler> _logger;
 
     public RegisterCommandHandler(
         UserManager<ApplicationUser> userManager,
         IUserRepository userRepository,
-        IMediator mediator,
+        IIntegrationEventOutbox outbox,
+        IUnitOfWork unitOfWork,
+        ICurrentUserContext currentUserContext,
         ILogger<RegisterCommandHandler> logger)
     {
         _userManager = userManager;
         _userRepository = userRepository;
-        _mediator = mediator;
+        _outbox = outbox;
+        _unitOfWork = unitOfWork;
+        _currentUserContext = currentUserContext;
         _logger = logger;
     }
 
@@ -56,34 +67,48 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
             EmailConfirmed = false
         };
 
-        // Create user with password
-        var createResult = await _userManager.CreateAsync(user, request.Password);
-        if (!createResult.Succeeded)
+        // Wrap user creation + outbox enqueue in a single transaction to prevent dual-write
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
         {
-            var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
-            _logger.LogError("Failed to create user. HashedEmail={HashedEmail}, Errors={Errors}",
-                IdentifierHasher.HashShort(request.Email), errors);
-            IdentityTelemetry.RecordRegistrationFailure("create_failed");
-            return Result<RegisterResponse>.Failure(new Error("Auth.CreateFailed", errors));
+            // Create user with password (UserManager internally calls SaveChangesAsync,
+            // but it participates in our transaction)
+            var createResult = await _userManager.CreateAsync(user, request.Password);
+            if (!createResult.Succeeded)
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
+                _logger.LogError("Failed to create user. HashedEmail={HashedEmail}, Errors={Errors}",
+                    IdentifierHasher.HashShort(request.Email), errors);
+                IdentityTelemetry.RecordRegistrationFailure("create_failed");
+                return Result<RegisterResponse>.Failure(new Error("Auth.CreateFailed", errors));
+            }
+
+            // Assign default "User" role
+            var roleResult = await _userManager.AddToRoleAsync(user, "User");
+            if (!roleResult.Succeeded)
+            {
+                _logger.LogWarning("Failed to assign User role. UserId={UserId}", user.Id);
+            }
+
+            // Generate email confirmation token (for future email confirmation feature)
+            var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+
+            // Enqueue integration event in the same transaction — atomic with user creation
+            _outbox.Enqueue(new UserRegisteredIntegrationEvent
+            {
+                UserId = user.Id,
+                CorrelationId = _currentUserContext.CorrelationId
+            }, _currentUserContext.CorrelationId);
+
+            // Commit user + outbox message atomically
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
-
-        // Assign default "User" role
-        var roleResult = await _userManager.AddToRoleAsync(user, "User");
-        if (!roleResult.Succeeded)
+        catch
         {
-            _logger.LogWarning("Failed to assign User role. UserId={UserId}", user.Id);
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
         }
-
-        // Generate email confirmation token (for future email confirmation feature)
-        var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-
-        // Publish domain event
-        await _mediator.Publish(new UserRegisteredEvent
-        {
-            UserId = user.Id,
-            Email = user.Email!,
-            FullName = user.FullName
-        }, cancellationToken);
 
         _logger.LogInformation("User registered successfully. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordRegistrationSuccess();

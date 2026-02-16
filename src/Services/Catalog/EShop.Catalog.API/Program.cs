@@ -86,6 +86,11 @@ try
     // Add Application services (MediatR, FluentValidation, Pipeline Behaviors)
     builder.Services.AddCatalogApplication();
 
+    // Add MassTransit with RabbitMQ messaging
+    builder.Services.AddCatalogMessaging(
+        builder.Configuration,
+        builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+
     // Validate connection strings in production-like environments
     var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
 

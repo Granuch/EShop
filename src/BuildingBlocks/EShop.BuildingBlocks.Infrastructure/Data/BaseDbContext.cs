@@ -262,6 +262,7 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
 
         // Apply Outbox configuration
         modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.ProcessedMessageConfiguration());
     }
 
     public override void Dispose()

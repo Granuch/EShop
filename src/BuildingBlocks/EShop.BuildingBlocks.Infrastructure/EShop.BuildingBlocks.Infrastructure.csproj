@@ -3,9 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\EShop.BuildingBlocks.Domain\EShop.BuildingBlocks.Domain.csproj" />
     <ProjectReference Include="..\EShop.BuildingBlocks.Application\EShop.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\EShop.BuildingBlocks.Messaging\EShop.BuildingBlocks.Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.4.1" />
     <PackageReference Include="MediatR" Version="14.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />

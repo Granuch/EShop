@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EShop.BuildingBlocks.Domain\EShop.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="..\EShop.BuildingBlocks.Messaging\EShop.BuildingBlocks.Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>

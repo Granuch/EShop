@@ -155,6 +155,11 @@ try
     // Add Application services (MediatR, FluentValidation, etc.)
     builder.Services.AddIdentityApplication();
 
+    // Add MassTransit with RabbitMQ messaging
+    builder.Services.AddIdentityMessaging(
+        builder.Configuration,
+        builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+
     // Add Metrics
     builder.Services.AddSingleton<IIdentityMetrics, IdentityMetrics>();
 
