@@ -1,5 +1,5 @@
 # ============================================
-# EShop Identity Service - Complete Stack
+# EShop Microservices - Complete Stack
 # All services in one docker-compose
 # ============================================
 
@@ -59,6 +59,30 @@ services:
       start_period: 10s
 
   # ============================================
+  # PostgreSQL Database for Catalog
+  # ============================================
+  catalog-postgres:
+    image: postgres:16-alpine
+    container_name: eshop-catalog-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CATALOG_POSTGRES_DB:-eshop_catalog}
+      POSTGRES_USER: ${CATALOG_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${CATALOG_POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${CATALOG_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - catalog-postgres-data:/var/lib/postgresql/data
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CATALOG_POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
   # Identity API - Instance 1
   # ============================================
   identity-api:
@@ -113,6 +137,118 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # ============================================
+  # Catalog API
+  # ============================================
+  catalog-api:
+    build:
+      context: .
+      dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
+    image: eshop/catalog-api:latest
+    container_name: eshop-catalog-api
+    restart: unless-stopped
+    depends_on:
+      catalog-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # ASP.NET Core
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+
+      # Database
+      ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB:-eshop_catalog};Username=${CATALOG_POSTGRES_USER:-postgres};Password=${CATALOG_POSTGRES_PASSWORD:-postgres}"
+
+      # Redis
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # Seq (centralized logging)
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+
+      # JWT
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-duHbxp5ADlMhUk95kPVwdk8tgml3vVF0cDSSZ4KfaupX8oxJ3erikMDLHiFKj0gxOKis2mlaStiHSlbglngbjy}
+      JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
+
+      # CORS
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # Serilog
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+    ports:
+      - "${CATALOG_API_PORT:-7004}:8080"
+    volumes:
+      - catalog-logs:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================
+  # Catalog API - Sandbox (Full test environment with seeding)
+  # ============================================
+  catalog-api-sandbox:
+    build:
+      context: .
+      dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
+    image: eshop/catalog-api:latest
+    container_name: eshop-catalog-api-sandbox
+    restart: unless-stopped
+    depends_on:
+      catalog-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    environment:
+      # Sandbox environment - includes full monitoring
+      ASPNETCORE_ENVIRONMENT: Sandbox
+      ASPNETCORE_URLS: http://+:8080
+
+      # Database
+      ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB:-eshop_catalog};Username=${CATALOG_POSTGRES_USER:-postgres};Password=${CATALOG_POSTGRES_PASSWORD:-postgres}"
+
+      # Redis
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:-4ZA2nxObXTHmLKVFvUcM6IeqDBQaGhuf},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # Seq (centralized logging)
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+
+      # JWT - Use same keys as production for testing
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:-duHbxp5ADlMhUk95kPVwdk8tgml3vVF0cDSSZ4KfaupX8oxJ3erikMDLHiFKj0gxOKis2mlaStiHSlbglngbjy}
+      JwtSettings__Issuer: ${JWT_ISSUER:-EShop.Identity}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-EShop.Services}
+
+      # CORS - Allow all for testing
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # Logging - Debug level for sandbox
+      Serilog__MinimumLevel__Default: Debug
+    ports:
+      - "${CATALOG_API_SANDBOX_PORT:-7005}:8080"
+    volumes:
+      - catalog-logs-sandbox:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - sandbox
 
   # ============================================
   # Identity API - Instance 2 (for multi-instance testing)
@@ -373,12 +509,18 @@ networks:
 volumes:
   postgres-data:
     name: eshop-postgres-data
+  catalog-postgres-data:
+    name: eshop-catalog-postgres-data
   redis-data:
     name: eshop-redis-data
   redis-insight-data:
     name: eshop-redis-insight-data
   identity-logs:
     name: eshop-identity-logs
+  catalog-logs:
+    name: eshop-catalog-logs
+  catalog-logs-sandbox:
+    name: eshop-catalog-logs-sandbox
   identity-logs-2:
     name: eshop-identity-logs-2
   identity-logs-sandbox:

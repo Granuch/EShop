@@ -1,3 +1,4 @@
+using System.Data;
 using System.Reflection;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -17,6 +18,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Prometheus;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
@@ -217,8 +219,34 @@ try
             Log.Information("Applying database migrations...");
             using var scope = app.Services.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
-            await dbContext.Database.MigrateAsync();
-            Log.Information("Database migrations applied successfully");
+
+            var hasMigrations = dbContext.Database.GetMigrations().Any();
+            if (!hasMigrations)
+            {
+                Log.Warning("No EF Core migrations found for CatalogDbContext. Ensuring schema directly.");
+
+                var missingTables = await CatalogSchemaMissingAsync(dbContext);
+                if (missingTables)
+                {
+                    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
+                    {
+                        Log.Warning("Catalog schema is missing. Recreating database for {Environment}.", app.Environment.EnvironmentName);
+                        await dbContext.Database.EnsureDeletedAsync();
+                    }
+
+                    await dbContext.Database.EnsureCreatedAsync();
+                }
+                else
+                {
+                    Log.Information("Catalog schema already exists. Skipping EnsureCreated.");
+                }
+            }
+            else
+            {
+                await dbContext.Database.MigrateAsync();
+            }
+
+            Log.Information("Database schema ensured successfully");
         }
         catch (Exception ex)
         {
@@ -270,12 +298,21 @@ try
 
     app.UseHttpsRedirection();
 
+    // Add Prometheus HTTP metrics middleware
+    app.UseHttpMetrics(options =>
+    {
+        options.AddCustomLabel("service", _ => "catalog");
+    });
+
     app.UseAuthentication();
     app.UseAuthorization();
 
     // Map Minimal API endpoints
     app.MapProductEndpoints();
     app.MapCategoryEndpoints();
+
+    // Map Prometheus metrics endpoint
+    app.MapMetrics();
 
     // Health check endpoints with detailed response
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
@@ -308,6 +345,7 @@ try
             health = "/health",
             healthReady = "/health/ready",
             healthLive = "/health/live",
+            metrics = "/metrics",
             products = "GET /api/v1/products",
             categories = "GET /api/v1/categories"
         }
@@ -327,4 +365,27 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+static async Task<bool> CatalogSchemaMissingAsync(CatalogDbContext dbContext)
+{
+    await dbContext.Database.OpenConnectionAsync();
+    try
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*) FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN ('Categories', 'Products', 'ProductImages')
+            """;
+
+        var result = await command.ExecuteScalarAsync();
+        var count = result is null ? 0 : Convert.ToInt32(result);
+        return count < 3;
+    }
+    finally
+    {
+        await dbContext.Database.CloseConnectionAsync();
+    }
 }
