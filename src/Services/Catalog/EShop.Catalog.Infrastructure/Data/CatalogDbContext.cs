@@ -35,6 +35,9 @@ public class CatalogDbContext : BaseDbContext
 
    protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Enable pg_trgm extension for trigram-based search indexes
+        modelBuilder.HasPostgresExtension("pg_trgm");
+
         modelBuilder.Entity<Product>(entity =>
         {
             entity.ToTable("Products");
@@ -70,6 +73,16 @@ public class CatalogDbContext : BaseDbContext
             entity.HasIndex(p => p.Name);
             entity.HasIndex(p => p.CategoryId);
             entity.HasIndex(p => p.CreatedAt);
+
+            // Trigram indexes for ILIKE search performance (requires pg_trgm extension)
+            entity.HasIndex(p => p.Name)
+                .HasDatabaseName("IX_Products_Name_Trgm")
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops");
+            entity.HasIndex(p => p.Sku)
+                .HasDatabaseName("IX_Products_Sku_Trgm")
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops");
 
             entity.HasMany(p => p.Images)
                 .WithOne()
@@ -115,6 +128,9 @@ public class CatalogDbContext : BaseDbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }).IsUnique();
+            entity.HasIndex(c => c.Slug)
+                .IsUnique()
+                .HasFilter("\"ParentCategoryId\" IS NULL");
             entity.HasIndex(c => c.CreatedAt);
 
             entity.HasQueryFilter(c => c.IsActive);

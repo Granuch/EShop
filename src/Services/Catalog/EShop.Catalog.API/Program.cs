@@ -1,4 +1,5 @@
 using System.Data;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -15,6 +16,7 @@ using HealthChecks.UI.Client;
 using Mapster;
 using MapsterMapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -49,6 +51,34 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Catalog.API"));
 
+    // Configure Forwarded Headers for reverse proxy support
+    var forwardedProxies = builder.Configuration
+        .GetSection("ForwardedHeaders:KnownProxies")
+        .Get<string[]>() ?? [];
+
+    if (forwardedProxies.Length > 0)
+    {
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.ForwardLimit = 1;
+            options.KnownNetworks.Clear();
+            options.KnownProxies.Clear();
+
+            foreach (var proxy in forwardedProxies)
+            {
+                if (IPAddress.TryParse(proxy, out var ipAddress))
+                {
+                    options.KnownProxies.Add(ipAddress);
+                }
+            }
+        });
+    }
+    else
+    {
+        Log.Warning("Forwarded headers are not configured with known proxies. X-Forwarded-For will be ignored.");
+    }
+
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
     builder.Services.AddCatalogInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
@@ -56,8 +86,27 @@ try
     // Add Application services (MediatR, FluentValidation, Pipeline Behaviors)
     builder.Services.AddCatalogApplication();
 
-    // Add Distributed Cache
+    // Validate connection strings in production-like environments
     var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+
+    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+    {
+        var catalogDbConn = builder.Configuration.GetConnectionString("CatalogDb");
+        if (string.IsNullOrEmpty(catalogDbConn) || catalogDbConn.Contains("#{"))
+        {
+            throw new InvalidOperationException(
+                $"CatalogDb connection string is not configured or contains unresolved placeholder in {builder.Environment.EnvironmentName}.");
+        }
+
+        if (string.IsNullOrEmpty(redisConnectionString) || redisConnectionString.Contains("#{"))
+        {
+            Log.Warning("Redis connection string is not configured or contains unresolved placeholder in {Environment}. " +
+                "Distributed cache will not work correctly in multi-instance deployments.",
+                builder.Environment.EnvironmentName);
+        }
+    }
+
+    // Add Distributed Cache
 
     if (!string.IsNullOrEmpty(redisConnectionString) && !builder.Environment.IsEnvironment("Testing"))
     {
@@ -109,6 +158,26 @@ try
     {
         throw new InvalidOperationException(
             "JWT SecretKey is not configured. Set JwtSettings:SecretKey in configuration or environment variables.");
+    }
+
+    if (jwtSettings.SecretKey.Length < 32)
+    {
+        throw new InvalidOperationException(
+            $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
+    }
+
+    // Detect placeholder patterns that must be replaced before deployment
+    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
+    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+    {
+        foreach (var pattern in placeholderPatterns)
+        {
+            if (jwtSettings.SecretKey.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"JWT SecretKey contains placeholder pattern '{pattern}'. Replace with a secure secret before deploying to {builder.Environment.EnvironmentName}.");
+            }
+        }
     }
 
     builder.Services.AddAuthentication(options =>
@@ -223,22 +292,27 @@ try
             var hasMigrations = dbContext.Database.GetMigrations().Any();
             if (!hasMigrations)
             {
-                Log.Warning("No EF Core migrations found for CatalogDbContext. Ensuring schema directly.");
-
-                var missingTables = await CatalogSchemaMissingAsync(dbContext);
-                if (missingTables)
+                if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
                 {
-                    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
-                    {
-                        Log.Warning("Catalog schema is missing. Recreating database for {Environment}.", app.Environment.EnvironmentName);
-                        await dbContext.Database.EnsureDeletedAsync();
-                    }
+                    Log.Warning("No EF Core migrations found for CatalogDbContext. Using EnsureCreated for {Environment}.",
+                        app.Environment.EnvironmentName);
 
-                    await dbContext.Database.EnsureCreatedAsync();
+                    var missingTables = await CatalogSchemaMissingAsync(dbContext);
+                    if (missingTables)
+                    {
+                        await dbContext.Database.EnsureCreatedAsync();
+                    }
+                    else
+                    {
+                        Log.Information("Catalog schema already exists. Skipping EnsureCreated.");
+                    }
                 }
                 else
                 {
-                    Log.Information("Catalog schema already exists. Skipping EnsureCreated.");
+                    throw new InvalidOperationException(
+                        $"No EF Core migrations found for CatalogDbContext in {app.Environment.EnvironmentName}. " +
+                        "Add migrations before deploying to non-development environments. " +
+                        "EnsureCreated is not allowed in production-like environments to prevent schema drift.");
                 }
             }
             else
@@ -285,6 +359,12 @@ try
         });
 
         Log.Information("Scalar API documentation available at /scalar/v1");
+    }
+
+    // Forwarded Headers — must be before other middleware that depend on correct scheme/IP
+    if (forwardedProxies.Length > 0)
+    {
+        app.UseForwardedHeaders();
     }
 
     // Add CORS

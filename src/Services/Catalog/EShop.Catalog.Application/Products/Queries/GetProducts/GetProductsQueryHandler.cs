@@ -30,10 +30,10 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            var term = request.SearchTerm.Trim().ToLower();
+            var term = $"%{request.SearchTerm.Trim()}%";
             query = query.Where(p =>
-                p.Name.ToLower().Contains(term) ||
-                p.Sku.ToLower().Contains(term));
+                EF.Functions.ILike(p.Name, term) ||
+                EF.Functions.ILike(p.Sku, term));
         }
 
         if (request.MinPrice.HasValue)
