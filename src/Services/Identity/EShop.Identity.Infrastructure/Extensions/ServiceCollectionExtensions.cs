@@ -34,7 +34,8 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool useInMemoryDatabase = false,
         string? inMemoryDatabaseName = null,
-        bool suppressPendingModelChangesWarning = false)
+        bool suppressPendingModelChangesWarning = false,
+        bool isDevelopment = false)
     {
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -79,7 +80,7 @@ public static class ServiceCollectionExtensions
             options.User.RequireUniqueEmail = true;
 
             // Sign-in requirements
-            options.SignIn.RequireConfirmedEmail = false; // TODO: Set to true when EmailService is configured
+            options.SignIn.RequireConfirmedEmail = !isDevelopment;
 
             // Lockout settings
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);

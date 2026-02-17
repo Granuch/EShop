@@ -84,7 +84,8 @@ try
     builder.Services.AddIdentityInfrastructure(
         builder.Configuration,
         useInMemoryDatabase: useInMemoryDb,
-        suppressPendingModelChangesWarning: suppressPendingModelChangesWarning);
+        suppressPendingModelChangesWarning: suppressPendingModelChangesWarning,
+        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
 
     // Configure Token Cleanup Settings
     builder.Services.Configure<EShop.Identity.Infrastructure.Configuration.TokenCleanupSettings>(
@@ -273,6 +274,16 @@ try
         options.AddPolicy("AllowFrontend", policy =>
         {
             var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+
+            if (allowedOrigins.Length == 0 &&
+                !builder.Environment.IsDevelopment() &&
+                !builder.Environment.IsEnvironment("Testing"))
+            {
+                throw new InvalidOperationException(
+                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
+                    "Configure allowed origins before deploying to non-development environments.");
+            }
+
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
@@ -441,7 +452,12 @@ try
     app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("live"),
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = (context, report) =>
+        {
+            context.Response.ContentType = "application/json";
+            return context.Response.WriteAsync(
+                System.Text.Json.JsonSerializer.Serialize(new { status = report.Status.ToString() }));
+        }
     });
 
     // Root endpoint - API info and available endpoints

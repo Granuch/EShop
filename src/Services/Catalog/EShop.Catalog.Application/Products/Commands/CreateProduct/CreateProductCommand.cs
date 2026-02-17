@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Catalog.Application.Products.Commands.CreateProduct;
@@ -8,7 +9,7 @@ namespace EShop.Catalog.Application.Products.Commands.CreateProduct;
 /// Command to create a new product.
 /// Invalidates product list caches upon successful execution.
 /// </summary>
-public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingCommand
+public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public string Name { get; init; } = string.Empty;
     public string? Description { get; init; }

@@ -15,8 +15,10 @@ public static class DistributedCacheExtensions
         WriteIndented = false
     };
 
-    // Lock dictionary to prevent cache stampede
+    // Lock dictionary to prevent cache stampede, with bounded size to prevent unbounded memory growth.
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
+    private const int MaxLockEntries = 10_000;
+    private static int _lockCount;
 
     /// <summary>
     /// Gets a value from cache and deserializes it to the specified type
@@ -82,7 +84,11 @@ public static class DistributedCacheExtensions
         }
 
         // Get or create a lock for this specific key
-        var keyLock = Locks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        var keyLock = Locks.GetOrAdd(key, _ =>
+        {
+            Interlocked.Increment(ref _lockCount);
+            return new SemaphoreSlim(1, 1);
+        });
 
         await keyLock.WaitAsync(cancellationToken);
         try
@@ -108,12 +114,29 @@ public static class DistributedCacheExtensions
         {
             keyLock.Release();
 
-            // Note: We intentionally do NOT remove the lock from the dictionary.
-            // Removing creates a race condition where a new caller could create a new lock
-            // while another caller is still using the old one.
-            // The memory overhead of keeping locks is minimal (one SemaphoreSlim per unique key).
-            // For production systems with many unique keys, consider using a bounded LRU cache
-            // or allowing periodic cleanup during low-traffic periods.
+            // Evict lock entries when dictionary grows beyond bound to prevent unbounded memory growth.
+            if (_lockCount > MaxLockEntries)
+            {
+                EvictStaleLocks();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Evicts locks that are not currently held to prevent unbounded memory growth.
+    /// </summary>
+    private static void EvictStaleLocks()
+    {
+        foreach (var kvp in Locks)
+        {
+            if (kvp.Value.CurrentCount > 0 && Locks.TryRemove(kvp.Key, out var removed))
+            {
+                removed.Dispose();
+                Interlocked.Decrement(ref _lockCount);
+            }
+
+            if (_lockCount <= MaxLockEntries / 2)
+                break;
         }
     }
 

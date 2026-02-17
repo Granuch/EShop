@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Identity.Application.Account.Commands.UpdateProfile;
@@ -8,7 +9,7 @@ namespace EShop.Identity.Application.Account.Commands.UpdateProfile;
 /// Command to update user profile.
 /// Implements ICacheInvalidatingCommand to invalidate the profile cache after update.
 /// </summary>
-public record UpdateProfileCommand : IRequest<Result<UpdateProfileResponse>>, ICacheInvalidatingCommand
+public record UpdateProfileCommand : IRequest<Result<UpdateProfileResponse>>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
     public string FirstName { get; init; } = string.Empty;

@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Identity.Application.Auth.Commands.Login;
@@ -7,7 +8,7 @@ namespace EShop.Identity.Application.Auth.Commands.Login;
 /// <summary>
 /// Command to authenticate user and get tokens
 /// </summary>
-public record LoginCommand : IRequest<Result<LoginResponse>>
+public record LoginCommand : IRequest<Result<LoginResponse>>, ITransactionalCommand
 {
     public string Email { get; init; } = string.Empty;
 

@@ -55,8 +55,11 @@ public class OutboxProcessorService : BackgroundService
 
     /// <summary>
     /// Cache of resolved types to avoid scanning all assemblies on every message.
+    /// Bounded to prevent unbounded growth from malformed/poisoned type names.
     /// </summary>
     private static readonly ConcurrentDictionary<string, Type?> TypeCache = new();
+    private const int MaxTypeCacheEntries = 1000;
+    private const string AllowedNamespacePrefix = "EShop.";
 
     public OutboxProcessorService(
         IServiceScopeFactory scopeFactory,
@@ -314,9 +317,22 @@ public class OutboxProcessorService : BackgroundService
     /// <summary>
     /// Resolves a type by FullName with caching.
     /// Uses a ConcurrentDictionary to avoid scanning all loaded assemblies on every message.
+    /// Validates namespace prefix and enforces bounded cache size.
     /// </summary>
     private static Type? ResolveType(string fullName)
     {
+        // Validate namespace prefix to prevent cache pollution from malformed type names
+        if (!fullName.StartsWith(AllowedNamespacePrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // Enforce bounded cache size
+        if (TypeCache.Count >= MaxTypeCacheEntries && !TypeCache.ContainsKey(fullName))
+        {
+            return null;
+        }
+
         return TypeCache.GetOrAdd(fullName, static name =>
         {
             // Try direct resolution first (works if assembly is already loaded)

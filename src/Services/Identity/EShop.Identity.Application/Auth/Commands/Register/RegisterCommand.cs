@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Identity.Application.Auth.Commands.Register;
@@ -7,7 +8,7 @@ namespace EShop.Identity.Application.Auth.Commands.Register;
 /// <summary>
 /// Command to register a new user
 /// </summary>
-public record RegisterCommand : IRequest<Result<RegisterResponse>>
+public record RegisterCommand : IRequest<Result<RegisterResponse>>, ITransactionalCommand
 {
     public string Email { get; init; } = string.Empty;
     [SensitiveData]

@@ -5,9 +5,12 @@ using EShop.BuildingBlocks.Infrastructure.Behaviors;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
+using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Domain.Interfaces;
+using EShop.Catalog.Infrastructure.Caching;
 using EShop.Catalog.Infrastructure.Consumers;
 using EShop.Catalog.Infrastructure.Data;
+using EShop.Catalog.Infrastructure.QueryServices;
 using EShop.Catalog.Infrastructure.Repositories;
 using MediatR;
 using Microsoft.AspNetCore.Http;
@@ -53,6 +56,12 @@ public static class ServiceCollectionExtensions
         // Add repositories
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
+
+        // Add query services (keeps EF Core query composition in Infrastructure)
+        services.AddScoped<IProductQueryService, ProductQueryService>();
+
+        // Add cache invalidation abstraction
+        services.AddScoped<ICacheInvalidator, CacheInvalidator>();
 
         // Register IUnitOfWork (implemented by CatalogDbContext via BaseDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<CatalogDbContext>());
