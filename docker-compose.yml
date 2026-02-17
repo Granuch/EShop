@@ -83,6 +83,36 @@ services:
       start_period: 30s
 
   # ============================================
+  # Jaeger - Distributed Tracing
+  # ============================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: eshop-jaeger
+    restart: unless-stopped
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"         # Jaeger UI
+      - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317"    # OTLP gRPC receiver
+      - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318"    # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: badger
+      BADGER_DIRECTORY_VALUE: /badger/data
+      BADGER_DIRECTORY_KEY: /badger/key
+    volumes:
+      - jaeger-data:/badger
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:16687/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    profiles:
+      - monitoring
+      - sandbox
+
+  # ============================================
   # PostgreSQL Database for Catalog
   # ============================================
   catalog-postgres:
@@ -155,6 +185,12 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
+      # OpenTelemetry
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
+      OpenTelemetry__MetricsEnabled: "true"
+
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
     ports:
@@ -169,6 +205,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    profiles:
+      - production
 
   # ============================================
   # Catalog API
@@ -217,6 +255,12 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
+      # OpenTelemetry
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
+      OpenTelemetry__MetricsEnabled: "true"
+
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
     ports:
@@ -231,6 +275,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    profiles:
+      - production
 
   # ============================================
   # Catalog API - Sandbox (Full test environment with seeding)
@@ -280,6 +326,12 @@ services:
       # CORS - Allow all for testing
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # OpenTelemetry
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__SamplingRatio: "1.0"
+      OpenTelemetry__MetricsEnabled: "true"
 
       # Logging - Debug level for sandbox
       Serilog__MinimumLevel__Default: Debug
@@ -334,6 +386,10 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
+      OpenTelemetry__MetricsEnabled: "true"
     ports:
       - "${IDENTITY_API_PORT_2:-7002}:8080"
     volumes:
@@ -347,6 +403,7 @@ services:
       retries: 3
       start_period: 60s
     profiles:
+      - production
       - multi-instance
 
   # ============================================
@@ -399,6 +456,12 @@ services:
       # CORS - Allow all for testing
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # OpenTelemetry
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__SamplingRatio: "1.0"
+      OpenTelemetry__MetricsEnabled: "true"
 
       # Logging - Debug level for sandbox
       Serilog__MinimumLevel__Default: Debug
@@ -595,3 +658,5 @@ volumes:
     name: eshop-prometheus-data
   grafana-data:
     name: eshop-grafana-data
+  jaeger-data:
+    name: eshop-jaeger-data

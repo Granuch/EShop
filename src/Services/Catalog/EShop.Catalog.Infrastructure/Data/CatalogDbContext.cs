@@ -82,7 +82,8 @@ public class CatalogDbContext : BaseDbContext
             entity.HasIndex(p => p.Sku)
                 .HasDatabaseName("IX_Products_Sku_Trgm")
                 .HasMethod("gin")
-                .HasOperators("gin_trgm_ops");
+                .HasOperators("gin_trgm_ops")
+                .IsUnique(false);
 
             entity.HasMany(p => p.Images)
                 .WithOne()

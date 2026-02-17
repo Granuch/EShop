@@ -3,6 +3,7 @@ using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Threading.RateLimiting;
+using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Catalog.API.Endpoints;
 using EShop.Catalog.API.Infrastructure.Configuration;
 using EShop.Catalog.API.Infrastructure.HealthChecks;
@@ -90,6 +91,14 @@ try
     builder.Services.AddCatalogMessaging(
         builder.Configuration,
         builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+
+    // Add OpenTelemetry distributed tracing (Jaeger via OTLP)
+    builder.Services.AddEShopOpenTelemetry(
+        builder.Configuration,
+        serviceName: "EShop.Catalog.API",
+        serviceVersion: "1.0.0",
+        environment: builder.Environment,
+        additionalSources: "EShop.Catalog");
 
     // Validate connection strings in production-like environments
     var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
@@ -297,7 +306,9 @@ try
             var hasMigrations = dbContext.Database.GetMigrations().Any();
             if (!hasMigrations)
             {
-                if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+                if (app.Environment.IsDevelopment()
+                    || app.Environment.IsEnvironment("Testing")
+                    || app.Environment.IsEnvironment("Sandbox"))
                 {
                     Log.Warning("No EF Core migrations found for CatalogDbContext. Using EnsureCreated for {Environment}.",
                         app.Environment.EnvironmentName);
@@ -346,6 +357,8 @@ try
             diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
             diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
             diagnosticContext.Set("RemoteIP", httpContext.Connection.RemoteIpAddress?.ToString());
+            diagnosticContext.Set("TraceId", System.Diagnostics.Activity.Current?.TraceId.ToString());
+            diagnosticContext.Set("SpanId", System.Diagnostics.Activity.Current?.SpanId.ToString());
         };
     });
 
@@ -383,7 +396,7 @@ try
 
     app.UseHttpsRedirection();
 
-    // Add Prometheus HTTP metrics middleware
+    // Add Prometheus HTTP metrics middleware (prometheus-net custom business metrics)
     app.UseHttpMetrics(options =>
     {
         options.AddCustomLabel("service", _ => "catalog");
@@ -396,8 +409,11 @@ try
     app.MapProductEndpoints();
     app.MapCategoryEndpoints();
 
-    // Map Prometheus metrics endpoint
+    // Map Prometheus metrics endpoints:
+    // /metrics — prometheus-net custom business metrics
     app.MapMetrics();
+    // /metrics/otel — OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
+    app.UseEShopOpenTelemetryPrometheus();
 
     // Health check endpoints with detailed response
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions

@@ -33,7 +33,8 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration,
         bool useInMemoryDatabase = false,
-        string? inMemoryDatabaseName = null)
+        string? inMemoryDatabaseName = null,
+        bool suppressPendingModelChangesWarning = false)
     {
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -53,7 +54,15 @@ public static class ServiceCollectionExtensions
         else
         {
             services.AddDbContext<IdentityDbContext>(options =>
-                options.UseNpgsql(configuration.GetConnectionString("IdentityDb")));
+            {
+                options.UseNpgsql(configuration.GetConnectionString("IdentityDb"));
+
+                if (suppressPendingModelChangesWarning)
+                {
+                    options.ConfigureWarnings(warnings =>
+                        warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+                }
+            });
         }
 
         // Add ASP.NET Core Identity

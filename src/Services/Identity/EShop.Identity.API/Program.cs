@@ -7,6 +7,7 @@ using EShop.Identity.Application.Telemetry;
 using EShop.Identity.API.Infrastructure.HealthChecks;
 using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
+using EShop.BuildingBlocks.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -77,7 +78,13 @@ try
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
-    builder.Services.AddIdentityInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
+    var suppressPendingModelChangesWarning = builder.Environment.IsDevelopment()
+        || builder.Environment.IsEnvironment("Sandbox");
+
+    builder.Services.AddIdentityInfrastructure(
+        builder.Configuration,
+        useInMemoryDatabase: useInMemoryDb,
+        suppressPendingModelChangesWarning: suppressPendingModelChangesWarning);
 
     // Configure Token Cleanup Settings
     builder.Services.Configure<EShop.Identity.Infrastructure.Configuration.TokenCleanupSettings>(
@@ -159,6 +166,14 @@ try
     builder.Services.AddIdentityMessaging(
         builder.Configuration,
         builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+
+    // Add OpenTelemetry distributed tracing (Jaeger via OTLP)
+    builder.Services.AddEShopOpenTelemetry(
+        builder.Configuration,
+        serviceName: "EShop.Identity.API",
+        serviceVersion: "1.0.0",
+        environment: builder.Environment,
+        additionalSources: "EShop.Identity");
 
     // Add Metrics
     builder.Services.AddSingleton<IIdentityMetrics, IdentityMetrics>();
@@ -357,6 +372,8 @@ try
             diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
             diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
             diagnosticContext.Set("RemoteIP", httpContext.Connection.RemoteIpAddress?.ToString());
+            diagnosticContext.Set("TraceId", System.Diagnostics.Activity.Current?.TraceId.ToString());
+            diagnosticContext.Set("SpanId", System.Diagnostics.Activity.Current?.SpanId.ToString());
         };
     });
 
@@ -392,7 +409,7 @@ try
 
     app.UseHttpsRedirection();
 
-    // Add Prometheus HTTP metrics middleware
+    // Add Prometheus HTTP metrics middleware (prometheus-net custom business metrics)
     app.UseHttpMetrics(options =>
     {
         options.AddCustomLabel("service", context => "identity");
@@ -403,8 +420,11 @@ try
 
     app.MapControllers();
 
-    // Map Prometheus metrics endpoint
+    // Map Prometheus metrics endpoints:
+    // /metrics — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
     app.MapMetrics();
+    // /metrics/otel — OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
+    app.UseEShopOpenTelemetryPrometheus();
 
     // Health check endpoints with detailed response
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions

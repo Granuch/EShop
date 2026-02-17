@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
@@ -36,6 +37,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
     public async Task<Result<LoginResponse>> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
+        using var activity = Telemetry.IdentityActivitySource.Source.StartActivity("Identity.Login");
         using var timer = IdentityTelemetry.MeasureLoginDuration();
 
         // Step 1: Validate login attempt using brute-force protection
@@ -81,6 +83,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             }
 
             IdentityTelemetry.RecordLoginFailure(validation.BlockReason?.ToString() ?? "blocked");
+            activity?.SetStatus(ActivityStatusCode.Error, "too_many_attempts");
 
             // Return generic error message to prevent account enumeration
             return Result<LoginResponse>.Failure(
@@ -160,6 +163,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 cancellationToken);
 
             IdentityTelemetry.RecordLoginFailure(failureReason ?? "unknown");
+            activity?.SetStatus(ActivityStatusCode.Error, failureReason ?? "unknown");
 
             // Return uniform error message to prevent account enumeration
             // Don't reveal whether user exists, account is locked, or password is wrong
@@ -208,6 +212,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
                 _logger.LogWarning("Invalid 2FA code. UserId={UserId}", user.Id);
                 IdentityTelemetry.RecordLoginFailure("invalid_2fa");
+                activity?.SetStatus(ActivityStatusCode.Error, "invalid_2fa");
                 return Result<LoginResponse>.Failure(new Error("Auth.Invalid2FA", "Invalid two-factor code"));
             }
         }
@@ -228,6 +233,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         _logger.LogInformation("User logged in successfully. UserId={UserId}, IP={IpAddress}",
             user.Id, request.IpAddress);
         IdentityTelemetry.RecordLoginSuccess();
+        activity?.SetTag("user.id", user.Id);
 
         return Result<LoginResponse>.Success(new LoginResponse
         {

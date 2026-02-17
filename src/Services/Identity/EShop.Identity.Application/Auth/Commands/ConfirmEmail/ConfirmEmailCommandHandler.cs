@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Abstractions;
@@ -38,12 +39,16 @@ public class ConfirmEmailCommandHandler : IRequestHandler<ConfirmEmailCommand, R
 
     public async Task<Result<ConfirmEmailResponse>> Handle(ConfirmEmailCommand request, CancellationToken cancellationToken)
     {
+        using var activity = IdentityActivitySource.Source.StartActivity("Identity.ConfirmEmail");
+        activity?.SetTag("user.id", request.UserId);
+
         var user = await _userManager.FindByIdAsync(request.UserId);
 
         if (user == null)
         {
             _logger.LogWarning("Email confirmation attempt for non-existent user. UserId={UserId}", request.UserId);
             IdentityTelemetry.RecordEmailConfirmation(false);
+            activity?.SetStatus(ActivityStatusCode.Error, "user_not_found");
             return Result<ConfirmEmailResponse>.Failure(new Error("Auth.UserNotFound", "User not found"));
         }
 
@@ -69,6 +74,7 @@ public class ConfirmEmailCommandHandler : IRequestHandler<ConfirmEmailCommand, R
                 var errors = string.Join(", ", result.Errors.Select(e => e.Description));
                 _logger.LogWarning("Email confirmation failed. UserId={UserId}, Errors={Errors}", user.Id, errors);
                 IdentityTelemetry.RecordEmailConfirmation(false);
+                activity?.SetStatus(ActivityStatusCode.Error, "invalid_token");
                 return Result<ConfirmEmailResponse>.Failure(new Error("Auth.InvalidToken", "Invalid or expired confirmation token"));
             }
 

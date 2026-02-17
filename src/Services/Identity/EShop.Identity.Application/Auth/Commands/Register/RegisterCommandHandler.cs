@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Abstractions;
@@ -45,6 +46,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
 
     public async Task<Result<RegisterResponse>> Handle(RegisterCommand request, CancellationToken cancellationToken)
     {
+        using var activity = Telemetry.IdentityActivitySource.Source.StartActivity("Identity.Register");
         // Check if user already exists
         var existingUser = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
         if (existingUser != null)
@@ -52,6 +54,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
             _logger.LogWarning("Registration attempt with existing email. HashedEmail={HashedEmail}",
                 IdentifierHasher.HashShort(request.Email));
             IdentityTelemetry.RecordRegistrationFailure("email_exists");
+            activity?.SetStatus(ActivityStatusCode.Error, "email_exists");
             return Result<RegisterResponse>.Failure(new Error("Auth.EmailExists", "A user with this email already exists"));
         }
 
@@ -81,6 +84,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
                 _logger.LogError("Failed to create user. HashedEmail={HashedEmail}, Errors={Errors}",
                     IdentifierHasher.HashShort(request.Email), errors);
                 IdentityTelemetry.RecordRegistrationFailure("create_failed");
+                activity?.SetStatus(ActivityStatusCode.Error, "create_failed");
                 return Result<RegisterResponse>.Failure(new Error("Auth.CreateFailed", errors));
             }
 
@@ -112,6 +116,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
 
         _logger.LogInformation("User registered successfully. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordRegistrationSuccess();
+        activity?.SetTag("user.id", user.Id);
 
         return Result<RegisterResponse>.Success(new RegisterResponse
         {

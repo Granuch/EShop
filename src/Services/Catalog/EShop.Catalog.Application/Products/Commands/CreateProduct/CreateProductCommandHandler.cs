@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Telemetry;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
 
@@ -27,15 +29,21 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
     public async Task<Result<Guid>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
+        using var activity = CatalogActivitySource.Source.StartActivity("Catalog.CreateProduct");
+        activity?.SetTag("product.sku", request.Sku);
+        activity?.SetTag("product.category_id", request.CategoryId.ToString());
+
         var existingProduct = await _productRepository.GetBySkuAsync(request.Sku, cancellationToken);
         if (existingProduct != null)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, "sku_conflict");
             return Result<Guid>.Failure(new Error("Product.SkuConflict", $"Product with SKU '{request.Sku}' already exists."));
         }
 
         var category = await _categoryRepository.GetById(request.CategoryId, cancellationToken);
         if (category == null)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, "category_not_found");
             return Result<Guid>.Failure(new Error("Category.NotFound", $"Category with ID '{request.CategoryId}' was not found."));
         }
 
@@ -43,6 +51,8 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
         await _productRepository.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        activity?.SetTag("product.id", product.Id.ToString());
 
         return Result<Guid>.Success(product.Id);
     }
