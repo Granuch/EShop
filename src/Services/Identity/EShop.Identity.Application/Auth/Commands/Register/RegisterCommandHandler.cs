@@ -24,7 +24,6 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserRepository _userRepository;
     private readonly IIntegrationEventOutbox _outbox;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUserContext _currentUserContext;
     private readonly ILogger<RegisterCommandHandler> _logger;
 
@@ -32,14 +31,12 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
         UserManager<ApplicationUser> userManager,
         IUserRepository userRepository,
         IIntegrationEventOutbox outbox,
-        IUnitOfWork unitOfWork,
         ICurrentUserContext currentUserContext,
         ILogger<RegisterCommandHandler> logger)
     {
         _userManager = userManager;
         _userRepository = userRepository;
         _outbox = outbox;
-        _unitOfWork = unitOfWork;
         _currentUserContext = currentUserContext;
         _logger = logger;
     }
@@ -70,49 +67,35 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
             EmailConfirmed = false
         };
 
-        // Wrap user creation + outbox enqueue in a single transaction to prevent dual-write
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
-        try
+        // Create user with password (UserManager internally calls SaveChangesAsync,
+        // and participates in the transaction from TransactionBehavior)
+        var createResult = await _userManager.CreateAsync(user, request.Password);
+        if (!createResult.Succeeded)
         {
-            // Create user with password (UserManager internally calls SaveChangesAsync,
-            // but it participates in our transaction)
-            var createResult = await _userManager.CreateAsync(user, request.Password);
-            if (!createResult.Succeeded)
-            {
-                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-                var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
-                _logger.LogError("Failed to create user. HashedEmail={HashedEmail}, Errors={Errors}",
-                    IdentifierHasher.HashShort(request.Email), errors);
-                IdentityTelemetry.RecordRegistrationFailure("create_failed");
-                activity?.SetStatus(ActivityStatusCode.Error, "create_failed");
-                return Result<RegisterResponse>.Failure(new Error("Auth.CreateFailed", errors));
-            }
-
-            // Assign default "User" role
-            var roleResult = await _userManager.AddToRoleAsync(user, "User");
-            if (!roleResult.Succeeded)
-            {
-                _logger.LogWarning("Failed to assign User role. UserId={UserId}", user.Id);
-            }
-
-            // Generate email confirmation token (for future email confirmation feature)
-            var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-
-            // Enqueue integration event in the same transaction — atomic with user creation
-            _outbox.Enqueue(new UserRegisteredIntegrationEvent
-            {
-                UserId = user.Id,
-                CorrelationId = _currentUserContext.CorrelationId
-            }, _currentUserContext.CorrelationId);
-
-            // Commit user + outbox message atomically
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
+            _logger.LogError("Failed to create user. HashedEmail={HashedEmail}, Errors={Errors}",
+                IdentifierHasher.HashShort(request.Email), errors);
+            IdentityTelemetry.RecordRegistrationFailure("create_failed");
+            activity?.SetStatus(ActivityStatusCode.Error, "create_failed");
+            return Result<RegisterResponse>.Failure(new Error("Auth.CreateFailed", errors));
         }
-        catch
+
+        // Assign default "User" role
+        var roleResult = await _userManager.AddToRoleAsync(user, "User");
+        if (!roleResult.Succeeded)
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
+            _logger.LogWarning("Failed to assign User role. UserId={UserId}", user.Id);
         }
+
+        // Generate email confirmation token (for future email confirmation feature)
+        var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+
+        // Enqueue integration event in the same transaction — atomic with user creation
+        _outbox.Enqueue(new UserRegisteredIntegrationEvent
+        {
+            UserId = user.Id,
+            CorrelationId = _currentUserContext.CorrelationId
+        }, _currentUserContext.CorrelationId);
 
         _logger.LogInformation("User registered successfully. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordRegistrationSuccess();

@@ -110,7 +110,6 @@ services:
       start_period: 10s
     profiles:
       - monitoring
-      - sandbox
 
   # ============================================
   # PostgreSQL Database for Catalog
@@ -143,7 +142,6 @@ services:
     build:
       context: .
       dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
-    image: eshop/identity-api:latest
     container_name: eshop-identity-api-1
     restart: unless-stopped
     depends_on:
@@ -155,7 +153,7 @@ services:
         condition: service_healthy
     environment:
       # ASP.NET Core
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_URLS: http://+:8080
 
       # Database
@@ -180,6 +178,9 @@ services:
       JwtSettings__Audience: ${JWT_AUDIENCE}
       JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
       JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
+
+      # Identity
+      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-false}
 
       # CORS
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
@@ -207,6 +208,7 @@ services:
       start_period: 60s
     profiles:
       - production
+      - sandbox
 
   # ============================================
   # Catalog API
@@ -215,7 +217,6 @@ services:
     build:
       context: .
       dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
-    image: eshop/catalog-api:latest
     container_name: eshop-catalog-api
     restart: unless-stopped
     depends_on:
@@ -227,7 +228,7 @@ services:
         condition: service_healthy
     environment:
       # ASP.NET Core
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_URLS: http://+:8080
 
       # Database
@@ -277,208 +278,8 @@ services:
       start_period: 60s
     profiles:
       - production
-
-  # ============================================
-  # Catalog API - Sandbox (Full test environment with seeding)
-  # ============================================
-  catalog-api-sandbox:
-    build:
-      context: .
-      dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
-    image: eshop/catalog-api:latest
-    container_name: eshop-catalog-api-sandbox
-    restart: unless-stopped
-    depends_on:
-      catalog-postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      seq:
-        condition: service_started
-    environment:
-      # Sandbox environment - includes full monitoring
-      ASPNETCORE_ENVIRONMENT: Sandbox
-      ASPNETCORE_URLS: http://+:8080
-
-      # Database
-      ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD}"
-
-      # Redis
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
-
-      # RabbitMQ
-      RabbitMQ__Host: rabbitmq
-      RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
-
-      # Seq (centralized logging)
-      Serilog__WriteTo__2__Name: Seq
-      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
-
-      # JWT - Use same keys as production for testing
-      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
-      JwtSettings__Issuer: ${JWT_ISSUER}
-      JwtSettings__Audience: ${JWT_AUDIENCE}
-
-      # CORS - Allow all for testing
-      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
-      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
-
-      # OpenTelemetry
-      OpenTelemetry__Enabled: "true"
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
-      OpenTelemetry__SamplingRatio: "1.0"
-      OpenTelemetry__MetricsEnabled: "true"
-
-      # Logging - Debug level for sandbox
-      Serilog__MinimumLevel__Default: Debug
-    ports:
-      - "${CATALOG_API_SANDBOX_PORT:-7005}:8080"
-    volumes:
-      - catalog-logs-sandbox:/app/logs
-    networks:
-      - eshop-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    profiles:
       - sandbox
 
-  # ============================================
-  # Identity API - Instance 2 (for multi-instance testing)
-  # ============================================
-  identity-api-2:
-    build:
-      context: .
-      dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
-    image: eshop/identity-api:latest
-    container_name: eshop-identity-api-2
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
-      RabbitMQ__Host: rabbitmq
-      RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
-      Serilog__WriteTo__1__Name: Seq
-      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
-      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
-      JwtSettings__Issuer: ${JWT_ISSUER}
-      JwtSettings__Audience: ${JWT_AUDIENCE}
-      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
-      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
-      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
-      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
-      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
-      OpenTelemetry__Enabled: "true"
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
-      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
-      OpenTelemetry__MetricsEnabled: "true"
-    ports:
-      - "${IDENTITY_API_PORT_2:-7002}:8080"
-    volumes:
-      - identity-logs-2:/app/logs
-    networks:
-      - eshop-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    profiles:
-      - production
-      - multi-instance
-
-  # ============================================
-  # Identity API - Sandbox (Full test environment with seeding)
-  # ============================================
-  identity-api-sandbox:
-    build:
-      context: .
-      dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
-    image: eshop/identity-api:latest
-    container_name: eshop-identity-api-sandbox
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      seq:
-        condition: service_started
-    environment:
-      # Sandbox environment - includes seeding and full monitoring
-      ASPNETCORE_ENVIRONMENT: Sandbox
-      ASPNETCORE_URLS: http://+:8080
-
-      # Database
-      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-
-      # Redis
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
-
-      # RabbitMQ
-      RabbitMQ__Host: rabbitmq
-      RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
-
-      # Seq (centralized logging)
-      Serilog__WriteTo__1__Name: Seq
-      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
-
-      # JWT - Use same keys as production for testing
-      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
-      JwtSettings__Issuer: ${JWT_ISSUER}
-      JwtSettings__Audience: ${JWT_AUDIENCE}
-      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION:-60}
-      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
-
-      # CORS - Allow all for testing
-      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
-      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
-
-      # OpenTelemetry
-      OpenTelemetry__Enabled: "true"
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
-      OpenTelemetry__SamplingRatio: "1.0"
-      OpenTelemetry__MetricsEnabled: "true"
-
-      # Logging - Debug level for sandbox
-      Serilog__MinimumLevel__Default: Debug
-    ports:
-      - "${IDENTITY_API_SANDBOX_PORT:-7003}:8080"
-    volumes:
-      - identity-logs-sandbox:/app/logs
-    networks:
-      - eshop-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    profiles:
-      - sandbox
 
   # ============================================
   # Redis Exporter (Prometheus Metrics)
@@ -499,7 +300,6 @@ services:
       - eshop-network
     profiles:
       - monitoring
-      - sandbox
 
   # ============================================
   # RedisInsight - Modern Redis GUI (recommended)
@@ -524,7 +324,6 @@ services:
     profiles:
       - development
       - monitoring
-      - sandbox
 
   # ============================================
   # Redis Commander (Web UI for Redis - alternative)
@@ -545,7 +344,6 @@ services:
     profiles:
       - development
       - monitoring
-      - sandbox
 
   # ============================================
   # Seq - Centralized Structured Logging
@@ -565,7 +363,6 @@ services:
       - eshop-network
     profiles:
       - monitoring
-      - sandbox
 
   # ============================================
   # Prometheus (Metrics Collection)
@@ -591,7 +388,6 @@ services:
       - eshop-network
     profiles:
       - monitoring
-      - sandbox
 
   # ============================================
   # Grafana (Visualization)
@@ -618,7 +414,6 @@ services:
       - eshop-network
     profiles:
       - monitoring
-      - sandbox
 
 # ============================================
 # Networks
@@ -646,12 +441,6 @@ volumes:
     name: eshop-identity-logs
   catalog-logs:
     name: eshop-catalog-logs
-  catalog-logs-sandbox:
-    name: eshop-catalog-logs-sandbox
-  identity-logs-2:
-    name: eshop-identity-logs-2
-  identity-logs-sandbox:
-    name: eshop-identity-logs-sandbox
   seq-data:
     name: eshop-seq-data
   prometheus-data:

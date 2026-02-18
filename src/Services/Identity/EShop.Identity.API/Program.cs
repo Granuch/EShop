@@ -85,7 +85,8 @@ try
         builder.Configuration,
         useInMemoryDatabase: useInMemoryDb,
         suppressPendingModelChangesWarning: suppressPendingModelChangesWarning,
-        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"),
+        isSandbox: builder.Environment.IsEnvironment("Sandbox"));
 
     // Configure Token Cleanup Settings
     builder.Services.Configure<EShop.Identity.Infrastructure.Configuration.TokenCleanupSettings>(
@@ -341,15 +342,23 @@ try
             await dbContext.Database.MigrateAsync();
             Log.Information("Database migrations applied successfully");
 
-            // Seed default roles and admin user in Development and Sandbox environments
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+
+            // Seed admin user only in Development and Sandbox environments (roles included)
             if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
             {
                 Log.Information("Seeding default roles and admin user...");
-                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
                 var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
                 await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, Log.Logger);
-                Log.Information("Seeding completed successfully");
             }
+            else
+            {
+                // Seed default roles in all other non-testing environments
+                Log.Information("Seeding default roles...");
+                await SeedData.SeedRolesAsync(roleManager, Log.Logger);
+            }
+
+            Log.Information("Seeding completed successfully");
         }
         catch (Exception ex)
         {

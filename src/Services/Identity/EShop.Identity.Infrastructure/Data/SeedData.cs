@@ -9,12 +9,10 @@ namespace EShop.Identity.Infrastructure.Data;
 /// </summary>
 public static class SeedData
 {
-    public static async Task SeedRolesAndAdminAsync(
+    public static async Task SeedRolesAsync(
         RoleManager<ApplicationRole> roleManager,
-        UserManager<ApplicationUser> userManager,
         ILogger? logger = null)
     {
-        // Create default roles
         var roles = new[] { "Admin", "User" };
         foreach (var role in roles)
         {
@@ -34,6 +32,14 @@ public static class SeedData
                 }
             }
         }
+    }
+
+    public static async Task SeedRolesAndAdminAsync(
+        RoleManager<ApplicationRole> roleManager,
+        UserManager<ApplicationUser> userManager,
+        ILogger? logger = null)
+    {
+        await SeedRolesAsync(roleManager, logger);
 
         // Create admin user if not exists
         var adminEmail = "admin@eshop.com";

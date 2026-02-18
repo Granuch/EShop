@@ -96,6 +96,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
         bool isPasswordValid = false;
         bool isLockedOut = false;
+        bool isNotAllowed = false;
         string? failureReason = null;
 
         if (user != null)
@@ -108,6 +109,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
             isPasswordValid = signInResult.Succeeded;
             isLockedOut = signInResult.IsLockedOut;
+            isNotAllowed = signInResult.IsNotAllowed;
         }
         else
         {
@@ -145,6 +147,12 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             _logger.LogWarning("Login attempt for locked account. UserId={UserId}, LockoutEnd={LockoutEnd}",
                 user.Id, user.LockoutEnd);
         }
+        else if (isNotAllowed)
+        {
+            canProceed = false;
+            failureReason = "email_not_confirmed";
+            _logger.LogWarning("Login attempt with unconfirmed email. UserId={UserId}", user.Id);
+        }
         else if (!isPasswordValid)
         {
             canProceed = false;
@@ -171,6 +179,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             {
                 "account_locked" => "Your account is locked. Please try again later",
                 "account_disabled" => "Your account has been disabled. Please contact support",
+                "email_not_confirmed" => "Please confirm your email address before logging in",
                 _ => "Invalid email or password"
             };
 
@@ -178,6 +187,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             {
                 "account_locked" => "Auth.AccountLocked",
                 "account_disabled" => "Auth.AccountDisabled",
+                "email_not_confirmed" => "Auth.EmailNotConfirmed",
                 _ => "Auth.InvalidCredentials"
             };
 

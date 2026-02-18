@@ -67,7 +67,7 @@ public class AuthController : ControllerBase
                 return BadRequest(new { error = result.Error.Code, message = result.Error.Message });
             }
 
-            return Unauthorized(new { error = "Auth.InvalidCredentials", message = "Invalid email or password" });
+            return Unauthorized(new { error = result.Error!.Code, message = result.Error.Message });
         }
 
         return Ok(result.Value);

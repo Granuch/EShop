@@ -35,7 +35,8 @@ public static class ServiceCollectionExtensions
         bool useInMemoryDatabase = false,
         string? inMemoryDatabaseName = null,
         bool suppressPendingModelChangesWarning = false,
-        bool isDevelopment = false)
+        bool isDevelopment = false,
+        bool isSandbox = false)
     {
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -66,6 +67,8 @@ public static class ServiceCollectionExtensions
             });
         }
 
+        var requireConfirmedEmailOverride = configuration.GetValue<bool?>("Identity:RequireConfirmedEmail");
+
         // Add ASP.NET Core Identity
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
@@ -80,7 +83,7 @@ public static class ServiceCollectionExtensions
             options.User.RequireUniqueEmail = true;
 
             // Sign-in requirements
-            options.SignIn.RequireConfirmedEmail = !isDevelopment;
+            options.SignIn.RequireConfirmedEmail = requireConfirmedEmailOverride ?? !(isDevelopment || isSandbox);
 
             // Lockout settings
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
