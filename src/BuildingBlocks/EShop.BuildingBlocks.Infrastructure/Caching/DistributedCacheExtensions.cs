@@ -124,14 +124,16 @@ public static class DistributedCacheExtensions
 
     /// <summary>
     /// Evicts locks that are not currently held to prevent unbounded memory growth.
+    /// Only removes locks where CurrentCount == 1 (max capacity), meaning no one is waiting or holding.
     /// </summary>
     private static void EvictStaleLocks()
     {
         foreach (var kvp in Locks)
         {
-            if (kvp.Value.CurrentCount > 0 && Locks.TryRemove(kvp.Key, out var removed))
+            // Only remove if the semaphore is at full capacity (no one holding or waiting)
+            if (kvp.Value.CurrentCount == 1 && Locks.TryRemove(kvp))
             {
-                removed.Dispose();
+                kvp.Value.Dispose();
                 Interlocked.Decrement(ref _lockCount);
             }
 

@@ -41,7 +41,7 @@ public class ProductRepository : IProductRepository
             .FirstOrDefaultAsync(s => s.Sku == sku, cancellationToken);
     }
 
-    public async Task<IEnumerable<Product?>> GetByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Product>> GetByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
     {
         return await _context.Products
             .Where(c => c.CategoryId == categoryId)

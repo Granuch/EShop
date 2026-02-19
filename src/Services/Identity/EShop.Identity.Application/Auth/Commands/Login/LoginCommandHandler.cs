@@ -175,23 +175,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
             // Return uniform error message to prevent account enumeration
             // Don't reveal whether user exists, account is locked, or password is wrong
-            var errorMessage = failureReason switch
-            {
-                "account_locked" => "Your account is locked. Please try again later",
-                "account_disabled" => "Your account has been disabled. Please contact support",
-                "email_not_confirmed" => "Please confirm your email address before logging in",
-                _ => "Invalid email or password"
-            };
-
-            var errorCode = failureReason switch
-            {
-                "account_locked" => "Auth.AccountLocked",
-                "account_disabled" => "Auth.AccountDisabled",
-                "email_not_confirmed" => "Auth.EmailNotConfirmed",
-                _ => "Auth.InvalidCredentials"
-            };
-
-            return Result<LoginResponse>.Failure(new Error(errorCode, errorMessage));
+            return Result<LoginResponse>.Failure(new Error("Auth.InvalidCredentials", "Invalid email or password"));
         }
 
         // Step 5: Handle 2FA if enabled

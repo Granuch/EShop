@@ -37,10 +37,15 @@ public class ProductQueryService : IProductQueryService
 
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
-            var term = $"%{searchTerm.Trim()}%";
+            // Escape LIKE special characters to prevent wildcard injection
+            var escaped = searchTerm.Trim()
+                .Replace("\\", "\\\\")
+                .Replace("%", "\\%")
+                .Replace("_", "\\_");
+            var term = $"%{escaped}%";
             query = query.Where(p =>
-                EF.Functions.ILike(p.Name, term) ||
-                EF.Functions.ILike(p.Sku, term));
+                EF.Functions.ILike(p.Name, term, "\\") ||
+                EF.Functions.ILike(p.Sku, term, "\\"));
         }
 
         if (minPrice.HasValue)

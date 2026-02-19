@@ -38,6 +38,10 @@ try
     Log.Information("Starting Identity Service...");
 
     var builder = WebApplication.CreateBuilder(args);
+    builder.Configuration.AddJsonFile(
+        $"appsettings.{builder.Environment.EnvironmentName}.Local.json",
+        optional: true,
+        reloadOnChange: true);
 
     // Configure Serilog from appsettings.json
     builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -349,7 +353,7 @@ try
             {
                 Log.Information("Seeding default roles and admin user...");
                 var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-                await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, Log.Logger);
+                await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, app.Configuration, Log.Logger);
             }
             else
             {

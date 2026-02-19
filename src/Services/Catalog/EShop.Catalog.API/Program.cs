@@ -41,6 +41,10 @@ try
     Log.Information("Starting Catalog Service...");
 
     var builder = WebApplication.CreateBuilder(args);
+    builder.Configuration.AddJsonFile(
+        $"appsettings.{builder.Environment.EnvironmentName}.Local.json",
+        optional: true,
+        reloadOnChange: true);
 
     // Configure Serilog from appsettings.json
     builder.Host.UseSerilog((context, services, configuration) => configuration

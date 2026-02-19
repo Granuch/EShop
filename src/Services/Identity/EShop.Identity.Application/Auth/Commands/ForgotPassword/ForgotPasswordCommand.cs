@@ -1,13 +1,13 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Behaviors;
 
 namespace EShop.Identity.Application.Auth.Commands.ForgotPassword;
 
 /// <summary>
-/// Command to request password reset
+/// Command to request password reset.
+/// Not transactional — this is a read-only lookup + token generation flow.
 /// </summary>
-public record ForgotPasswordCommand : IRequest<Result<ForgotPasswordResponse>>, ITransactionalCommand
+public record ForgotPasswordCommand : IRequest<Result<ForgotPasswordResponse>>
 {
     public string Email { get; init; } = string.Empty;
 }
