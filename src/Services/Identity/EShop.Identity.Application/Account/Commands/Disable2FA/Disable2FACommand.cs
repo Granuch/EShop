@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Identity.Application.Account.Commands.Disable2FA;
@@ -8,7 +9,7 @@ namespace EShop.Identity.Application.Account.Commands.Disable2FA;
 /// Command to disable two-factor authentication.
 /// Invalidates the user's profile cache after disabling 2FA.
 /// </summary>
-public record Disable2FACommand : IRequest<Result<Disable2FAResponse>>, ICacheInvalidatingCommand
+public record Disable2FACommand : IRequest<Result<Disable2FAResponse>>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
     public string Code { get; init; } = string.Empty;

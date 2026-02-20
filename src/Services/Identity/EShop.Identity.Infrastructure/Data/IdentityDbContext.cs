@@ -31,10 +31,10 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
     }
 
     /// <summary>
-    /// Disable outbox for Identity service as it primarily uses ASP.NET Identity
-    /// which has its own event model. Enable this when you add domain aggregates.
+    /// Enable outbox for Identity service to support integration event publishing
+    /// via the outbox pattern for reliable cross-service communication.
     /// </summary>
-    protected override bool UseOutbox => false;
+    protected override bool UseOutbox => true;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

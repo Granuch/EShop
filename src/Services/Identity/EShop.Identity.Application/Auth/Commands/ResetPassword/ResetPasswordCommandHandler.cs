@@ -3,6 +3,7 @@ using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -78,7 +79,7 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             // Don't fail the operation - password was reset successfully
         }
 
-        _logger.LogInformation("Password reset successfully. UserId={UserId}, Email={Email}", user.Id, user.Email);
+        _logger.LogInformation("Password reset successfully. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordPasswordReset(true);
 
         return Result<ResetPasswordResponse>.Success(new ResetPasswordResponse

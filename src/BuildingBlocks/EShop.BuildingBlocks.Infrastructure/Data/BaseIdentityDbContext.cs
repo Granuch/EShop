@@ -255,11 +255,9 @@ public abstract class BaseIdentityDbContext<TUser, TRole, TKey> : IdentityDbCont
     {
         base.OnModelCreating(modelBuilder);
 
-        // Apply Outbox configuration if enabled
-        if (UseOutbox)
-        {
-            modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
-        }
+        // Apply Outbox and ProcessedMessage configurations
+        modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.ProcessedMessageConfiguration());
     }
 
     public override void Dispose()

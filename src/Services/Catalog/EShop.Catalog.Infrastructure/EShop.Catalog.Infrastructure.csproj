@@ -4,6 +4,7 @@
     <ProjectReference Include="..\EShop.Catalog.Domain\EShop.Catalog.Domain.csproj" />
     <ProjectReference Include="..\EShop.Catalog.Application\EShop.Catalog.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\EShop.BuildingBlocks.Infrastructure\EShop.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\EShop.BuildingBlocks.Messaging\EShop.BuildingBlocks.Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -11,6 +12,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
   </ItemGroup>

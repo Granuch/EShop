@@ -8,6 +8,7 @@
     <ProjectReference Include="..\EShop.Identity.Domain\EShop.Identity.Domain.csproj" />
     <ProjectReference Include="..\EShop.Identity.Application\EShop.Identity.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\EShop.BuildingBlocks.Infrastructure\EShop.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\EShop.BuildingBlocks.Messaging\EShop.BuildingBlocks.Messaging.csproj" />
   </ItemGroup>
 
  <ItemGroup>

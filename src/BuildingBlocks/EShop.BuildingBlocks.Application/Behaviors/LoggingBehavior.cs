@@ -25,7 +25,15 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
         "SecretKey",
         "ApiKey",
         "TwoFactorCode",
-        "Code"
+        "Code",
+        "Otp",
+        "Passcode",
+        "ClientSecret",
+        "ClientSecretValue",
+        "SecurityToken",
+        "AuthorizationCode",
+        "RecoveryCode",
+        "Pin"
     };
 
     private readonly ILogger<LoggingBehavior<TRequest, TResponse>> _logger;

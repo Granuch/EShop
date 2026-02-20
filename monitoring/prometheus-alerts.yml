@@ -1,4 +1,4 @@
-# Prometheus Alert Rules for EShop Identity Service
+# Prometheus Alert Rules for EShop Microservices
 
 groups:
   - name: identity_api_alerts
@@ -63,6 +63,39 @@ groups:
         annotations:
           summary: "Many active account locks"
           description: "{{ $value }} accounts are currently locked. Possible coordinated attack."
+
+  - name: catalog_api_alerts
+    interval: 30s
+    rules:
+      # Catalog API is down
+      - alert: CatalogAPIDown
+        expr: up{job="catalog-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Catalog API is down"
+          description: "Catalog API has been down for more than 1 minute."
+
+      # Catalog API high error rate (5xx responses)
+      - alert: CatalogHighErrorRate
+        expr: rate(http_requests_received_total{code=~"5..",service="catalog"}[5m]) / rate(http_requests_received_total{service="catalog"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Catalog API high error rate"
+          description: "Catalog API 5xx error rate is {{ $value | humanizePercentage }} over 5 minutes."
+
+      # Catalog API high latency
+      - alert: CatalogHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service="catalog"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Catalog API high latency"
+          description: "Catalog API 95th percentile latency is {{ $value }}s over 5 minutes."
 
   - name: redis_alerts
     interval: 30s
