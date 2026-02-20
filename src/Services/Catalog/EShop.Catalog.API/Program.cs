@@ -247,13 +247,13 @@ try
         });
     });
 
-    // Add Rate Limiting (disable in Testing to avoid throttling integration tests)
-    if (!builder.Environment.IsEnvironment("Testing"))
+    // Add Rate Limiting (permissive in Testing to avoid throttling integration tests)
+    builder.Services.AddRateLimiter(options =>
     {
-        builder.Services.AddRateLimiter(options =>
-        {
-            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+        if (!builder.Environment.IsEnvironment("Testing"))
+        {
             // Global rate limiter — 100 requests per minute per IP
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                 RateLimitPartition.GetFixedWindowLimiter(
@@ -264,16 +264,18 @@ try
                         PermitLimit = 100,
                         Window = TimeSpan.FromMinutes(1)
                     }));
+        }
 
-            // Stricter rate limiter for search queries — 30 per minute
-            options.AddFixedWindowLimiter("search", limiterOptions =>
-            {
-                limiterOptions.AutoReplenishment = true;
-                limiterOptions.PermitLimit = 30;
-                limiterOptions.Window = TimeSpan.FromMinutes(1);
-            });
+        // Named rate limiter for search queries
+        // In Testing, use permissive limits; in production, 30 per minute
+        var searchPermitLimit = builder.Environment.IsEnvironment("Testing") ? int.MaxValue : 30;
+        options.AddFixedWindowLimiter("search", limiterOptions =>
+        {
+            limiterOptions.AutoReplenishment = true;
+            limiterOptions.PermitLimit = searchPermitLimit;
+            limiterOptions.Window = TimeSpan.FromMinutes(1);
         });
-    }
+    });
 
     // Add Health Checks
     var healthChecksBuilder = builder.Services.AddHealthChecks();
@@ -403,10 +405,7 @@ try
     app.UseCors("AllowFrontend");
 
     // Rate Limiting
-    if (!app.Environment.IsEnvironment("Testing"))
-    {
-        app.UseRateLimiter();
-    }
+    app.UseRateLimiter();
 
     app.UseHttpsRedirection();
 

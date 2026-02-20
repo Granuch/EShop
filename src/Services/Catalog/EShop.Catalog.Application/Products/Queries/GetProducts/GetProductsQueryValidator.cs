@@ -6,10 +6,10 @@ public class GetProductsQueryValidator : AbstractValidator<GetProductsQuery>
 {
     public GetProductsQueryValidator()
     {
-        RuleFor(x => x.PageNumber)
+        RuleFor(x => x.EffectivePageNumber)
             .GreaterThanOrEqualTo(1).WithMessage("Page number must be at least 1");
 
-        RuleFor(x => x.PageSize)
+        RuleFor(x => x.EffectivePageSize)
             .GreaterThanOrEqualTo(1).WithMessage("Page size must be at least 1")
             .LessThanOrEqualTo(100).WithMessage("Page size must not exceed 100");
 

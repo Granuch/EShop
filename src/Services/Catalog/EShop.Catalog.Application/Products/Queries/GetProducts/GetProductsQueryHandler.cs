@@ -21,18 +21,21 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
 
     public async Task<Result<PagedResult<ProductDto>>> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
+        var pageNumber = request.EffectivePageNumber;
+        var pageSize = request.EffectivePageSize;
+
         var (dtos, totalCount) = await _productQueryService.GetFilteredProductsAsync(
             request.CategoryId,
             request.SearchTerm,
             request.MinPrice,
             request.MaxPrice,
-            request.SortBy,
-            request.IsDescending,
-            request.PageNumber,
-            request.PageSize,
+            request.EffectiveSortBy,
+            request.EffectiveIsDescending,
+            pageNumber,
+            pageSize,
             cancellationToken);
 
-        var pagedResult = PagedResult<ProductDto>.Create(dtos, request.PageNumber, request.PageSize, totalCount);
+        var pagedResult = PagedResult<ProductDto>.Create(dtos, pageNumber, pageSize, totalCount);
 
         return Result<PagedResult<ProductDto>>.Success(pagedResult);
     }

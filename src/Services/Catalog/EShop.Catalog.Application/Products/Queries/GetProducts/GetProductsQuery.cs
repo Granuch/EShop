@@ -14,17 +14,26 @@ namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 /// 
 /// Single-product and by-category queries ARE cached because they have
 /// deterministic, invalidatable keys.
+/// 
+/// Non-nullable value types use nullable wrappers so that [AsParameters] binding
+/// treats them as optional query string parameters. Defaults are applied in the handler.
 /// </summary>
 public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>
 {
-    public int PageNumber { get; init; } = 1;
-    public int PageSize { get; init; } = 10;
+    public int? PageNumber { get; init; }
+    public int? PageSize { get; init; }
     public Guid? CategoryId { get; init; }
     public string? SearchTerm { get; init; }
     public decimal? MinPrice { get; init; }
     public decimal? MaxPrice { get; init; }
-    public ProductSortBy SortBy { get; init; } = ProductSortBy.Name;
-    public bool IsDescending { get; init; } = false;
+    public ProductSortBy? SortBy { get; init; }
+    public bool? IsDescending { get; init; }
+
+    // Convenience accessors with defaults applied
+    public int EffectivePageNumber => PageNumber ?? 1;
+    public int EffectivePageSize => PageSize ?? 10;
+    public ProductSortBy EffectiveSortBy => SortBy ?? ProductSortBy.Name;
+    public bool EffectiveIsDescending => IsDescending ?? false;
 }
 
 public enum ProductSortBy
