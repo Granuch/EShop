@@ -260,6 +260,14 @@ public class LoginAttemptTracker : ILoginAttemptTracker
         }
     }
 
+    /// <summary>
+    /// Increments a counter in distributed cache.
+    /// NOTE: This is a Read-Increment-Write pattern which is not atomic with IDistributedCache.
+    /// Under high concurrency, some increments may be lost. This is acceptable for brute-force
+    /// protection because the counter is a best-effort heuristic — lost increments slightly
+    /// delay lockout but never bypass it entirely (lockout still triggers within a few extra attempts).
+    /// For stronger guarantees, use Redis INCR via IConnectionMultiplexer directly.
+    /// </summary>
     private async Task<int> IncrementCounterAsync(string key, int expirationMinutes, CancellationToken cancellationToken)
     {
         var currentValue = await _cache.GetStringAsync(key, cancellationToken);

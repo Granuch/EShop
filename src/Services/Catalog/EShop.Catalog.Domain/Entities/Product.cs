@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Catalog.Domain.Events;
 
 namespace EShop.Catalog.Domain.Entities;
@@ -31,26 +32,27 @@ public class Product : AggregateRoot<Guid>
     
     public static Product Create(string name, string sku, decimal price, int stockQuantity, Guid categoryId)
     {
-        
         if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Product name is required.");
+            throw new DomainException("Product name is required.");
 
         if (string.IsNullOrWhiteSpace(sku))
-            throw new ArgumentException("SKU is required.");
+            throw new DomainException("SKU is required.");
 
         if (price <= 0)
-            throw new ArgumentException("Price must be greater than zero.");
+            throw new DomainException("Price must be greater than zero.");
 
         if (stockQuantity < 0)
-            throw new ArgumentException("Stock quantity cannot be negative.");
+            throw new DomainException("Stock quantity cannot be negative.");
         
         var product = new Product
         {
-            CategoryId =  categoryId,
+            Id = Guid.NewGuid(),
+            CategoryId = categoryId,
             Name = name,
             Sku = sku,
             Price = price,
             StockQuantity = stockQuantity,
+            Status = ProductStatus.Draft
         };
 
         product.AddDomainEvent(new ProductCreatedEvent
@@ -67,7 +69,7 @@ public class Product : AggregateRoot<Guid>
     {
         if (newPrice <= 0)
         {
-            throw new ArgumentException("Price must be greater than zero");
+            throw new DomainException("Price must be greater than zero.");
         }
 
         if (newPrice == Price)
@@ -90,47 +92,44 @@ public class Product : AggregateRoot<Guid>
     public void UpdateStock(int quantity)
     {
         if (IsDeleted)
-            throw new InvalidOperationException("Product is deleted.");
-        
+            throw new DomainException("Cannot update stock of a deleted product.");
+
         if (quantity < 0)
-            throw new ArgumentException("Stock quantity cannot be negative");
-        
+            throw new DomainException("Stock quantity cannot be negative.");
+
         if (quantity == StockQuantity)
             return;
 
-        if (quantity == 0)
+        var previousQuantity = StockQuantity;
+        StockQuantity = quantity;
+
+        if (quantity == 0 && previousQuantity > 0)
         {
             AddDomainEvent(new ProductOutOfStockEvent
             {
                 ProductId = Id,
             });
-            StockQuantity = quantity;
         }
-
-        if (StockQuantity == 0)
+        else if (previousQuantity == 0 && quantity > 0)
         {
             AddDomainEvent(new ProductBackInStockEvent
             {
                 ProductId = Id,
             });
-            StockQuantity = quantity;
         }
-        
-        StockQuantity = quantity;
     }
     
     public void Publish()
     {
         if (IsDeleted)
-            throw new InvalidOperationException("Product is deleted.");
-        
-        if (Status == ProductStatus.Draft)
-            Status = ProductStatus.Active;
-        else
-            throw new InvalidOperationException("Cannot publish a non-draft product");
+            throw new DomainException("Cannot publish a deleted product.");
+
+        if (Status != ProductStatus.Draft)
+            throw new DomainException("Cannot publish a non-draft product.");
+
+        Status = ProductStatus.Active;
     }
 
-    // For now i dont use deleted by as no field to store it exist, may add later
     public void SoftDelete()
     {
         if (IsDeleted)
@@ -143,17 +142,17 @@ public class Product : AggregateRoot<Guid>
     
     public void AddImage(string url, string? altText, int displayOrder)
     {
-        if(IsDeleted)
-            throw new InvalidOperationException("Product is deleted.");
-        
-        if(_images.Any(x => x.Url == url))
-            return;
-        
+        if (IsDeleted)
+            throw new DomainException("Cannot add image to a deleted product.");
+
         if (string.IsNullOrWhiteSpace(url))
-            throw new ArgumentException("Product url cannot be null or empty.");
-        
+            throw new DomainException("Product image URL cannot be empty.");
+
         if (displayOrder < 0)
-            throw new ArgumentException("Display order cannot be negative.");
+            throw new DomainException("Display order cannot be negative.");
+
+        if (_images.Any(x => x.Url == url))
+            return;
         
         var newImage = new ProductImage(Id ,url, altText, displayOrder);
         _images.Add(newImage);
@@ -161,28 +160,26 @@ public class Product : AggregateRoot<Guid>
 
     public void RemoveImage(Guid imageId)
     {
-        if(IsDeleted)
-            throw new InvalidOperationException("Product is deleted.");
-        
+        if (IsDeleted)
+            throw new DomainException("Cannot remove image from a deleted product.");
+
         var image = _images.FirstOrDefault(i => i.Id == imageId);
         if (image == null)
-            throw new ArgumentException("Product image not found.");
-        
-        _images.Remove(image);
+            throw new DomainException("Product image not found.");
 
+        _images.Remove(image);
     }
     
-    // Attributes with same name might be an issue not sure yet
     public void AddAttribute(string name, string value)
     {
         if (IsDeleted)
-            throw new InvalidOperationException("Product is deleted.");
-        
+            throw new DomainException("Cannot add attribute to a deleted product.");
+
         if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Attribute name cannot be null or empty.");
-        
+            throw new DomainException("Attribute name cannot be empty.");
+
         if (string.IsNullOrWhiteSpace(value))
-            throw new ArgumentException("Attribute value cannot be null or empty.");
+            throw new DomainException("Attribute value cannot be empty.");
         
         var  newAttribute = new ProductAttribute(Id , name, value);
         _attributes.Add(newAttribute);

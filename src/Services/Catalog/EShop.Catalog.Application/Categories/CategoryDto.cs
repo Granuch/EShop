@@ -2,22 +2,21 @@ namespace EShop.Catalog.Application.Categories;
 
 public record CategoryDto
 {
-    public Guid Id { get; set; }
-    
-    public string Name { get; set; } = string.Empty;
+    public Guid Id { get; init; }
 
-    public string? Description { get; set; }
+    public string Name { get; init; } = string.Empty;
 
-    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; init; }
 
-    public Guid? ParentCategoryId { get; set; }
+    public string Slug { get; init; } = string.Empty;
 
-    public string? ParentCategoryName { get; set; }
+    public Guid? ParentCategoryId { get; init; }
 
-    public int DisplayOrder { get; set; }
+    public string? ParentCategoryName { get; init; }
 
-    public bool IsActive { get; set; }
+    public int DisplayOrder { get; init; }
 
-    public List<CategoryDto>? ChildCategories { get; set; } = new();
-    
+    public bool IsActive { get; init; }
+
+    public List<CategoryDto>? ChildCategories { get; init; } = [];
 }

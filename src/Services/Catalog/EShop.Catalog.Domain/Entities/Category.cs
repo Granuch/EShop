@@ -1,12 +1,13 @@
 using System.Text.RegularExpressions;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 
 namespace EShop.Catalog.Domain.Entities;
 
 /// <summary>
-/// Category entity with hierarchical support
+/// Category aggregate root with hierarchical support
 /// </summary>
-public class Category : Entity<Guid>
+public class Category : AggregateRoot<Guid>
 {
     public string Name { get; private set; } = string.Empty;
     public string? Description { get; private set; }
@@ -26,13 +27,14 @@ public class Category : Entity<Guid>
     
     public static Category Create(string name, string? slug, Guid? parentCategoryId)
     {
-        if(string.IsNullOrWhiteSpace(name))
-            throw new ArgumentNullException(nameof(name));
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Category name is required.");
         
         var finalSlug = (slug ?? GenerateSlug(name)).Trim();
         
         var newCategory = new Category
         {
+            Id = Guid.NewGuid(),
             Name = name.Trim(),
             Slug = finalSlug,
             ParentCategoryId = parentCategoryId
@@ -41,14 +43,13 @@ public class Category : Entity<Guid>
         return newCategory;
     }
     
-    // It creates new category might change later
     public void AddChildCategory(string name, string? slug = null)
     {
         if (!IsActive)
-            throw new Exception("Cannot add a child to a deleted category.");
+            throw new DomainException("Cannot add a child to an inactive category.");
 
         if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Child category name cannot be empty.");
+            throw new DomainException("Child category name cannot be empty.");
 
         string newSlug = (slug ?? GenerateSlug(name)).Trim();
         
@@ -59,8 +60,11 @@ public class Category : Entity<Guid>
 
     public void UpdateCategory(string name, string description)
     {
-        Name = name;
-        Description = description;
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Category name cannot be empty.");
+
+        Name = name.Trim();
+        Description = description?.Trim();
     }
 
     public static string GenerateSlug(string name)

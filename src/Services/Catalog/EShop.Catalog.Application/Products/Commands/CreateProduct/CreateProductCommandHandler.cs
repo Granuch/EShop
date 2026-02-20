@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Telemetry;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
-using Microsoft.Extensions.Logging;
 
 namespace EShop.Catalog.Application.Products.Commands.CreateProduct;
 
@@ -12,39 +14,46 @@ namespace EShop.Catalog.Application.Products.Commands.CreateProduct;
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Result<Guid>>
 {
     private readonly IProductRepository _productRepository;
-    private readonly ILogger<CreateProductCommandHandler> _logger;
     private readonly ICategoryRepository _categoryRepository;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public CreateProductCommandHandler(IProductRepository productRepository, ILogger<CreateProductCommandHandler> logger,  ICategoryRepository categoryRepository)
+    public CreateProductCommandHandler(
+        IProductRepository productRepository,
+        ICategoryRepository categoryRepository,
+        IUnitOfWork unitOfWork)
     {
         _productRepository = productRepository;
         _categoryRepository = categoryRepository;
-        _logger = logger;
+        _unitOfWork = unitOfWork;
     }
+
     public async Task<Result<Guid>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Creating product");
-        // Check if SKU already exists
-        var existingProd = await _productRepository.GetBySkuAsync(request.Sku, cancellationToken);
-        if (existingProd != null)
+        using var activity = CatalogActivitySource.Source.StartActivity("Catalog.CreateProduct");
+        activity?.SetTag("product.sku", request.Sku);
+        activity?.SetTag("product.category_id", request.CategoryId.ToString());
+
+        var existingProduct = await _productRepository.GetBySkuAsync(request.Sku, cancellationToken);
+        if (existingProduct != null)
         {
-            _logger.LogWarning("Product with Sku {Sku} already exists", request.Sku);
-            return Result<Guid>.Failure(new Error("Conflict",$"Product with Sku {request.Sku} already exists"));
+            activity?.SetStatus(ActivityStatusCode.Error, "sku_conflict");
+            return Result<Guid>.Failure(new Error("Product.SkuConflict", $"Product with SKU '{request.Sku}' already exists."));
         }
-        // Validate category exists
-        var isExist = await _categoryRepository.GetById(request.CategoryId, cancellationToken);
-        if (isExist == null)
+
+        var category = await _categoryRepository.GetById(request.CategoryId, cancellationToken);
+        if (category == null)
         {
-            _logger.LogWarning("Category does not exist");
-            return Result<Guid>.Failure(new Error("Conflict","Category does not exist"));
+            activity?.SetStatus(ActivityStatusCode.Error, "category_not_found");
+            return Result<Guid>.Failure(new Error("Category.NotFound", $"Category with ID '{request.CategoryId}' was not found."));
         }
-        // Create Product entity using factory method
+
         var product = Product.Create(request.Name, request.Sku, request.Price, request.StockQuantity, request.CategoryId);
-        // Add to repository
+
         await _productRepository.AddAsync(product, cancellationToken);
-        
-        // Return product ID
-        _logger.LogInformation("Product created");
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        activity?.SetTag("product.id", product.Id.ToString());
+
         return Result<Guid>.Success(product.Id);
     }
 }

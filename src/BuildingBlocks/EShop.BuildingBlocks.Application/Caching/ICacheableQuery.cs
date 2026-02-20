@@ -49,14 +49,15 @@ public abstract class CacheableQuery : ICacheableQuery
 }
 
 /// <summary>
-/// Interface for queries that can invalidate cache entries.
+/// Interface for commands that can invalidate cache entries.
 /// Use this on commands that modify data that is cached.
 /// </summary>
 public interface ICacheInvalidatingCommand
 {
     /// <summary>
-    /// Cache keys or prefixes to invalidate when this command executes.
-    /// Supports wildcards: "products:*" invalidates all product-related cache.
+    /// Exact cache keys to invalidate when this command executes.
+    /// Each key must be an exact match — pattern/wildcard-based invalidation
+    /// is not supported by IDistributedCache.
     /// </summary>
     IEnumerable<string> CacheKeysToInvalidate { get; }
 }

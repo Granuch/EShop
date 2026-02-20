@@ -1,11 +1,15 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
+using EShop.Identity.Infrastructure.Consumers;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
@@ -29,7 +33,10 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration,
         bool useInMemoryDatabase = false,
-        string? inMemoryDatabaseName = null)
+        string? inMemoryDatabaseName = null,
+        bool suppressPendingModelChangesWarning = false,
+        bool isDevelopment = false,
+        bool isSandbox = false)
     {
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -49,8 +56,18 @@ public static class ServiceCollectionExtensions
         else
         {
             services.AddDbContext<IdentityDbContext>(options =>
-                options.UseNpgsql(configuration.GetConnectionString("IdentityDb")));
+            {
+                options.UseNpgsql(configuration.GetConnectionString("IdentityDb"));
+
+                if (suppressPendingModelChangesWarning)
+                {
+                    options.ConfigureWarnings(warnings =>
+                        warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+                }
+            });
         }
+
+        var requireConfirmedEmailOverride = configuration.GetValue<bool?>("Identity:RequireConfirmedEmail");
 
         // Add ASP.NET Core Identity
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
@@ -66,7 +83,7 @@ public static class ServiceCollectionExtensions
             options.User.RequireUniqueEmail = true;
 
             // Sign-in requirements
-            options.SignIn.RequireConfirmedEmail = false; // TODO: Set to true when EmailService is configured
+            options.SignIn.RequireConfirmedEmail = requireConfirmedEmailOverride ?? !(isDevelopment || isSandbox);
 
             // Lockout settings
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
@@ -90,6 +107,38 @@ public static class ServiceCollectionExtensions
         // Register IUnitOfWork (implemented by IdentityDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
 
+        // Register DbContext base type for OutboxProcessorService
+        services.AddScoped<DbContext>(provider => provider.GetRequiredService<IdentityDbContext>());
+
+        // Register Outbox Processor background service
+        services.AddSingleton(new OutboxProcessorOptions
+        {
+            BatchSize = 20,
+            PollingIntervalMs = 1000,
+            MaxRetries = 5,
+            ErrorRetryDelayMs = 5000
+        });
+        services.AddHostedService<OutboxProcessorService>();
+
+        // Register Outbox Cleanup background service
+        services.AddSingleton(new OutboxCleanupOptions
+        {
+            RetentionDays = 7,
+            CleanupIntervalHours = 6
+        });
+        services.AddHostedService<OutboxCleanupService>();
+
+        // Register Outbox health check for dead-letter and depth monitoring
+        services.AddSingleton(new OutboxHealthCheckOptions
+        {
+            DeadLetterWarningThreshold = 10,
+            PendingWarningThreshold = 100
+        });
+        services.AddHealthChecks()
+            .AddCheck<OutboxHealthCheck>(
+                "outbox",
+                tags: ["ready", "outbox"]);
+
         // Add services
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<ITokenCleanupService, TokenCleanupService>();
@@ -100,6 +149,26 @@ public static class ServiceCollectionExtensions
 
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Adds MassTransit with RabbitMQ transport for the Identity service.
+    /// </summary>
+    public static IServiceCollection AddIdentityMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        bool isDevelopment)
+    {
+        services.AddMessaging<IdentityDbContext>(
+            configuration,
+            isDevelopment,
+            bus =>
+            {
+                // Register consumers from this assembly
+                bus.AddConsumer<ProductCreatedConsumer>();
+            });
 
         return services;
     }

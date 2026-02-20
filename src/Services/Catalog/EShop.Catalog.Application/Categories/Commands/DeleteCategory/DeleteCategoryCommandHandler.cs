@@ -1,30 +1,42 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
-using Microsoft.Extensions.Logging;
 
 namespace EShop.Catalog.Application.Categories.Commands.DeleteCategory;
 
 public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryCommand, Result>
 {
-    private readonly ILogger<DeleteCategoryCommandHandler> _logger;
     private readonly ICategoryRepository _categoryRepository;
+    private readonly IProductRepository _productRepository;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public DeleteCategoryCommandHandler(ILogger<DeleteCategoryCommandHandler> logger, ICategoryRepository categoryRepository)
+    public DeleteCategoryCommandHandler(
+        ICategoryRepository categoryRepository,
+        IProductRepository productRepository,
+        IUnitOfWork unitOfWork)
     {
-        _logger = logger;
         _categoryRepository = categoryRepository;
+        _productRepository = productRepository;
+        _unitOfWork = unitOfWork;
     }
-    
+
     public async Task<Result> Handle(DeleteCategoryCommand request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Deleting category with id {id}", request.Id);
         var category = await _categoryRepository.GetById(request.Id, cancellationToken);
         if (category is null)
-            return Result.Failure(new Error("Not found", $"Product with id {request.Id} not found"));
-        
+            return Result.Failure(new Error("Category.NotFound", $"Category with ID '{request.Id}' was not found."));
+
+        if (category.ChildCategories.Count > 0)
+            return Result.Failure(new Error("Category.HasChildren", "Cannot delete a category that has child categories. Remove children first."));
+
+        var products = await _productRepository.GetByCategoryAsync(request.Id, cancellationToken);
+        if (products.Any())
+            return Result.Failure(new Error("Category.HasProducts", "Cannot delete a category that has products. Reassign or delete products first."));
+
         await _categoryRepository.DeleteAsync(category, cancellationToken);
-        _logger.LogInformation("Deleted category with id {id}", request.Id);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
         return Result.Success();
     }
 }
