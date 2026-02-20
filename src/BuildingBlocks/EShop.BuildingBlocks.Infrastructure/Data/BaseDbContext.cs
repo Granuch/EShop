@@ -148,6 +148,13 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
         {
             var entityType = entry.Entity.GetType();
 
+            // Increment version on aggregate roots for optimistic concurrency
+            if (entry.State == EntityState.Modified && entry.Entity is IAggregateRootMarker)
+            {
+                var incrementMethod = entityType.GetMethod("IncrementVersion");
+                incrementMethod?.Invoke(entry.Entity, null);
+            }
+
             if (entry.State == EntityState.Added)
             {
                 // Set CreatedAt
@@ -255,6 +262,7 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
 
         // Apply Outbox configuration
         modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new Configurations.ProcessedMessageConfiguration());
     }
 
     public override void Dispose()

@@ -1,4 +1,8 @@
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile(
+    $"appsettings.{builder.Environment.EnvironmentName}.Local.json",
+    optional: true,
+    reloadOnChange: true);
 
 // TODO: Configure Serilog for structured logging
 // builder.Host.UseSerilog((context, configuration) => 

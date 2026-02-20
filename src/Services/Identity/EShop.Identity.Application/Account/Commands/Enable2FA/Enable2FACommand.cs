@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Identity.Application.Account.Commands.Enable2FA;
@@ -8,7 +9,7 @@ namespace EShop.Identity.Application.Account.Commands.Enable2FA;
 /// Command to enable two-factor authentication.
 /// Invalidates the user's profile cache after enabling 2FA.
 /// </summary>
-public record Enable2FACommand : IRequest<Result<Enable2FAResponse>>, ICacheInvalidatingCommand
+public record Enable2FACommand : IRequest<Result<Enable2FAResponse>>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
 

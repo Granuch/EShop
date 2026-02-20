@@ -1,6 +1,8 @@
+using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Identity.Application.Auth.Commands.ConfirmEmail;
 using EShop.Identity.Domain.Entities;
-using MediatR;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -11,7 +13,9 @@ namespace EShop.Identity.UnitTests.Auth;
 public class ConfirmEmailCommandHandlerTests
 {
     private Mock<UserManager<ApplicationUser>> _userManagerMock = null!;
-    private Mock<IMediator> _mediatorMock = null!;
+    private Mock<IIntegrationEventOutbox> _outboxMock = null!;
+    private Mock<IUnitOfWork> _unitOfWorkMock = null!;
+    private Mock<ICurrentUserContext> _currentUserContextMock = null!;
     private Mock<ILogger<ConfirmEmailCommandHandler>> _loggerMock = null!;
     private ConfirmEmailCommandHandler _handler = null!;
 
@@ -19,9 +23,17 @@ public class ConfirmEmailCommandHandlerTests
     public void SetUp()
     {
         _userManagerMock = MockUserManager();
-        _mediatorMock = new Mock<IMediator>();
+        _outboxMock = new Mock<IIntegrationEventOutbox>();
+        _unitOfWorkMock = new Mock<IUnitOfWork>();
+        _currentUserContextMock = new Mock<ICurrentUserContext>();
+        _currentUserContextMock.Setup(x => x.CorrelationId).Returns("test-correlation-id");
         _loggerMock = new Mock<ILogger<ConfirmEmailCommandHandler>>();
-        _handler = new ConfirmEmailCommandHandler(_userManagerMock.Object, _mediatorMock.Object, _loggerMock.Object);
+        _handler = new ConfirmEmailCommandHandler(
+            _userManagerMock.Object,
+            _outboxMock.Object,
+            _unitOfWorkMock.Object,
+            _currentUserContextMock.Object,
+            _loggerMock.Object);
     }
 
     [Test]
@@ -78,6 +90,7 @@ public class ConfirmEmailCommandHandlerTests
         // Assert
         Assert.That(result.IsFailure, Is.True);
         Assert.That(result.Error!.Code, Is.EqualTo("Auth.InvalidToken"));
+        _unitOfWorkMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -100,10 +113,12 @@ public class ConfirmEmailCommandHandlerTests
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value.Success, Is.True);
 
-        // Verify domain event was published
-        _mediatorMock.Verify(m => m.Publish(
-            It.IsAny<EShop.Identity.Domain.Events.UserEmailConfirmedEvent>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+        // Verify integration event was enqueued and transaction committed
+        _outboxMock.Verify(o => o.Enqueue(
+            It.IsAny<UserEmailConfirmedIntegrationEvent>(),
+            It.IsAny<string?>()), Times.Once);
+        _unitOfWorkMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWorkMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static Mock<UserManager<ApplicationUser>> MockUserManager()

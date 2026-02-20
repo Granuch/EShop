@@ -25,20 +25,23 @@ namespace EShop.Identity.Infrastructure.Data.Migrations
             modelBuilder.Entity("EShop.BuildingBlocks.Domain.Outbox.OutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("AggregateId")
-                        .HasColumnType("text");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("AggregateType")
-                        .HasColumnType("text");
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
 
                     b.Property<string>("CorrelationId")
-                        .HasColumnType("text");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("LastError")
-                        .HasColumnType("text");
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
 
                     b.Property<DateTime>("OccurredOnUtc")
                         .HasColumnType("timestamp with time zone");
@@ -51,15 +54,58 @@ namespace EShop.Identity.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("RetryCount")
-                        .HasColumnType("integer");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Type")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
 
-                    b.ToTable("OutboxMessages");
+                    b.HasIndex("CorrelationId")
+                        .HasDatabaseName("IX_OutboxMessages_CorrelationId")
+                        .HasFilter("\"CorrelationId\" IS NOT NULL");
+
+                    b.HasIndex("ProcessedOnUtc", "OccurredOnUtc")
+                        .HasDatabaseName("IX_OutboxMessages_ProcessedOnUtc_OccurredOnUtc");
+
+                    b.HasIndex("ProcessedOnUtc", "RetryCount")
+                        .HasDatabaseName("IX_OutboxMessages_ProcessedOnUtc_RetryCount")
+                        .HasFilter("\"ProcessedOnUtc\" IS NULL");
+
+                    b.HasIndex("Status", "OccurredOnUtc")
+                        .HasDatabaseName("IX_OutboxMessages_Status_OccurredOnUtc");
+
+                    b.ToTable("outbox_messages", (string)null);
+                });
+
+            modelBuilder.Entity("EShop.BuildingBlocks.Infrastructure.Consumers.ProcessedMessage", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("ProcessedOnUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("MessageId");
+
+                    b.HasIndex("ProcessedOnUtc")
+                        .HasDatabaseName("IX_ProcessedMessages_ProcessedOnUtc");
+
+                    b.ToTable("processed_messages", (string)null);
                 });
 
             modelBuilder.Entity("EShop.Identity.Domain.Entities.ApplicationRole", b =>

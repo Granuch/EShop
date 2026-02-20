@@ -8,7 +8,7 @@ namespace EShop.Catalog.Infrastructure.Repositories;
 public class CategoryRepository : ICategoryRepository
 {
     private readonly CatalogDbContext _context;
-    
+
     public CategoryRepository(CatalogDbContext context)
     {
         _context = context;
@@ -18,41 +18,36 @@ public class CategoryRepository : ICategoryRepository
     {
         return await _context.Categories
             .Include(c => c.ParentCategory)
-            .Include(c => c.Products)
             .Include(c => c.ChildCategories)
-            .ThenInclude(cc => cc.Products) // products of first-level child categories
             .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
     }
-    
+
     public async Task AddAsync(Category category, CancellationToken cancellationToken = default)
     {
-        if(category == null)
-            throw new ArgumentNullException(nameof(category));
-        
         await _context.Categories.AddAsync(category, cancellationToken);
-        await _context.SaveChangesAsync(cancellationToken);
-    }
-    
-    public async Task DeleteAsync(Category category, CancellationToken cancellationToken = default)
-    {
-        _context.Categories.Remove(category);
-        await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task UpdateAsync(Category category, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(Category category, CancellationToken cancellationToken = default)
     {
-        _context.Categories.Update(category);
-        await _context.SaveChangesAsync(cancellationToken);
+        _context.Categories.Remove(category);
+        return Task.CompletedTask;
     }
-    
-    public async Task<List<Category>> GetRootCategories(CancellationToken ct = default)
+
+    public Task UpdateAsync(Category category, CancellationToken cancellationToken = default)
+    {
+        // No explicit Update() — entity is change-tracked.
+        return Task.CompletedTask;
+    }
+
+    public async Task<List<Category>> GetRootCategories(CancellationToken cancellationToken = default)
     {
         return await _context.Categories
             .Where(c => c.ParentCategoryId == null)
             .Include(c => c.ChildCategories)
-            .ThenInclude(c => c.ChildCategories) // load next level (can repeat)
-            .Include(c => c.Products)
+                .ThenInclude(c => c.ChildCategories)
+            .OrderBy(c => c.DisplayOrder)
+            .Take(100)
             .AsNoTracking()
-            .ToListAsync(ct);
+            .ToListAsync(cancellationToken);
     }
 }

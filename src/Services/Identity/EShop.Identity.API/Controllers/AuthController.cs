@@ -67,7 +67,7 @@ public class AuthController : ControllerBase
                 return BadRequest(new { error = result.Error.Code, message = result.Error.Message });
             }
 
-            return Unauthorized(new { error = "Auth.InvalidCredentials", message = "Invalid email or password" });
+            return Unauthorized(new { error = result.Error!.Code, message = result.Error.Message });
         }
 
         return Ok(result.Value);
@@ -126,17 +126,11 @@ public class AuthController : ControllerBase
     /// <summary>
     /// Confirm email address
     /// </summary>
-    [HttpGet("confirm-email")]
+    [HttpPost("confirm-email")]
     [ProducesResponseType(typeof(ConfirmEmailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ConfirmEmailResponse>> ConfirmEmail([FromQuery] string userId, [FromQuery] string token)
+    public async Task<ActionResult<ConfirmEmailResponse>> ConfirmEmail([FromBody] ConfirmEmailCommand command)
     {
-        var command = new ConfirmEmailCommand
-        {
-            UserId = userId,
-            Token = token
-        };
-
         var result = await _mediator.Send(command);
 
         if (result.IsFailure)
@@ -199,21 +193,4 @@ public class AuthController : ControllerBase
     {
         return HttpContext.Connection.RemoteIpAddress?.ToString();
     }
-}
-
-public record RevokeTokenRequest
-{
-    public string RefreshToken { get; init; } = string.Empty;
-}
-
-public record ForgotPasswordRequest
-{
-    public string Email { get; init; } = string.Empty;
-}
-
-public record ResetPasswordRequest
-{
-    public string UserId { get; init; } = string.Empty;
-    public string Token { get; init; } = string.Empty;
-    public string NewPassword { get; init; } = string.Empty;
 }

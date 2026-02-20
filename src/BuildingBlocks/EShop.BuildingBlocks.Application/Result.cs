@@ -67,6 +67,12 @@ public class Result
 
     private Result(bool isSuccess, Error? error)
     {
+        if (isSuccess && error != null)
+            throw new InvalidOperationException("Success result cannot have an error");
+
+        if (!isSuccess && error == null)
+            throw new InvalidOperationException("Failure result must have an error");
+
         IsSuccess = isSuccess;
         Error = error;
     }

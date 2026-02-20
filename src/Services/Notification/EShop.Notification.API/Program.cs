@@ -1,6 +1,10 @@
 using EShop.Notification.API;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Configuration.AddJsonFile(
+    $"appsettings.{builder.Environment.EnvironmentName}.Local.json",
+    optional: true,
+    reloadOnChange: true);
 
 // TODO: Configure Serilog for structured logging
 // builder.Services.AddSerilog((context, configuration) => 

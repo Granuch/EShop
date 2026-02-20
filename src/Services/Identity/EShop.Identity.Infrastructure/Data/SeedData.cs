@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Serilog;
 
 namespace EShop.Identity.Infrastructure.Data;
@@ -9,12 +10,10 @@ namespace EShop.Identity.Infrastructure.Data;
 /// </summary>
 public static class SeedData
 {
-    public static async Task SeedRolesAndAdminAsync(
+    public static async Task SeedRolesAsync(
         RoleManager<ApplicationRole> roleManager,
-        UserManager<ApplicationUser> userManager,
         ILogger? logger = null)
     {
-        // Create default roles
         var roles = new[] { "Admin", "User" };
         foreach (var role in roles)
         {
@@ -34,9 +33,27 @@ public static class SeedData
                 }
             }
         }
+    }
 
-        // Create admin user if not exists
-        var adminEmail = "admin@eshop.com";
+    public static async Task SeedRolesAndAdminAsync(
+        RoleManager<ApplicationRole> roleManager,
+        UserManager<ApplicationUser> userManager,
+        IConfiguration configuration,
+        ILogger? logger = null)
+    {
+        await SeedRolesAsync(roleManager, logger);
+
+        var adminEmail = configuration["Identity:SeedAdminEmail"] ?? "admin@eshop.com";
+        var adminPassword = configuration["Identity:SeedAdminPassword"];
+
+        if (string.IsNullOrWhiteSpace(adminPassword))
+        {
+            logger?.Warning(
+                "Identity:SeedAdminPassword is not configured. Skipping admin user seed. " +
+                "Set this value in environment variables or user-secrets.");
+            return;
+        }
+
         var adminUser = await userManager.FindByEmailAsync(adminEmail);
 
         if (adminUser == null)
@@ -52,11 +69,11 @@ public static class SeedData
                 CreatedAt = DateTime.UtcNow
             };
 
-            var result = await userManager.CreateAsync(adminUser, "Admin@123456");
+            var result = await userManager.CreateAsync(adminUser, adminPassword);
             if (result.Succeeded)
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
-                logger?.Information("Created admin user: {Email}", adminEmail);
+                logger?.Information("Created admin user with configured email");
             }
             else
             {
