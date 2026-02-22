@@ -1,0 +1,185 @@
+{
+  "annotations": { "list": [] },
+  "description": "Dependency RED — outbound HTTP client latency, upstream errors, database query performance, connection pool utilization",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "asDropdown": true, "icon": "external link", "includeVars": true, "keepTime": true, "tags": ["eshop"], "title": "Service Dashboards", "type": "dashboards" },
+    { "icon": "bolt", "title": "Jaeger Traces", "type": "link", "url": "http://localhost:16686/search", "targetBlank": true }
+  ],
+  "panels": [
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 100, "panels": [], "title": "Outbound HTTP — Rate", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "reqps" } },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:http_client_requests:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }}", "refId": "A" }
+      ],
+      "title": "Outbound Request Rate by Dependency",
+      "type": "timeseries"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "id": 101, "panels": [], "title": "Outbound HTTP — Errors", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "percentunit", "max": 1 } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:http_client_error_ratio:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }}", "refId": "A" },
+        { "expr": "vector(0.05)", "legendFormat": "Threshold (5%)", "refId": "T" }
+      ],
+      "title": "Upstream Error Ratio (5xx/total)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "reqps" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:http_client_errors_5xx:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }}", "refId": "A" }
+      ],
+      "title": "Upstream 5xx Error Rate",
+      "type": "timeseries"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }, "id": 102, "panels": [], "title": "Outbound HTTP — Duration", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "id": 20,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:http_client_latency_p50:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }} P50", "refId": "A" },
+        { "expr": "dependency:http_client_latency_p95:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }} P95", "refId": "B" },
+        { "expr": "dependency:http_client_latency_p99:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }} P99", "refId": "C" }
+      ],
+      "title": "Outbound HTTP Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "id": 21,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:http_client_active_requests:count{job=~\"$service\"}", "legendFormat": "{{ job }} → {{ server_address }}", "refId": "A" }
+      ],
+      "title": "In-Flight Outbound Requests",
+      "type": "timeseries"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }, "id": 103, "panels": [], "title": "Database (PostgreSQL) — RED", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "ops" } },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 28 },
+      "id": 30,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:db_operations:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "DB Operations Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "s" } },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 28 },
+      "id": 31,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:db_operation_latency_p50:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} P50", "refId": "A" },
+        { "expr": "dependency:db_operation_latency_p95:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} P95", "refId": "B" },
+        { "expr": "dependency:db_operation_latency_p99:rate5m{job=~\"$service\"}", "legendFormat": "{{ job }} P99", "refId": "C" }
+      ],
+      "title": "DB Query Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "scaleDistribution": { "type": "log", "log": 2 } } } },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 28 },
+      "id": 32,
+      "options": { "calculate": false, "cellGap": 1, "color": { "mode": "scheme", "scheme": "Oranges" }, "yAxis": { "unit": "s" } },
+      "targets": [
+        { "expr": "sum(increase(npgsql_db_client_operation_duration_bucket{job=~\"$service\"}[$__rate_interval])) by (le)", "legendFormat": "{{ le }}", "refId": "A", "format": "heatmap" }
+      ],
+      "title": "DB Query Latency Heatmap",
+      "type": "heatmap"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }, "id": 104, "panels": [], "title": "Database — Connection Pool", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "spanNulls": true, "stacking": { "mode": "normal" } }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "id": 40,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:db_pool_used:count{job=~\"$service\"}", "legendFormat": "{{ job }} used", "refId": "A" },
+        { "expr": "dependency:db_pool_idle:count{job=~\"$service\"}", "legendFormat": "{{ job }} idle", "refId": "B" }
+      ],
+      "title": "Connection Pool — Used vs Idle",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.6 }, { "color": "red", "value": 0.8 }] } } },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 36 },
+      "id": 41,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "dependency:db_pool_utilization:ratio{job=~\"$service\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "Pool Utilization",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 36 },
+      "id": 42,
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "dependency:db_pool_max:count{job=~\"$service\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "Pool Max Size",
+      "type": "stat"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["eshop", "dependency", "red", "database"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(http_client_request_duration_seconds_count, job)",
+        "includeAll": true,
+        "multi": true,
+        "name": "service",
+        "query": { "query": "label_values(http_client_request_duration_seconds_count, job)" },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "EShop Dependency RED",
+  "uid": "eshop-dependency-red",
+  "version": 1
+}

@@ -212,3 +212,116 @@ groups:
           description: >
             Service {{ $labels.service }} request rate dropped to {{ $value }}/sec
             from over 1/sec an hour ago. Possible deployment issue or upstream failure.
+
+  # ============================================
+  # Runtime & Infrastructure Alerts
+  # ============================================
+  - name: runtime_alerts
+    interval: 30s
+    rules:
+      # GC pause time consuming >5% of wall clock time
+      - alert: HighGCPauseTime
+        expr: instance:dotnet_gc_pause:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High GC pause time on {{ $labels.job }}"
+          description: >
+            GC is consuming {{ $value | humanizePercentage }} of wall clock time
+            on {{ $labels.job }} / {{ $labels.instance }}.
+
+      # Thread pool queue growing — sign of saturation
+      - alert: ThreadPoolSaturation
+        expr: instance:dotnet_threadpool_queue_length:rate5m > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Thread pool saturated on {{ $labels.job }}"
+          description: >
+            Thread pool queue growth rate is {{ $value }}/sec on {{ $labels.job }}.
+            Work items are queuing faster than threads can process.
+
+      # Exception rate spike
+      - alert: HighExceptionRate
+        expr: instance:dotnet_exceptions:rate5m > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High exception rate on {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} is throwing {{ $value }} exceptions/sec.
+
+      # DB connection creation latency spike (P95 > 1s)
+      - alert: DatabaseConnectionLatencyHigh
+        expr: instance:npgsql_connection_create_p95:rate5m > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection latency high for {{ $labels.job }}"
+          description: >
+            P95 database connection creation time is {{ $value }}s for {{ $labels.job }}.
+            Possible connection pool exhaustion or database overload.
+
+      # OTEL Collector down
+      - alert: OTELCollectorDown
+        expr: up{job="otel-collector-spanmetrics"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenTelemetry Collector is down"
+          description: "OTEL Collector has been unreachable for >2 minutes. Traces and span metrics are not being collected."
+
+  # ============================================
+  # Dependency RED Alerts
+  # ============================================
+  - name: dependency_alerts
+    interval: 30s
+    rules:
+      # Upstream dependency returning 5xx errors
+      - alert: DependencyHighErrorRate
+        expr: dependency:http_client_error_ratio:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Upstream dependency {{ $labels.server_address }} returning errors for {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} → {{ $labels.server_address }}: {{ $value | humanizePercentage }} of requests are 5xx.
+
+      # Upstream dependency latency spike
+      - alert: DependencyHighLatency
+        expr: dependency:http_client_latency_p95:rate5m > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Upstream dependency {{ $labels.server_address }} slow for {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} → {{ $labels.server_address }}: P95 latency is {{ $value }}s.
+
+      # DB query latency spike
+      - alert: DatabaseQueryLatencyHigh
+        expr: dependency:db_operation_latency_p95:rate5m > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database query latency high for {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} DB operation P95 latency is {{ $value }}s.
+
+      # DB connection pool nearing exhaustion (>80% used)
+      - alert: DatabasePoolExhaustion
+        expr: dependency:db_pool_utilization:ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool nearing exhaustion for {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} is using {{ $value | humanizePercentage }} of its DB connection pool.
