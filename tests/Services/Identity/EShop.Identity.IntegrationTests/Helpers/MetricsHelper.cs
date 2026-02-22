@@ -9,7 +9,7 @@ public static class MetricsHelper
 {
     public static async Task<string> GetPrometheusMetricsAsync(HttpClient client)
     {
-        var response = await client.GetAsync("/metrics");
+        var response = await client.GetAsync("/prometheus");
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync();
     }

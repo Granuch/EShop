@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.Identity.Application.Telemetry;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Extensions;
@@ -76,6 +77,13 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
     public async Task InitializeDatabaseAsync()
     {
         if (_databaseSeeded) return;
+
+        // Ensure telemetry metrics are initialized for test context
+        var metrics = Services.GetService<IIdentityMetrics>();
+        if (metrics != null)
+        {
+            IdentityTelemetry.Initialize(metrics);
+        }
 
         using var scope = Services.CreateScope();
         var scopedServices = scope.ServiceProvider;

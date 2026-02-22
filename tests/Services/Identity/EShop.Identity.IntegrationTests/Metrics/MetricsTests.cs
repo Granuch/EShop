@@ -83,12 +83,20 @@ public class MetricsTests : IntegrationTestBase
     [Test]
     public async Task Metrics_ShouldContainIdentitySpecificMetrics()
     {
+        // Arrange - Perform a login so labeled counters are published
+        var request = new LoginRequest
+        {
+            Email = TestUsers.Admin.Email,
+            Password = TestUsers.Admin.Password
+        };
+        await Client.PostAsJsonAsync(LoginEndpoint, request);
+
         // Act
         var metrics = await MetricsHelper.GetPrometheusMetricsAsync(Client);
 
         // Assert - Check for expected metric names
         MetricsHelper.MetricExists(metrics, "identity_login_attempts_total").Should().BeTrue(
-            "login attempts metric should be present");
+            "login attempts metric should be present after a login attempt");
     }
 
     [Test]

@@ -1,0 +1,1 @@
+using System.Reflection; var asm = Assembly.LoadFrom(@"C:\Users\Granuch\.nuget\packages\prometheus-net.aspnetcore\8.2.1\lib\net6.0\Prometheus.AspNetCore.dll"); foreach(var t in asm.GetExportedTypes()) Console.WriteLine(t.FullName);

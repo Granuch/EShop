@@ -80,14 +80,14 @@ public class GlobalExceptionHandlerMiddleware
                 }),
 
             _ => (
-                HttpStatusCode.InternalServerError,
-                new ErrorResponse
-                {
-                    Type = "InternalServerError",
-                    Title = "An unexpected error occurred",
-                    Status = (int)HttpStatusCode.InternalServerError,
-                    TraceId = context.TraceIdentifier
-                })
+                    HttpStatusCode.InternalServerError,
+                    new ErrorResponse
+                    {
+                        Type = "InternalServerError",
+                        Title = "An unexpected error occurred",
+                        Status = (int)HttpStatusCode.InternalServerError,
+                        TraceId = context.TraceIdentifier
+                    })
         };
 
         // Log the exception with appropriate level

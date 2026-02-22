@@ -24,24 +24,12 @@ scrape_configs:
       - targets: ['localhost:9090']
 
   # EShop Identity Service - Instance 1 (Docker network)
+  # Note: 'service' label is NOT set here — the app emits service='identity' via UseHttpMetrics.
+  # Setting a different value here would cause Prometheus to rename the app label to exported_service.
   - job_name: 'identity-api-1'
-    metrics_path: '/metrics'
+    metrics_path: '/prometheus'
     static_configs:
       - targets: ['identity-api:8080']
-        labels:
-          service: 'identity-api'
-          instance: '1'
-    scrape_interval: 15s
-    scrape_timeout: 10s
-
-  # EShop Identity Service - Instance 2 (if multi-instance enabled)
-  - job_name: 'identity-api-2'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['identity-api-2:8080']
-        labels:
-          service: 'identity-api'
-          instance: '2'
     scrape_interval: 15s
     scrape_timeout: 10s
 
@@ -55,12 +43,12 @@ scrape_configs:
     scrape_timeout: 10s
 
   # EShop Catalog Service
+  # Note: 'service' label is NOT set here — the app emits service='catalog' via UseHttpMetrics.
+  # Setting a different value here would cause Prometheus to rename the app label to exported_service.
   - job_name: 'catalog-api'
-    metrics_path: '/metrics'
+    metrics_path: '/prometheus'
     static_configs:
       - targets: ['catalog-api:8080']
-        labels:
-          service: 'catalog-api'
     scrape_interval: 15s
     scrape_timeout: 10s
 
