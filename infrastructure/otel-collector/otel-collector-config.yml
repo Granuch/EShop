@@ -1,0 +1,91 @@
+# OpenTelemetry Collector configuration for EShop
+#
+# Purpose: Receive traces from services, generate span-derived RED metrics
+# (Rate, Errors, Duration) via the spanmetrics connector, and export:
+#   - Traces → Jaeger (for search & trace detail)
+#   - Span metrics → Prometheus (for Jaeger SPM Monitor tab + Grafana dashboards)
+#
+# Architecture:
+#   Services ──OTLP──► Collector ──OTLP──► Jaeger (traces)
+#                          │
+#                          ├─ spanmetrics connector ─► Prometheus exporter (:8889)
+#                          │
+#                    Prometheus scrapes :8889
+#                          │
+#                    Jaeger Monitor tab reads from Prometheus
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+connectors:
+  spanmetrics:
+    # No namespace — Jaeger SPM expects bare metric names: calls_total, duration_milliseconds_*
+    namespace: ""
+    histogram:
+      unit: ms
+      explicit:
+        buckets: [2, 4, 6, 8, 10, 50, 100, 200, 400, 800, 1000, 1400, 2000, 5000, 10000, 15000]
+    # Dimensions extracted from span attributes — kept minimal to control cardinality
+    dimensions:
+      - name: http.method
+        default: ""
+      - name: http.status_code
+        default: ""
+      - name: http.route
+        default: ""
+    dimensions_cache_size: 1000
+    aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
+    metrics_flush_interval: 15s
+
+exporters:
+  # Forward traces to Jaeger's OTLP receiver
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Expose span-derived metrics for Prometheus to scrape
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+processors:
+  batch:
+    send_batch_size: 512
+    send_batch_max_size: 1024
+    timeout: 5s
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # Traces pipeline: receive from services, generate spanmetrics, forward to Jaeger
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, spanmetrics]
+
+    # Span-derived metrics pipeline: spanmetrics connector → Prometheus scrape endpoint
+    metrics/spanmetrics:
+      receivers: [spanmetrics]
+      exporters: [prometheus]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
