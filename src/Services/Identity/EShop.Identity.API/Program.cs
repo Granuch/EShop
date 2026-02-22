@@ -445,8 +445,10 @@ try
     app.MapControllers();
 
     // Map Prometheus metrics endpoints:
-    // /metrics — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
-    app.MapMetrics();
+    // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
+    // In .NET 10, /metrics is auto-registered by the framework for OpenTelemetry metrics,
+    // so custom prometheus-net metrics use a separate path to avoid being overridden.
+    app.MapMetrics("/prometheus");
     // /metrics/otel — OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
     app.UseEShopOpenTelemetryPrometheus();
 
@@ -486,7 +488,7 @@ try
             health = "/health",
             healthReady = "/health/ready",
             healthLive = "/health/live",
-            metrics = "/metrics",
+            metrics = new { prometheus = "/prometheus", otel = "/metrics" },
             authentication = new
             {
                 register = "POST /api/v1/auth/register",

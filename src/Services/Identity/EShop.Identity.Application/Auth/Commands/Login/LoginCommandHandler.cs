@@ -6,6 +6,7 @@ using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
 using EShop.Identity.Application.Telemetry;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace EShop.Identity.Application.Auth.Commands.Login;
@@ -101,15 +102,13 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
         if (user != null)
         {
-            // User exists - perform real password check
-            var signInResult = await _signInManager.CheckPasswordSignInAsync(
-                user, 
-                request.Password, 
-                lockoutOnFailure: true);
-
-            isPasswordValid = signInResult.Succeeded;
-            isLockedOut = signInResult.IsLockedOut;
-            isNotAllowed = signInResult.IsNotAllowed;
+            // User exists - perform read-only password check
+            // Using CheckPasswordAsync instead of CheckPasswordSignInAsync to avoid
+            // ConcurrencyStamp conflicts during concurrent logins (CheckPasswordSignInAsync
+            // calls ResetAccessFailedCountAsync -> UpdateAsync which modifies ConcurrencyStamp)
+            isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+            isLockedOut = await _userManager.IsLockedOutAsync(user);
+            isNotAllowed = !await _signInManager.CanSignInAsync(user);
         }
         else
         {
@@ -215,9 +214,15 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         var accessToken = await _tokenService.GenerateAccessTokenAsync(user, cancellationToken);
         var refreshToken = await _tokenService.GenerateRefreshTokenAsync(user.Id, request.IpAddress ?? "unknown", cancellationToken);
 
+        // Update last login info - non-critical, UserManager handles concurrency internally
         user.LastLoginAt = DateTime.UtcNow;
         user.LastLoginIp = request.IpAddress;
-        await _userManager.UpdateAsync(user);
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+        {
+            // ConcurrencyStamp conflict from concurrent login - non-critical
+            _logger.LogDebug("Concurrent login detected, skipping LastLoginAt update for UserId={UserId}", user!.Id);
+        }
 
         // Clear failed attempt tracking on successful login
         await _loginAttemptTracker.RecordSuccessfulLoginAsync(request.Email, cancellationToken);
