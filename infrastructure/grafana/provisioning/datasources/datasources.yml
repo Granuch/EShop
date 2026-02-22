@@ -13,12 +13,14 @@ datasources:
       timeInterval: 15s
       httpMethod: POST
 
-  # Seq datasource - requires yesoreyeram-infinity-datasource plugin
-  # Uncomment after Grafana starts and plugin is installed
-  # - name: Seq
-  #   type: yesoreyeram-infinity-datasource
-  #   access: proxy
-  #   url: http://seq:80
-  #   editable: false
-  #   jsonData:
-  #     auth_method: "none"
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+    jsonData:
+      tracesToMetrics:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

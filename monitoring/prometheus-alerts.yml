@@ -152,3 +152,63 @@ groups:
         annotations:
           summary: "Database connection failures detected"
           description: "Database connection failures at rate {{ $value }}/sec."
+
+  # ============================================
+  # SLO Burn Rate Alerts (Multi-Window)
+  # Target SLO: 99.9% availability → error budget = 0.1%
+  #
+  # Uses Google SRE multi-window, multi-burn-rate approach:
+  # - Fast burn: 14.4× budget consumption rate → 100% budget gone in ~5h
+  # - Slow burn: 6× budget consumption rate → 100% budget gone in ~5d
+  # ============================================
+  - name: slo_burn_rate_alerts
+    interval: 30s
+    rules:
+      # Fast burn: severe outage, pages immediately
+      # 5m window confirms it's not a single retry; 30m window confirms sustained
+      - alert: SLOBudgetBurnFast
+        expr: >
+          service:slo_errors_per_request:ratio_rate5m > (14.4 * 0.001)
+            and
+          service:slo_errors_per_request:ratio_rate30m > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SLO budget burn rate critical for {{ $labels.service }}"
+          description: >
+            Service {{ $labels.service }} is consuming error budget at >14.4× rate.
+            At this rate, 100% of the 30-day error budget will be exhausted in ~5 hours.
+            Current 5m error ratio: {{ $value | humanizePercentage }}.
+
+      # Slow burn: gradual degradation, warns before budget exhaustion
+      # 1h + 6h windows detect sustained elevated error rates
+      - alert: SLOBudgetBurnSlow
+        expr: >
+          service:slo_errors_per_request:ratio_rate1h > (6 * 0.001)
+            and
+          service:slo_errors_per_request:ratio_rate6h > (6 * 0.001)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SLO budget slow burn for {{ $labels.service }}"
+          description: >
+            Service {{ $labels.service }} is consuming error budget at >6× rate.
+            At this rate, 100% of the 30-day error budget will be exhausted in ~5 days.
+            Current 1h error ratio: {{ $value | humanizePercentage }}.
+
+      # QPS drop — possible deployment failure or upstream issue
+      - alert: RequestRateDrop
+        expr: >
+          service:http_requests:rate5m < 0.1
+            and
+          service:http_requests:rate5m offset 1h > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Request rate dropped significantly for {{ $labels.service }}"
+          description: >
+            Service {{ $labels.service }} request rate dropped to {{ $value }}/sec
+            from over 1/sec an hour ago. Possible deployment issue or upstream failure.
