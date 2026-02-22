@@ -83,27 +83,58 @@ services:
       start_period: 30s
 
   # ============================================
-  # Jaeger - Distributed Tracing
+  # OpenTelemetry Collector
+  # Receives traces from services, generates span-derived RED metrics
+  # via spanmetrics connector, forwards traces to Jaeger.
+  # ============================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.146.1
+    container_name: eshop-otel-collector
+    restart: unless-stopped
+    depends_on:
+      jaeger:
+        condition: service_healthy
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./infrastructure/otel-collector/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"      # OTLP gRPC receiver
+      - "${OTEL_HTTP_PORT:-4318}:4318"      # OTLP HTTP receiver
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
+  # Jaeger - Distributed Tracing + SPM
+  # Receives traces from OTEL Collector.
+  # Monitor tab reads span-derived metrics from Prometheus.
   # ============================================
   jaeger:
     image: jaegertracing/all-in-one:1.57
     container_name: eshop-jaeger
     restart: unless-stopped
+    depends_on:
+      - prometheus
     ports:
       - "${JAEGER_UI_PORT:-16686}:16686"         # Jaeger UI
-      - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317"    # OTLP gRPC receiver
-      - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318"    # OTLP HTTP receiver
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
       SPAN_STORAGE_TYPE: badger
       BADGER_DIRECTORY_VALUE: /badger/data
       BADGER_DIRECTORY_KEY: /badger/key
+      # SPM (Service Performance Monitoring) — enables the Monitor tab
+      METRICS_STORAGE_TYPE: prometheus
+      PROMETHEUS_SERVER_URL: http://prometheus:9090
+      PROMETHEUS_QUERY_NORMALIZE_CALLS: "true"
+      PROMETHEUS_QUERY_NORMALIZE_DURATION: "true"
+      PROMETHEUS_QUERY_DURATION_UNIT: ms
     volumes:
       - jaeger-data:/badger
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:16687/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:14269/"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -190,9 +221,9 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
-      # OpenTelemetry
+      # OpenTelemetry (traces go to OTEL Collector, which forwards to Jaeger)
       OpenTelemetry__Enabled: "true"
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
       OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
       OpenTelemetry__MetricsEnabled: "true"
 
@@ -260,9 +291,9 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
-      # OpenTelemetry
+      # OpenTelemetry (traces go to OTEL Collector, which forwards to Jaeger)
       OpenTelemetry__Enabled: "true"
-      OpenTelemetry__OtlpEndpoint: http://jaeger:4317
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
       OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
       OpenTelemetry__MetricsEnabled: "true"
 
