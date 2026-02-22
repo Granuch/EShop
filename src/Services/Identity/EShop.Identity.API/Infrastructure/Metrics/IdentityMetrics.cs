@@ -156,7 +156,15 @@ public class IdentityMetrics : IIdentityMetrics
 
     // Security metrics - Brute force protection
     public void RecordThrottledAttempt(int delaySeconds) =>
-        BruteForceAttemptsTotal.WithLabels("throttled", $"delay_{delaySeconds}s").Inc();
+        BruteForceAttemptsTotal.WithLabels("throttled", BucketDelay(delaySeconds)).Inc();
+
+    // Bucket delay into low-cardinality categories to prevent label explosion
+    private static string BucketDelay(int seconds) => seconds switch
+    {
+        <= 2 => "short",
+        <= 10 => "medium",
+        _ => "long"
+    };
 
     public void RecordAccountLocked(string reason) =>
         BruteForceAttemptsTotal.WithLabels("account_locked", reason).Inc();
