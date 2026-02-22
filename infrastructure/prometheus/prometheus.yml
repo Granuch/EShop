@@ -83,3 +83,14 @@ scrape_configs:
       - targets: ['catalog-api:8080']
     scrape_interval: 30s
     scrape_timeout: 10s
+
+  # ============================================
+  # OTEL Collector span-derived metrics (spanmetrics connector)
+  # These power the Jaeger SPM Monitor tab.
+  # Metrics: calls_total, duration_milliseconds_*
+  # ============================================
+  - job_name: 'otel-collector-spanmetrics'
+    static_configs:
+      - targets: ['otel-collector:8889']
+    scrape_interval: 15s
+    scrape_timeout: 10s
