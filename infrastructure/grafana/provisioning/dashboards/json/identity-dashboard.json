@@ -2,12 +2,20 @@
   "annotations": {
     "list": []
   },
-  "description": "EShop Identity Service Metrics Dashboard - FIXED VERSION",
+  "description": "EShop Identity Service Metrics Dashboard",
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "icon": "bolt",
+      "title": "Jaeger Traces — Identity",
+      "type": "link",
+      "url": "http://localhost:16686/search?service=EShop.Identity.API",
+      "targetBlank": true
+    }
+  ],
   "liveNow": false,
   "panels": [
     {
@@ -71,12 +79,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "sum(identity_login_attempts_total{status=\"success\"}) or vector(0)",
+          "expr": "sum(rate(identity_login_attempts_total{status=\"success\"}[5m])) or vector(0)",
           "legendFormat": "Successful Logins",
           "refId": "A"
         }
       ],
-      "title": "Successful Logins (Total)",
+      "title": "Login Success Rate (/sec)",
       "type": "stat"
     },
     {
@@ -135,12 +143,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "sum(identity_login_attempts_total{status=\"failure\"}) or vector(0)",
+          "expr": "sum(rate(identity_login_attempts_total{status=\"failure\"}[5m])) or vector(0)",
           "legendFormat": "Failed Logins",
           "refId": "A"
         }
       ],
-      "title": "Failed Logins (Total)",
+      "title": "Login Failure Rate (/sec)",
       "type": "stat"
     },
     {
@@ -191,12 +199,12 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "sum(identity_registrations_total{status=\"success\"}) or vector(0)",
+          "expr": "sum(rate(identity_registrations_total{status=\"success\"}[5m])) or vector(0)",
           "legendFormat": "New Registrations",
           "refId": "A"
         }
       ],
-      "title": "New Registrations (Total)",
+      "title": "Registration Rate (/sec)",
       "type": "stat"
     },
     {
@@ -652,12 +660,12 @@
       },
       "targets": [
         {
-          "expr": "sum(identity_password_operations_total) by (operation, status)",
+          "expr": "sum(rate(identity_password_operations_total[5m])) by (operation, status)",
           "legendFormat": "{{operation}} - {{status}}",
           "refId": "A"
         }
       ],
-      "title": "Password Operations (Total)",
+      "title": "Password Operations Rate",
       "type": "timeseries"
     },
     {
@@ -735,13 +743,77 @@
       },
       "targets": [
         {
-          "expr": "sum(identity_2fa_operations_total) by (operation, status)",
+          "expr": "sum(rate(identity_2fa_operations_total[5m])) by (operation, status)",
           "legendFormat": "{{operation}} - {{status}}",
           "refId": "A"
         }
       ],
-      "title": "2FA Operations (Total)",
+      "title": "2FA Operations Rate",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "id": 20,
+      "panels": [],
+      "title": "Security — Brute Force & Lockouts",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 36 },
+      "id": 21,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum(rate(identity_bruteforce_attempts_total[5m])) by (event_type)", "legendFormat": "{{ event_type }}", "refId": "A" }
+      ],
+      "title": "Brute Force Events Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 20 }] } } },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 36 },
+      "id": 22,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "identity_account_locks_active or vector(0)", "legendFormat": "Locked Accounts", "refId": "A" }
+      ],
+      "title": "Active Account Locks",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 10 }] } } },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 36 },
+      "id": 23,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "identity_ip_blocks_active or vector(0)", "legendFormat": "Blocked IPs", "refId": "A" }
+      ],
+      "title": "Active IP Blocks",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "id": 30,
+      "panels": [],
+      "title": "Latency Heatmap",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "scaleDistribution": { "type": "log", "log": 2 } } } },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 44 },
+      "id": 31,
+      "options": { "calculate": false, "cellGap": 1, "color": { "mode": "scheme", "scheme": "Oranges" }, "yAxis": { "unit": "s" } },
+      "targets": [
+        { "expr": "sum(increase(http_request_duration_seconds_bucket{service=\"identity\"}[$__rate_interval])) by (le)", "legendFormat": "{{ le }}", "refId": "A", "format": "heatmap" }
+      ],
+      "title": "HTTP Request Latency Distribution",
+      "type": "heatmap"
     }
   ],
   "refresh": "30s",

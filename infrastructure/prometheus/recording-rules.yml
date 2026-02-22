@@ -36,6 +36,11 @@ groups:
           histogram_quantile(0.50,
             sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
 
+      - record: service:http_latency_p75:rate5m
+        expr: >
+          histogram_quantile(0.75,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+
       - record: service:http_latency_p95:rate5m
         expr: >
           histogram_quantile(0.95,
@@ -105,3 +110,179 @@ groups:
 
       - record: identity:registration:rate5m
         expr: sum(rate(identity_registrations_total[5m])) by (status)
+
+  # ============================================
+  # .NET Runtime Metrics (from OTel /metrics endpoint)
+  # USE methodology: Utilization, Saturation, Errors
+  # ============================================
+  - name: spm:runtime
+    interval: 15s
+    rules:
+      # --- CPU ---
+      - record: instance:dotnet_cpu_usage:rate5m
+        expr: rate(dotnet_process_cpu_time_seconds_total[5m])
+
+      # --- Memory ---
+      - record: instance:dotnet_memory_working_set:bytes
+        expr: dotnet_process_memory_working_set_bytes
+
+      - record: instance:dotnet_gc_heap_size:bytes
+        expr: dotnet_gc_last_collection_heap_size_bytes
+
+      - record: instance:dotnet_gc_heap_fragmentation:bytes
+        expr: dotnet_gc_last_collection_heap_fragmentation_size_bytes
+
+      # --- GC ---
+      - record: instance:dotnet_gc_collections:rate5m
+        expr: sum(rate(dotnet_gc_collections_total[5m])) by (job, instance)
+
+      - record: instance:dotnet_gc_pause:rate5m
+        expr: rate(dotnet_gc_pause_time_seconds_total[5m])
+
+      # --- Thread Pool (Saturation) ---
+      - record: instance:dotnet_threadpool_queue_length:rate5m
+        expr: rate(dotnet_thread_pool_queue_length_total[5m])
+
+      - record: instance:dotnet_threadpool_threads:count
+        expr: dotnet_thread_pool_thread_count_total
+
+      # --- Exceptions (Errors) ---
+      - record: instance:dotnet_exceptions:rate5m
+        expr: rate(dotnet_exceptions_total[5m])
+
+      # --- Lock Contention ---
+      - record: instance:dotnet_lock_contentions:rate5m
+        expr: rate(dotnet_monitor_lock_contentions_total[5m])
+
+  # ============================================
+  # Kestrel / HTTP Server Metrics
+  # ============================================
+  - name: spm:kestrel
+    interval: 15s
+    rules:
+      - record: instance:kestrel_active_connections:count
+        expr: kestrel_active_connections
+
+      - record: instance:kestrel_queued_connections:count
+        expr: kestrel_queued_connections
+
+      - record: instance:kestrel_connection_duration_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(kestrel_connection_duration_seconds_bucket[5m])) by (le, job, instance))
+
+  # ============================================
+  # Database (Npgsql) Metrics
+  # ============================================
+  - name: spm:database
+    interval: 15s
+    rules:
+      - record: instance:npgsql_connection_create_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(npgsql_db_client_connection_npgsql_create_time_bucket[5m])) by (le, job, instance))
+
+      - record: instance:npgsql_connection_create_p99:rate5m
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(npgsql_db_client_connection_npgsql_create_time_bucket[5m])) by (le, job, instance))
+
+  # ============================================
+  # Dependency RED — Outbound HTTP Client
+  # Source: OTel http_client_request_duration_seconds (from /metrics)
+  # Labels: server_address, http_request_method, http_response_status_code
+  # ============================================
+  - name: spm:dependency_http
+    interval: 15s
+    rules:
+      # --- Rate: requests/sec by upstream dependency ---
+      - record: dependency:http_client_requests:rate5m
+        expr: >
+          sum(rate(http_client_request_duration_seconds_count[5m]))
+            by (job, server_address)
+
+      # --- Errors: 5xx from upstream dependencies ---
+      - record: dependency:http_client_errors_5xx:rate5m
+        expr: >
+          sum(rate(http_client_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+            by (job, server_address)
+
+      # --- Error ratio ---
+      - record: dependency:http_client_error_ratio:rate5m
+        expr: >
+          dependency:http_client_errors_5xx:rate5m
+          / dependency:http_client_requests:rate5m
+
+      # --- Duration P50/P95/P99 by upstream dependency ---
+      - record: dependency:http_client_latency_p50:rate5m
+        expr: >
+          histogram_quantile(0.50,
+            sum(rate(http_client_request_duration_seconds_bucket[5m]))
+              by (le, job, server_address))
+
+      - record: dependency:http_client_latency_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(http_client_request_duration_seconds_bucket[5m]))
+              by (le, job, server_address))
+
+      - record: dependency:http_client_latency_p99:rate5m
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(http_client_request_duration_seconds_bucket[5m]))
+              by (le, job, server_address))
+
+      # --- In-flight outbound requests ---
+      - record: dependency:http_client_active_requests:count
+        expr: >
+          sum(http_client_active_requests) by (job, server_address)
+
+  # ============================================
+  # Dependency RED — Database (Npgsql)
+  # Source: npgsql_db_client_operation_duration (from /prometheus)
+  # ============================================
+  - name: spm:dependency_db
+    interval: 15s
+    rules:
+      # --- Rate: DB operations/sec ---
+      - record: dependency:db_operations:rate5m
+        expr: >
+          sum(rate(npgsql_db_client_operation_duration_count[5m]))
+            by (job)
+
+      # --- Duration P50/P95/P99 ---
+      - record: dependency:db_operation_latency_p50:rate5m
+        expr: >
+          histogram_quantile(0.50,
+            sum(rate(npgsql_db_client_operation_duration_bucket[5m]))
+              by (le, job))
+
+      - record: dependency:db_operation_latency_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(npgsql_db_client_operation_duration_bucket[5m]))
+              by (le, job))
+
+      - record: dependency:db_operation_latency_p99:rate5m
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(npgsql_db_client_operation_duration_bucket[5m]))
+              by (le, job))
+
+      # --- Connection Pool Utilization ---
+      - record: dependency:db_pool_utilization:ratio
+        expr: >
+          sum(npgsql_db_client_connection_count{db_client_connection_state="used"}) by (job)
+          / sum(npgsql_db_client_connection_max) by (job)
+
+      - record: dependency:db_pool_idle:count
+        expr: >
+          sum(npgsql_db_client_connection_count{db_client_connection_state="idle"}) by (job)
+
+      - record: dependency:db_pool_used:count
+        expr: >
+          sum(npgsql_db_client_connection_count{db_client_connection_state="used"}) by (job)
+
+      - record: dependency:db_pool_max:count
+        expr: >
+          sum(npgsql_db_client_connection_max) by (job)

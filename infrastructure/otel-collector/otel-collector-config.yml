@@ -61,13 +61,19 @@ processors:
     send_batch_max_size: 1024
     timeout: 5s
 
+  # Prevent OOM under load — drops data before collector crashes
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 400
+    spike_limit_mib: 100
+
 service:
   extensions: [health_check]
   pipelines:
     # Traces pipeline: receive from services, generate spanmetrics, forward to Jaeger
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp/jaeger, spanmetrics]
 
     # Span-derived metrics pipeline: spanmetrics connector → Prometheus scrape endpoint
