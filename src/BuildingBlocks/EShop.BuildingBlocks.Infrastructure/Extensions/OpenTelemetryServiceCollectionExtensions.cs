@@ -81,7 +81,7 @@ public static class OpenTelemetryServiceCollectionExtensions
                 // ASP.NET Core incoming HTTP requests
                 tracing.AddAspNetCoreInstrumentation(options =>
                 {
-                    // Filter out health check and metrics endpoints to reduce noise
+                    // Filter out health check, metrics, and documentation endpoints to reduce noise
                     options.Filter = httpContext =>
                     {
                         var path = httpContext.Request.Path.Value;
@@ -90,7 +90,9 @@ public static class OpenTelemetryServiceCollectionExtensions
 
                         return !path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
                             && !path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
-                            && !path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase);
+                            && !path.StartsWith("/prometheus", StringComparison.OrdinalIgnoreCase)
+                            && !path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase)
+                            && !path.StartsWith("/scalar", StringComparison.OrdinalIgnoreCase);
                     };
                 });
 

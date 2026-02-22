@@ -1,0 +1,107 @@
+# Pre-computed recording rules for SPM (Service Performance Monitoring)
+# These avoid expensive on-the-fly aggregations in Grafana dashboards.
+
+groups:
+  # ============================================
+  # RED Metrics (Rate, Errors, Duration)
+  # ============================================
+  - name: spm:red_metrics
+    interval: 15s
+    rules:
+      # --- Rate ---
+      - record: service:http_requests:rate5m
+        expr: sum(rate(http_requests_received_total[5m])) by (service)
+
+      - record: service:http_requests_by_code:rate5m
+        expr: sum(rate(http_requests_received_total[5m])) by (service, code)
+
+      - record: service:http_requests_by_method:rate5m
+        expr: sum(rate(http_requests_received_total[5m])) by (service, method)
+
+      # --- Errors ---
+      - record: service:http_errors_5xx:rate5m
+        expr: sum(rate(http_requests_received_total{code=~"5.."}[5m])) by (service)
+
+      - record: service:http_errors_4xx:rate5m
+        expr: sum(rate(http_requests_received_total{code=~"4.."}[5m])) by (service)
+
+      - record: service:http_error_ratio:rate5m
+        expr: >
+          service:http_errors_5xx:rate5m
+          / service:http_requests:rate5m
+
+      # --- Duration (percentiles) ---
+      - record: service:http_latency_p50:rate5m
+        expr: >
+          histogram_quantile(0.50,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+
+      - record: service:http_latency_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+
+      - record: service:http_latency_p99:rate5m
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+
+      # --- Per-endpoint RED (for drill-down, restricted cardinality) ---
+      - record: service_endpoint:http_requests:rate5m
+        expr: sum(rate(http_requests_received_total[5m])) by (service, endpoint, method)
+
+      - record: service_endpoint:http_errors_5xx:rate5m
+        expr: sum(rate(http_requests_received_total{code=~"5.."}[5m])) by (service, endpoint, method)
+
+      - record: service_endpoint:http_latency_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service, endpoint, method))
+
+  # ============================================
+  # SLO Calculations
+  # Target: 99.9% availability (error budget = 0.1%)
+  # ============================================
+  - name: spm:slo
+    interval: 15s
+    rules:
+      # Error ratio over different windows (for multi-window burn rate)
+      - record: service:slo_errors_per_request:ratio_rate5m
+        expr: >
+          sum(rate(http_requests_received_total{code=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_received_total[5m])) by (service)
+
+      - record: service:slo_errors_per_request:ratio_rate30m
+        expr: >
+          sum(rate(http_requests_received_total{code=~"5.."}[30m])) by (service)
+          / sum(rate(http_requests_received_total[30m])) by (service)
+
+      - record: service:slo_errors_per_request:ratio_rate1h
+        expr: >
+          sum(rate(http_requests_received_total{code=~"5.."}[1h])) by (service)
+          / sum(rate(http_requests_received_total[1h])) by (service)
+
+      - record: service:slo_errors_per_request:ratio_rate6h
+        expr: >
+          sum(rate(http_requests_received_total{code=~"5.."}[6h])) by (service)
+          / sum(rate(http_requests_received_total[6h])) by (service)
+
+  # ============================================
+  # Identity Business Metrics
+  # ============================================
+  - name: spm:identity_business
+    interval: 15s
+    rules:
+      - record: identity:login_success:rate5m
+        expr: sum(rate(identity_login_attempts_total{status="success"}[5m]))
+
+      - record: identity:login_failure:rate5m
+        expr: sum(rate(identity_login_attempts_total{status="failure"}[5m]))
+
+      - record: identity:login_failure_ratio:rate5m
+        expr: >
+          identity:login_failure:rate5m
+          / (identity:login_success:rate5m + identity:login_failure:rate5m)
+
+      - record: identity:registration:rate5m
+        expr: sum(rate(identity_registrations_total[5m])) by (status)
