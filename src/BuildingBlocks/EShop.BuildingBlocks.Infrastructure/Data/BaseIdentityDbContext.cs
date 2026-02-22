@@ -89,7 +89,22 @@ public abstract class BaseIdentityDbContext<TUser, TRole, TKey> : IdentityDbCont
         // For in-memory database, just save changes without transaction
         if (Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
         {
-            await SaveChangesAsync(cancellationToken);
+            try
+            {
+                await SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // In-memory database may have stale entities from prior operations
+                // (e.g., UserManager.UpdateAsync catches concurrency exceptions internally
+                // but leaves entities in Modified state). Reload conflicting entities
+                // and retry the save.
+                foreach (var entry in ex.Entries)
+                {
+                    await entry.ReloadAsync(cancellationToken);
+                }
+                await SaveChangesAsync(cancellationToken);
+            }
             return;
         }
 
