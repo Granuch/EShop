@@ -365,3 +365,5 @@ FodyWeavers.xsd
 /scripts
 *.env
 *.example
+/loadtest_token.txt
+/pre_load_snapshot.json
