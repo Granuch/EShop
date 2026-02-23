@@ -317,6 +317,44 @@ services:
 
 
   # ============================================
+  # PostgreSQL Exporter — Identity DB
+  # ============================================
+  postgres-exporter-identity:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: eshop-postgres-exporter-identity
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_IDENTITY_PORT:-9187}:9187"
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
+  # PostgreSQL Exporter — Catalog DB
+  # ============================================
+  postgres-exporter-catalog:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: eshop-postgres-exporter-catalog
+    restart: unless-stopped
+    depends_on:
+      catalog-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${CATALOG_POSTGRES_USER}:${CATALOG_POSTGRES_PASSWORD}@catalog-postgres:5432/${CATALOG_POSTGRES_DB}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_CATALOG_PORT:-9188}:9187"
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
   # Redis Exporter (Prometheus Metrics)
   # ============================================
   redis-exporter:
