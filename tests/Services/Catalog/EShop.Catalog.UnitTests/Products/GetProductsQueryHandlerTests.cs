@@ -32,6 +32,7 @@ public class GetProductsQueryHandlerTests
             .Setup(x => x.GetFilteredProductsAsync(
                 null, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((dtos, 2));
 
@@ -62,6 +63,7 @@ public class GetProductsQueryHandlerTests
             .Setup(x => x.GetFilteredProductsAsync(
                 categoryId, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -74,6 +76,7 @@ public class GetProductsQueryHandlerTests
             x => x.GetFilteredProductsAsync(
                 categoryId, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -93,6 +96,7 @@ public class GetProductsQueryHandlerTests
             .Setup(x => x.GetFilteredProductsAsync(
                 null, "laptop", null, null,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -105,6 +109,7 @@ public class GetProductsQueryHandlerTests
             x => x.GetFilteredProductsAsync(
                 null, "laptop", null, null,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -119,6 +124,7 @@ public class GetProductsQueryHandlerTests
             .Setup(x => x.GetFilteredProductsAsync(
                 null, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -147,6 +153,7 @@ public class GetProductsQueryHandlerTests
             .Setup(x => x.GetFilteredProductsAsync(
                 null, null, 10m, 100m,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -158,6 +165,7 @@ public class GetProductsQueryHandlerTests
             x => x.GetFilteredProductsAsync(
                 null, null, 10m, 100m,
                 ProductSortBy.Name, false, 1, 10,
+                null,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

@@ -390,3 +390,91 @@ groups:
           summary: "High rollback rate on {{ $labels.job }}"
           description: >
             {{ $labels.job }} ({{ $labels.datname }}): {{ $value | humanizePercentage }} of transactions are rolled back.
+
+      # High sequential scan rate (indicator of missing indexes or cache)
+      - alert: PostgresSequentialScanHigh
+        expr: rate(pg_stat_user_tables_seq_scan{relname="products"}[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High sequential scan rate on Products table"
+          description: >
+            {{ $labels.relname }} on {{ $labels.job }} has {{ $value }} seq scans/s — consider adding cache or index.
+
+      # Slow query detection via Npgsql command duration
+      - alert: PostgresSlowQueries
+        expr: >
+          histogram_quantile(0.95,
+            rate(db_client_operation_duration_seconds_bucket[5m])
+          ) > 0.100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL P95 query latency >100ms on {{ $labels.job }}"
+          description: >
+            Slow queries detected on {{ $labels.job }}: P95 = {{ $value }}s.
+
+      # Npgsql connection pool saturation
+      - alert: PostgresConnectionPoolSaturation
+        expr: >
+          db_client_connections_usage{state="used"}
+          / ignoring(state) db_client_connections_max > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Npgsql connection pool >85% utilized on {{ $labels.job }}"
+          description: >
+            Pool saturation on {{ $labels.job }} — consider increasing MaxPoolSize.
+
+  # ============================================
+  # .NET Application Memory & GC Alerts
+  # ============================================
+  - name: dotnet_memory_alerts
+    interval: 30s
+    rules:
+      # Service memory high (>700 MB)
+      - alert: ServiceMemoryHigh
+        expr: process_resident_memory_bytes{job=~".*-api.*"} > 700000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.job }} memory usage high"
+          description: >
+            {{ $labels.job }} using {{ $value | humanize1024 }}B (>700MB threshold).
+
+      # Service memory critical (>900 MB, near OOM)
+      - alert: ServiceMemoryCritical
+        expr: process_resident_memory_bytes{job=~".*-api.*"} > 900000000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} approaching OOM"
+          description: >
+            {{ $labels.job }} using {{ $value | humanize1024 }}B (>900MB, near 1GB limit).
+
+      # High GC pressure (>10% time in GC)
+      - alert: HighGCPressure
+        expr: rate(dotnet_gc_pause_total_seconds[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High GC pressure on {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} spending {{ $value | humanizePercentage }} of time in GC.
+
+      # Frequent Gen2 collections (memory pressure indicator)
+      - alert: FrequentGen2Collections
+        expr: rate(dotnet_gc_collections_total{gc_generation="2"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Frequent Gen2 GC on {{ $labels.job }}"
+          description: >
+            {{ $labels.job }} has {{ $value }} Gen2 collections/sec (indicates memory pressure).
