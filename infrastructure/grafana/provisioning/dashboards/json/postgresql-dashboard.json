@@ -1,0 +1,439 @@
+{
+  "annotations": { "list": [] },
+  "description": "PostgreSQL monitoring — server-side (postgres_exporter) + client-side (Npgsql) metrics",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "asDropdown": true, "icon": "external link", "includeVars": true, "keepTime": true, "tags": ["eshop"], "title": "Service Dashboards", "type": "dashboards" }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 200,
+      "panels": [],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.95 }, { "color": "green", "value": 0.99 }] } } },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "postgres:cache_hit_ratio:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ datname }}", "refId": "A" }
+      ],
+      "title": "Buffer Cache Hit Ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 80 }, { "color": "red", "value": 95 }] } } },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "sum by (job) (pg_stat_activity_count{job=~\"$pg_job\"})", "legendFormat": "{{ job }} active", "refId": "A" },
+        { "expr": "pg_settings_max_connections{job=~\"$pg_job\"}", "legendFormat": "{{ job }} max", "refId": "B" }
+      ],
+      "title": "Connections / Max",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "postgres:transactions_committed:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ datname }}", "refId": "A" }
+      ],
+      "title": "Transactions / sec",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 536870912 }, { "color": "red", "value": 1073741824 }] } } },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "pg_database_size_bytes{job=~\"$pg_job\", datname=~\"eshop_.*\"}", "legendFormat": "{{ datname }}", "refId": "A" }
+      ],
+      "title": "Database Size",
+      "type": "stat"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+      "id": 201,
+      "panels": [],
+      "title": "Buffer Cache & I/O",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "percentunit", "min": 0, "max": 1 } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "min", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "postgres:cache_hit_ratio:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} ({{ datname }})", "refId": "A" },
+        { "expr": "vector(0.99)", "legendFormat": "Target (99%)", "refId": "T" }
+      ],
+      "title": "Buffer Cache Hit Ratio Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true, "stacking": { "mode": "normal" } }, "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum(rate(pg_stat_database_blks_hit{job=~\"$pg_job\", datname=~\"eshop_.*\"}[$__rate_interval])) by (job, datname)", "legendFormat": "{{ job }} hits", "refId": "A" },
+        { "expr": "sum(rate(pg_stat_database_blks_read{job=~\"$pg_job\", datname=~\"eshop_.*\"}[$__rate_interval])) by (job, datname)", "legendFormat": "{{ job }} disk reads", "refId": "B" }
+      ],
+      "title": "Block I/O — Cache Hits vs Disk Reads",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "id": 202,
+      "panels": [],
+      "title": "Transactions & Throughput",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 20,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "postgres:transactions_committed:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} committed", "refId": "A" },
+        { "expr": "postgres:transactions_rolledback:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} rollback", "refId": "B" }
+      ],
+      "title": "Transaction Rate (commit / rollback)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 21,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "postgres:tuples_returned:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} returned", "refId": "A" },
+        { "expr": "postgres:tuples_fetched:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} fetched", "refId": "B" },
+        { "expr": "postgres:tuples_inserted:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} inserted", "refId": "C" },
+        { "expr": "postgres:tuples_updated:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} updated", "refId": "D" },
+        { "expr": "postgres:tuples_deleted:rate5m{job=~\"$pg_job\"}", "legendFormat": "{{ job }} deleted", "refId": "E" }
+      ],
+      "title": "Tuple Throughput (returned / fetched / inserted / updated / deleted)",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 203,
+      "panels": [],
+      "title": "Connections & Locks",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "spanNulls": true, "stacking": { "mode": "normal" } }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "id": 30,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "pg_stat_activity_count{job=~\"$pg_job\", datname=~\"eshop_.*\", state=\"active\"}", "legendFormat": "{{ job }} active", "refId": "A" },
+        { "expr": "pg_stat_activity_count{job=~\"$pg_job\", datname=~\"eshop_.*\", state=\"idle\"}", "legendFormat": "{{ job }} idle", "refId": "B" },
+        { "expr": "pg_stat_activity_count{job=~\"$pg_job\", datname=~\"eshop_.*\", state=\"idle in transaction\"}", "legendFormat": "{{ job }} idle in tx", "refId": "C" }
+      ],
+      "title": "Server Connections by State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "percentunit", "min": 0, "max": 1 } },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 25 },
+      "id": 31,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum by (job) (pg_stat_activity_count{job=~\"$pg_job\"}) / on (job) pg_settings_max_connections{job=~\"$pg_job\"}", "legendFormat": "{{ job }}", "refId": "A" },
+        { "expr": "vector(0.8)", "legendFormat": "Alert threshold", "refId": "T" }
+      ],
+      "title": "Connection Utilization (% of max)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "spanNulls": true, "stacking": { "mode": "normal" } }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 25 },
+      "id": 32,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "pg_locks_count{job=~\"$pg_job\", datname=~\"eshop_.*\", mode=\"accesssharelock\"}", "legendFormat": "{{ job }} AccessShare", "refId": "A" },
+        { "expr": "pg_locks_count{job=~\"$pg_job\", datname=~\"eshop_.*\", mode=\"rowexclusivelock\"}", "legendFormat": "{{ job }} RowExclusive", "refId": "B" },
+        { "expr": "pg_locks_count{job=~\"$pg_job\", datname=~\"eshop_.*\", mode=\"exclusivelock\"}", "legendFormat": "{{ job }} Exclusive", "refId": "C" }
+      ],
+      "title": "Lock Types",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "id": 204,
+      "panels": [],
+      "title": "Table Access Patterns (Seq Scan vs Index Scan)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "id": 40,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "rate(pg_stat_user_tables_seq_scan{job=~\"$pg_job\", relname=~\"$table\"}[$__rate_interval])", "legendFormat": "{{ job }} {{ relname }} seq", "refId": "A" },
+        { "expr": "rate(pg_stat_user_tables_idx_scan{job=~\"$pg_job\", relname=~\"$table\"}[$__rate_interval])", "legendFormat": "{{ job }} {{ relname }} idx", "refId": "B" }
+      ],
+      "title": "Seq Scan vs Index Scan Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "id": 41,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "rate(pg_stat_user_tables_seq_tup_read{job=~\"$pg_job\", relname=~\"$table\"}[$__rate_interval])", "legendFormat": "{{ relname }} seq rows", "refId": "A" },
+        { "expr": "rate(pg_stat_user_tables_idx_tup_fetch{job=~\"$pg_job\", relname=~\"$table\"}[$__rate_interval])", "legendFormat": "{{ relname }} idx rows", "refId": "B" }
+      ],
+      "title": "Rows Read — Sequential vs Index",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 42 },
+      "id": 42,
+      "options": { "footer": { "show": true, "reducer": ["sum"] }, "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Seq Scan" }] },
+      "targets": [
+        { "expr": "pg_stat_user_tables_seq_scan{job=~\"$pg_job\"}", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "title": "Table Stats — Current Totals",
+      "type": "table",
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "schemaname": true }, "renameByName": { "job": "Database", "relname": "Table", "Value": "Seq Scan" } } }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "id": 205,
+      "panels": [],
+      "title": "Npgsql Client — Connection Pool & Query Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 20, "spanNulls": true, "stacking": { "mode": "normal" } }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "id": 50,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "npgsql_db_client_connection_count{job=~\"$app_job\", db_client_connection_state=\"used\"}", "legendFormat": "{{ job }} used", "refId": "A" },
+        { "expr": "npgsql_db_client_connection_count{job=~\"$app_job\", db_client_connection_state=\"idle\"}", "legendFormat": "{{ job }} idle", "refId": "B" }
+      ],
+      "title": "Npgsql Pool — Used vs Idle",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.6 }, { "color": "red", "value": 0.8 }] } } },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 51 },
+      "id": 51,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "dependency:db_pool_utilization:ratio{job=~\"$app_job\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "Pool Utilization",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 51 },
+      "id": 52,
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "npgsql_db_client_connection_max{job=~\"$app_job\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "Pool Max Size",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 }] } } },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 55 },
+      "id": 53,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "npgsql_db_client_operation_npgsql_prepared_ratio{job=~\"$app_job\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "Prepared Statement Ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 59 },
+      "id": 60,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:db_operation_latency_p50:rate5m{job=~\"$app_job\"}", "legendFormat": "{{ job }} P50", "refId": "A" },
+        { "expr": "dependency:db_operation_latency_p95:rate5m{job=~\"$app_job\"}", "legendFormat": "{{ job }} P95", "refId": "B" },
+        { "expr": "dependency:db_operation_latency_p99:rate5m{job=~\"$app_job\"}", "legendFormat": "{{ job }} P99", "refId": "C" }
+      ],
+      "title": "Npgsql Query Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 59 },
+      "id": 61,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dependency:db_operations:rate5m{job=~\"$app_job\"}", "legendFormat": "{{ job }}", "refId": "A" }
+      ],
+      "title": "Npgsql Operations / sec",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 67 },
+      "id": 62,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "instance:npgsql_connection_create_p95:rate5m{job=~\"$app_job\"}", "legendFormat": "{{ job }} P95", "refId": "A" },
+        { "expr": "instance:npgsql_connection_create_p99:rate5m{job=~\"$app_job\"}", "legendFormat": "{{ job }} P99", "refId": "B" }
+      ],
+      "title": "New Connection Creation Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "Bps" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 67 },
+      "id": 63,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "rate(npgsql_db_client_operation_npgsql_bytes_read{job=~\"$app_job\"}[$__rate_interval])", "legendFormat": "{{ job }} read", "refId": "A" },
+        { "expr": "rate(npgsql_db_client_operation_npgsql_bytes_written{job=~\"$app_job\"}[$__rate_interval])", "legendFormat": "{{ job }} written", "refId": "B" }
+      ],
+      "title": "Npgsql Bytes Read / Written",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 75 },
+      "id": 206,
+      "panels": [],
+      "title": "Deadlocks & Conflicts",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 15, "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 76 },
+      "id": 70,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "rate(pg_stat_database_deadlocks{job=~\"$pg_job\", datname=~\"eshop_.*\"}[$__rate_interval])", "legendFormat": "{{ job }} deadlocks/s", "refId": "A" },
+        { "expr": "rate(pg_stat_database_conflicts{job=~\"$pg_job\", datname=~\"eshop_.*\"}[$__rate_interval])", "legendFormat": "{{ job }} conflicts/s", "refId": "B" }
+      ],
+      "title": "Deadlocks & Conflicts Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "fillOpacity": 10, "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 76 },
+      "id": 71,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "rate(pg_stat_user_tables_n_tup_hot_upd{job=~\"$pg_job\", relname=~\"$table\"}[$__rate_interval])", "legendFormat": "{{ relname }} HOT updates", "refId": "A" },
+        { "expr": "rate(pg_stat_user_tables_n_dead_tup{job=~\"$pg_job\", relname=~\"$table\"}[$__rate_interval])", "legendFormat": "{{ relname }} dead tuples", "refId": "B" }
+      ],
+      "title": "Dead Tuples & HOT Updates",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["eshop", "postgresql", "database"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(pg_stat_database_xact_commit, job)",
+        "includeAll": true,
+        "multi": true,
+        "name": "pg_job",
+        "label": "PostgreSQL Server",
+        "query": { "query": "label_values(pg_stat_database_xact_commit, job)" },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(npgsql_db_client_connection_count, job)",
+        "includeAll": true,
+        "multi": true,
+        "name": "app_job",
+        "label": "Application",
+        "query": { "query": "label_values(npgsql_db_client_connection_count, job)" },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(pg_stat_user_tables_seq_scan, relname)",
+        "includeAll": true,
+        "multi": true,
+        "name": "table",
+        "label": "Table",
+        "query": { "query": "label_values(pg_stat_user_tables_seq_scan, relname)" },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "EShop PostgreSQL",
+  "uid": "eshop-postgresql",
+  "version": 1
+}
