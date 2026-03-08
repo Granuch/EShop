@@ -367,3 +367,4 @@ FodyWeavers.xsd
 *.example
 /loadtest_token.txt
 /pre_load_snapshot.json
+/comprehensive_fixes_prompt.md

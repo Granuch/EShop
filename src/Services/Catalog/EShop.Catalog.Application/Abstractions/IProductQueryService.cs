@@ -21,6 +21,7 @@ public interface IProductQueryService
         bool isDescending,
         int pageNumber,
         int pageSize,
+        DateTime? cursor = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

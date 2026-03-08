@@ -24,6 +24,10 @@ using Prometheus;
 using HealthChecks.UI.Client;
 using StackExchange.Redis;
 
+// Pre-warm thread pool to prevent saturation spikes under burst traffic.
+// Without this, .NET adds ~1 thread/500ms causing request queueing at >150 concurrent connections.
+ThreadPool.SetMinThreads(workerThreads: 100, completionPortThreads: 100);
+
 // Configure Serilog early to catch startup errors
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
