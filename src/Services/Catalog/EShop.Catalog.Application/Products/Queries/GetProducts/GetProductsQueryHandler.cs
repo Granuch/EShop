@@ -33,6 +33,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
             request.EffectiveIsDescending,
             pageNumber,
             pageSize,
+            request.Cursor,
             cancellationToken);
 
         var pagedResult = PagedResult<ProductDto>.Create(dtos, pageNumber, pageSize, totalCount);
