@@ -59,11 +59,14 @@ scrape_configs:
   #   static_configs:
   #     - targets: ['basket-api:8080']
 
-  # EShop Ordering Service (when ready)
-  # - job_name: 'ordering-service'
-  #   metrics_path: '/prometheus'
-  #   static_configs:
-  #     - targets: ['ordering-api:8080']
+  # EShop Ordering Service
+  # Note: 'service' label is NOT set here — the app emits service='ordering' via UseHttpMetrics.
+  - job_name: 'ordering-api'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['ordering-api:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
 
   # ============================================
   # PostgreSQL Exporters (server-side metrics)
@@ -85,6 +88,14 @@ scrape_configs:
     scrape_interval: 15s
     scrape_timeout: 10s
 
+  - job_name: 'postgres-ordering'
+    static_configs:
+      - targets: ['postgres-exporter-ordering:9187']
+        labels:
+          database: 'eshop_ordering'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
   # ============================================
   # OpenTelemetry metrics (runtime, kestrel, http.server)
   # Scraped from /metrics (OTel Prometheus exporter endpoint)
@@ -101,6 +112,13 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets: ['catalog-api:8080']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'ordering-api-otel'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['ordering-api:8080']
     scrape_interval: 30s
     scrape_timeout: 10s
 
