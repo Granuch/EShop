@@ -11,6 +11,7 @@ services:
     image: postgres:16-alpine
     container_name: eshop-identity-postgres
     restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -19,6 +20,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/identity-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
       - eshop-network
     healthcheck:
@@ -149,6 +151,7 @@ services:
     image: postgres:16-alpine
     container_name: eshop-catalog-postgres
     restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     environment:
       POSTGRES_DB: ${CATALOG_POSTGRES_DB}
       POSTGRES_USER: ${CATALOG_POSTGRES_USER}
@@ -157,6 +160,7 @@ services:
       - "${CATALOG_POSTGRES_PORT:-5433}:5432"
     volumes:
       - catalog-postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/catalog-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
       - eshop-network
     healthcheck:
@@ -188,7 +192,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
 
       # Database
-      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
@@ -224,7 +228,7 @@ services:
       # OpenTelemetry (traces go to OTEL Collector, which forwards to Jaeger)
       OpenTelemetry__Enabled: "true"
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
-      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
       OpenTelemetry__MetricsEnabled: "true"
 
       # Serilog
@@ -267,7 +271,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
 
       # Database
-      ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD}"
+      ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
@@ -294,7 +298,7 @@ services:
       # OpenTelemetry (traces go to OTEL Collector, which forwards to Jaeger)
       OpenTelemetry__Enabled: "true"
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
-      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-1.0}"
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
       OpenTelemetry__MetricsEnabled: "true"
 
       # Serilog
