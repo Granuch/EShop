@@ -60,8 +60,7 @@ public class CatalogDbContext : BaseDbContext
 
             // Optimistic concurrency token
             entity.Property(p => p.Version)
-                .IsConcurrencyToken()
-                .HasDefaultValue(0);
+                .IsConcurrencyToken();
 
             // Audit fields
             entity.Property(p => p.CreatedAt).IsRequired();
@@ -114,8 +113,7 @@ public class CatalogDbContext : BaseDbContext
 
             // Optimistic concurrency token
             entity.Property(c => c.Version)
-                .IsConcurrencyToken()
-                .HasDefaultValue(0);
+                .IsConcurrencyToken();
 
             // Audit fields
             entity.Property(c => c.CreatedAt).IsRequired();

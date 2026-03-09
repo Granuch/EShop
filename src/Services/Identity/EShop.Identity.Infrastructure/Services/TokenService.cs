@@ -218,8 +218,12 @@ public class TokenService : ITokenService
         rng.GetBytes(randomBytes);
         var newTokenString = Convert.ToBase64String(randomBytes);
 
-        // Begin explicit transaction to ensure atomicity
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        // Only manage our own transaction if one isn't already active
+        // (e.g., TransactionBehavior may have started one at the pipeline level)
+        var ownsTransaction = !_unitOfWork.HasActiveTransaction;
+
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
         try
         {
@@ -234,7 +238,8 @@ public class TokenService : ITokenService
 
             if (affectedRows == 0)
             {
-                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                if (ownsTransaction)
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
                 throw new InvalidOperationException("Token has already been used or revoked");
             }
 
@@ -251,15 +256,18 @@ public class TokenService : ITokenService
 
             await _refreshTokenRepository.AddAsync(newRefreshToken, cancellationToken);
 
-            // Step 3: Commit transaction - both operations succeed or both fail
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            // Step 3: Commit only if we own the transaction; otherwise let the caller commit
+            if (ownsTransaction)
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            else
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return newTokenString;
         }
         catch
         {
-            // Ensure rollback on any failure
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            if (ownsTransaction)
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
         }
     }
