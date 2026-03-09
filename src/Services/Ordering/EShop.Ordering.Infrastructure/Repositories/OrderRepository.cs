@@ -60,8 +60,31 @@ public class OrderRepository : IOrderRepository
 
     public Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
     {
-        // No explicit Update() call needed — entity was loaded with tracking,
-        // so EF Core detects property changes automatically on SaveChanges.
+        // EF Core detects scalar property changes on tracked entities automatically.
+        // However, new child entities added to a tracked parent's navigation via domain
+        // methods get a non-default key (Guid.NewGuid() in constructor), which causes
+        // EF Core's DetectChanges to treat them as Modified (existing) instead of Added.
+        //
+        // Fix: capture IDs of items already tracked (loaded from DB) BEFORE DetectChanges
+        // runs. Then trigger DetectChanges manually and fix up any new items that were
+        // incorrectly marked as Modified.
+        var loadedItemIds = _context.ChangeTracker.Entries<OrderItem>()
+            .Where(e => e.State == EntityState.Unchanged)
+            .Select(e => e.Entity.Id)
+            .ToHashSet();
+
+        // Force EF to discover the new items in the navigation collection
+        _context.ChangeTracker.DetectChanges();
+
+        // Any item not in the original loaded set is new — mark as Added
+        foreach (var item in order.Items)
+        {
+            if (!loadedItemIds.Contains(item.Id))
+            {
+                _context.Entry(item).State = EntityState.Added;
+            }
+        }
+
         return Task.CompletedTask;
     }
 

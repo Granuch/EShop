@@ -60,8 +60,7 @@ public class OrderingDbContext : BaseDbContext
 
             // Optimistic concurrency token
             entity.Property(o => o.Version)
-                .IsConcurrencyToken()
-                .HasDefaultValue(0);
+                .IsConcurrencyToken();
 
             // Audit fields
             entity.Property(o => o.CreatedAt).IsRequired();
