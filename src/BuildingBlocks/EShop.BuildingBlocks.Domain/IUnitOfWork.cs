@@ -24,4 +24,9 @@ public interface IUnitOfWork : IDisposable
     /// Rolls back the current transaction
     /// </summary>
     Task RollbackTransactionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether a transaction is currently active
+    /// </summary>
+    bool HasActiveTransaction { get; }
 }

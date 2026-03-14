@@ -321,6 +321,103 @@ services:
 
 
   # ============================================
+  # PostgreSQL Database for Ordering
+  # ============================================
+  ordering-postgres:
+    image: postgres:16-alpine
+    container_name: eshop-ordering-postgres
+    restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_DB: ${ORDERING_POSTGRES_DB}
+      POSTGRES_USER: ${ORDERING_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ORDERING_POSTGRES_PASSWORD}
+    ports:
+      - "${ORDERING_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - ordering-postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDERING_POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # Ordering API
+  # ============================================
+  ordering-api:
+    build:
+      context: .
+      dockerfile: src/Services/Ordering/EShop.Ordering.API/Dockerfile
+    container_name: eshop-ordering-api
+    restart: unless-stopped
+    depends_on:
+      ordering-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      # ASP.NET Core
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
+      ASPNETCORE_URLS: http://+:8080
+
+      # Database
+      ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
+
+      # Redis
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+
+      # RabbitMQ
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USERNAME}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+
+      # Seq (centralized logging)
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+
+      # JWT
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      # CORS
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # OpenTelemetry (traces go to OTEL Collector, which forwards to Jaeger)
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
+      OpenTelemetry__MetricsEnabled: "true"
+
+      # Serilog
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+    ports:
+      - "${ORDERING_API_PORT:-7005}:8080"
+    volumes:
+      - ordering-logs:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - production
+      - sandbox
+
+
+  # ============================================
   # PostgreSQL Exporter — Identity DB
   # ============================================
   postgres-exporter-identity:
@@ -353,6 +450,25 @@ services:
       DATA_SOURCE_NAME: "postgresql://${CATALOG_POSTGRES_USER}:${CATALOG_POSTGRES_PASSWORD}@catalog-postgres:5432/${CATALOG_POSTGRES_DB}?sslmode=disable"
     ports:
       - "${PG_EXPORTER_CATALOG_PORT:-9188}:9187"
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
+  # PostgreSQL Exporter — Ordering DB
+  # ============================================
+  postgres-exporter-ordering:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: eshop-postgres-exporter-ordering
+    restart: unless-stopped
+    depends_on:
+      ordering-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${ORDERING_POSTGRES_USER}:${ORDERING_POSTGRES_PASSWORD}@ordering-postgres:5432/${ORDERING_POSTGRES_DB}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_ORDERING_PORT:-9189}:9187"
     networks:
       - eshop-network
     profiles:
@@ -519,6 +635,10 @@ volumes:
     name: eshop-identity-logs
   catalog-logs:
     name: eshop-catalog-logs
+  ordering-postgres-data:
+    name: eshop-ordering-postgres-data
+  ordering-logs:
+    name: eshop-ordering-logs
   seq-data:
     name: eshop-seq-data
   prometheus-data:

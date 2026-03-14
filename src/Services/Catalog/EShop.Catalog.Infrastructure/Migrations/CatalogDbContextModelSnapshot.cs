@@ -153,9 +153,7 @@ namespace EShop.Catalog.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -227,9 +225,7 @@ namespace EShop.Catalog.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
