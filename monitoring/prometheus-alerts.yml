@@ -97,6 +97,39 @@ groups:
           summary: "Catalog API high latency"
           description: "Catalog API 95th percentile latency is {{ $value }}s over 5 minutes."
 
+  - name: ordering_api_alerts
+    interval: 30s
+    rules:
+      # Ordering API is down
+      - alert: OrderingAPIDown
+        expr: up{job="ordering-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ordering API is down"
+          description: "Ordering API has been down for more than 1 minute."
+
+      # Ordering API high error rate (5xx responses)
+      - alert: OrderingHighErrorRate
+        expr: rate(http_requests_received_total{code=~"5..",service="ordering"}[5m]) / rate(http_requests_received_total{service="ordering"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ordering API high error rate"
+          description: "Ordering API 5xx error rate is {{ $value | humanizePercentage }} over 5 minutes."
+
+      # Ordering API high latency
+      - alert: OrderingHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service="ordering"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ordering API high latency"
+          description: "Ordering API 95th percentile latency is {{ $value }}s over 5 minutes."
+
   - name: redis_alerts
     interval: 30s
     rules:

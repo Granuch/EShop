@@ -1,39 +1,170 @@
 using MediatR;
+using EShop.Ordering.Application.Orders.Commands.AddOrderItem;
+using EShop.Ordering.Application.Orders.Commands.CancelOrder;
+using EShop.Ordering.Application.Orders.Commands.CreateOrder;
+using EShop.Ordering.Application.Orders.Commands.RemoveOrderItem;
+using EShop.Ordering.Application.Orders.Commands.ShipOrder;
+using EShop.Ordering.Application.Orders.Queries.GetOrderById;
+using EShop.Ordering.Application.Orders.Queries.GetOrders;
+using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 
 namespace EShop.Ordering.API.Endpoints;
 
 /// <summary>
-/// Order endpoints using Minimal API
+/// Order endpoints using Minimal API.
+/// Caching is handled by CachingBehavior in the MediatR pipeline via ICacheableQuery.
+/// Cache invalidation is handled by CacheInvalidationBehavior via ICacheInvalidatingCommand.
 /// </summary>
 public static class OrderEndpoints
 {
     public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/orders")
-            .WithTags("Orders")
-            .RequireAuthorization();
+            .WithTags("Orders");
 
-        // TODO: Implement GET /api/v1/orders (user's order history with pagination)
-        // group.MapGet("/", async (IMediator mediator, ClaimsPrincipal user) => { ... });
+        // POST /api/v1/orders
+        group.MapPost("/", async (CreateOrderCommand command, IMediator mediator) =>
+        {
+            var result = await mediator.Send(command);
 
-        // TODO: Implement GET /api/v1/orders/{id}
-        // group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) => { ... });
+            return result.Match(
+                value => Results.Created($"/api/v1/orders/{value}", new { id = value }),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithName("CreateOrder")
+        .RequireAuthorization()
+        .Produces<object>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
 
-        // TODO: Implement POST /api/v1/orders/{id}/cancel
-        // group.MapPost("/{id:guid}/cancel", async (
-        //     Guid id, 
-        //     CancelOrderCommand command, 
-        //     IMediator mediator) => { ... });
+        // GET /api/v1/orders/{id}
+        group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new GetOrderByIdQuery { OrderId = id });
 
-        // Admin endpoints
-        // TODO: Implement GET /api/v1/orders/admin/all (admin only, with filters)
-        // group.MapGet("/admin/all", async (...) => { ... })
-        //     .RequireAuthorization("Admin");
+            return result.Match(
+                value => Results.Ok(value),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status404NotFound));
+        })
+        .WithName("GetOrderById")
+        .RequireAuthorization()
+        .Produces<object>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // TODO: Implement PUT /api/v1/orders/{id}/ship (admin only)
-        // group.MapPut("/{id:guid}/ship", async (...) => { ... })
-        //     .RequireAuthorization("Admin");
+        // GET /api/v1/orders
+        group.MapGet("/", async ([AsParameters] GetOrdersQuery query, IMediator mediator) =>
+        {
+            var result = await mediator.Send(query);
 
-        // TODO: Add authorization checks (user can only see their own orders)
+            return result.Match(
+                value => Results.Ok(value),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithName("GetOrders")
+        .RequireAuthorization("Admin")
+        .Produces<object>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // GET /api/v1/users/{userId}/orders
+        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new GetOrdersByUserQuery { UserId = userId });
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithTags("Orders")
+        .WithName("GetOrdersByUser")
+        .RequireAuthorization()
+        .Produces<object>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // POST /api/v1/orders/{id}/items
+        group.MapPost("/{id:guid}/items", async (Guid id, AddOrderItemCommand command, IMediator mediator) =>
+        {
+            if (id != command.OrderId)
+                return Results.Problem(
+                    detail: "Route ID does not match command ID.",
+                    title: "Validation.IdMismatch",
+                    statusCode: StatusCodes.Status400BadRequest);
+
+            var result = await mediator.Send(command);
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithName("AddOrderItem")
+        .RequireAuthorization()
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // DELETE /api/v1/orders/{id}/items/{itemId}
+        group.MapDelete("/{id:guid}/items/{itemId:guid}", async (Guid id, Guid itemId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new RemoveOrderItemCommand { OrderId = id, ItemId = itemId });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithName("RemoveOrderItem")
+        .RequireAuthorization()
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // POST /api/v1/orders/{id}/cancel
+        group.MapPost("/{id:guid}/cancel", async (Guid id, CancelOrderRequest request, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new CancelOrderCommand { OrderId = id, Reason = request.Reason });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithName("CancelOrder")
+        .RequireAuthorization()
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // POST /api/v1/orders/{id}/ship (admin only)
+        group.MapPost("/{id:guid}/ship", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new ShipOrderCommand { OrderId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status400BadRequest));
+        })
+        .WithName("ShipOrder")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
     }
 }
+
+public record CancelOrderRequest(string Reason);
