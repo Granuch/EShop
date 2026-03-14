@@ -3,7 +3,7 @@ using EShop.BuildingBlocks.Domain;
 namespace EShop.Ordering.Domain.Entities;
 
 /// <summary>
-/// Order item entity
+/// Order item entity - captures a price snapshot at order time
 /// </summary>
 public class OrderItem : Entity<Guid>
 {
@@ -22,6 +22,8 @@ public class OrderItem : Entity<Guid>
             throw new ArgumentException("Quantity must be positive", nameof(quantity));
         if (unitPrice < 0)
             throw new ArgumentException("Price cannot be negative", nameof(unitPrice));
+        if (string.IsNullOrWhiteSpace(productName))
+            throw new ArgumentException("Product name is required", nameof(productName));
 
         Id = Guid.NewGuid();
         ProductId = productId;
@@ -30,6 +32,4 @@ public class OrderItem : Entity<Guid>
         Quantity = quantity;
         CreatedAt = DateTime.UtcNow;
     }
-
-    // TODO: Add price snapshot at order time (prices may change later)
 }

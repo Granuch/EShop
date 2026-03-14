@@ -21,8 +21,7 @@ public abstract class AggregateRootConfiguration<TEntity, TId> : IEntityTypeConf
         // EF Core will include this in the WHERE clause of UPDATE/DELETE statements
         // If the version doesn't match, DbUpdateConcurrencyException is thrown
         builder.Property(e => e.Version)
-            .IsConcurrencyToken()
-            .HasDefaultValue(0);
+            .IsConcurrencyToken();
 
         // Configure audit fields
         builder.Property(e => e.CreatedAt)
@@ -58,8 +57,7 @@ public static class AggregateRootConfigurationExtensions
         modelBuilder.Entity<TEntity>(builder =>
         {
             builder.Property(e => e.Version)
-                .IsConcurrencyToken()
-                .HasDefaultValue(0);
+                .IsConcurrencyToken();
 
             builder.Property(e => e.CreatedAt)
                 .IsRequired();
