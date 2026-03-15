@@ -63,6 +63,18 @@ public interface ICacheInvalidatingCommand
 }
 
 /// <summary>
+/// Scoped context for dynamic cache invalidation metadata produced during command handling.
+/// Use when invalidation keys are known only after loading domain data.
+/// </summary>
+public interface ICacheInvalidationContext
+{
+    void AddKey(string key);
+    void AddKeys(IEnumerable<string> keys);
+    IReadOnlyCollection<string> GetKeys();
+    void Clear();
+}
+
+/// <summary>
 /// Options for cache behavior configuration.
 /// </summary>
 public class CachingBehaviorOptions

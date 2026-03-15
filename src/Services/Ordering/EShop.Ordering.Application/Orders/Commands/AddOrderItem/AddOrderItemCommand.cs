@@ -15,17 +15,9 @@ public record AddOrderItemCommand : IRequest<Result>, ITransactionalCommand, ICa
     public string ProductName { get; init; } = string.Empty;
     public decimal UnitPrice { get; init; }
     public int Quantity { get; init; }
-    public string UserId { get; set; } = string.Empty;
 
     public IEnumerable<string> CacheKeysToInvalidate =>
-        string.IsNullOrWhiteSpace(UserId)
-            ?
-            [
-                $"order:{OrderId}"
-            ]
-            :
-            [
-                $"order:{OrderId}",
-                $"orders:user:{UserId}"
-            ];
+    [
+        $"order:{OrderId}"
+    ];
 }

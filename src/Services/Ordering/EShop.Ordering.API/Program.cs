@@ -5,10 +5,12 @@ using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
 using EShop.Ordering.API.Infrastructure.Middleware;
+using EShop.Ordering.API.Infrastructure.Security;
 using EShop.Ordering.Application.Extensions;
 using EShop.Ordering.Infrastructure.Data;
 using EShop.Ordering.Infrastructure.Extensions;
 using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -191,7 +193,14 @@ try
     builder.Services.AddAuthorization(options =>
     {
         options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
+        options.AddPolicy("OrderOwnerOrAdmin", policy =>
+            policy.Requirements.Add(new OrderOwnerOrAdminRequirement()));
+        options.AddPolicy("SameUserOrAdmin", policy =>
+            policy.Requirements.Add(new SameUserOrAdminRequirement()));
     });
+
+    builder.Services.AddSingleton<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
+    builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
     // Add CORS
     builder.Services.AddCors(options =>

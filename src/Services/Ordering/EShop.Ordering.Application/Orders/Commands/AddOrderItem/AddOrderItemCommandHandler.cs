@@ -4,6 +4,7 @@ using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Ordering.Application.Telemetry;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Ordering.Application.Orders.Commands.AddOrderItem;
 
@@ -11,13 +12,16 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICacheInvalidationContext? _cacheInvalidationContext;
 
     public AddOrderItemCommandHandler(
         IOrderRepository orderRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICacheInvalidationContext? cacheInvalidationContext = null)
     {
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
+        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(AddOrderItemCommand request, CancellationToken cancellationToken)
@@ -33,7 +37,7 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
-        request.UserId = order.UserId;
+        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
 
         order.AddItem(request.ProductId, request.ProductName, request.UnitPrice, request.Quantity);
 

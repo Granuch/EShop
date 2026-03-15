@@ -12,17 +12,9 @@ public record RemoveOrderItemCommand : IRequest<Result>, ITransactionalCommand, 
 {
     public Guid OrderId { get; init; }
     public Guid ItemId { get; init; }
-    public string UserId { get; set; } = string.Empty;
 
     public IEnumerable<string> CacheKeysToInvalidate =>
-        string.IsNullOrWhiteSpace(UserId)
-            ?
-            [
-                $"order:{OrderId}"
-            ]
-            :
-            [
-                $"order:{OrderId}",
-                $"orders:user:{UserId}"
-            ];
+    [
+        $"order:{OrderId}"
+    ];
 }

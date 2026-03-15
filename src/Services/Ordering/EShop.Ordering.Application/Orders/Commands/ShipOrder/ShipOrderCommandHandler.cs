@@ -4,6 +4,7 @@ using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Ordering.Application.Telemetry;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Ordering.Application.Orders.Commands.ShipOrder;
 
@@ -11,13 +12,16 @@ public class ShipOrderCommandHandler : IRequestHandler<ShipOrderCommand, Result>
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICacheInvalidationContext? _cacheInvalidationContext;
 
     public ShipOrderCommandHandler(
         IOrderRepository orderRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICacheInvalidationContext? cacheInvalidationContext = null)
     {
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
+        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(ShipOrderCommand request, CancellationToken cancellationToken)
@@ -32,7 +36,7 @@ public class ShipOrderCommandHandler : IRequestHandler<ShipOrderCommand, Result>
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
-        request.UserId = order.UserId;
+        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
 
         order.Ship();
 

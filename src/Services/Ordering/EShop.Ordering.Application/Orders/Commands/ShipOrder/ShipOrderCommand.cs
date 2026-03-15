@@ -11,17 +11,9 @@ namespace EShop.Ordering.Application.Orders.Commands.ShipOrder;
 public record ShipOrderCommand : IRequest<Result>, ITransactionalCommand, ICacheInvalidatingCommand
 {
     public Guid OrderId { get; init; }
-    public string UserId { get; set; } = string.Empty;
 
     public IEnumerable<string> CacheKeysToInvalidate =>
-        string.IsNullOrWhiteSpace(UserId)
-            ?
-            [
-                $"order:{OrderId}"
-            ]
-            :
-            [
-                $"order:{OrderId}",
-                $"orders:user:{UserId}"
-            ];
+    [
+        $"order:{OrderId}"
+    ];
 }
