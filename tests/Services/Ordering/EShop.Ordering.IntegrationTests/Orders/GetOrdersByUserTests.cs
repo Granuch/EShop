@@ -28,10 +28,10 @@ public class GetOrdersByUserTests : AuthenticatedIntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var result = await response.Content.ReadFromJsonAsync<List<OrderResponse>>();
+        var result = await response.Content.ReadFromJsonAsync<PagedOrderResponse>();
         result.Should().NotBeNull();
-        result!.Count.Should().BeGreaterThanOrEqualTo(2);
-        result.Should().OnlyContain(o => o.UserId == "user-with-orders");
+        result!.Items.Count.Should().BeGreaterThanOrEqualTo(2);
+        result.Items.Should().OnlyContain(o => o.UserId == "user-with-orders");
     }
 
     [Test]
@@ -43,9 +43,9 @@ public class GetOrdersByUserTests : AuthenticatedIntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var result = await response.Content.ReadFromJsonAsync<List<OrderResponse>>();
+        var result = await response.Content.ReadFromJsonAsync<PagedOrderResponse>();
         result.Should().NotBeNull();
-        result.Should().BeEmpty();
+        result!.Items.Should().BeEmpty();
     }
 
     [Test]

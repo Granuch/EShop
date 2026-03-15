@@ -80,9 +80,10 @@ public static class OrderEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/users/{userId}/orders
-        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, IMediator mediator) =>
+        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, [AsParameters] GetOrdersByUserQuery query, IMediator mediator) =>
         {
-            var result = await mediator.Send(new GetOrdersByUserQuery { UserId = userId });
+            var request = query with { UserId = userId };
+            var result = await mediator.Send(request);
 
             return result.Match(
                 value => Results.Ok(value),

@@ -30,7 +30,7 @@ public class LoggingBehaviorTests
 
         Assert.That(safeLogMethod, Is.Not.Null);
 
-        var result = safeLogMethod!.Invoke(null, new object?[] { request });
+        var result = safeLogMethod!.Invoke(null, new object?[] { request, 0 });
         Assert.That(result, Is.Not.Null);
 
         var dict = result as IDictionary<string, object?>;

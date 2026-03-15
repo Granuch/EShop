@@ -33,10 +33,13 @@ public class OrderRepository : IOrderRepository
 
     public async Task<IEnumerable<Order>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
     {
+        // Legacy read method retained for backward compatibility.
+        // User-facing queries should use IOrderQueryService.GetOrdersByUserAsync for pagination.
         return await _context.Orders
             .Include(o => o.Items)
             .Where(o => o.UserId == userId)
             .OrderByDescending(o => o.CreatedAt)
+            .Take(200)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
