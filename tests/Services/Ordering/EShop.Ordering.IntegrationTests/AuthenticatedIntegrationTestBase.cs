@@ -42,9 +42,23 @@ public abstract class AuthenticatedIntegrationTestBase : IntegrationTestBase
         using var scope = Factory.Services.CreateScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
 
-        var jwtKey = configuration["JwtSettings:SecretKey"] ?? "TestSecretKey12345678901234567890!@#$";
-        var issuer = configuration["JwtSettings:Issuer"] ?? "EShop.Identity";
-        var audience = configuration["JwtSettings:Audience"] ?? "EShop.Services";
+        var jwtKey = configuration["JwtSettings:SecretKey"];
+        if (string.IsNullOrWhiteSpace(jwtKey))
+        {
+            jwtKey = Fixtures.OrderingApiFactory.TestJwtSecretKey;
+        }
+
+        var issuer = configuration["JwtSettings:Issuer"];
+        if (string.IsNullOrWhiteSpace(issuer))
+        {
+            issuer = Fixtures.OrderingApiFactory.TestJwtIssuer;
+        }
+
+        var audience = configuration["JwtSettings:Audience"];
+        if (string.IsNullOrWhiteSpace(audience))
+        {
+            audience = Fixtures.OrderingApiFactory.TestJwtAudience;
+        }
 
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);

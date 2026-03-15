@@ -69,7 +69,7 @@ public class OrderRepository : IOrderRepository
         // runs. Then trigger DetectChanges manually and fix up any new items that were
         // incorrectly marked as Modified.
         var loadedItemIds = _context.ChangeTracker.Entries<OrderItem>()
-            .Where(e => e.State == EntityState.Unchanged)
+            .Where(e => e.State != EntityState.Added && e.State != EntityState.Detached)
             .Select(e => e.Entity.Id)
             .ToHashSet();
 

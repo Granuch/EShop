@@ -7,6 +7,7 @@ using EShop.Ordering.Application.Orders.Commands.ShipOrder;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
+using System.Security.Claims;
 
 namespace EShop.Ordering.API.Endpoints;
 
@@ -23,8 +24,48 @@ public static class OrderEndpoints
             .WithTags("Orders");
 
         // POST /api/v1/orders
-        group.MapPost("/", async (CreateOrderCommand command, IMediator mediator) =>
+        group.MapPost("/", async (CreateOrderCommand command, IMediator mediator, HttpContext httpContext) =>
         {
+            var user = httpContext.User;
+            if (user?.Identity?.IsAuthenticated != true)
+            {
+                return Results.Unauthorized();
+            }
+
+            var subjectId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                         ?? user.FindFirst("sub")?.Value
+                         ?? user.FindFirst("uid")?.Value;
+            var isAdmin = user.IsInRole("Admin");
+
+            if (!isAdmin)
+            {
+                if (string.IsNullOrWhiteSpace(subjectId))
+                {
+                    return Results.Problem(
+                        detail: "User identifier not found in authentication claims.",
+                        title: "Unauthorized",
+                        statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                if (!string.IsNullOrWhiteSpace(command.UserId) &&
+                    !string.Equals(command.UserId, subjectId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.Problem(
+                        detail: "You are not allowed to create orders on behalf of other users.",
+                        title: "Forbidden",
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+
+                command = command with { UserId = subjectId };
+            }
+            else if (string.IsNullOrWhiteSpace(command.UserId))
+            {
+                return Results.Problem(
+                    detail: "UserId is required for admin order creation.",
+                    title: "Validation.UserIdRequired",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
             var result = await mediator.Send(command);
 
             return result.Match(
@@ -74,8 +115,27 @@ public static class OrderEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/users/{userId}/orders
-        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, IMediator mediator) =>
+        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, IMediator mediator, HttpContext httpContext) =>
         {
+            var user = httpContext.User;
+            if (user?.Identity?.IsAuthenticated != true)
+            {
+                return Results.Unauthorized();
+            }
+
+            if (!user.IsInRole("Admin"))
+            {
+                var subjectId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                             ?? user.FindFirst("sub")?.Value
+                             ?? user.FindFirst("uid")?.Value;
+
+                if (string.IsNullOrWhiteSpace(subjectId) ||
+                    !string.Equals(subjectId, userId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.Forbid();
+                }
+            }
+
             var result = await mediator.Send(new GetOrdersByUserQuery { UserId = userId });
 
             return result.Match(

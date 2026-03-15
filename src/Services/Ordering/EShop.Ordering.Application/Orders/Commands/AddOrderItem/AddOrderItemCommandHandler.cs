@@ -33,6 +33,8 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
+        request.UserId = order.UserId;
+
         order.AddItem(request.ProductId, request.ProductName, request.UnitPrice, request.Quantity);
 
         await _orderRepository.UpdateAsync(order, cancellationToken);

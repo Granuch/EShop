@@ -32,6 +32,8 @@ public class ShipOrderCommandHandler : IRequestHandler<ShipOrderCommand, Result>
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
+        request.UserId = order.UserId;
+
         order.Ship();
 
         await _orderRepository.UpdateAsync(order, cancellationToken);

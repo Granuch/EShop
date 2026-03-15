@@ -32,6 +32,8 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, Res
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
+        request.UserId = order.UserId;
+
         order.Cancel(request.Reason);
 
         await _orderRepository.UpdateAsync(order, cancellationToken);

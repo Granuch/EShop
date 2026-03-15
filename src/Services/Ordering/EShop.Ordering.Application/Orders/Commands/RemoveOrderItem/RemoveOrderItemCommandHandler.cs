@@ -33,6 +33,8 @@ public class RemoveOrderItemCommandHandler : IRequestHandler<RemoveOrderItemComm
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
+        request.UserId = order.UserId;
+
         order.RemoveItem(request.ItemId);
 
         await _orderRepository.UpdateAsync(order, cancellationToken);

@@ -87,13 +87,13 @@ public class Order : AggregateRoot<Guid>
     {
         EnsureNotCompleted();
 
+        if (_items.Count == 1)
+            throw new DomainException("Order must have at least one item.");
+
         var item = _items.FirstOrDefault(i => i.Id == itemId)
             ?? throw new DomainException("Order item not found.");
 
         _items.Remove(item);
-
-        if (_items.Count == 0)
-            throw new DomainException("Order must have at least one item.");
 
         RecalculateTotal();
     }
@@ -113,6 +113,7 @@ public class Order : AggregateRoot<Guid>
         AddDomainEvent(new OrderPaidDomainEvent
         {
             OrderId = Id,
+            UserId = UserId,
             PaymentIntentId = paymentIntentId
         });
     }
