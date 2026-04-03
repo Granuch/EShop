@@ -112,6 +112,32 @@ groups:
         expr: sum(rate(identity_registrations_total[5m])) by (status)
 
   # ============================================
+  # Basket Business Metrics
+  # ============================================
+  - name: spm:basket_business
+    interval: 15s
+    rules:
+      - record: basket:items_added:rate5m
+        expr: sum(rate(basket_items_added_total[5m]))
+
+      - record: basket:checkout_success:rate5m
+        expr: sum(rate(basket_checkouts_total{status="success"}[5m]))
+
+      - record: basket:checkout_failure:rate5m
+        expr: sum(rate(basket_checkouts_total{status="failure"}[5m]))
+
+      - record: basket:checkout_failure_ratio:rate5m
+        expr: basket:checkout_failure:rate5m / (basket:checkout_success:rate5m + basket:checkout_failure:rate5m)
+
+      - record: basket:price_sync_updates:rate5m
+        expr: sum(rate(basket_price_sync_updates_total[5m])) by (status)
+
+      - record: basket:operation_duration_p95:rate5m
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(basket_operation_duration_seconds_bucket[5m])) by (le, operation))
+
+  # ============================================
   # .NET Runtime Metrics (from OTel /metrics endpoint)
   # USE methodology: Utilization, Saturation, Errors
   # ============================================
