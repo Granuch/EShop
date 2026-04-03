@@ -29,6 +29,14 @@ public class BasketMetrics : IBasketMetrics
             LabelNames = ["status"]
         });
 
+    private static readonly Counter BasketOutboxRecoveryTotal = Prometheus.Metrics.CreateCounter(
+        "basket_outbox_recovery_total",
+        "Total number of basket outbox recovery actions",
+        new CounterConfiguration
+        {
+            LabelNames = ["status"]
+        });
+
     private static readonly Histogram BasketOperationDurationSeconds = Prometheus.Metrics.CreateHistogram(
         "basket_operation_duration_seconds",
         "Duration of basket operations",
@@ -43,6 +51,8 @@ public class BasketMetrics : IBasketMetrics
     public void RecordCheckout(string status) => BasketCheckoutsTotal.WithLabels(status).Inc();
 
     public void RecordPriceSyncUpdate(string status) => BasketPriceSyncUpdatesTotal.WithLabels(status).Inc();
+
+    public void RecordOutboxRecovery(string status) => BasketOutboxRecoveryTotal.WithLabels(status).Inc();
 
     public IDisposable MeasureOperation(string operation) => BasketOperationDurationSeconds.WithLabels(operation).NewTimer();
 }

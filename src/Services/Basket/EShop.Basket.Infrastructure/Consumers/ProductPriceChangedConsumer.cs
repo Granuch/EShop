@@ -31,11 +31,19 @@ public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrat
         var message = context.Message;
         var messageId = context.MessageId ?? message.EventId;
 
-        var accepted = await _idempotencyStore.TryMarkProcessedAsync(messageId, TimeSpan.FromDays(7));
-        if (!accepted)
+        if (await _idempotencyStore.IsProcessedAsync(messageId))
         {
             _logger.LogInformation(
                 "Skipping duplicate ProductPriceChangedIntegrationEvent. MessageId={MessageId}",
+                messageId);
+            return;
+        }
+
+        var lockAcquired = await _idempotencyStore.TryBeginProcessingAsync(messageId, TimeSpan.FromMinutes(5));
+        if (!lockAcquired)
+        {
+            _logger.LogInformation(
+                "Skipping concurrently processed ProductPriceChangedIntegrationEvent. MessageId={MessageId}",
                 messageId);
             return;
         }
@@ -45,6 +53,7 @@ public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrat
             var userIds = await _basketRepository.GetUsersContainingProductAsync(message.ProductId, context.CancellationToken);
             if (userIds.Count == 0)
             {
+                await _idempotencyStore.TryMarkProcessedAsync(messageId, TimeSpan.FromDays(7));
                 return;
             }
 
@@ -60,6 +69,8 @@ public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrat
                 await _basketRepository.SaveBasketAsync(basket, context.CancellationToken);
             }
 
+            await _idempotencyStore.TryMarkProcessedAsync(messageId, TimeSpan.FromDays(7));
+
             _metrics.RecordPriceSyncUpdate("success");
             _logger.LogInformation(
                 "Synchronized basket prices for ProductId={ProductId}, UserCount={UserCount}",
@@ -73,6 +84,10 @@ public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrat
                 "Failed to synchronize basket prices for ProductId={ProductId}",
                 message.ProductId);
             throw;
+        }
+        finally
+        {
+            await _idempotencyStore.CompleteProcessingAsync(messageId);
         }
     }
 }

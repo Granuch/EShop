@@ -51,6 +51,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBasketRepository, RedisBasketRepository>();
         services.AddScoped<IIntegrationEventOutbox, BasketRedisOutbox>();
         services.AddSingleton<IBasketMetrics, BasketMetrics>();
+        services.AddSingleton<ICheckoutIdempotencyStore, RedisCheckoutIdempotencyStore>();
         services.AddSingleton<RedisMessageIdempotencyStore>();
 
         services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();

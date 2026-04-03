@@ -75,4 +75,24 @@ public class ShoppingBasketTests
         Assert.That(basket.Items.Single().Price, Is.EqualTo(12m));
         Assert.That(basket.TotalPrice, Is.EqualTo(24m));
     }
+
+    [Test]
+    public void Rehydrate_ShouldPreserveMetadataAndItems()
+    {
+        var createdAt = DateTime.UtcNow.AddDays(-2);
+        var lastModifiedAt = DateTime.UtcNow.AddHours(-3);
+        var productId = Guid.NewGuid();
+
+        var basket = ShoppingBasket.Rehydrate(
+            "user-1",
+            createdAt,
+            lastModifiedAt,
+            [(productId, "Product", 10m, 2)]);
+
+        Assert.That(basket.UserId, Is.EqualTo("user-1"));
+        Assert.That(basket.CreatedAt, Is.EqualTo(createdAt));
+        Assert.That(basket.LastModifiedAt, Is.EqualTo(lastModifiedAt));
+        Assert.That(basket.Items, Has.Count.EqualTo(1));
+        Assert.That(basket.Items.Single().ProductId, Is.EqualTo(productId));
+    }
 }

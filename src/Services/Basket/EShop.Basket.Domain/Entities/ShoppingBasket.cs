@@ -34,6 +34,28 @@ public class ShoppingBasket : AggregateRoot<string>
         return basket;
     }
 
+    public static ShoppingBasket Rehydrate(
+        string userId,
+        DateTime createdAt,
+        DateTime lastModifiedAt,
+        IReadOnlyCollection<(Guid ProductId, string ProductName, decimal Price, int Quantity)> items)
+    {
+        var basket = new ShoppingBasket
+        {
+            Id = userId,
+            UserId = userId,
+            CreatedAt = createdAt,
+            LastModifiedAt = lastModifiedAt
+        };
+
+        foreach (var item in items)
+        {
+            basket._items.Add(new BasketItem(item.ProductId, item.ProductName, item.Price, item.Quantity));
+        }
+
+        return basket;
+    }
+
     public void AddItem(Guid productId, string productName, decimal price, int quantity)
     {
         if (productId == Guid.Empty)

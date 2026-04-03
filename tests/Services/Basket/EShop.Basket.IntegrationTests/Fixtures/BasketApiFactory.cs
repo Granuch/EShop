@@ -1,10 +1,15 @@
 using EShop.Basket.Infrastructure.Outbox;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Moq;
 using StackExchange.Redis;
+using System.Text;
 
 namespace EShop.Basket.IntegrationTests.Fixtures;
 
@@ -14,8 +19,32 @@ public class BasketApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["JwtSettings:SecretKey"] = "TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!",
+                ["JwtSettings:Issuer"] = "EShop.Basket.Test",
+                ["JwtSettings:Audience"] = "EShop.Test"
+            });
+        });
+
         builder.ConfigureServices(services =>
         {
+            services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = false,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes("TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!")),
+                    ClockSkew = TimeSpan.Zero
+                };
+            });
+
             var hostedOutboxDescriptor = services
                 .Where(d => d.ServiceType == typeof(IHostedService)
                             && d.ImplementationType == typeof(BasketRedisOutboxProcessorService))

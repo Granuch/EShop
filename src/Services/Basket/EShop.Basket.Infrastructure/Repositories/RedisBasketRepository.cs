@@ -52,13 +52,16 @@ public class RedisBasketRepository : IBasketRepository
             return null;
         }
 
-        var basket = ShoppingBasket.Create(document.UserId);
-        foreach (var item in document.Items)
-        {
-            basket.AddItem(item.ProductId, item.ProductName, item.Price, item.Quantity);
-        }
+        var createdAt = document.CreatedAt == default ? DateTime.UtcNow : document.CreatedAt;
+        var lastModifiedAt = document.LastModifiedAt == default ? createdAt : document.LastModifiedAt;
 
-        return basket;
+        return ShoppingBasket.Rehydrate(
+            document.UserId,
+            createdAt,
+            lastModifiedAt,
+            document.Items
+                .Select(item => (item.ProductId, item.ProductName, item.Price, item.Quantity))
+                .ToArray());
     }
 
     public async Task<ShoppingBasket> SaveBasketAsync(ShoppingBasket basket, CancellationToken cancellationToken = default)
@@ -168,12 +171,16 @@ public class RedisBasketRepository : IBasketRepository
     {
         public string UserId { get; init; } = string.Empty;
         public List<BasketItemDocument> Items { get; init; } = [];
+        public DateTime CreatedAt { get; init; }
+        public DateTime LastModifiedAt { get; init; }
 
         public static BasketDocument FromBasket(ShoppingBasket basket)
         {
             return new BasketDocument
             {
                 UserId = basket.UserId,
+                CreatedAt = basket.CreatedAt,
+                LastModifiedAt = basket.LastModifiedAt,
                 Items = basket.Items
                     .Select(item => new BasketItemDocument
                     {

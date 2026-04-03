@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using EShop.Basket.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,8 +12,12 @@ namespace EShop.Basket.Infrastructure.Outbox;
 
 public class BasketRedisOutboxProcessorService : BackgroundService
 {
+    private static readonly TimeSpan ProcessingLeaseTtl = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan RecoveryInterval = TimeSpan.FromSeconds(30);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<BasketRedisOutboxProcessorService> _logger;
+    private readonly IBasketMetrics _metrics;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -24,20 +29,29 @@ public class BasketRedisOutboxProcessorService : BackgroundService
 
     public BasketRedisOutboxProcessorService(
         IServiceScopeFactory scopeFactory,
-        ILogger<BasketRedisOutboxProcessorService> logger)
+        ILogger<BasketRedisOutboxProcessorService> logger,
+        IBasketMetrics metrics)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _metrics = metrics;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Basket Redis outbox processor started");
+        var nextRecoveryAt = DateTime.UtcNow;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                if (DateTime.UtcNow >= nextRecoveryAt)
+                {
+                    await RecoverStaleProcessingMessagesAsync(stoppingToken);
+                    nextRecoveryAt = DateTime.UtcNow.Add(RecoveryInterval);
+                }
+
                 var processed = await ProcessMessageAsync(stoppingToken);
                 if (!processed)
                 {
@@ -79,6 +93,20 @@ public class BasketRedisOutboxProcessorService : BackgroundService
             message = JsonSerializer.Deserialize<RedisOutboxMessage>(payload.ToString(), JsonOptions)
                 ?? throw new JsonException("Outbox message deserialization returned null.");
 
+            var leaseKey = GetProcessingLeaseKey(message.Id);
+            var leaseAcquired = await database.StringSetAsync(
+                leaseKey,
+                DateTime.UtcNow.ToString("O"),
+                ProcessingLeaseTtl,
+                when: When.NotExists);
+
+            if (!leaseAcquired)
+            {
+                await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
+                await database.ListLeftPushAsync(BasketOutboxKeys.Pending, payload);
+                return true;
+            }
+
             var eventType = ResolveType(message.Type);
             if (eventType == null)
             {
@@ -103,6 +131,7 @@ public class BasketRedisOutboxProcessorService : BackgroundService
             }, cancellationToken);
 
             await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
+            await database.KeyDeleteAsync(leaseKey);
 
             _logger.LogInformation("Published basket outbox message {MessageId} of type {Type}", message.Id, message.Type);
             return true;
@@ -115,6 +144,10 @@ public class BasketRedisOutboxProcessorService : BackgroundService
                 message?.RetryCount ?? -1);
 
             await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
+            if (message != null)
+            {
+                await database.KeyDeleteAsync(GetProcessingLeaseKey(message.Id));
+            }
 
             if (message != null)
             {
@@ -124,6 +157,7 @@ public class BasketRedisOutboxProcessorService : BackgroundService
                 if (next.RetryCount >= 5)
                 {
                     await database.ListLeftPushAsync(BasketOutboxKeys.DeadLetter, nextPayload);
+                    _metrics.RecordOutboxRecovery("dead_letter");
                     _logger.LogError("Basket outbox message {MessageId} moved to dead-letter queue", next.Id);
                 }
                 else
@@ -135,6 +169,70 @@ public class BasketRedisOutboxProcessorService : BackgroundService
             return true;
         }
     }
+
+    private async Task RecoverStaleProcessingMessagesAsync(CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
+        var database = redis.GetDatabase();
+
+        var payloads = await database.ListRangeAsync(BasketOutboxKeys.Processing, 0, 200);
+        if (payloads.Length == 0)
+        {
+            return;
+        }
+
+        var recovered = 0;
+
+        foreach (var payload in payloads)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (payload.IsNullOrEmpty)
+            {
+                continue;
+            }
+
+            try
+            {
+                var message = JsonSerializer.Deserialize<RedisOutboxMessage>(payload.ToString(), JsonOptions);
+                if (message == null)
+                {
+                    continue;
+                }
+
+                var leaseExists = await database.KeyExistsAsync(GetProcessingLeaseKey(message.Id));
+                if (leaseExists)
+                {
+                    continue;
+                }
+
+                var removed = await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
+                if (removed > 0)
+                {
+                    await database.ListLeftPushAsync(BasketOutboxKeys.Pending, payload);
+                    recovered++;
+                    _metrics.RecordOutboxRecovery("recovered");
+                }
+            }
+            catch (JsonException)
+            {
+                var removed = await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
+                if (removed > 0)
+                {
+                    await database.ListLeftPushAsync(BasketOutboxKeys.DeadLetter, payload);
+                    _metrics.RecordOutboxRecovery("dead_letter");
+                }
+            }
+        }
+
+        if (recovered > 0)
+        {
+            _logger.LogWarning("Recovered {RecoveredCount} stale outbox messages back to pending queue", recovered);
+        }
+    }
+
+    private static string GetProcessingLeaseKey(Guid messageId) => $"basket:outbox:lease:{messageId}";
 
     private static Type? ResolveType(string fullName)
     {
