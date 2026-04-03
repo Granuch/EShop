@@ -43,4 +43,36 @@ public class ShoppingBasketTests
         Assert.That(checkoutEvent!.UserId, Is.EqualTo("user-1"));
         Assert.That(checkoutEvent.Items, Has.Count.EqualTo(1));
     }
+
+    [Test]
+    public void AddItem_WhenQuantityIsInvalid_ShouldThrow()
+    {
+        var basket = ShoppingBasket.Create("user-1");
+
+        Assert.Throws<EShop.BuildingBlocks.Domain.Exceptions.DomainException>(() =>
+            basket.AddItem(Guid.NewGuid(), "Product", 10m, 0));
+    }
+
+    [Test]
+    public void Checkout_WhenShippingAddressIsMissing_ShouldThrow()
+    {
+        var basket = ShoppingBasket.Create("user-1");
+        basket.AddItem(Guid.NewGuid(), "Product", 10m, 1);
+
+        Assert.Throws<EShop.BuildingBlocks.Domain.Exceptions.DomainException>(() =>
+            basket.Checkout(string.Empty, "Card"));
+    }
+
+    [Test]
+    public void ApplyPriceChange_WhenItemExists_ShouldUpdateItemPrice()
+    {
+        var productId = Guid.NewGuid();
+        var basket = ShoppingBasket.Create("user-1");
+        basket.AddItem(productId, "Product", 10m, 2);
+
+        basket.ApplyPriceChange(productId, 12m);
+
+        Assert.That(basket.Items.Single().Price, Is.EqualTo(12m));
+        Assert.That(basket.TotalPrice, Is.EqualTo(24m));
+    }
 }
