@@ -4,6 +4,7 @@ using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Ordering.Application.Telemetry;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Ordering.Application.Orders.Commands.CancelOrder;
 
@@ -11,13 +12,16 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, Res
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICacheInvalidationContext? _cacheInvalidationContext;
 
     public CancelOrderCommandHandler(
         IOrderRepository orderRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICacheInvalidationContext? cacheInvalidationContext = null)
     {
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
+        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(CancelOrderCommand request, CancellationToken cancellationToken)
@@ -31,6 +35,8 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, Res
             activity?.SetStatus(ActivityStatusCode.Error, "not_found");
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
+
+        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
 
         order.Cancel(request.Reason);
 

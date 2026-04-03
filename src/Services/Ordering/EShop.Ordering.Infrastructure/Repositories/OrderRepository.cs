@@ -33,10 +33,13 @@ public class OrderRepository : IOrderRepository
 
     public async Task<IEnumerable<Order>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
     {
+        // Legacy read method retained for backward compatibility.
+        // User-facing queries should use IOrderQueryService.GetOrdersByUserAsync for pagination.
         return await _context.Orders
             .Include(o => o.Items)
             .Where(o => o.UserId == userId)
             .OrderByDescending(o => o.CreatedAt)
+            .Take(200)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
@@ -69,7 +72,7 @@ public class OrderRepository : IOrderRepository
         // runs. Then trigger DetectChanges manually and fix up any new items that were
         // incorrectly marked as Modified.
         var loadedItemIds = _context.ChangeTracker.Entries<OrderItem>()
-            .Where(e => e.State == EntityState.Unchanged)
+            .Where(e => e.State != EntityState.Added && e.State != EntityState.Detached)
             .Select(e => e.Entity.Id)
             .ToHashSet();
 

@@ -89,3 +89,14 @@ public record ProblemDetailsResponse
     public string? TraceId { get; init; }
     public Dictionary<string, string[]>? Errors { get; init; }
 }
+
+public record PagedOrderResponse
+{
+    public List<OrderResponse> Items { get; init; } = new();
+    public int PageNumber { get; init; }
+    public int PageSize { get; init; }
+    public int TotalCount { get; init; }
+    public int TotalPages { get; init; }
+    public bool HasPreviousPage { get; init; }
+    public bool HasNextPage { get; init; }
+}

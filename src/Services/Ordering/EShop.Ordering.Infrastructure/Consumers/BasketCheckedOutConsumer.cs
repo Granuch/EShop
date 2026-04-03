@@ -34,8 +34,16 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
             message.UserId,
             message.TotalPrice);
 
-        // Parse shipping address - expects "Street, City, State, ZipCode, Country" format
-        var addressParts = ParseAddress(message.ShippingAddress);
+        // Prefer structured shipping address; fallback to legacy string format for backward compatibility.
+        var addressParts = message.ShippingAddressDetails is not null
+            ? (
+                Street: message.ShippingAddressDetails.Street,
+                City: message.ShippingAddressDetails.City,
+                State: message.ShippingAddressDetails.State,
+                ZipCode: message.ShippingAddressDetails.ZipCode,
+                Country: message.ShippingAddressDetails.Country
+            )
+            : ParseAddress(message.ShippingAddress);
 
         var command = new CreateOrderCommand
         {

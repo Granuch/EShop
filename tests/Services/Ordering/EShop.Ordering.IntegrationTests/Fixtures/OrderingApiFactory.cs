@@ -1,10 +1,14 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.Ordering.Infrastructure.Data;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 
 namespace EShop.Ordering.IntegrationTests.Fixtures;
 
@@ -14,6 +18,10 @@ namespace EShop.Ordering.IntegrationTests.Fixtures;
 /// </summary>
 public class OrderingApiFactory : WebApplicationFactory<Program>
 {
+    internal const string TestJwtSecretKey = "THIS_IS_A_TEST_ONLY_SECRET_KEY_32_CHARS_MINIMUM";
+    internal const string TestJwtIssuer = "ESHOP_ORDERING_TEST_ISSUER";
+    internal const string TestJwtAudience = "ESHOP_ORDERING_TEST_AUDIENCE";
+
     private readonly string _databaseName;
     private bool _databaseSeeded;
 
@@ -25,6 +33,18 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            var jwtTestSettings = new Dictionary<string, string?>
+            {
+                ["JwtSettings:SecretKey"] = TestJwtSecretKey,
+                ["JwtSettings:Issuer"] = TestJwtIssuer,
+                ["JwtSettings:Audience"] = TestJwtAudience
+            };
+
+            configBuilder.AddInMemoryCollection(jwtTestSettings);
+        });
 
         builder.ConfigureServices(services =>
         {
@@ -51,6 +71,23 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
 
             // Re-register DbContext base type for OutboxProcessorService
             services.AddScoped<DbContext>(provider => provider.GetRequiredService<OrderingDbContext>());
+
+            services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = TestJwtIssuer,
+                    ValidAudience = TestJwtAudience,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestJwtSecretKey)),
+                    ClockSkew = TimeSpan.Zero,
+                    NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier,
+                    RoleClaimType = System.Security.Claims.ClaimTypes.Role
+                };
+            });
 
             ConfigureTestServices(services);
         });

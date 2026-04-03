@@ -5,10 +5,12 @@ using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
 using EShop.Ordering.API.Infrastructure.Middleware;
+using EShop.Ordering.API.Infrastructure.Security;
 using EShop.Ordering.Application.Extensions;
 using EShop.Ordering.Infrastructure.Data;
 using EShop.Ordering.Infrastructure.Extensions;
 using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -167,6 +169,20 @@ try
             $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
     }
 
+    // Detect placeholder patterns that must be replaced before deployment
+    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
+    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+    {
+        foreach (var pattern in placeholderPatterns)
+        {
+            if (jwtSettings.SecretKey.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"JWT SecretKey contains placeholder pattern '{pattern}'. Replace with a secure secret before deploying to {builder.Environment.EnvironmentName}.");
+            }
+        }
+    }
+
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -191,7 +207,14 @@ try
     builder.Services.AddAuthorization(options =>
     {
         options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
+        options.AddPolicy("OrderOwnerOrAdmin", policy =>
+            policy.Requirements.Add(new OrderOwnerOrAdminRequirement()));
+        options.AddPolicy("SameUserOrAdmin", policy =>
+            policy.Requirements.Add(new SameUserOrAdminRequirement()));
     });
+
+    builder.Services.AddSingleton<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
+    builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
     // Add CORS
     builder.Services.AddCors(options =>
