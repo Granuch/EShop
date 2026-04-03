@@ -1,10 +1,12 @@
 using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
+using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.Ordering.Application.Abstractions;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Infrastructure.Consumers;
@@ -36,6 +38,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
         // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
+        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 

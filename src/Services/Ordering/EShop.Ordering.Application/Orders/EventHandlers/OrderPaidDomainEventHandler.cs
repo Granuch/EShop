@@ -36,6 +36,7 @@ public class OrderPaidDomainEventHandler : INotificationHandler<OrderPaidDomainE
         _outbox.Enqueue(new OrderPaidEvent
         {
             OrderId = notification.OrderId,
+            UserId = notification.UserId,
             PaymentIntentId = notification.PaymentIntentId,
             CorrelationId = _currentUserContext.CorrelationId
         }, _currentUserContext.CorrelationId);

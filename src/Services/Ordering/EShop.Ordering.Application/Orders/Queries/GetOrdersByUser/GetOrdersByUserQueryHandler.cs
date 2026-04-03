@@ -1,54 +1,32 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
-using EShop.Ordering.Domain.Interfaces;
+using EShop.BuildingBlocks.Application.Pagination;
+using EShop.Ordering.Application.Abstractions;
 
 namespace EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 
-public sealed class GetOrdersByUserQueryHandler : IRequestHandler<GetOrdersByUserQuery, Result<List<OrderDto>>>
+public sealed class GetOrdersByUserQueryHandler : IRequestHandler<GetOrdersByUserQuery, Result<PagedResult<OrderDto>>>
 {
-    private readonly IOrderRepository _orderRepository;
+    private readonly IOrderQueryService _orderQueryService;
 
-    public GetOrdersByUserQueryHandler(IOrderRepository orderRepository)
+    public GetOrdersByUserQueryHandler(IOrderQueryService orderQueryService)
     {
-        _orderRepository = orderRepository;
+        _orderQueryService = orderQueryService;
     }
 
-    public async Task<Result<List<OrderDto>>> Handle(GetOrdersByUserQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<OrderDto>>> Handle(GetOrdersByUserQuery request, CancellationToken cancellationToken)
     {
-        var orders = await _orderRepository.GetByUserIdAsync(request.UserId, cancellationToken);
+        var pageNumber = request.EffectivePageNumber;
+        var pageSize = request.EffectivePageSize;
 
-        var dtos = orders.Select(o => new OrderDto
-        {
-            Id = o.Id,
-            UserId = o.UserId,
-            TotalPrice = o.TotalPrice,
-            Status = o.Status,
-            PaymentIntentId = o.PaymentIntentId,
-            CreatedAt = o.CreatedAt,
-            PaidAt = o.PaidAt,
-            ShippedAt = o.ShippedAt,
-            DeliveredAt = o.DeliveredAt,
-            CancelledAt = o.CancelledAt,
-            CancellationReason = o.CancellationReason,
-            ShippingAddress = new AddressDto
-            {
-                Street = o.ShippingAddress.Street,
-                City = o.ShippingAddress.City,
-                State = o.ShippingAddress.State,
-                ZipCode = o.ShippingAddress.ZipCode,
-                Country = o.ShippingAddress.Country
-            },
-            Items = o.Items.Select(i => new OrderItemDto
-            {
-                Id = i.Id,
-                ProductId = i.ProductId,
-                ProductName = i.ProductName,
-                UnitPrice = i.UnitPrice,
-                Quantity = i.Quantity,
-                SubTotal = i.SubTotal
-            }).ToList()
-        }).ToList();
+        var (dtos, totalCount) = await _orderQueryService.GetOrdersByUserAsync(
+            request.UserId,
+            pageNumber,
+            pageSize,
+            request.Cursor,
+            cancellationToken);
 
-        return Result<List<OrderDto>>.Success(dtos);
+        var pagedResult = PagedResult<OrderDto>.Create(dtos, pageNumber, pageSize, totalCount);
+        return Result<PagedResult<OrderDto>>.Success(pagedResult);
     }
 }
