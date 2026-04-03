@@ -15,4 +15,11 @@ public interface IOrderQueryService
         int pageNumber,
         int pageSize,
         CancellationToken cancellationToken = default);
+
+    Task<(List<OrderDto> Items, int TotalCount)> GetOrdersByUserAsync(
+        string userId,
+        int pageNumber,
+        int pageSize,
+        DateTime? cursor = null,
+        CancellationToken cancellationToken = default);
 }

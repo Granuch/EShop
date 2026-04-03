@@ -48,12 +48,12 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            NotFoundException notFoundEx => (
+            NotFoundException => (
                 HttpStatusCode.NotFound,
                 new ErrorResponse
                 {
                     Type = "NotFound",
-                    Title = notFoundEx.Message,
+                    Title = "Requested resource was not found.",
                     Status = (int)HttpStatusCode.NotFound,
                     TraceId = context.TraceIdentifier
                 }),
@@ -79,13 +79,12 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            DomainException domainEx => (
+            DomainException => (
                 HttpStatusCode.BadRequest,
                 new ErrorResponse
                 {
                     Type = "DomainError",
-                    Title = "Business Rule Violation",
-                    Detail = domainEx.Message,
+                    Title = "Business rule validation failed.",
                     Status = (int)HttpStatusCode.BadRequest,
                     TraceId = context.TraceIdentifier
                 }),

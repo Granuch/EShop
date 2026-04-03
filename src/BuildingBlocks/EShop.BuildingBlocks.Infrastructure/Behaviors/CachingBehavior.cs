@@ -288,15 +288,18 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
     private readonly IDistributedCache _cache;
     private readonly ILogger<CacheInvalidationBehavior<TRequest, TResponse>> _logger;
     private readonly CachingBehaviorOptions _options;
+    private readonly ICacheInvalidationContext? _cacheInvalidationContext;
 
     public CacheInvalidationBehavior(
         IDistributedCache cache,
         ILogger<CacheInvalidationBehavior<TRequest, TResponse>> logger,
-        IOptions<CachingBehaviorOptions>? options = null)
+        IOptions<CachingBehaviorOptions>? options = null,
+        ICacheInvalidationContext? cacheInvalidationContext = null)
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? new CachingBehaviorOptions();
+        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<TResponse> Handle(
@@ -314,9 +317,20 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         }
 
         var requestName = typeof(TRequest).Name;
-        var keysToInvalidate = invalidatingCommand.CacheKeysToInvalidate?.ToList();
 
-        if (keysToInvalidate == null || keysToInvalidate.Count == 0)
+        var keysToInvalidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (invalidatingCommand.CacheKeysToInvalidate is not null)
+        {
+            keysToInvalidate.UnionWith(invalidatingCommand.CacheKeysToInvalidate);
+        }
+
+        if (_cacheInvalidationContext is not null)
+        {
+            keysToInvalidate.UnionWith(_cacheInvalidationContext.GetKeys());
+            _cacheInvalidationContext.Clear();
+        }
+
+        if (keysToInvalidate.Count == 0)
         {
             return response;
         }

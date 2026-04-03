@@ -11,5 +11,6 @@ public record OrderPaidDomainEvent : IDomainEvent
     public DateTime OccurredOn { get; } = DateTime.UtcNow;
 
     public Guid OrderId { get; init; }
+    public string UserId { get; init; } = string.Empty;
     public string PaymentIntentId { get; init; } = string.Empty;
 }

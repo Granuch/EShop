@@ -7,6 +7,7 @@ using EShop.Ordering.Application.Orders.Commands.ShipOrder;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
+using EShop.Ordering.API.Infrastructure.Security;
 
 namespace EShop.Ordering.API.Endpoints;
 
@@ -23,9 +24,14 @@ public static class OrderEndpoints
             .WithTags("Orders");
 
         // POST /api/v1/orders
-        group.MapPost("/", async (CreateOrderCommand command, IMediator mediator) =>
+        group.MapPost("/", async (CreateOrderCommand command, IMediator mediator, HttpContext httpContext) =>
         {
-            var result = await mediator.Send(command);
+            if (!CreateOrderCommandResolver.TryResolve(httpContext, command, out var resolvedCommand, out var error))
+            {
+                return error!;
+            }
+
+            var result = await mediator.Send(resolvedCommand);
 
             return result.Match(
                 value => Results.Created($"/api/v1/orders/{value}", new { id = value }),
@@ -52,7 +58,7 @@ public static class OrderEndpoints
                     statusCode: StatusCodes.Status404NotFound));
         })
         .WithName("GetOrderById")
-        .RequireAuthorization()
+        .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces<object>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -74,9 +80,10 @@ public static class OrderEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/users/{userId}/orders
-        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, IMediator mediator) =>
+        app.MapGet("/api/v1/users/{userId}/orders", async (string userId, [AsParameters] GetOrdersByUserQuery query, IMediator mediator) =>
         {
-            var result = await mediator.Send(new GetOrdersByUserQuery { UserId = userId });
+            var request = query with { UserId = userId };
+            var result = await mediator.Send(request);
 
             return result.Match(
                 value => Results.Ok(value),
@@ -87,7 +94,7 @@ public static class OrderEndpoints
         })
         .WithTags("Orders")
         .WithName("GetOrdersByUser")
-        .RequireAuthorization()
+        .RequireAuthorization("SameUserOrAdmin")
         .Produces<object>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
@@ -110,7 +117,7 @@ public static class OrderEndpoints
                     statusCode: StatusCodes.Status400BadRequest));
         })
         .WithName("AddOrderItem")
-        .RequireAuthorization()
+        .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
@@ -127,7 +134,7 @@ public static class OrderEndpoints
                     statusCode: StatusCodes.Status400BadRequest));
         })
         .WithName("RemoveOrderItem")
-        .RequireAuthorization()
+        .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
@@ -144,7 +151,7 @@ public static class OrderEndpoints
                     statusCode: StatusCodes.Status400BadRequest));
         })
         .WithName("CancelOrder")
-        .RequireAuthorization()
+        .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
