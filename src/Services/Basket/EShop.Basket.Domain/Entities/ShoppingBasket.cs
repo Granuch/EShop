@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Messaging.Events;
+using EShop.BuildingBlocks.Domain.Exceptions;
+using EShop.Basket.Domain.Events;
 
 namespace EShop.Basket.Domain.Entities;
 
@@ -33,18 +34,105 @@ public class ShoppingBasket : AggregateRoot<string>
         return basket;
     }
 
-    // TODO: Implement AddItem() with duplicate check
-    // public void AddItem(Guid productId, string productName, decimal price, int quantity)
+    public void AddItem(Guid productId, string productName, decimal price, int quantity)
+    {
+        if (productId == Guid.Empty)
+            throw new DomainException("Product ID is required.");
 
-    // TODO: Implement UpdateItemQuantity()
-    // public void UpdateItemQuantity(Guid productId, int newQuantity)
+        if (string.IsNullOrWhiteSpace(productName))
+            throw new DomainException("Product name is required.");
 
-    // TODO: Implement RemoveItem()
-    // public void RemoveItem(Guid productId)
+        if (price < 0)
+            throw new DomainException("Price cannot be negative.");
 
-    // TODO: Implement Clear()
-    // public void Clear()
+        if (quantity <= 0)
+            throw new DomainException("Quantity must be greater than zero.");
 
-    // TODO: Implement Checkout() that returns BasketCheckedOutEvent
-    // public BasketCheckedOutEvent Checkout(string shippingAddress, string paymentMethod)
+        var existingItem = _items.FirstOrDefault(i => i.ProductId == productId);
+        if (existingItem != null)
+        {
+            existingItem.UpdateQuantity(existingItem.Quantity + quantity);
+        }
+        else
+        {
+            _items.Add(new BasketItem(productId, productName, price, quantity));
+        }
+
+        LastModifiedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateItemQuantity(Guid productId, int newQuantity)
+    {
+        var existingItem = _items.FirstOrDefault(i => i.ProductId == productId);
+        if (existingItem == null)
+            throw new DomainException($"Product '{productId}' is not in basket.");
+
+        if (newQuantity <= 0)
+        {
+            _items.Remove(existingItem);
+        }
+        else
+        {
+            existingItem.UpdateQuantity(newQuantity);
+        }
+
+        LastModifiedAt = DateTime.UtcNow;
+    }
+
+    public void RemoveItem(Guid productId)
+    {
+        var existingItem = _items.FirstOrDefault(i => i.ProductId == productId);
+        if (existingItem == null)
+            return;
+
+        _items.Remove(existingItem);
+        LastModifiedAt = DateTime.UtcNow;
+    }
+
+    public void Clear()
+    {
+        _items.Clear();
+        LastModifiedAt = DateTime.UtcNow;
+    }
+
+    public void ApplyPriceChange(Guid productId, decimal newPrice)
+    {
+        var existingItem = _items.FirstOrDefault(i => i.ProductId == productId);
+        if (existingItem == null)
+            return;
+
+        existingItem.UpdatePrice(newPrice);
+        LastModifiedAt = DateTime.UtcNow;
+    }
+
+    public void Checkout(string shippingAddress, string paymentMethod)
+    {
+        if (_items.Count == 0)
+            throw new DomainException("Cannot checkout an empty basket.");
+
+        if (string.IsNullOrWhiteSpace(shippingAddress))
+            throw new DomainException("Shipping address is required.");
+
+        if (string.IsNullOrWhiteSpace(paymentMethod))
+            throw new DomainException("Payment method is required.");
+
+        AddDomainEvent(new BasketCheckedOutDomainEvent
+        {
+            UserId = UserId,
+            Items = _items
+                .Select(item => new BasketCheckedOutDomainEventItem
+                {
+                    ProductId = item.ProductId,
+                    ProductName = item.ProductName,
+                    Price = item.Price,
+                    Quantity = item.Quantity
+                })
+                .ToList(),
+            TotalPrice = TotalPrice,
+            ShippingAddress = shippingAddress,
+            PaymentMethod = paymentMethod
+        });
+
+        LastModifiedAt = DateTime.UtcNow;
+    }
 }
