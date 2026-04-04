@@ -1,0 +1,80 @@
+using EShop.Basket.Infrastructure.Outbox;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using Moq;
+using StackExchange.Redis;
+using System.Text;
+
+namespace EShop.Basket.IntegrationTests.Fixtures;
+
+public class BasketApiFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["JwtSettings:SecretKey"] = "TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!",
+                ["JwtSettings:Issuer"] = "EShop.Basket.Test",
+                ["JwtSettings:Audience"] = "EShop.Test"
+            });
+        });
+
+        builder.ConfigureServices(services =>
+        {
+            services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = false,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes("TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!")),
+                    ClockSkew = TimeSpan.Zero
+                };
+            });
+
+            var hostedOutboxDescriptor = services
+                .Where(d => d.ServiceType == typeof(IHostedService)
+                            && d.ImplementationType == typeof(BasketRedisOutboxProcessorService))
+                .ToList();
+
+            foreach (var descriptor in hostedOutboxDescriptor)
+            {
+                services.Remove(descriptor);
+            }
+
+            var redisDescriptor = services.LastOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
+            if (redisDescriptor != null)
+            {
+                services.Remove(redisDescriptor);
+            }
+
+            var databaseMock = new Mock<IDatabase>();
+            databaseMock
+                .Setup(db => db.PingAsync(It.IsAny<CommandFlags>()))
+                .ReturnsAsync(TimeSpan.FromMilliseconds(1));
+            databaseMock
+                .Setup(db => db.ListLengthAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+                .ReturnsAsync(0);
+
+            var redisMock = new Mock<IConnectionMultiplexer>();
+            redisMock
+                .Setup(x => x.GetDatabase(It.IsAny<int>(), It.IsAny<object>()))
+                .Returns(databaseMock.Object);
+
+            services.AddSingleton(redisMock.Object);
+        });
+    }
+}

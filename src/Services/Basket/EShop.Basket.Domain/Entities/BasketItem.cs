@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 
 namespace EShop.Basket.Domain.Entities;
 
@@ -17,10 +18,17 @@ public class BasketItem : Entity<Guid>
 
     public BasketItem(Guid productId, string productName, decimal price, int quantity)
     {
+        if (productId == Guid.Empty)
+            throw new DomainException("Product ID is required.");
+
+        if (string.IsNullOrWhiteSpace(productName))
+            throw new DomainException("Product name is required.");
+
         if (quantity <= 0)
-            throw new ArgumentException("Quantity must be positive", nameof(quantity));
+            throw new DomainException("Quantity must be positive.");
+
         if (price < 0)
-            throw new ArgumentException("Price cannot be negative", nameof(price));
+            throw new DomainException("Price cannot be negative.");
 
         Id = Guid.NewGuid();
         ProductId = productId;
@@ -30,9 +38,24 @@ public class BasketItem : Entity<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
-    // TODO: Implement UpdateQuantity()
-    // public void UpdateQuantity(int newQuantity)
+    public void UpdateQuantity(int newQuantity)
+    {
+        if (newQuantity <= 0)
+            throw new DomainException("Quantity must be greater than zero.");
 
-    // TODO: Implement UpdatePrice() for price synchronization from catalog
-    // public void UpdatePrice(decimal newPrice)
+        Quantity = newQuantity;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdatePrice(decimal newPrice)
+    {
+        if (newPrice < 0)
+            throw new DomainException("Price cannot be negative.");
+
+        if (newPrice == Price)
+            return;
+
+        Price = newPrice;
+        UpdatedAt = DateTime.UtcNow;
+    }
 }
