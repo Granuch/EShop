@@ -54,7 +54,7 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
         _currentUserContext = currentUserContext;
     }
 
-    public bool HasActiveTransaction => _currentTransaction != null;
+    public bool HasActiveTransaction => _currentTransaction != null || Database.CurrentTransaction != null;
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
@@ -67,7 +67,7 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
 
     public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
     {
-        if (_currentTransaction != null)
+        if (_currentTransaction != null || Database.CurrentTransaction != null)
         {
             return;
         }
