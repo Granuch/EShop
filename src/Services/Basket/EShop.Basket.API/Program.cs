@@ -17,6 +17,7 @@ using Prometheus;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using StackExchange.Redis;
 using System.Net;
 using System.Text;
@@ -87,16 +88,14 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
 
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = redisConnectionString;
     options.InstanceName = "EShop_Basket_";
-    options.ConfigurationOptions = ConfigurationOptions.Parse(redisConnectionString);
-    options.ConfigurationOptions.AbortOnConnectFail = false;
-    options.ConfigurationOptions.ConnectTimeout = 5000;
-    options.ConfigurationOptions.SyncTimeout = 5000;
-    options.ConfigurationOptions.ConnectRetry = 3;
-    options.ConfigurationOptions.KeepAlive = 60;
-    options.ConfigurationOptions.ReconnectRetryPolicy = new LinearRetry(5000);
 });
+
+builder.Services.AddOptions<RedisCacheOptions>()
+    .Configure<IConnectionMultiplexer>((options, mux) =>
+    {
+        options.ConnectionMultiplexerFactory = () => Task.FromResult(mux);
+    });
 
 builder.Services.AddCircuitBreakingCache(failureThreshold: 3, openDuration: TimeSpan.FromSeconds(30));
 

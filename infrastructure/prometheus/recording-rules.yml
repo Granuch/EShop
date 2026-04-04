@@ -127,7 +127,9 @@ groups:
         expr: sum(rate(basket_checkouts_total{status="failure"}[5m]))
 
       - record: basket:checkout_failure_ratio:rate5m
-        expr: basket:checkout_failure:rate5m / (basket:checkout_success:rate5m + basket:checkout_failure:rate5m)
+        expr: >
+          basket:checkout_failure:rate5m
+          / clamp_min((basket:checkout_success:rate5m + basket:checkout_failure:rate5m), 1e-9)
 
       - record: basket:price_sync_updates:rate5m
         expr: sum(rate(basket_price_sync_updates_total[5m])) by (status)

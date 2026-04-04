@@ -11,6 +11,7 @@ using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using MassTransit;
 using MediatR;
@@ -58,8 +59,6 @@ public static class ServiceCollectionExtensions
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 
-        services.AddHostedService<BasketRedisOutboxProcessorService>();
-
         return services;
     }
 
@@ -94,6 +93,7 @@ public static class ServiceCollectionExtensions
                     h.Username(settings.Username);
                     h.Password(settings.Password);
                     h.PublisherConfirmation = true;
+                    h.Heartbeat(TimeSpan.FromSeconds(settings.HeartbeatIntervalSeconds));
 
                     if (settings.UseSsl)
                     {
@@ -103,10 +103,36 @@ public static class ServiceCollectionExtensions
                                            | System.Security.Authentication.SslProtocols.Tls13;
                         });
                     }
+
+                    if (settings.ClusterNodes.Length > 0)
+                    {
+                        h.UseCluster(c =>
+                        {
+                            foreach (var node in settings.ClusterNodes)
+                            {
+                                c.Node(node);
+                            }
+                        });
+                    }
                 });
 
                 cfg.Durable = true;
                 cfg.PrefetchCount = settings.PrefetchCount;
+                cfg.ConcurrentMessageLimit = settings.ConcurrencyLimit;
+
+                if (settings.UseDelayedRedelivery && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
+                {
+                    cfg.UseDelayedRedelivery(r =>
+                    {
+                        r.Intervals(settings.DelayedRedeliveryIntervalsMinutes
+                            .Select(m => TimeSpan.FromMinutes(m))
+                            .ToArray());
+
+                        r.Ignore<ArgumentException>();
+                        r.Ignore<FormatException>();
+                        r.Ignore<NotSupportedException>();
+                    });
+                }
 
                 cfg.UseMessageRetry(r =>
                 {
@@ -120,9 +146,22 @@ public static class ServiceCollectionExtensions
                     r.Ignore<NotSupportedException>();
                 });
 
+                cfg.UseCircuitBreaker(cb =>
+                {
+                    cb.TrackingPeriod = TimeSpan.FromMinutes(1);
+                    cb.TripThreshold = settings.CircuitBreakerThreshold;
+                    cb.ActiveThreshold = settings.CircuitBreakerActiveThreshold;
+                    cb.ResetInterval = TimeSpan.FromSeconds(settings.CircuitBreakerDurationSeconds);
+                });
+
                 cfg.ConfigureEndpoints(context);
             });
         });
+
+        services.AddHealthChecks()
+            .AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["messaging", "ready"]);
+
+        services.AddHostedService<BasketRedisOutboxProcessorService>();
 
         return services;
     }

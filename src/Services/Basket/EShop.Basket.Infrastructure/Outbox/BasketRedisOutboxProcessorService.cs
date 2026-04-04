@@ -26,6 +26,8 @@ public class BasketRedisOutboxProcessorService : BackgroundService
     };
 
     private static readonly ConcurrentDictionary<string, Type?> TypeCache = new();
+    private const int MaxTypeCacheEntries = 1000;
+    private const string AllowedNamespacePrefix = "EShop.";
 
     public BasketRedisOutboxProcessorService(
         IServiceScopeFactory scopeFactory,
@@ -76,7 +78,14 @@ public class BasketRedisOutboxProcessorService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
-        var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+        var publishEndpoint = scope.ServiceProvider.GetService<IPublishEndpoint>();
+
+        if (publishEndpoint == null)
+        {
+            _logger.LogWarning("IPublishEndpoint is not registered. Outbox processor is pausing until messaging is available.");
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            return false;
+        }
 
         var database = redis.GetDatabase();
 
@@ -110,7 +119,14 @@ public class BasketRedisOutboxProcessorService : BackgroundService
             var eventType = ResolveType(message.Type);
             if (eventType == null)
             {
-                throw new TypeLoadException($"Outbox event type '{message.Type}' could not be resolved.");
+                _logger.LogError(
+                    "Outbox message {MessageId} has unresolvable or disallowed type '{Type}'. Moving to dead-letter queue",
+                    message.Id, message.Type);
+                await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
+                var deadPayload = JsonSerializer.Serialize(message with { RetryCount = int.MaxValue }, JsonOptions);
+                await database.ListLeftPushAsync(BasketOutboxKeys.DeadLetter, deadPayload);
+                _metrics.RecordOutboxRecovery("dead_letter");
+                return true;
             }
 
             var deserialized = JsonSerializer.Deserialize(message.Payload, eventType, JsonOptions)
@@ -236,9 +252,19 @@ public class BasketRedisOutboxProcessorService : BackgroundService
 
     private static Type? ResolveType(string fullName)
     {
-        return TypeCache.GetOrAdd(fullName, typeName =>
+        if (!fullName.StartsWith(AllowedNamespacePrefix, StringComparison.Ordinal))
         {
-            var directType = Type.GetType(typeName);
+            return null;
+        }
+
+        if (TypeCache.Count >= MaxTypeCacheEntries && !TypeCache.ContainsKey(fullName))
+        {
+            return null;
+        }
+
+        return TypeCache.GetOrAdd(fullName, static name =>
+        {
+            var directType = Type.GetType(name);
             if (directType != null)
             {
                 return directType;
@@ -246,7 +272,7 @@ public class BasketRedisOutboxProcessorService : BackgroundService
 
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                var resolved = assembly.GetType(typeName);
+                var resolved = assembly.GetType(name);
                 if (resolved != null)
                 {
                     return resolved;

@@ -79,13 +79,11 @@ public static class BasketEndpoints
 
             return result.Match(
                 _ => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemFromError(error.Code, error.Message));
         })
         .WithName("UpdateBasketItemQuantity")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         group.MapDelete("/{userId}/items/{productId:guid}", async (
@@ -101,13 +99,11 @@ public static class BasketEndpoints
 
             return result.Match(
                 _ => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemFromError(error.Code, error.Message));
         })
         .WithName("RemoveBasketItem")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         group.MapDelete("/{userId}", async (string userId, IMediator mediator) =>
@@ -147,6 +143,18 @@ public static class BasketEndpoints
         .WithName("CheckoutBasket")
         .Produces<object>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
+    }
+
+    private static IResult ProblemFromError(string errorCode, string errorMessage)
+    {
+        var statusCode = errorCode.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
+            ? StatusCodes.Status404NotFound
+            : StatusCodes.Status400BadRequest;
+
+        return Results.Problem(
+            detail: errorMessage,
+            title: errorCode,
+            statusCode: statusCode);
     }
 }
 
