@@ -53,11 +53,14 @@ scrape_configs:
     scrape_interval: 15s
     scrape_timeout: 10s
 
-  # EShop Basket Service (when ready)
-  # - job_name: 'basket-service'
-  #   metrics_path: '/prometheus'
-  #   static_configs:
-  #     - targets: ['basket-api:8080']
+  # EShop Basket Service
+  # Note: 'service' label is NOT set here — the app emits service='basket' via UseHttpMetrics.
+  - job_name: 'basket-api'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['basket-api:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
 
   # EShop Ordering Service
   # Note: 'service' label is NOT set here — the app emits service='ordering' via UseHttpMetrics.
@@ -119,6 +122,13 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets: ['ordering-api:8080']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'basket-api-otel'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['basket-api:8080']
     scrape_interval: 30s
     scrape_timeout: 10s
 

@@ -49,6 +49,13 @@ public class TransactionBehavior<TRequest, TResponse> : IPipelineBehavior<TReque
             return await next();
         }
 
+        // Nested transaction guard: if upstream flow (for example idempotent consumer)
+        // already opened a transaction, do not wrap again.
+        if (_unitOfWork.HasActiveTransaction)
+        {
+            return await next();
+        }
+
         var requestName = typeof(TRequest).Name;
         var requestId = Guid.NewGuid().ToString()[..8];
 
@@ -111,6 +118,11 @@ public class AutoTransactionBehavior<TRequest, TResponse> : IPipelineBehavior<TR
         // Skip for queries (naming convention: queries end with "Query")
         var requestName = typeof(TRequest).Name;
         if (requestName.EndsWith("Query", StringComparison.OrdinalIgnoreCase))
+        {
+            return await next();
+        }
+
+        if (_unitOfWork.HasActiveTransaction)
         {
             return await next();
         }
