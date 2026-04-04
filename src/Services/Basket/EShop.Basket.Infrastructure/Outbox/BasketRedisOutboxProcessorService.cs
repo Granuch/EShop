@@ -28,6 +28,7 @@ public class BasketRedisOutboxProcessorService : BackgroundService
     private static readonly ConcurrentDictionary<string, Type?> TypeCache = new();
     private const int MaxTypeCacheEntries = 1000;
     private const string AllowedNamespacePrefix = "EShop.";
+    private const int DeadLetterRetryCount = int.MaxValue;
 
     public BasketRedisOutboxProcessorService(
         IServiceScopeFactory scopeFactory,
@@ -123,7 +124,7 @@ public class BasketRedisOutboxProcessorService : BackgroundService
                     "Outbox message {MessageId} has unresolvable or disallowed type '{Type}'. Moving to dead-letter queue",
                     message.Id, message.Type);
                 await database.ListRemoveAsync(BasketOutboxKeys.Processing, payload, count: 1);
-                var deadPayload = JsonSerializer.Serialize(message with { RetryCount = int.MaxValue }, JsonOptions);
+                var deadPayload = JsonSerializer.Serialize(message with { RetryCount = DeadLetterRetryCount }, JsonOptions);
                 await database.ListLeftPushAsync(BasketOutboxKeys.DeadLetter, deadPayload);
                 _metrics.RecordOutboxRecovery("dead_letter");
                 return true;
