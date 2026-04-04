@@ -198,6 +198,32 @@ if (forwardedProxies.Length > 0)
 
 app.UseSerilogRequestLogging(options =>
 {
+    options.GetLevel = (httpContext, _, exception) =>
+    {
+        if (exception != null || httpContext.Response.StatusCode >= 500)
+        {
+            return LogEventLevel.Error;
+        }
+
+        var path = httpContext.Request.Path.Value;
+        if (!string.IsNullOrEmpty(path)
+            && (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/prometheus", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/scalar", StringComparison.OrdinalIgnoreCase)))
+        {
+            return LogEventLevel.Debug;
+        }
+
+        if (httpContext.Response.StatusCode >= 400)
+        {
+            return LogEventLevel.Warning;
+        }
+
+        return LogEventLevel.Information;
+    };
+
     options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
 });
 
