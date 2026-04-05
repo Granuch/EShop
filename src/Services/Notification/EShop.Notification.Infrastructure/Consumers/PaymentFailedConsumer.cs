@@ -7,6 +7,7 @@ using EShop.Notification.Domain.Models;
 using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Data;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -63,7 +64,27 @@ public sealed class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEven
         if (string.IsNullOrWhiteSpace(message.UserId))
         {
             Logger.LogError("PaymentFailedEvent does not contain UserId. EventId={EventId}", message.EventId);
-            throw new InvalidOperationException("PaymentFailedEvent.UserId is required for notification processing.");
+
+            var failedLog = NotificationLog.CreatePending(
+                message.EventId,
+                nameof(PaymentFailedEvent),
+                correlationId,
+                string.Empty,
+                "unresolved@local",
+                TemplateName,
+                $"Payment failed for order #{message.OrderId}");
+            failedLog.MarkFailed("UserId is missing from event; notification cannot be delivered.");
+
+            try
+            {
+                await _notificationLogRepository.AddAsync(failedLog, cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                Logger.LogInformation("Notification already processed (concurrent duplicate) for EventId={EventId}", message.EventId);
+            }
+
+            return;
         }
 
         var recipient = await _userContactResolver.ResolveAsync(message.UserId, cancellationToken);
@@ -77,7 +98,15 @@ public sealed class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEven
             TemplateName,
             $"Payment failed for order #{message.OrderId}");
 
-        await _notificationLogRepository.AddAsync(notificationLog, cancellationToken);
+        try
+        {
+            await _notificationLogRepository.AddAsync(notificationLog, cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            Logger.LogInformation("Notification already processed (concurrent duplicate) for EventId={EventId}", message.EventId);
+            return;
+        }
 
         if (recipient is null)
         {

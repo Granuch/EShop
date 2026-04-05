@@ -11,4 +11,10 @@ public sealed class SmtpSettings
     public bool UseSsl { get; init; } = true;
     public string FromEmail { get; init; } = string.Empty;
     public string FromName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Controls TLS certificate revocation checking. Defaults to true (enabled).
+    /// Set to false only for local development environments where no CRL/OCSP is available.
+    /// </summary>
+    public bool CheckCertificateRevocation { get; init; } = true;
 }

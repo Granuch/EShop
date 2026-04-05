@@ -7,6 +7,7 @@ using EShop.Notification.Domain.Models;
 using EShop.Notification.Domain.ValueObjects;
 using EShop.Notification.Infrastructure.Data;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace EShop.Notification.Infrastructure.Consumers;
@@ -63,7 +64,15 @@ public sealed class OrderShippedConsumer : IdempotentConsumer<OrderShippedEvent,
             TemplateName,
             $"Your order #{message.OrderId} has shipped");
 
-        await _notificationLogRepository.AddAsync(notificationLog, cancellationToken);
+        try
+        {
+            await _notificationLogRepository.AddAsync(notificationLog, cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            Logger.LogInformation("Notification already processed (concurrent duplicate) for EventId={EventId}", message.EventId);
+            return;
+        }
 
         if (recipient is null)
         {

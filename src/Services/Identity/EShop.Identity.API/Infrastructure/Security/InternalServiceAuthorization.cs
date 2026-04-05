@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
@@ -42,10 +44,15 @@ public sealed class InternalServiceAuthorizationHandler : AuthorizationHandler<I
         }
 
         var providedKey = providedValues.FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(providedKey)
-            && string.Equals(providedKey, configuredKey, StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(providedKey))
         {
-            context.Succeed(requirement);
+            var configuredKeyBytes = Encoding.UTF8.GetBytes(configuredKey);
+            var providedKeyBytes = Encoding.UTF8.GetBytes(providedKey);
+
+            if (CryptographicOperations.FixedTimeEquals(configuredKeyBytes, providedKeyBytes))
+            {
+                context.Succeed(requirement);
+            }
         }
 
         return Task.CompletedTask;

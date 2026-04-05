@@ -30,7 +30,7 @@ public sealed class UserContactResolver : IUserContactResolver
 
             try
             {
-                using var response = await _httpClient.GetAsync($"api/v1/users/{userId}/contact", ct);
+                using var response = await _httpClient.GetAsync($"api/v1/users/{Uri.EscapeDataString(userId)}/contact", ct);
                 if (!response.IsSuccessStatusCode)
                 {
                     if ((int)response.StatusCode >= 500 && attempt < 3)

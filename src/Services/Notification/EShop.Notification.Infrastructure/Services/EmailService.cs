@@ -39,9 +39,9 @@ public sealed class EmailService : IEmailService
             {
                 ["OrderId"] = model.OrderId.ToString(),
                 ["CustomerName"] = model.CustomerName,
-                ["OrderDate"] = model.OrderDate.ToString("yyyy-MM-dd HH:mm"),
-                ["TotalAmount"] = model.TotalAmount.ToString("F2"),
-                ["ItemCount"] = model.ItemCount.ToString()
+                ["OrderDate"] = model.OrderDate.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+                ["TotalAmount"] = model.TotalAmount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                ["ItemCount"] = model.ItemCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
             },
             ct);
 
@@ -105,7 +105,7 @@ public sealed class EmailService : IEmailService
     private async Task SendAsync(MimeMessage message, CancellationToken ct)
     {
         using var smtpClient = new SmtpClient();
-        smtpClient.CheckCertificateRevocation = false;
+        smtpClient.CheckCertificateRevocation = _smtpSettings.CheckCertificateRevocation;
 
         var secureSocketOptions = _smtpSettings.UseSsl
             ? SecureSocketOptions.StartTls

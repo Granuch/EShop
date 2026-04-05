@@ -51,7 +51,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<NotificationDbContext>());
 
         services.AddScoped<IEmailService, EmailService>();
-        services.AddScoped<ITemplateRenderer, TemplateRenderer>();
+        services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
         services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
 
         services.AddHttpClient<IUserContactResolver, UserContactResolver>((sp, client) =>

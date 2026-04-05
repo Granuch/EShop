@@ -23,7 +23,7 @@ public sealed class SmtpHealthCheck : IHealthCheck
         }
 
         using var client = new SmtpClient();
-        client.CheckCertificateRevocation = false;
+        client.CheckCertificateRevocation = _smtpSettings.CheckCertificateRevocation;
 
         try
         {

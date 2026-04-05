@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Encodings.Web;
 using EShop.Notification.Application.Abstractions;
 using Microsoft.Extensions.Hosting;
 
@@ -31,7 +32,8 @@ public sealed class TemplateRenderer : ITemplateRenderer
 
         foreach (var token in tokens)
         {
-            rendered = rendered.Replace($"{{{{{token.Key}}}}}", token.Value ?? string.Empty, StringComparison.Ordinal);
+            var encodedValue = HtmlEncoder.Default.Encode(token.Value ?? string.Empty);
+            rendered = rendered.Replace($"{{{{{token.Key}}}}}", encodedValue, StringComparison.Ordinal);
         }
 
         return rendered;
