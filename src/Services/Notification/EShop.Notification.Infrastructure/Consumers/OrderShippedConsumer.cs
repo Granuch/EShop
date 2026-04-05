@@ -70,8 +70,12 @@ public sealed class OrderShippedConsumer : IdempotentConsumer<OrderShippedEvent,
         }
         catch (DbUpdateException)
         {
-            Logger.LogInformation("Notification already processed (concurrent duplicate) for EventId={EventId}", message.EventId);
-            return;
+            if (await _notificationLogRepository.FindByEventIdAsync(message.EventId, cancellationToken) is not null)
+            {
+                Logger.LogInformation("Notification already processed (concurrent duplicate) for EventId={EventId}", message.EventId);
+                return;
+            }
+            throw;
         }
 
         if (recipient is null)
