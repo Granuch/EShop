@@ -7,8 +7,10 @@ using EShop.Identity.Application.Telemetry;
 using EShop.Identity.API.Infrastructure.HealthChecks;
 using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
+using EShop.Identity.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -95,6 +97,24 @@ try
         suppressPendingModelChangesWarning: suppressPendingModelChangesWarning,
         isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"),
         isSandbox: builder.Environment.IsEnvironment("Sandbox"));
+
+    builder.Services.AddHttpContextAccessor();
+
+    builder.Services.Configure<InternalServiceAuthSettings>(
+        builder.Configuration.GetSection(InternalServiceAuthSettings.SectionName));
+
+    var internalServiceAuth = builder.Configuration
+        .GetSection(InternalServiceAuthSettings.SectionName)
+        .Get<InternalServiceAuthSettings>() ?? new InternalServiceAuthSettings();
+
+    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
+    {
+        if (string.IsNullOrWhiteSpace(internalServiceAuth.ApiKey))
+        {
+            throw new InvalidOperationException(
+                $"{InternalServiceAuthSettings.SectionName}:ApiKey is required in {builder.Environment.EnvironmentName} for internal service authorization.");
+        }
+    }
 
     // Configure Token Cleanup Settings
     builder.Services.Configure<EShop.Identity.Infrastructure.Configuration.TokenCleanupSettings>(
@@ -239,7 +259,13 @@ try
     });
 
     // Add Authorization
-    builder.Services.AddAuthorization();
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy("InternalService", policy =>
+            policy.Requirements.Add(new InternalServiceRequirement()));
+    });
+
+    builder.Services.AddSingleton<IAuthorizationHandler, InternalServiceAuthorizationHandler>();
 
     // Add Rate Limiting (disable in Testing to avoid throttling integration tests)
     if (!builder.Environment.IsEnvironment("Testing"))
@@ -391,45 +417,7 @@ try
     // Must come early in pipeline to measure total response time
     app.UseMiddleware<UniformResponseTimingMiddleware>();
 
-    // Add Serilog request logging
-    app.UseSerilogRequestLogging(options =>
-    {
-        options.GetLevel = (httpContext, _, exception) =>
-        {
-            if (exception != null || httpContext.Response.StatusCode >= 500)
-            {
-                return LogEventLevel.Error;
-            }
-
-            var path = httpContext.Request.Path.Value;
-            if (!string.IsNullOrEmpty(path)
-                && (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/prometheus", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/scalar", StringComparison.OrdinalIgnoreCase)))
-            {
-                return LogEventLevel.Debug;
-            }
-
-            if (httpContext.Response.StatusCode >= 400)
-            {
-                return LogEventLevel.Warning;
-            }
-
-            return LogEventLevel.Information;
-        };
-
-        options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
-        options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
-        {
-            diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
-            diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
-            diagnosticContext.Set("RemoteIP", httpContext.Connection.RemoteIpAddress?.ToString());
-            diagnosticContext.Set("TraceId", System.Diagnostics.Activity.Current?.TraceId.ToString());
-            diagnosticContext.Set("SpanId", System.Diagnostics.Activity.Current?.SpanId.ToString());
-        };
-    });
+    app.UseEShopRequestLogging();
 
 
     // Configure the HTTP request pipeline
