@@ -105,7 +105,6 @@ public class EmailServiceTests
             {
                 OrderId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
                 CustomerName = "Customer",
-                Amount = 88.40m,
                 FailureReason = "Card declined",
                 SupportEmail = "support@eshop.local"
             }));
@@ -115,7 +114,6 @@ public class EmailServiceTests
             It.Is<IReadOnlyDictionary<string, string>>(d =>
                 d["OrderId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
                 && d["CustomerName"] == "Customer"
-                && d["Amount"] == "88.40"
                 && d["FailureReason"] == "Card declined"
                 && d["SupportEmail"] == "support@eshop.local"),
             It.IsAny<CancellationToken>()), Times.Once);

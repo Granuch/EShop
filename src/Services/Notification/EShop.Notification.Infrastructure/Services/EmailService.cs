@@ -82,7 +82,6 @@ public sealed class EmailService : IEmailService
             {
                 ["OrderId"] = model.OrderId.ToString(),
                 ["CustomerName"] = model.CustomerName,
-                ["Amount"] = model.Amount.ToString("F2"),
                 ["FailureReason"] = model.FailureReason,
                 ["SupportEmail"] = model.SupportEmail
             },

@@ -4,11 +4,13 @@ using EShop.Notification.Domain.Entities;
 using EShop.Notification.Domain.Interfaces;
 using EShop.Notification.Domain.Models;
 using EShop.Notification.Domain.ValueObjects;
+using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Consumers;
 using EShop.Notification.Infrastructure.Data;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace EShop.Notification.UnitTests.Consumers;
@@ -188,11 +190,17 @@ public class NotificationConsumerTests
         resolver.Setup(x => x.ResolveAsync(evt.UserId!, It.IsAny<CancellationToken>()))
             .ReturnsAsync((RecipientAddress?)null);
 
+        var smtpSettings = Options.Create(new SmtpSettings
+        {
+            FromEmail = "support@eshop.local"
+        });
+
         var consumer = new PaymentFailedConsumer(
             dbContext,
             repo.Object,
             emailService.Object,
             resolver.Object,
+            smtpSettings,
             Mock.Of<ILogger<PaymentFailedConsumer>>());
 
         var context = new Mock<ConsumeContext<PaymentFailedEvent>>();

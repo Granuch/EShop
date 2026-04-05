@@ -82,7 +82,7 @@ public sealed class OrderShippedConsumer : IdempotentConsumer<OrderShippedEvent,
                 new OrderShippedEmailModel
                 {
                     OrderId = message.OrderId,
-                    CustomerName = message.UserId,
+                    CustomerName = recipient.DisplayName ?? message.UserId,
                     TrackingNumber = message.TrackingNumber,
                     EstimatedDelivery = message.ShippedAt.AddDays(5).ToString("yyyy-MM-dd")
                 },

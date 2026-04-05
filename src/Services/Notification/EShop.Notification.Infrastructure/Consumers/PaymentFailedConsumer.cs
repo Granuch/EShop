@@ -4,9 +4,11 @@ using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Entities;
 using EShop.Notification.Domain.Interfaces;
 using EShop.Notification.Domain.Models;
+using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Data;
 using MassTransit;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace EShop.Notification.Infrastructure.Consumers;
 
@@ -17,18 +19,27 @@ public sealed class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEven
     private readonly INotificationLogRepository _notificationLogRepository;
     private readonly IEmailService _emailService;
     private readonly IUserContactResolver _userContactResolver;
+    private readonly string _supportEmail;
 
     public PaymentFailedConsumer(
         NotificationDbContext dbContext,
         INotificationLogRepository notificationLogRepository,
         IEmailService emailService,
         IUserContactResolver userContactResolver,
+        IOptions<SmtpSettings> smtpSettings,
         ILogger<PaymentFailedConsumer> logger)
         : base(dbContext, logger)
     {
         _notificationLogRepository = notificationLogRepository;
         _emailService = emailService;
         _userContactResolver = userContactResolver;
+
+        if (string.IsNullOrWhiteSpace(smtpSettings.Value.FromEmail))
+        {
+            throw new InvalidOperationException("Smtp:FromEmail must be configured for payment failure support contact.");
+        }
+
+        _supportEmail = smtpSettings.Value.FromEmail;
     }
 
     protected override async Task HandleAsync(ConsumeContext<PaymentFailedEvent> context, CancellationToken cancellationToken)
@@ -85,10 +96,9 @@ public sealed class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEven
                 new PaymentFailedEmailModel
                 {
                     OrderId = message.OrderId,
-                    CustomerName = message.UserId,
-                    Amount = 0m,
+                    CustomerName = recipient.DisplayName ?? message.UserId,
                     FailureReason = message.Reason,
-                    SupportEmail = "support@eshop.local"
+                    SupportEmail = _supportEmail
                 },
                 cancellationToken);
 

@@ -79,7 +79,7 @@ public sealed class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent,
                 new OrderConfirmationEmailModel
                 {
                     OrderId = message.OrderId,
-                    CustomerName = message.UserId,
+                    CustomerName = recipient.DisplayName ?? message.UserId,
                     OrderDate = message.OccurredOn,
                     TotalAmount = message.TotalAmount,
                     ItemCount = message.Items.Count
