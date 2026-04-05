@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Order Shipped</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+                    <tr>
+                        <td style="background:#0ea5e9;padding:20px 24px;color:#ffffff;font-size:22px;font-weight:700;">EShop</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:24px;">
+                            <h1 style="margin:0 0 12px;font-size:22px;">Good news, {{CustomerName}}!</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;">Your order has been shipped and is on the way.</p>
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;width:45%;">Order ID</td>
+                                    <td style="padding:12px 14px;">{{OrderId}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;">Tracking Number</td>
+                                    <td style="padding:12px 14px;">{{TrackingNumber}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;">Estimated Delivery</td>
+                                    <td style="padding:12px 14px;">{{EstimatedDelivery}}</td>
+                                </tr>
+                            </table>
+                            <p style="margin:20px 0 0;line-height:1.5;">Track your package with the tracking number above.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
