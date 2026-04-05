@@ -120,7 +120,9 @@ public static class ServiceCollectionExtensions
                 cfg.PrefetchCount = settings.PrefetchCount;
                 cfg.ConcurrentMessageLimit = settings.ConcurrencyLimit;
 
-                if (settings.UseDelayedRedelivery && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
+                if (settings.UseDelayedRedelivery
+                    && settings.UseDelayedExchangePlugin
+                    && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
                 {
                     cfg.UseDelayedRedelivery(r =>
                     {

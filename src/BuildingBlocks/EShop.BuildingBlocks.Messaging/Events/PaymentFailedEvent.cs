@@ -6,6 +6,7 @@ namespace EShop.BuildingBlocks.Messaging.Events;
 public record PaymentFailedEvent : IntegrationEvent
 {
     public Guid OrderId { get; init; }
+    public string UserId { get; init; } = string.Empty;
     public string Reason { get; init; } = string.Empty;
     public DateTime FailedAt { get; init; }
 }
