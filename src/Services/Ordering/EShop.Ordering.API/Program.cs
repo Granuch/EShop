@@ -291,45 +291,7 @@ try
         app.UseForwardedHeaders();
     }
 
-    // Add Serilog request logging
-    app.UseSerilogRequestLogging(options =>
-    {
-        options.GetLevel = (httpContext, _, exception) =>
-        {
-            if (exception != null || httpContext.Response.StatusCode >= 500)
-            {
-                return LogEventLevel.Error;
-            }
-
-            var path = httpContext.Request.Path.Value;
-            if (!string.IsNullOrEmpty(path)
-                && (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/prometheus", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/scalar", StringComparison.OrdinalIgnoreCase)))
-            {
-                return LogEventLevel.Debug;
-            }
-
-            if (httpContext.Response.StatusCode >= 400)
-            {
-                return LogEventLevel.Warning;
-            }
-
-            return LogEventLevel.Information;
-        };
-
-        options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
-        options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
-        {
-            diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
-            diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
-            diagnosticContext.Set("RemoteIP", httpContext.Connection.RemoteIpAddress?.ToString());
-            diagnosticContext.Set("TraceId", System.Diagnostics.Activity.Current?.TraceId.ToString());
-            diagnosticContext.Set("SpanId", System.Diagnostics.Activity.Current?.SpanId.ToString());
-        };
-    });
+    app.UseEShopRequestLogging();
 
     // OpenAPI and Scalar UI
     if (!app.Environment.IsEnvironment("Testing"))
