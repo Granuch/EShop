@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Order Confirmation</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+                    <tr>
+                        <td style="background:#4f46e5;padding:20px 24px;color:#ffffff;font-size:22px;font-weight:700;">EShop</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:24px;">
+                            <h1 style="margin:0 0 12px;font-size:22px;">Thanks for your order, {{CustomerName}}!</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;">We received your order and started processing it.</p>
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;width:45%;">Order ID</td>
+                                    <td style="padding:12px 14px;">{{OrderId}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;">Order Date</td>
+                                    <td style="padding:12px 14px;">{{OrderDate}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;">Items</td>
+                                    <td style="padding:12px 14px;">{{ItemCount}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#f9fafb;font-weight:700;">Total</td>
+                                    <td style="padding:12px 14px;font-weight:700;">${{TotalAmount}}</td>
+                                </tr>
+                            </table>
+                            <p style="margin:20px 0 0;line-height:1.5;">You will receive another email once your order ships.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
