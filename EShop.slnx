@@ -60,6 +60,10 @@
     <Project Path="tests/Services/Identity/EShop.Identity.IntegrationTests/EShop.Identity.IntegrationTests.csproj" />
     <Project Path="tests/Services/Identity/EShop.Identity.UnitTests/EShop.Identity.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/tests/Services/Notification/">
+    <Project Path="tests/Services/Notification/EShop.Notification.IntegrationTests/EShop.Notification.IntegrationTests.csproj" />
+    <Project Path="tests/Services/Notification/EShop.Notification.UnitTests/EShop.Notification.UnitTests.csproj" />
+  </Folder>
   <Folder Name="/tests/Services/Ordering/">
     <Project Path="tests/Services/Ordering/EShop.Ordering.IntegrationTests/EShop.Ordering.IntegrationTests.csproj" />
     <Project Path="tests/Services/Ordering/EShop.Ordering.UnitTests/EShop.Ordering.UnitTests.csproj" />

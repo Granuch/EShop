@@ -117,8 +117,10 @@ public static class MassTransitServiceCollectionExtensions
 
                 // R12: Delayed redelivery — second-tier retries with longer intervals
                 // Applied BEFORE UseMessageRetry so it catches messages that exhaust all immediate retries.
-                // Uses RabbitMQ native message TTL with dead-letter routing (no plugin required).
-                if (settings.UseDelayedRedelivery && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
+                // Enabled only when delayed redelivery is configured and the RabbitMQ delayed-exchange plugin is in use.
+                if (settings.UseDelayedRedelivery
+                    && settings.UseDelayedExchangePlugin
+                    && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
                 {
                     cfg.UseDelayedRedelivery(r =>
                     {
