@@ -1,58 +1,130 @@
+using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Interfaces;
+using EShop.Notification.Domain.Models;
+using EShop.Notification.Domain.ValueObjects;
+using EShop.Notification.Infrastructure.Configuration;
+using MailKit.Security;
 using MailKit.Net.Smtp;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MimeKit;
 
 namespace EShop.Notification.Infrastructure.Services;
 
-/// <summary>
-/// Email service using MailKit (SMTP)
-/// </summary>
-public class EmailService : IEmailService
+public sealed class EmailService : IEmailService
 {
-    // TODO: Inject IConfiguration, ILogger, ITemplateRenderer
-    // private readonly SmtpSettings _smtpSettings;
-    // private readonly ILogger<EmailService> _logger;
+    private readonly SmtpSettings _smtpSettings;
+    private readonly ITemplateRenderer _templateRenderer;
+    private readonly ILogger<EmailService> _logger;
+
+    public EmailService(
+        IOptions<SmtpSettings> smtpSettings,
+        ITemplateRenderer templateRenderer,
+        ILogger<EmailService> logger)
+    {
+        _smtpSettings = smtpSettings.Value;
+        _templateRenderer = templateRenderer;
+        _logger = logger;
+    }
 
     public async Task SendOrderConfirmationAsync(
-        OrderConfirmationEmail email, 
-        CancellationToken cancellationToken = default)
+        RecipientAddress recipient,
+        OrderConfirmationEmailModel model,
+        CancellationToken ct = default)
     {
-        // TODO: Render email template with order data
-        // TODO: Create MimeMessage
-        // TODO: Send via SMTP
-        // TODO: Log success/failure
-        throw new NotImplementedException();
+        var subject = $"Order confirmation #{model.OrderId}";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "order-created",
+            new Dictionary<string, string>
+            {
+                ["OrderId"] = model.OrderId.ToString(),
+                ["CustomerName"] = model.CustomerName,
+                ["OrderDate"] = model.OrderDate.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+                ["TotalAmount"] = model.TotalAmount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                ["ItemCount"] = model.ItemCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
     }
 
     public async Task SendOrderShippedAsync(
-        OrderShippedEmail email, 
-        CancellationToken cancellationToken = default)
+        RecipientAddress recipient,
+        OrderShippedEmailModel model,
+        CancellationToken ct = default)
     {
-        // TODO: Render shipping email template
-        // TODO: Include tracking number
-        // TODO: Send email
-        throw new NotImplementedException();
+        var subject = $"Your order #{model.OrderId} has shipped";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "order-shipped",
+            new Dictionary<string, string>
+            {
+                ["OrderId"] = model.OrderId.ToString(),
+                ["CustomerName"] = model.CustomerName,
+                ["TrackingNumber"] = model.TrackingNumber ?? "N/A",
+                ["EstimatedDelivery"] = model.EstimatedDelivery
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
     }
 
     public async Task SendPaymentFailedAsync(
-        PaymentFailedEmail email, 
-        CancellationToken cancellationToken = default)
+        RecipientAddress recipient,
+        PaymentFailedEmailModel model,
+        CancellationToken ct = default)
     {
-        // TODO: Render payment failure email template
-        // TODO: Include failure reason
-        // TODO: Send email
-        throw new NotImplementedException();
+        var subject = $"Payment failed for order #{model.OrderId}";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "payment-failed",
+            new Dictionary<string, string>
+            {
+                ["OrderId"] = model.OrderId.ToString(),
+                ["CustomerName"] = model.CustomerName,
+                ["FailureReason"] = model.FailureReason,
+                ["SupportEmail"] = model.SupportEmail
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
     }
 
-    public async Task SendWelcomeEmailAsync(
-        WelcomeEmail email, 
-        CancellationToken cancellationToken = default)
+    private MimeMessage BuildMessage(RecipientAddress recipient, string subject, string htmlBody)
     {
-        // TODO: Render welcome email template
-        // TODO: Send email
-        throw new NotImplementedException();
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_smtpSettings.FromName, _smtpSettings.FromEmail));
+        message.To.Add(new MailboxAddress(recipient.DisplayName ?? recipient.Email, recipient.Email));
+        message.Subject = subject;
+        message.Body = new BodyBuilder { HtmlBody = htmlBody }.ToMessageBody();
+
+        return message;
     }
 
-    // TODO: Add private helper method for sending emails
-    // private async Task SendEmailAsync(string to, string subject, string htmlBody)
+    private async Task SendAsync(MimeMessage message, CancellationToken ct)
+    {
+        using var smtpClient = new SmtpClient();
+        smtpClient.CheckCertificateRevocation = _smtpSettings.CheckCertificateRevocation;
+
+        var secureSocketOptions = _smtpSettings.UseSsl
+            ? SecureSocketOptions.StartTls
+            : SecureSocketOptions.None;
+
+        await smtpClient.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port, secureSocketOptions, ct);
+
+        if (!string.IsNullOrWhiteSpace(_smtpSettings.Username))
+        {
+            await smtpClient.AuthenticateAsync(_smtpSettings.Username, _smtpSettings.Password, ct);
+        }
+
+        var response = await smtpClient.SendAsync(message, ct);
+        await smtpClient.DisconnectAsync(true, ct);
+
+        _logger.LogInformation(
+            "Email sent to {Recipient}. Subject={Subject}. ProviderResponse={ProviderResponse}",
+            message.To.ToString(),
+            message.Subject,
+            response);
+    }
 }

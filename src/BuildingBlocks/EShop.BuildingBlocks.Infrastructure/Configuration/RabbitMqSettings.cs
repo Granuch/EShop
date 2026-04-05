@@ -96,9 +96,15 @@ public sealed class RabbitMqSettings
 
     /// <summary>
     /// Whether to enable delayed redelivery for longer backoff after immediate retries are exhausted.
-    /// Uses RabbitMQ native message TTL with dead-letter routing.
+    /// Requires delayed exchange plugin support when using RabbitMQ transport-level delayed redelivery.
     /// </summary>
     public bool UseDelayedRedelivery { get; set; } = true;
+
+    /// <summary>
+    /// Enables RabbitMQ delayed-exchange plugin specific topology (x-delayed-message).
+    /// Set to true only when the broker has rabbitmq_delayed_message_exchange enabled.
+    /// </summary>
+    public bool UseDelayedExchangePlugin { get; set; } = false;
 
     /// <summary>
     /// Delayed redelivery intervals in minutes.

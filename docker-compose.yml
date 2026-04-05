@@ -207,6 +207,10 @@ services:
       Serilog__WriteTo__1__Name: Seq
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
 
+      # Internal service authorization
+      InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      InternalServiceAuth__HeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+
       # JWT
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
       JwtSettings__Issuer: ${JWT_ISSUER}
@@ -481,6 +485,122 @@ services:
       - production
       - sandbox
 
+  # ============================================
+  # PostgreSQL Database for Notification
+  # ============================================
+  notification-postgres:
+    image: postgres:16-alpine
+    container_name: eshop-notification-postgres
+    restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_DB: ${NOTIFICATION_POSTGRES_DB:-eshop_notification}
+      POSTGRES_USER: ${NOTIFICATION_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${NOTIFICATION_POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${NOTIFICATION_POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # Notification API
+  # ============================================
+  notification-api:
+    build:
+      context: .
+      dockerfile: src/Services/Notification/EShop.Notification.API/Dockerfile
+    container_name: eshop-notification-api
+    restart: unless-stopped
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity-api:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
+      ASPNETCORE_URLS: http://+:8080
+
+      ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
+
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USERNAME}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__RetryCount: "3"
+      RabbitMQ__RetryIntervalSeconds: "5"
+      RabbitMQ__RetryIncrementSeconds: "5"
+      RabbitMQ__UseDelayedExchangePlugin: "true"
+      RabbitMQ__UseDelayedExchangePlugin: "true"
+      RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
+      RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
+      RabbitMQ__DelayedRedeliveryIntervalsMinutes__2: "15"
+
+      Smtp__Host: ${NOTIFICATION_SMTP_HOST:-mailpit}
+      Smtp__Port: ${NOTIFICATION_SMTP_PORT:-1025}
+      Smtp__Username: ${NOTIFICATION_SMTP_USERNAME:-}
+      Smtp__Password: ${NOTIFICATION_SMTP_PASSWORD:-}
+      Smtp__UseSsl: ${NOTIFICATION_SMTP_USE_SSL:-false}
+      Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:-noreply@eshop.local}
+      Smtp__FromName: ${NOTIFICATION_SMTP_FROM_NAME:-EShop}
+
+      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
+      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
+      OpenTelemetry__MetricsEnabled: "true"
+
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+    ports:
+      - "${NOTIFICATION_API_PORT:-7007}:8080"
+    volumes:
+      - notification-logs:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - production
+      - sandbox
+
+  # ============================================
+  # Mailpit (local SMTP catcher for development)
+  # ============================================
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: eshop-mailpit
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+    networks:
+      - eshop-network
+    profiles:
+      - development
+      - sandbox
+
 
   # ============================================
   # PostgreSQL Exporter — Identity DB
@@ -615,6 +735,8 @@ services:
       - "${SEQ_INGEST_PORT:-5342}:5341" # Ingestion only
     environment:
       ACCEPT_EULA: Y
+      SEQ_FIRSTRUN_ADMINUSERNAME: ${SEQ_ADMIN_USERNAME:-admin}
+      SEQ_FIRSTRUN_ADMINPASSWORD: ${SEQ_ADMIN_PASSWORD:-qweasdz1}
     volumes:
       - seq-data:/data
     networks:
@@ -702,8 +824,12 @@ volumes:
     name: eshop-catalog-logs
   ordering-postgres-data:
     name: eshop-ordering-postgres-data
+  notification-postgres-data:
+    name: eshop-notification-postgres-data
   ordering-logs:
     name: eshop-ordering-logs
+  notification-logs:
+    name: eshop-notification-logs
   basket-logs:
     name: eshop-basket-logs
   seq-data:

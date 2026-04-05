@@ -63,6 +63,9 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Local configuration overrides with secrets
+**/appsettings.Development.Local.json
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 
