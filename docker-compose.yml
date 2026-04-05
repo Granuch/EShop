@@ -543,6 +543,7 @@ services:
       RabbitMQ__RetryIntervalSeconds: "5"
       RabbitMQ__RetryIncrementSeconds: "5"
       RabbitMQ__UseDelayedExchangePlugin: "true"
+      RabbitMQ__UseDelayedExchangePlugin: "true"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__2: "15"
