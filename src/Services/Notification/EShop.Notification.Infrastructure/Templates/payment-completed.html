@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payment Successful</title>
+</head>
+<body style="margin:0;padding:0;background:#ecfeff;font-family:Arial,Helvetica,sans-serif;color:#164e63;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+                    <tr>
+                        <td style="background:#0891b2;padding:20px 24px;color:#ffffff;font-size:22px;font-weight:700;">EShop</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:24px;">
+                            <h1 style="margin:0 0 12px;font-size:22px;color:#155e75;">Payment completed successfully</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;color:#164e63;">Hi {{CustomerName}}, your payment has been processed successfully.</p>
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #a5f3fc;border-radius:6px;overflow:hidden;">
+                                <tr><td style="padding:12px 14px;background:#ecfeff;width:45%;">Order ID</td><td style="padding:12px 14px;">{{OrderId}}</td></tr>
+                                <tr><td style="padding:12px 14px;background:#ecfeff;">Amount</td><td style="padding:12px 14px;">{{Amount}} {{Currency}}</td></tr>
+                                <tr><td style="padding:12px 14px;background:#ecfeff;">Payment Intent</td><td style="padding:12px 14px;">{{PaymentIntentId}}</td></tr>
+                                <tr><td style="padding:12px 14px;background:#ecfeff;">Completed At</td><td style="padding:12px 14px;">{{CompletedAt}}</td></tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

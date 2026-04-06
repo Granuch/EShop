@@ -71,6 +71,24 @@ scrape_configs:
     scrape_interval: 15s
     scrape_timeout: 10s
 
+  # EShop Payment Service
+  # Note: 'service' label is NOT set here — the app emits service='payment' via UseHttpMetrics.
+  - job_name: 'payment-api'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['payment-api:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # EShop Notification Service
+  # Note: 'service' label is NOT set here — the app emits service='notification' via UseHttpMetrics.
+  - job_name: 'notification-api'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['notification-api:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
   # ============================================
   # PostgreSQL Exporters (server-side metrics)
   # pg_stat_database, pg_stat_user_tables, pg_locks, etc.
@@ -96,6 +114,22 @@ scrape_configs:
       - targets: ['postgres-exporter-ordering:9187']
         labels:
           database: 'eshop_ordering'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  - job_name: 'postgres-payment'
+    static_configs:
+      - targets: ['postgres-exporter-payment:9187']
+        labels:
+          database: 'eshop_payment'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  - job_name: 'postgres-notification'
+    static_configs:
+      - targets: ['postgres-exporter-notification:9187']
+        labels:
+          database: 'eshop_notification'
     scrape_interval: 15s
     scrape_timeout: 10s
 
@@ -129,6 +163,20 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets: ['basket-api:8080']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'payment-api-otel'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['payment-api:8080']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'notification-api-otel'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['notification-api:8080']
     scrape_interval: 30s
     scrape_timeout: 10s
 
