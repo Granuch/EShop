@@ -115,6 +115,85 @@ public class NotificationIntegrationTests
     }
 
     [Test]
+    public async Task PaymentRefundedConsumer_SuccessPath_CallsEmailService()
+    {
+        await using var dbContext = CreateDbContext();
+        var repository = new NotificationLogRepository(dbContext);
+        var resolver = new StubUserResolver(new RecipientAddress("user@test.com", "User"));
+        var email = new StubEmailService();
+
+        var smtpSettings = Microsoft.Extensions.Options.Options.Create(new EShop.Notification.Infrastructure.Configuration.SmtpSettings
+        {
+            FromEmail = "support@eshop.local"
+        });
+
+        var consumer = new PaymentRefundedConsumer(
+            dbContext,
+            repository,
+            email,
+            resolver,
+            smtpSettings,
+            new LoggerFactory().CreateLogger<PaymentRefundedConsumer>());
+
+        var evt = new PaymentRefundedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-20",
+            PaymentIntentId = "pi_ref_it_1",
+            Amount = 25m,
+            RefundedAt = DateTime.UtcNow
+        };
+
+        var context = BuildContext(evt, Guid.NewGuid());
+
+        await consumer.Consume(context.Object);
+
+        Assert.That(email.PaymentRefundedCalls, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void PaymentRefundedConsumer_WhenTransientFailureOccurs_IncrementsRetry()
+    {
+        using var dbContext = CreateDbContext();
+        var repository = new NotificationLogRepository(dbContext);
+        var resolver = new StubUserResolver(new RecipientAddress("user@test.com", "User"));
+        var email = new StubEmailService { ThrowOnPaymentRefunded = true };
+
+        var smtpSettings = Microsoft.Extensions.Options.Options.Create(new EShop.Notification.Infrastructure.Configuration.SmtpSettings
+        {
+            FromEmail = "support@eshop.local"
+        });
+
+        var consumer = new PaymentRefundedConsumer(
+            dbContext,
+            repository,
+            email,
+            resolver,
+            smtpSettings,
+            new LoggerFactory().CreateLogger<PaymentRefundedConsumer>());
+
+        var eventId = Guid.NewGuid();
+        var evt = new PaymentRefundedEvent
+        {
+            EventId = eventId,
+            OrderId = Guid.NewGuid(),
+            UserId = "user-21",
+            PaymentIntentId = "pi_ref_it_2",
+            Amount = 35m,
+            RefundedAt = DateTime.UtcNow
+        };
+
+        var context = BuildContext(evt, Guid.NewGuid());
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => consumer.Consume(context.Object));
+
+        var log = dbContext.NotificationLogs.Single(x => x.EventId == eventId);
+        Assert.That(log.RetryCount, Is.EqualTo(1));
+        Assert.That(log.Status, Is.EqualTo(EShop.Notification.Domain.Entities.NotificationStatus.Failed));
+    }
+
+    [Test]
     public void OrderCreatedConsumer_WhenTransientFailureOccurs_IncrementsRetry()
     {
         using var dbContext = CreateDbContext();
@@ -217,6 +296,16 @@ public class NotificationIntegrationTests
         return context;
     }
 
+    private static Mock<ConsumeContext<PaymentRefundedEvent>> BuildContext(PaymentRefundedEvent evt, Guid messageId)
+    {
+        var context = new Mock<ConsumeContext<PaymentRefundedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(messageId);
+        context.SetupGet(x => x.CorrelationId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+        return context;
+    }
+
     private sealed class StubUserResolver : IUserContactResolver
     {
         private readonly RecipientAddress? _recipient;
@@ -235,7 +324,9 @@ public class NotificationIntegrationTests
     private sealed class StubEmailService : IEmailService
     {
         public bool ThrowOnOrderConfirmation { get; set; }
+        public bool ThrowOnPaymentRefunded { get; set; }
         public int OrderConfirmationCalls { get; private set; }
+        public int PaymentRefundedCalls { get; private set; }
 
         public Task SendOrderConfirmationAsync(RecipientAddress recipient, OrderConfirmationEmailModel model, CancellationToken ct = default)
         {
@@ -253,8 +344,29 @@ public class NotificationIntegrationTests
             return Task.CompletedTask;
         }
 
+        public Task SendPaymentCreatedAsync(RecipientAddress recipient, PaymentCreatedEmailModel model, CancellationToken ct = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task SendPaymentCompletedAsync(RecipientAddress recipient, PaymentCompletedEmailModel model, CancellationToken ct = default)
+        {
+            return Task.CompletedTask;
+        }
+
         public Task SendPaymentFailedAsync(RecipientAddress recipient, PaymentFailedEmailModel model, CancellationToken ct = default)
         {
+            return Task.CompletedTask;
+        }
+
+        public Task SendPaymentRefundedAsync(RecipientAddress recipient, PaymentRefundedEmailModel model, CancellationToken ct = default)
+        {
+            PaymentRefundedCalls++;
+            if (ThrowOnPaymentRefunded)
+            {
+                throw new InvalidOperationException("Simulated SMTP refund failure");
+            }
+
             return Task.CompletedTask;
         }
     }

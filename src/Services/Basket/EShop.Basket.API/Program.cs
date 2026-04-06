@@ -200,7 +200,11 @@ app.UseEShopRequestLogging();
 app.UseCors("AllowFrontend");
 app.UseRateLimiter();
 
-app.UseHttpsRedirection();
+var httpsPort = app.Configuration["ASPNETCORE_HTTPS_PORT"] ?? app.Configuration["HTTPS_PORT"];
+if (!string.IsNullOrWhiteSpace(httpsPort))
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseHttpMetrics(options =>
 {

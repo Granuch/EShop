@@ -4,6 +4,7 @@ using EShop.Notification.Infrastructure.Extensions;
 using EShop.Notification.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using HealthChecks.UI.Client;
+using Prometheus;
 using Serilog;
 using Serilog.Events;
 
@@ -74,6 +75,11 @@ try
 
     app.UseEShopRequestLogging();
 
+    app.UseHttpMetrics(options =>
+    {
+        options.AddCustomLabel("service", _ => "notification");
+    });
+
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("ready"),
@@ -86,6 +92,9 @@ try
         ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
     });
 
+    app.MapMetrics("/prometheus");
+    app.UseEShopOpenTelemetryPrometheus();
+
     app.MapGet("/", () => Results.Ok(new
     {
         service = "EShop Notification API",
@@ -94,7 +103,8 @@ try
         endpoints = new
         {
             healthReady = "/health/ready",
-            healthLive = "/health/live"
+            healthLive = "/health/live",
+            metrics = new { prometheus = "/prometheus", otel = "/metrics" }
         }
     }));
 

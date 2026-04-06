@@ -169,6 +169,13 @@ public static class MassTransitServiceCollectionExtensions
             });
         });
 
+        services.Configure<MassTransitHostOptions>(options =>
+        {
+            options.WaitUntilStarted = settings.WaitUntilStarted;
+            options.StartTimeout = TimeSpan.FromSeconds(Math.Max(5, settings.StartTimeoutSeconds));
+            options.StopTimeout = TimeSpan.FromSeconds(30);
+        });
+
         // Register integration event outbox
         services.AddScoped<IIntegrationEventOutbox>(sp =>
         {

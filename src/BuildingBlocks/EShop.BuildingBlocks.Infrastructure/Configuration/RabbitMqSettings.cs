@@ -113,6 +113,16 @@ public sealed class RabbitMqSettings
     public int[] DelayedRedeliveryIntervalsMinutes { get; set; } = [5, 15, 30];
 
     /// <summary>
+    /// Whether service startup should wait until the message bus is connected.
+    /// </summary>
+    public bool WaitUntilStarted { get; set; } = true;
+
+    /// <summary>
+    /// Maximum time in seconds to wait for bus startup.
+    /// </summary>
+    public int StartTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
     /// Validates that required settings are present.
     /// </summary>
     public bool IsValid =>

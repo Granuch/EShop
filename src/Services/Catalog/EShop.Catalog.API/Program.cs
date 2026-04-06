@@ -399,7 +399,11 @@ try
     // Rate Limiting
     app.UseRateLimiter();
 
-    app.UseHttpsRedirection();
+    var httpsPort = app.Configuration["ASPNETCORE_HTTPS_PORT"] ?? app.Configuration["HTTPS_PORT"];
+    if (!string.IsNullOrWhiteSpace(httpsPort))
+    {
+        app.UseHttpsRedirection();
+    }
 
     // Add Prometheus HTTP metrics middleware (prometheus-net custom business metrics)
     app.UseHttpMetrics(options =>

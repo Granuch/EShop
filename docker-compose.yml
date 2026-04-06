@@ -68,8 +68,8 @@ services:
     container_name: eshop-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"       # AMQP protocol
       - "${RABBITMQ_MGMT_PORT:-15672}:15672" # Management UI
@@ -78,7 +78,7 @@ services:
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_listener 5672"]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -102,6 +102,25 @@ services:
     ports:
       - "${OTEL_GRPC_PORT:-4317}:4317"      # OTLP gRPC receiver
       - "${OTEL_HTTP_PORT:-4318}:4318"      # OTLP HTTP receiver
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
+  # PostgreSQL Exporter — Notification DB
+  # ============================================
+  postgres-exporter-notification:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: eshop-postgres-exporter-notification
+    restart: unless-stopped
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${NOTIFICATION_POSTGRES_USER:-postgres}:${NOTIFICATION_POSTGRES_PASSWORD:-postgres}@notification-postgres:5432/${NOTIFICATION_POSTGRES_DB:-eshop_notification}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_NOTIFICATION_PORT:-9191}:9187"
     networks:
       - eshop-network
     profiles:
@@ -200,8 +219,8 @@ services:
       # RabbitMQ
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__1__Name: Seq
@@ -486,6 +505,90 @@ services:
       - sandbox
 
   # ============================================
+  # PostgreSQL Database for Payment
+  # ============================================
+  payment-postgres:
+    image: postgres:16-alpine
+    container_name: eshop-payment-postgres
+    restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_DB: ${PAYMENT_POSTGRES_DB:-eshop_payment}
+      POSTGRES_USER: ${PAYMENT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${PAYMENT_POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${PAYMENT_POSTGRES_PORT:-5436}:5432"
+    volumes:
+      - payment-postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PAYMENT_POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # Payment API
+  # ============================================
+  payment-api:
+    build:
+      context: .
+      dockerfile: src/Services/Payment/EShop.Payment.API/Dockerfile
+    container_name: eshop-payment-api
+    restart: unless-stopped
+    depends_on:
+      payment-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
+      ASPNETCORE_URLS: http://+:8080
+
+      ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
+
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      RabbitMQ__Username: ${RABBITMQ_USERNAME}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      PaymentSimulation__ProcessingDelayMinSeconds: ${PAYMENT_PROCESSING_DELAY_MIN_SECONDS:-1}
+      PaymentSimulation__ProcessingDelayMaxSeconds: ${PAYMENT_PROCESSING_DELAY_MAX_SECONDS:-3}
+      PaymentSimulation__SuccessRatePercent: ${PAYMENT_SUCCESS_RATE_PERCENT:-80}
+      PaymentSimulation__RefundDelaySeconds: ${PAYMENT_REFUND_DELAY_SECONDS:-2}
+
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
+      OpenTelemetry__MetricsEnabled: "true"
+
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+    ports:
+      - "${PAYMENT_API_PORT:-7008}:8080"
+    volumes:
+      - payment-logs:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - production
+      - sandbox
+
+  # ============================================
   # PostgreSQL Database for Notification
   # ============================================
   notification-postgres:
@@ -542,7 +645,6 @@ services:
       RabbitMQ__RetryCount: "3"
       RabbitMQ__RetryIntervalSeconds: "5"
       RabbitMQ__RetryIncrementSeconds: "5"
-      RabbitMQ__UseDelayedExchangePlugin: "true"
       RabbitMQ__UseDelayedExchangePlugin: "true"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
@@ -654,6 +756,25 @@ services:
       DATA_SOURCE_NAME: "postgresql://${ORDERING_POSTGRES_USER}:${ORDERING_POSTGRES_PASSWORD}@ordering-postgres:5432/${ORDERING_POSTGRES_DB}?sslmode=disable"
     ports:
       - "${PG_EXPORTER_ORDERING_PORT:-9189}:9187"
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
+  # PostgreSQL Exporter — Payment DB
+  # ============================================
+  postgres-exporter-payment:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: eshop-postgres-exporter-payment
+    restart: unless-stopped
+    depends_on:
+      payment-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${PAYMENT_POSTGRES_USER:-postgres}:${PAYMENT_POSTGRES_PASSWORD:-postgres}@payment-postgres:5432/${PAYMENT_POSTGRES_DB:-eshop_payment}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_PAYMENT_PORT:-9190}:9187"
     networks:
       - eshop-network
     profiles:
@@ -824,10 +945,14 @@ volumes:
     name: eshop-catalog-logs
   ordering-postgres-data:
     name: eshop-ordering-postgres-data
+  payment-postgres-data:
+    name: eshop-payment-postgres-data
   notification-postgres-data:
     name: eshop-notification-postgres-data
   ordering-logs:
     name: eshop-ordering-logs
+  payment-logs:
+    name: eshop-payment-logs
   notification-logs:
     name: eshop-notification-logs
   basket-logs:
