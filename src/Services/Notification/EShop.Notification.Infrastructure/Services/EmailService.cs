@@ -49,6 +49,75 @@ public sealed class EmailService : IEmailService
         await SendAsync(message, ct);
     }
 
+    public async Task SendPaymentCreatedAsync(
+        RecipientAddress recipient,
+        PaymentCreatedEmailModel model,
+        CancellationToken ct = default)
+    {
+        var subject = $"Payment received for order #{model.OrderId}";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "payment-created",
+            new Dictionary<string, string>
+            {
+                ["OrderId"] = model.OrderId.ToString(),
+                ["CustomerName"] = model.CustomerName,
+                ["Amount"] = model.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                ["Currency"] = model.Currency,
+                ["Status"] = model.Status,
+                ["CreatedAt"] = model.CreatedAt.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture)
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
+    }
+
+    public async Task SendPaymentCompletedAsync(
+        RecipientAddress recipient,
+        PaymentCompletedEmailModel model,
+        CancellationToken ct = default)
+    {
+        var subject = $"Payment successful for order #{model.OrderId}";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "payment-completed",
+            new Dictionary<string, string>
+            {
+                ["OrderId"] = model.OrderId.ToString(),
+                ["CustomerName"] = model.CustomerName,
+                ["Amount"] = model.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                ["Currency"] = model.Currency,
+                ["PaymentIntentId"] = model.PaymentIntentId,
+                ["CompletedAt"] = model.CompletedAt.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture)
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
+    }
+
+    public async Task SendPaymentRefundedAsync(
+        RecipientAddress recipient,
+        PaymentRefundedEmailModel model,
+        CancellationToken ct = default)
+    {
+        var subject = $"Refund processed for order #{model.OrderId}";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "payment-refunded",
+            new Dictionary<string, string>
+            {
+                ["OrderId"] = model.OrderId.ToString(),
+                ["CustomerName"] = model.CustomerName,
+                ["Amount"] = model.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                ["Currency"] = model.Currency,
+                ["RefundedAt"] = model.RefundedAt.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+                ["SupportEmail"] = model.SupportEmail
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
+    }
+
     public async Task SendOrderShippedAsync(
         RecipientAddress recipient,
         OrderShippedEmailModel model,

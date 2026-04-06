@@ -216,4 +216,265 @@ public class NotificationConsumerTests
             It.IsAny<PaymentFailedEmailModel>(),
             It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Test]
+    public async Task PaymentRefundedConsumer_WhenRecipientResolved_ShouldSendAndMarkSent()
+    {
+        await using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PaymentRefundedEvent
+        {
+            EventId = Guid.NewGuid(),
+            CorrelationId = Guid.NewGuid().ToString(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-5",
+            PaymentIntentId = "pi_ref_1",
+            Amount = 42.5m,
+            RefundedAt = DateTime.UtcNow
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecipientAddress("user5@test.com", "User Five"));
+
+        emailService.Setup(x => x.SendPaymentRefundedAsync(
+                It.IsAny<RecipientAddress>(),
+                It.IsAny<PaymentRefundedEmailModel>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var smtpSettings = Options.Create(new SmtpSettings
+        {
+            FromEmail = "support@eshop.local"
+        });
+
+        var consumer = new PaymentRefundedConsumer(
+            dbContext,
+            repo.Object,
+            emailService.Object,
+            resolver.Object,
+            smtpSettings,
+            Mock.Of<ILogger<PaymentRefundedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PaymentRefundedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.CorrelationId).Returns(Guid.Parse(evt.CorrelationId));
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        emailService.Verify(x => x.SendPaymentRefundedAsync(
+            It.IsAny<RecipientAddress>(),
+            It.IsAny<PaymentRefundedEmailModel>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(x => x.AddAsync(It.IsAny<NotificationLog>(), It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(x => x.UpdateAsync(It.Is<NotificationLog>(l => l.Status == NotificationStatus.Sent), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task PaymentRefundedConsumer_WhenDuplicateEventId_ShouldSkipSend()
+    {
+        await using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PaymentRefundedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-6",
+            PaymentIntentId = "pi_ref_2",
+            Amount = 12m,
+            RefundedAt = DateTime.UtcNow
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NotificationLog.CreatePending(evt.EventId, nameof(PaymentRefundedEvent), null, evt.UserId, "dup@test.com", "payment-refunded", "dup"));
+
+        var smtpSettings = Options.Create(new SmtpSettings
+        {
+            FromEmail = "support@eshop.local"
+        });
+
+        var consumer = new PaymentRefundedConsumer(
+            dbContext,
+            repo.Object,
+            emailService.Object,
+            resolver.Object,
+            smtpSettings,
+            Mock.Of<ILogger<PaymentRefundedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PaymentRefundedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        emailService.Verify(x => x.SendPaymentRefundedAsync(
+            It.IsAny<RecipientAddress>(),
+            It.IsAny<PaymentRefundedEmailModel>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        repo.Verify(x => x.AddAsync(It.IsAny<NotificationLog>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public void PaymentRefundedConsumer_WhenResolverReturnsNull_ShouldMarkFailedAndThrow()
+    {
+        using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PaymentRefundedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-7",
+            PaymentIntentId = "pi_ref_3",
+            Amount = 77m,
+            RefundedAt = DateTime.UtcNow
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((RecipientAddress?)null);
+
+        var smtpSettings = Options.Create(new SmtpSettings
+        {
+            FromEmail = "support@eshop.local"
+        });
+
+        var consumer = new PaymentRefundedConsumer(
+            dbContext,
+            repo.Object,
+            emailService.Object,
+            resolver.Object,
+            smtpSettings,
+            Mock.Of<ILogger<PaymentRefundedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PaymentRefundedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => consumer.Consume(context.Object));
+
+        repo.Verify(x => x.UpdateAsync(It.Is<NotificationLog>(l => l.Status == NotificationStatus.Failed), It.IsAny<CancellationToken>()), Times.Once);
+        emailService.Verify(x => x.SendPaymentRefundedAsync(
+            It.IsAny<RecipientAddress>(),
+            It.IsAny<PaymentRefundedEmailModel>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task PaymentCreatedConsumer_WhenRecipientResolved_ShouldSendAndMarkSent()
+    {
+        await using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PaymentCreatedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-8",
+            Amount = 18m,
+            Currency = "USD",
+            Status = "PENDING",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecipientAddress("user8@test.com", "User Eight"));
+
+        emailService.Setup(x => x.SendPaymentCreatedAsync(
+                It.IsAny<RecipientAddress>(),
+                It.IsAny<PaymentCreatedEmailModel>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var consumer = new PaymentCreatedConsumer(
+            dbContext,
+            repo.Object,
+            emailService.Object,
+            resolver.Object,
+            Mock.Of<ILogger<PaymentCreatedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PaymentCreatedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        emailService.Verify(x => x.SendPaymentCreatedAsync(
+            It.IsAny<RecipientAddress>(),
+            It.IsAny<PaymentCreatedEmailModel>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task PaymentCompletedConsumer_WhenRecipientResolved_ShouldSendAndMarkSent()
+    {
+        await using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PaymentCompletedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-9",
+            Amount = 19m,
+            Currency = "USD",
+            PaymentIntentId = "pi_complete",
+            CompletedAt = DateTime.UtcNow
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecipientAddress("user9@test.com", "User Nine"));
+
+        emailService.Setup(x => x.SendPaymentCompletedAsync(
+                It.IsAny<RecipientAddress>(),
+                It.IsAny<PaymentCompletedEmailModel>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var consumer = new PaymentCompletedConsumer(
+            dbContext,
+            repo.Object,
+            emailService.Object,
+            resolver.Object,
+            Mock.Of<ILogger<PaymentCompletedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PaymentCompletedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        emailService.Verify(x => x.SendPaymentCompletedAsync(
+            It.IsAny<RecipientAddress>(),
+            It.IsAny<PaymentCompletedEmailModel>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
 }
