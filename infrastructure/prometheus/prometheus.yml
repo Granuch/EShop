@@ -89,6 +89,15 @@ scrape_configs:
     scrape_interval: 15s
     scrape_timeout: 10s
 
+  # EShop API Gateway (YARP)
+  # Note: service label comes from application metrics tags.
+  - job_name: 'api-gateway'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['api-gateway:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
   # ============================================
   # PostgreSQL Exporters (server-side metrics)
   # pg_stat_database, pg_stat_user_tables, pg_locks, etc.
@@ -177,6 +186,13 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets: ['notification-api:8080']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'api-gateway-otel'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api-gateway:8080']
     scrape_interval: 30s
     scrape_timeout: 10s
 

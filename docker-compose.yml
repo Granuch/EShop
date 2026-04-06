@@ -273,6 +273,84 @@ services:
       - sandbox
 
   # ============================================
+  # API Gateway (YARP)
+  # ============================================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/ApiGateways/EShop.ApiGateway/Dockerfile
+    container_name: eshop-api-gateway
+    restart: unless-stopped
+    depends_on:
+      identity-api:
+        condition: service_started
+      catalog-api:
+        condition: service_started
+      basket-api:
+        condition: service_started
+      ordering-api:
+        condition: service_started
+      payment-api:
+        condition: service_started
+      notification-api:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
+      ASPNETCORE_URLS: http://+:8080
+
+      # JWT
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      # CORS
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # Internal identity resolver for email recipients
+      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
+      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+
+      # Email notifications via Mailpit in local profiles
+      Email__Host: ${GATEWAY_SMTP_HOST:-mailpit}
+      Email__Port: ${GATEWAY_SMTP_PORT:-1025}
+      Email__UseSsl: ${GATEWAY_SMTP_USE_SSL:-false}
+      Email__Username: ${GATEWAY_SMTP_USERNAME:-}
+      Email__Password: ${GATEWAY_SMTP_PASSWORD:-}
+      Email__From: ${GATEWAY_SMTP_FROM_EMAIL:-gateway@eshop.local}
+      Email__FromName: ${GATEWAY_SMTP_FROM_NAME:-EShop API Gateway}
+
+      # OpenTelemetry
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
+      OpenTelemetry__MetricsEnabled: "true"
+
+      # Serilog
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+    ports:
+      - "${GATEWAY_API_PORT:-7000}:8080"
+    volumes:
+      - gateway-logs:/app/logs
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - production
+      - sandbox
+
+  # ============================================
   # Basket API
   # ============================================
   basket-api:
@@ -957,6 +1035,8 @@ volumes:
     name: eshop-notification-logs
   basket-logs:
     name: eshop-basket-logs
+  gateway-logs:
+    name: eshop-gateway-logs
   seq-data:
     name: eshop-seq-data
   prometheus-data:

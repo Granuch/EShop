@@ -1,0 +1,78 @@
+{
+  "id": null,
+  "uid": "api-gateway-dashboard",
+  "title": "API Gateway",
+  "tags": ["eshop", "gateway", "yarp"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Gateway Requests / sec",
+      "id": 1,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(gateway_requests_total[1m])) by (mode)",
+          "legendFormat": "{{mode}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway Request p95 Duration (ms)",
+      "id": 2,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(gateway_request_duration_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway Email Queue Events",
+      "id": 3,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(gateway_email_queued_total[1m])) by (event_type)",
+          "legendFormat": "queued {{event_type}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(gateway_email_sent_total[1m])) by (status)",
+          "legendFormat": "sent {{status}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway Failures and Rate Limits",
+      "id": 4,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(gateway_simulated_failures_total[1m]))",
+          "legendFormat": "simulated failures",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(gateway_rate_limited_total[1m]))",
+          "legendFormat": "rate limited",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}
