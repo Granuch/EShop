@@ -16,15 +16,13 @@ public abstract class AuthenticatedIntegrationTestBase : IntegrationTestBase
     protected virtual string TestUserEmail => "user@test.com";
 
     [SetUp]
-    public override Task SetUpAsync()
+    public override async Task SetUpAsync()
     {
-        base.SetUpAsync();
+        await base.SetUpAsync();
 
         AccessToken = GenerateTestJwtToken();
         Client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", AccessToken);
-
-        return Task.CompletedTask;
     }
 
     [TearDown]

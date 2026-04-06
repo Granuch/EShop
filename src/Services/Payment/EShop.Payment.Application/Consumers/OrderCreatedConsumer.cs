@@ -37,7 +37,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
         var message = context.Message;
 
         var payment = await _paymentRepository.GetByOrderIdAsync(message.OrderId, context.CancellationToken);
-        if (payment is not null && (payment.Status == PaymentStatus.Success || payment.Status == PaymentStatus.Failed))
+        if (payment is not null && (payment.Status == PaymentStatus.Success || payment.Status == PaymentStatus.Failed || payment.Status == PaymentStatus.Refunded))
         {
             _logger.LogInformation(
                 "Payment already finalized for OrderId={OrderId}. Status={Status}",
@@ -86,47 +86,10 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
             message.UserId,
             message.TotalAmount);
 
-        PaymentResult? result = null;
-        const int maxAttempts = 3;
-
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            try
-            {
-                result = await _paymentProcessor.ProcessPaymentAsync(
-                    message.OrderId,
-                    message.TotalAmount,
-                    context.CancellationToken);
-                break;
-            }
-            catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (attempt < maxAttempts)
-            {
-                payment.RetryCount++;
-                payment.UpdatedAt = DateTime.UtcNow;
-                payment.ErrorMessage = ex.Message;
-                await _paymentRepository.UpdateAsync(payment, context.CancellationToken);
-                await _unitOfWork.SaveChangesAsync(context.CancellationToken);
-
-                _logger.LogWarning(
-                    ex,
-                    "Payment processing transient failure for OrderId={OrderId}. Attempt={Attempt}/{MaxAttempts}",
-                    message.OrderId,
-                    attempt,
-                    maxAttempts);
-
-                await Task.Delay(TimeSpan.FromSeconds(attempt), context.CancellationToken);
-            }
-        }
-
-        if (result is null)
-        {
-            throw new InvalidOperationException(
-                $"Payment result is null for OrderId={message.OrderId} after retries.");
-        }
+        var result = await _paymentProcessor.ProcessPaymentAsync(
+            message.OrderId,
+            message.TotalAmount,
+            context.CancellationToken);
 
         if (result.Success)
         {

@@ -119,4 +119,58 @@ public class OrderCreatedConsumerTests
             It.IsAny<PaymentCreatedEvent>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Test]
+    [TestCase(PaymentStatus.Success)]
+    [TestCase(PaymentStatus.Failed)]
+    [TestCase(PaymentStatus.Refunded)]
+    public async Task Consume_WhenPaymentAlreadyFinalized_ShouldSkipProcessing(PaymentStatus terminalStatus)
+    {
+        await using var dbContext = CreateDbContext();
+        var repository = new PaymentRepository(dbContext);
+
+        var orderId = Guid.NewGuid();
+        var existingPayment = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            OrderId = orderId,
+            UserId = "user-3",
+            Amount = 100m,
+            Status = terminalStatus,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await dbContext.PaymentTransactions.AddAsync(existingPayment);
+        await dbContext.SaveChangesAsync();
+
+        var processor = new Mock<IPaymentProcessor>();
+        var publishEndpoint = new Mock<IPublishEndpoint>();
+
+        var consumer = new OrderCreatedConsumer(
+            repository,
+            dbContext,
+            processor.Object,
+            publishEndpoint.Object,
+            Mock.Of<ILogger<OrderCreatedConsumer>>());
+
+        var evt = new OrderCreatedEvent
+        {
+            EventId = Guid.NewGuid(),
+            CorrelationId = Guid.NewGuid().ToString(),
+            OrderId = orderId,
+            UserId = "user-3",
+            TotalAmount = 100m
+        };
+
+        var context = new Mock<ConsumeContext<OrderCreatedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        processor.Verify(x => x.ProcessPaymentAsync(
+            It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()), Times.Never);
+        publishEndpoint.Verify(x => x.Publish(
+            It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
