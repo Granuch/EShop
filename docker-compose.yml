@@ -108,6 +108,25 @@ services:
       - monitoring
 
   # ============================================
+  # PostgreSQL Exporter — Notification DB
+  # ============================================
+  postgres-exporter-notification:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: eshop-postgres-exporter-notification
+    restart: unless-stopped
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${NOTIFICATION_POSTGRES_USER:-postgres}:${NOTIFICATION_POSTGRES_PASSWORD:-postgres}@notification-postgres:5432/${NOTIFICATION_POSTGRES_DB:-eshop_notification}?sslmode=disable"
+    ports:
+      - "${PG_EXPORTER_NOTIFICATION_PORT:-9191}:9187"
+    networks:
+      - eshop-network
+    profiles:
+      - monitoring
+
+  # ============================================
   # Jaeger - Distributed Tracing + SPM
   # Receives traces from OTEL Collector.
   # Monitor tab reads span-derived metrics from Prometheus.

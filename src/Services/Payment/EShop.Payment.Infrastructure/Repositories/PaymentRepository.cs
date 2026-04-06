@@ -26,6 +26,15 @@ public class PaymentRepository : IPaymentRepository
             .FirstOrDefaultAsync(x => x.OrderId == orderId, cancellationToken);
     }
 
+    public Task<List<PaymentTransaction>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        return _context.PaymentTransactions
+            .AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .OrderByDescending(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task AddAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
     {
         await _context.PaymentTransactions.AddAsync(payment, cancellationToken);

@@ -23,17 +23,22 @@ public static class PaymentEndpoints
             IMediator mediator,
             CancellationToken cancellationToken) =>
         {
-            var subjectId = user.GetSubjectId();
+            if (!TryResolveUserContext(user, out var subjectId, out var authError))
+            {
+                return authError!;
+            }
+
             if (!user.IsAdmin() &&
-                !string.IsNullOrWhiteSpace(subjectId) &&
                 !string.Equals(subjectId, request.UserId, StringComparison.OrdinalIgnoreCase))
             {
                 return Results.Forbid();
             }
 
+            var resolvedUserId = user.IsAdmin() ? request.UserId : subjectId!;
+
             var result = await mediator.Send(new CreatePaymentCommand(
                 request.OrderId,
-                request.UserId,
+                resolvedUserId,
                 request.Amount,
                 request.Currency,
                 request.PaymentMethod), cancellationToken);
@@ -60,6 +65,11 @@ public static class PaymentEndpoints
             IMediator mediator,
             CancellationToken cancellationToken) =>
         {
+            if (!TryResolveUserContext(user, out var subjectId, out var authError))
+            {
+                return authError!;
+            }
+
             var result = await mediator.Send(new GetPaymentByIdQuery(id), cancellationToken);
 
             if (result.IsFailure)
@@ -72,9 +82,7 @@ public static class PaymentEndpoints
 
             var payment = result.Value!;
 
-            var subjectId = user.GetSubjectId();
             if (!user.IsAdmin() &&
-                !string.IsNullOrWhiteSpace(subjectId) &&
                 !string.Equals(subjectId, payment.UserId, StringComparison.OrdinalIgnoreCase))
             {
                 return Results.Forbid();
@@ -114,6 +122,11 @@ public static class PaymentEndpoints
             IMediator mediator,
             CancellationToken cancellationToken) =>
         {
+            if (!TryResolveUserContext(user, out var subjectId, out var authError))
+            {
+                return authError!;
+            }
+
             var paymentResult = await mediator.Send(new GetPaymentByIdQuery(id), cancellationToken);
             if (paymentResult.IsFailure)
             {
@@ -125,9 +138,7 @@ public static class PaymentEndpoints
 
             var payment = paymentResult.Value!;
 
-            var subjectId = user.GetSubjectId();
             if (!user.IsAdmin() &&
-                !string.IsNullOrWhiteSpace(subjectId) &&
                 !string.Equals(subjectId, payment.UserId, StringComparison.OrdinalIgnoreCase))
             {
                 return Results.Forbid();
@@ -171,6 +182,34 @@ public static class PaymentEndpoints
             payment.CreatedAt,
             payment.ProcessedAt,
             payment.UpdatedAt);
+    }
+
+    private static bool TryResolveUserContext(ClaimsPrincipal user, out string? subjectId, out IResult? error)
+    {
+        subjectId = user.GetSubjectId();
+        error = null;
+
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            error = Results.Unauthorized();
+            return false;
+        }
+
+        if (user.IsAdmin())
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(subjectId))
+        {
+            error = Results.Problem(
+                detail: "User identifier not found in authentication claims.",
+                title: "Unauthorized",
+                statusCode: StatusCodes.Status401Unauthorized);
+            return false;
+        }
+
+        return true;
     }
 }
 

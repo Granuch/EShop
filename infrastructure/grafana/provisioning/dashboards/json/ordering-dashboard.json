@@ -354,7 +354,7 @@
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "EShop - Ordering Service",
+  "title": "EShop Ordering Dashboard",
   "uid": "eshop-ordering",
   "version": 1,
   "weekStart": ""

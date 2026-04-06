@@ -16,9 +16,9 @@ public sealed class GetPaymentsByUserQueryHandler : IRequestHandler<GetPaymentsB
 
     public async Task<Result<List<PaymentDto>>> Handle(GetPaymentsByUserQuery request, CancellationToken cancellationToken)
     {
-        var items = _paymentRepository.Query()
-            .Where(x => x.UserId == request.UserId)
-            .OrderByDescending(x => x.CreatedAt)
+        var payments = await _paymentRepository.GetByUserIdAsync(request.UserId, cancellationToken);
+
+        var items = payments
             .Select(x => x.ToDto())
             .ToList();
 
