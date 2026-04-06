@@ -12,6 +12,12 @@ namespace EShop.Payment.Application.Consumers;
 /// </summary>
 public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
 {
+    private static readonly HashSet<PaymentStatus> TerminalStatuses =
+    [
+        PaymentStatus.Success,
+        PaymentStatus.Failed,
+        PaymentStatus.Refunded
+    ];
     private readonly IPaymentRepository _paymentRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPaymentProcessor _paymentProcessor;
@@ -37,7 +43,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
         var message = context.Message;
 
         var payment = await _paymentRepository.GetByOrderIdAsync(message.OrderId, context.CancellationToken);
-        if (payment is not null && (payment.Status == PaymentStatus.Success || payment.Status == PaymentStatus.Failed || payment.Status == PaymentStatus.Refunded))
+        if (payment is not null && TerminalStatuses.Contains(payment.Status))
         {
             _logger.LogInformation(
                 "Payment already finalized for OrderId={OrderId}. Status={Status}",
