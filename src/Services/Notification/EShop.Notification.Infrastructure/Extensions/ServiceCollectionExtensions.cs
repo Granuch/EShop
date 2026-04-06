@@ -115,7 +115,10 @@ public static class ServiceCollectionExtensions
             {
                 bus.AddConsumer<OrderCreatedConsumer>();
                 bus.AddConsumer<OrderShippedConsumer>();
+                bus.AddConsumer<PaymentCreatedConsumer>();
+                bus.AddConsumer<PaymentCompletedConsumer>();
                 bus.AddConsumer<PaymentFailedConsumer>();
+                bus.AddConsumer<PaymentRefundedConsumer>();
             });
 
         return services;

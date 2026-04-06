@@ -1,4 +1,7 @@
 using EShop.Payment.Domain.Interfaces;
+using EShop.Payment.Infrastructure.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace EShop.Payment.Infrastructure.Services;
 
@@ -8,38 +11,64 @@ namespace EShop.Payment.Infrastructure.Services;
 public class MockPaymentProcessor : IPaymentProcessor
 {
     private readonly Random _random = new();
-    // TODO: Inject ILogger
-    // private readonly ILogger<MockPaymentProcessor> _logger;
+    private readonly ILogger<MockPaymentProcessor> _logger;
+    private readonly PaymentSimulationSettings _settings;
+
+    public MockPaymentProcessor(
+        IOptions<PaymentSimulationSettings> settings,
+        ILogger<MockPaymentProcessor> logger)
+    {
+        _logger = logger;
+        _settings = settings.Value;
+    }
 
     public async Task<PaymentResult> ProcessPaymentAsync(
         Guid orderId, 
         decimal amount, 
         CancellationToken cancellationToken = default)
     {
-        // TODO: Simulate payment processing delay (1-3 seconds)
-        await Task.Delay(TimeSpan.FromSeconds(_random.Next(1, 4)), cancellationToken);
+        var minDelay = Math.Max(0, _settings.ProcessingDelayMinSeconds);
+        var maxDelay = Math.Max(minDelay + 1, _settings.ProcessingDelayMaxSeconds + 1);
+        var delaySeconds = _random.Next(minDelay, maxDelay);
 
-        // TODO: 80% success rate
-        var isSuccess = _random.Next(1, 101) <= 80;
+        _logger.LogInformation(
+            "Starting mock payment processing for OrderId={OrderId}, Amount={Amount}, DelaySeconds={DelaySeconds}",
+            orderId,
+            amount,
+            delaySeconds);
+
+        await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
+
+        var successRate = Math.Clamp(_settings.SuccessRatePercent, 0, 100);
+        var isSuccess = _random.Next(1, 101) <= successRate;
 
         if (isSuccess)
         {
-            // TODO: Generate mock payment intent ID
             var paymentIntentId = $"pi_{Guid.NewGuid():N}";
+            _logger.LogInformation(
+                "Mock payment successful for OrderId={OrderId}, PaymentIntentId={PaymentIntentId}",
+                orderId,
+                paymentIntentId);
+
             return PaymentResult.Successful(paymentIntentId);
         }
-        else
+
+        var errors = new[]
         {
-            // TODO: Return random failure reason
-            var errors = new[]
-            {
-                "Insufficient funds",
-                "Card declined",
-                "Invalid card number",
-                "Card expired"
-            };
-            return PaymentResult.Failed(errors[_random.Next(errors.Length)]);
-        }
+            "Insufficient funds",
+            "Card declined",
+            "Invalid card number",
+            "Card expired"
+        };
+
+        var error = errors[_random.Next(errors.Length)];
+
+        _logger.LogWarning(
+            "Mock payment failed for OrderId={OrderId}. Reason={Reason}",
+            orderId,
+            error);
+
+        return PaymentResult.Failed(error);
     }
 
     public async Task<PaymentResult> RefundPaymentAsync(
@@ -47,8 +76,20 @@ public class MockPaymentProcessor : IPaymentProcessor
         decimal amount, 
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement mock refund logic
-        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        var refundDelay = Math.Max(0, _settings.RefundDelaySeconds);
+
+        _logger.LogInformation(
+            "Starting mock refund for PaymentIntentId={PaymentIntentId}, Amount={Amount}, DelaySeconds={DelaySeconds}",
+            paymentIntentId,
+            amount,
+            refundDelay);
+
+        await Task.Delay(TimeSpan.FromSeconds(refundDelay), cancellationToken);
+
+        _logger.LogInformation(
+            "Mock refund successful for PaymentIntentId={PaymentIntentId}",
+            paymentIntentId);
+
         return PaymentResult.Successful(paymentIntentId);
     }
 }

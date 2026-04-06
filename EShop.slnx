@@ -68,4 +68,8 @@
     <Project Path="tests/Services/Ordering/EShop.Ordering.IntegrationTests/EShop.Ordering.IntegrationTests.csproj" />
     <Project Path="tests/Services/Ordering/EShop.Ordering.UnitTests/EShop.Ordering.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/tests/Services/Payment/">
+    <Project Path="tests/Services/Payment/EShop.Payment.IntegrationTests/EShop.Payment.IntegrationTests.csproj" />
+    <Project Path="tests/Services/Payment/EShop.Payment.UnitTests/EShop.Payment.UnitTests.csproj" />
+  </Folder>
 </Solution>
