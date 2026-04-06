@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payment Refunded</title>
+</head>
+<body style="margin:0;padding:0;background:#eff6ff;font-family:Arial,Helvetica,sans-serif;color:#1e3a8a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+                    <tr>
+                        <td style="background:#2563eb;padding:20px 24px;color:#ffffff;font-size:22px;font-weight:700;">EShop</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:24px;">
+                            <h1 style="margin:0 0 12px;font-size:22px;color:#1e40af;">Your refund has been processed</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;color:#1e3a8a;">Hi {{CustomerName}}, your refund request has been completed successfully.</p>
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #bfdbfe;border-radius:6px;overflow:hidden;">
+                                <tr>
+                                    <td style="padding:12px 14px;background:#eff6ff;width:45%;">Order ID</td>
+                                    <td style="padding:12px 14px;">{{OrderId}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#eff6ff;">Refund Amount</td>
+                                    <td style="padding:12px 14px;">{{Amount}} {{Currency}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 14px;background:#eff6ff;">Refunded At</td>
+                                    <td style="padding:12px 14px;">{{RefundedAt}}</td>
+                                </tr>
+                            </table>
+                            <p style="margin:20px 0 0;line-height:1.5;color:#1e3a8a;">
+                                If you have any questions, contact us at
+                                <a href="mailto:{{SupportEmail}}" style="color:#1d4ed8;">{{SupportEmail}}</a>.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

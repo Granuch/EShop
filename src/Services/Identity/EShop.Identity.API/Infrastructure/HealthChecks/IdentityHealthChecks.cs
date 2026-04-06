@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using EShop.Identity.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace EShop.Identity.API.Infrastructure.HealthChecks;
 
@@ -31,7 +32,7 @@ public class IdentityReadinessHealthCheck : IHealthCheck
         try
         {
             // Check if we can query users (database connectivity + Identity setup)
-            var userCount = _userManager.Users.Take(1).Count();
+            _ = await _userManager.Users.AnyAsync(cancellationToken);
             
             // Check if required roles exist
             var adminRoleExists = await _roleManager.RoleExistsAsync("Admin");
