@@ -160,6 +160,13 @@ public static class ServiceCollectionExtensions
             });
         });
 
+        services.Configure<MassTransitHostOptions>(options =>
+        {
+            options.WaitUntilStarted = settings.WaitUntilStarted;
+            options.StartTimeout = TimeSpan.FromSeconds(Math.Max(5, settings.StartTimeoutSeconds));
+            options.StopTimeout = TimeSpan.FromSeconds(30);
+        });
+
         services.AddHealthChecks()
             .AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["messaging", "ready"]);
 
