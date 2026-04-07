@@ -73,8 +73,9 @@ public class PaymentSuccessConsumerTests
         await _consumer.Consume(context.Object);
 
         // Assert
-        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Shipped));
         Assert.That(order.PaymentIntentId, Is.EqualTo("pi_test_123"));
+        Assert.That(order.ShippedAt, Is.Not.Null);
         _orderRepositoryMock.Verify(x => x.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -130,6 +131,37 @@ public class PaymentSuccessConsumerTests
 
         // Assert
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task Consume_WithAlreadyShippedOrder_ShouldSkipWithoutFailure()
+    {
+        // Arrange
+        var order = CreatePendingOrder();
+        order.MarkAsPaid("pi_paid");
+        order.Ship();
+
+        var message = new PaymentSuccessEvent
+        {
+            OrderId = order.Id,
+            PaymentIntentId = "pi_duplicate",
+            Amount = 10m,
+            ProcessedAt = DateTime.UtcNow
+        };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var context = CreateConsumeContext(message);
+
+        // Act
+        await _consumer.Consume(context.Object);
+
+        // Assert
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Shipped));
         _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }

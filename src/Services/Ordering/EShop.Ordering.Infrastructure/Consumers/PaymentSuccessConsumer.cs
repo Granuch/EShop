@@ -63,10 +63,11 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         }
 
         order.MarkAsPaid(message.PaymentIntentId);
+        order.Ship();
 
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        Logger.LogInformation("Order {OrderId} marked as paid", message.OrderId);
+        Logger.LogInformation("Order {OrderId} marked as paid and shipped by payment-success orchestration", message.OrderId);
     }
 }
