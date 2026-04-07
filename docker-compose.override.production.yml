@@ -124,6 +124,7 @@ services:
       identity-api:
         condition: service_healthy
       mailpit:
+        condition: service_started
         required: false
     environment:
       ASPNETCORE_ENVIRONMENT: Production
