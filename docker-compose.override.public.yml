@@ -1,0 +1,20 @@
+services:
+  rabbitmq:
+    ports:
+      - "${RABBITMQ_MGMT_PUBLIC_PORT:-25672}:15672"
+
+  prometheus:
+    ports:
+      - "${PROMETHEUS_PUBLIC_PORT:-19090}:9090"
+
+  grafana:
+    ports:
+      - "${GRAFANA_PUBLIC_PORT:-13000}:3000"
+
+  seq:
+    ports:
+      - "${SEQ_UI_PUBLIC_PORT:-15341}:80"
+
+  jaeger:
+    ports:
+      - "${JAEGER_UI_PUBLIC_PORT:-16687}:16686"
