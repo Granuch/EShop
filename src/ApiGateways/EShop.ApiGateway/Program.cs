@@ -48,6 +48,7 @@ builder.Services.Configure<RateLimitingOptions>(builder.Configuration.GetSection
 builder.Services.Configure<IdentityServiceOptions>(builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
 builder.Services.Configure<IdentityProxyOptions>(builder.Configuration.GetSection(IdentityProxyOptions.SectionName));
 builder.Services.Configure<CatalogProxyOptions>(builder.Configuration.GetSection(CatalogProxyOptions.SectionName));
+builder.Services.Configure<OrderingProxyOptions>(builder.Configuration.GetSection(OrderingProxyOptions.SectionName));
 
 var forwardedProxies = builder.Configuration
     .GetSection("ForwardedHeaders:KnownProxies")
@@ -211,6 +212,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<IdentityProxyGuardMiddleware>();
 app.UseMiddleware<CatalogProxyGuardMiddleware>();
+app.UseMiddleware<OrderingProxyGuardMiddleware>();
 
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();
