@@ -5,6 +5,8 @@ using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
+using Microsoft.Extensions.Caching.Distributed;
+using EShop.BuildingBlocks.Application.Caching;
 using Microsoft.Extensions.Logging;
 
 namespace EShop.Ordering.Infrastructure.Consumers;
@@ -15,16 +17,22 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 /// </summary>
 public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, OrderingDbContext>
 {
+    private readonly IDistributedCache _cache;
+    private readonly CachingBehaviorOptions _cachingOptions;
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public PaymentSuccessConsumer(
         OrderingDbContext dbContext,
+        IDistributedCache cache,
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
+        Microsoft.Extensions.Options.IOptions<CachingBehaviorOptions> cachingOptions,
         ILogger<PaymentSuccessConsumer> logger)
         : base(dbContext, logger)
     {
+        _cache = cache;
+        _cachingOptions = cachingOptions.Value;
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
     }
@@ -68,6 +76,19 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        var baseUserOrdersKey = $"orders:user:{order.UserId}:";
+        await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps=5:cur=", cancellationToken);
+        await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps=10:cur=", cancellationToken);
+
         Logger.LogInformation("Order {OrderId} marked as paid and shipped by payment-success orchestration", message.OrderId);
+    }
+
+    private Task InvalidateCacheAsync(string keyPattern, CancellationToken cancellationToken)
+    {
+        var fullKey = _cachingOptions.UseVersioning
+            ? $"{_cachingOptions.KeyPrefix}{_cachingOptions.Version}:{keyPattern}"
+            : $"{_cachingOptions.KeyPrefix}{keyPattern}";
+
+        return _cache.RemoveAsync(fullKey, cancellationToken);
     }
 }

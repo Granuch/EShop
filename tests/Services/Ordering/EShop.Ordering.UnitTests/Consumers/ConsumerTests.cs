@@ -12,6 +12,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Caching;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
 
 namespace EShop.Ordering.UnitTests.Consumers;
 
@@ -21,6 +24,7 @@ public class PaymentSuccessConsumerTests
     private OrderingDbContext _dbContext = null!;
     private Mock<IOrderRepository> _orderRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
+    private Mock<IDistributedCache> _cacheMock = null!;
     private PaymentSuccessConsumer _consumer = null!;
 
     [SetUp]
@@ -32,11 +36,21 @@ public class PaymentSuccessConsumerTests
         _dbContext = new OrderingDbContext(options);
         _orderRepositoryMock = new Mock<IOrderRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
+        _cacheMock = new Mock<IDistributedCache>();
+
+        var cachingOptions = Options.Create(new CachingBehaviorOptions
+        {
+            KeyPrefix = "eshop:",
+            Version = "v1",
+            UseVersioning = true
+        });
 
         _consumer = new PaymentSuccessConsumer(
             _dbContext,
+            _cacheMock.Object,
             _orderRepositoryMock.Object,
             _unitOfWorkMock.Object,
+            cachingOptions,
             Mock.Of<ILogger<PaymentSuccessConsumer>>());
     }
 
@@ -78,6 +92,12 @@ public class PaymentSuccessConsumerTests
         Assert.That(order.ShippedAt, Is.Not.Null);
         _orderRepositoryMock.Verify(x => x.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _cacheMock.Verify(x => x.RemoveAsync(
+            "eshop:v1:orders:user:user-1:p=1:ps=5:cur=",
+            It.IsAny<CancellationToken>()), Times.Once);
+        _cacheMock.Verify(x => x.RemoveAsync(
+            "eshop:v1:orders:user:user-1:p=1:ps=10:cur=",
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
