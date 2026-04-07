@@ -104,6 +104,66 @@ public class PaymentSuccessConsumerTests
             x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Test]
+    public async Task Consume_WithAlreadyPaidOrder_ShouldSkipWithoutFailure()
+    {
+        // Arrange
+        var order = CreatePendingOrder();
+        order.MarkAsPaid("pi_existing");
+
+        var message = new PaymentSuccessEvent
+        {
+            OrderId = order.Id,
+            PaymentIntentId = "pi_duplicate",
+            Amount = 10m,
+            ProcessedAt = DateTime.UtcNow
+        };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var context = CreateConsumeContext(message);
+
+        // Act
+        await _consumer.Consume(context.Object);
+
+        // Assert
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task Consume_WithCancelledOrder_ShouldSkipWithoutFailure()
+    {
+        // Arrange
+        var order = CreatePendingOrder();
+        order.Cancel("User requested cancellation");
+
+        var message = new PaymentSuccessEvent
+        {
+            OrderId = order.Id,
+            PaymentIntentId = "pi_late",
+            Amount = 10m,
+            ProcessedAt = DateTime.UtcNow
+        };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var context = CreateConsumeContext(message);
+
+        // Act
+        await _consumer.Consume(context.Object);
+
+        // Assert
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private static Order CreatePendingOrder()
     {
         var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");

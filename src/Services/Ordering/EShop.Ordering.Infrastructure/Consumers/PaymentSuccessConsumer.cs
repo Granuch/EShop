@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
@@ -41,6 +42,23 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         if (order is null)
         {
             Logger.LogWarning("Order {OrderId} not found for PaymentSuccessEvent", message.OrderId);
+            return;
+        }
+
+        if (order.Status == OrderStatus.Paid)
+        {
+            Logger.LogInformation(
+                "Order {OrderId} already marked as paid. Skipping duplicate PaymentSuccessEvent.",
+                message.OrderId);
+            return;
+        }
+
+        if (order.Status != OrderStatus.Pending)
+        {
+            Logger.LogWarning(
+                "Skipping PaymentSuccessEvent for OrderId={OrderId} because order status is {Status}.",
+                message.OrderId,
+                order.Status);
             return;
         }
 
