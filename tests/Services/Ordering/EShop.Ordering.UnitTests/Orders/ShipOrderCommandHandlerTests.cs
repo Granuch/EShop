@@ -66,6 +66,28 @@ public class ShipOrderCommandHandlerTests
         Assert.That(result.Error!.Code, Is.EqualTo("Order.NotFound"));
     }
 
+    [Test]
+    public async Task Handle_WithPendingOrder_ShouldReturnNotPaidError()
+    {
+        // Arrange
+        var order = CreatePendingOrder();
+        var command = new ShipOrderCommand { OrderId = order.Id };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Error, Is.Not.Null);
+        Assert.That(result.Error!.Code, Is.EqualTo("Order.NotPaidYet"));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private static Order CreatePaidOrder()
     {
         var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");
@@ -73,5 +95,12 @@ public class ShipOrderCommandHandlerTests
         var order = Order.Create("user-1", address, items);
         order.MarkAsPaid("pi_123456");
         return order;
+    }
+
+    private static Order CreatePendingOrder()
+    {
+        var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");
+        var items = new List<OrderItem> { new(Guid.NewGuid(), "Widget", 10.00m, 1) };
+        return Order.Create("user-1", address, items);
     }
 }

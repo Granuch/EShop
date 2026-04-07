@@ -165,11 +165,18 @@ public static class OrderEndpoints
                 error => Results.Problem(
                     detail: error.Message,
                     title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                    statusCode: error.Code switch
+                    {
+                        "Order.NotFound" => StatusCodes.Status404NotFound,
+                        "Order.NotPaidYet" => StatusCodes.Status409Conflict,
+                        _ => StatusCodes.Status400BadRequest
+                    }));
         })
         .WithName("ShipOrder")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status400BadRequest);
     }
 }
