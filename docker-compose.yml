@@ -24,11 +24,11 @@ services:
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Redis Cache for Brute-Force Protection
@@ -81,8 +81,8 @@ services:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_listener 5672"]
       interval: 10s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 12
+      start_period: 40s
 
   # ============================================
   # OpenTelemetry Collector
@@ -183,11 +183,11 @@ services:
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${CATALOG_POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${CATALOG_POSTGRES_USER} -d ${CATALOG_POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Identity API - Instance 1
@@ -208,7 +208,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Database
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
@@ -256,6 +256,7 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${IDENTITY_API_PORT_1:-7001}:8080"
     volumes:
@@ -283,22 +284,22 @@ services:
     restart: unless-stopped
     depends_on:
       identity-api:
-        condition: service_started
+        condition: service_healthy
       catalog-api:
-        condition: service_started
+        condition: service_healthy
       basket-api:
-        condition: service_started
+        condition: service_healthy
       ordering-api:
-        condition: service_started
+        condition: service_healthy
       payment-api:
-        condition: service_started
+        condition: service_healthy
       notification-api:
-        condition: service_started
+        condition: service_healthy
       mailpit:
-        condition: service_started
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # JWT
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
@@ -334,6 +335,7 @@ services:
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__WriteTo__2__Name: Seq
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${GATEWAY_API_PORT:-7000}:8080"
     volumes:
@@ -367,7 +369,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
@@ -399,6 +401,7 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${BASKET_API_PORT:-7006}:8080"
     volumes:
@@ -434,7 +437,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Database
       ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -469,6 +472,7 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${CATALOG_API_PORT:-7004}:8080"
     volumes:
@@ -506,11 +510,11 @@ services:
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ORDERING_POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${ORDERING_POSTGRES_USER} -d ${ORDERING_POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Ordering API
@@ -531,7 +535,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Database
       ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -566,6 +570,7 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${ORDERING_API_PORT:-7005}:8080"
     volumes:
@@ -602,11 +607,11 @@ services:
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PAYMENT_POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${PAYMENT_POSTGRES_USER:-postgres} -d ${PAYMENT_POSTGRES_DB:-eshop_payment}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Payment API
@@ -624,7 +629,7 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -650,6 +655,7 @@ services:
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__WriteTo__2__Name: Seq
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${PAYMENT_API_PORT:-7008}:8080"
     volumes:
@@ -686,11 +692,11 @@ services:
     networks:
       - eshop-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${NOTIFICATION_POSTGRES_USER:-postgres} -d ${NOTIFICATION_POSTGRES_DB:-eshop_notification}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Notification API
@@ -707,12 +713,12 @@ services:
       rabbitmq:
         condition: service_healthy
       identity-api:
-        condition: service_started
+        condition: service_healthy
       mailpit:
-        condition: service_started
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -749,6 +755,7 @@ services:
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__WriteTo__2__Name: Seq
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
       - "${NOTIFICATION_API_PORT:-7007}:8080"
     volumes:
@@ -777,6 +784,12 @@ services:
       - "${MAILPIT_SMTP_PORT:-1025}:1025"
     networks:
       - eshop-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     profiles:
       - development
       - sandbox

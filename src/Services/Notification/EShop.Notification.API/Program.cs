@@ -4,6 +4,7 @@ using EShop.Notification.Infrastructure.Extensions;
 using EShop.Notification.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using HealthChecks.UI.Client;
+using Npgsql;
 using Prometheus;
 using Serilog;
 using Serilog.Events;
@@ -56,20 +57,38 @@ try
 
     if (!useInMemoryDb)
     {
-        try
-        {
-            Log.Information("Applying notification database migrations...");
-            using var scope = app.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
+        const int maxMigrationAttempts = 8;
+        var migrationDelay = TimeSpan.FromSeconds(5);
 
-            await dbContext.Database.MigrateAsync();
-
-            Log.Information("Notification database migrations applied successfully");
-        }
-        catch (Exception ex)
+        for (var attempt = 1; attempt <= maxMigrationAttempts; attempt++)
         {
-            Log.Fatal(ex, "Failed to apply notification database migrations");
-            throw;
+            try
+            {
+                Log.Information("Applying notification database migrations...");
+                using var scope = app.Services.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
+
+                await dbContext.Database.MigrateAsync();
+
+                Log.Information("Notification database migrations applied successfully");
+                break;
+            }
+            catch (Exception ex) when (IsPostgresStartupException(ex) && attempt < maxMigrationAttempts)
+            {
+                Log.Warning(ex,
+                    "Notification database is not ready yet (attempt {Attempt}/{MaxAttempts}). Retrying in {Delay}...",
+                    attempt,
+                    maxMigrationAttempts,
+                    migrationDelay);
+
+                await Task.Delay(migrationDelay);
+                migrationDelay += TimeSpan.FromSeconds(5);
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Failed to apply notification database migrations");
+                throw;
+            }
         }
     }
 
@@ -118,6 +137,17 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
 }
 
 public partial class Program;
