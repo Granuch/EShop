@@ -37,8 +37,20 @@ public sealed class DownstreamHealthCheck : IHealthCheck
 
         foreach (var cluster in config.Clusters)
         {
+            if (cluster.Destinations is null || cluster.Destinations.Count == 0)
+            {
+                failedDestinations.Add($"{cluster.ClusterId}:no-destinations");
+                continue;
+            }
+
             foreach (var destination in cluster.Destinations.Values)
             {
+                if (destination is null || string.IsNullOrWhiteSpace(destination.Address))
+                {
+                    failedDestinations.Add($"{cluster.ClusterId}:invalid-destination");
+                    continue;
+                }
+
                 if (!Uri.TryCreate(destination.Address, UriKind.Absolute, out var baseUri))
                 {
                     failedDestinations.Add($"{cluster.ClusterId}:invalid-uri");
