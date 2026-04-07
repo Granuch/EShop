@@ -46,6 +46,7 @@ builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailO
 builder.Services.Configure<EmailQueueHealthOptions>(builder.Configuration.GetSection(EmailQueueHealthOptions.SectionName));
 builder.Services.Configure<RateLimitingOptions>(builder.Configuration.GetSection(RateLimitingOptions.SectionName));
 builder.Services.Configure<IdentityServiceOptions>(builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
+builder.Services.Configure<IdentityProxyOptions>(builder.Configuration.GetSection(IdentityProxyOptions.SectionName));
 
 var forwardedProxies = builder.Configuration
     .GetSection("ForwardedHeaders:KnownProxies")
@@ -207,6 +208,7 @@ if (!string.IsNullOrWhiteSpace(httpsPort))
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<IdentityProxyGuardMiddleware>();
 
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();

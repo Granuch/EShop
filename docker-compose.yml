@@ -122,6 +122,7 @@ services:
     ports:
       - "127.0.0.1:${PG_EXPORTER_NOTIFICATION_PORT:-9191}:9187"
     networks:
+      - eshop-network
       - data-network
     profiles:
       - monitoring
