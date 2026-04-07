@@ -49,6 +49,7 @@ builder.Services.Configure<IdentityServiceOptions>(builder.Configuration.GetSect
 builder.Services.Configure<IdentityProxyOptions>(builder.Configuration.GetSection(IdentityProxyOptions.SectionName));
 builder.Services.Configure<CatalogProxyOptions>(builder.Configuration.GetSection(CatalogProxyOptions.SectionName));
 builder.Services.Configure<OrderingProxyOptions>(builder.Configuration.GetSection(OrderingProxyOptions.SectionName));
+builder.Services.Configure<BasketProxyOptions>(builder.Configuration.GetSection(BasketProxyOptions.SectionName));
 
 var forwardedProxies = builder.Configuration
     .GetSection("ForwardedHeaders:KnownProxies")
@@ -213,6 +214,7 @@ app.UseAuthorization();
 app.UseMiddleware<IdentityProxyGuardMiddleware>();
 app.UseMiddleware<CatalogProxyGuardMiddleware>();
 app.UseMiddleware<OrderingProxyGuardMiddleware>();
+app.UseMiddleware<BasketProxyGuardMiddleware>();
 
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();
