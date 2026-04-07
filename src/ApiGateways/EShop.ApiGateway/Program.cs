@@ -140,6 +140,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+builder.Services.AddHttpClient();
 
 builder.Services.AddEShopOpenTelemetry(
     builder.Configuration,

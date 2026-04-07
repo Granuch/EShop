@@ -296,6 +296,7 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+        required: false
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
@@ -711,6 +712,7 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+        required: false
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
@@ -805,6 +807,7 @@ services:
       - "127.0.0.1:${PG_EXPORTER_IDENTITY_PORT:-9187}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -824,6 +827,7 @@ services:
       - "127.0.0.1:${PG_EXPORTER_CATALOG_PORT:-9188}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -843,6 +847,7 @@ services:
       - "127.0.0.1:${PG_EXPORTER_ORDERING_PORT:-9189}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -862,6 +867,7 @@ services:
       - "127.0.0.1:${PG_EXPORTER_PAYMENT_PORT:-9190}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -882,6 +888,7 @@ services:
       - "127.0.0.1:${REDIS_EXPORTER_PORT:-9121}:9121"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
