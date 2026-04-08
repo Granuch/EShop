@@ -1,10 +1,41 @@
 param(
     [string]$Profile = "sandbox",
     [string]$GatewayBaseUrl = "http://localhost:7000",
-    [switch]$SkipComposeUp
+    [switch]$SkipComposeUp,
+    [string]$AccessToken = "",
+    [string]$IdentityBaseUrl = "http://localhost:7001",
+    [string]$TestUserEmail = "",
+    [string]$TestUserPassword = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-HttpStatusCode {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [ValidateSet("GET", "POST")][string]$Method = "GET",
+        [hashtable]$Headers = @{},
+        [string]$Body = "",
+        [int]$TimeoutSec = 10
+    )
+
+    $request = @{
+        Uri                = $Uri
+        Method             = $Method
+        Headers            = $Headers
+        UseBasicParsing    = $true
+        TimeoutSec         = $TimeoutSec
+        SkipHttpErrorCheck = $true
+    }
+
+    if ($Method -eq "POST") {
+        $request.ContentType = "application/json"
+        $request.Body = $Body
+    }
+
+    $response = Invoke-WebRequest @request
+    return [int]$response.StatusCode
+}
 
 Write-Host "[gateway-verify] profile=$Profile, baseUrl=$GatewayBaseUrl"
 
@@ -50,10 +81,42 @@ if ($mailpit.StatusCode -lt 200 -or $mailpit.StatusCode -ge 400) {
     throw "Mailpit UI is not reachable. Status=$($mailpit.StatusCode)"
 }
 
+if ([string]::IsNullOrWhiteSpace($AccessToken) -and -not [string]::IsNullOrWhiteSpace($TestUserEmail) -and -not [string]::IsNullOrWhiteSpace($TestUserPassword)) {
+    Write-Host "[gateway-verify] Getting access token from Identity..."
+    $loginPayload = @{ email = $TestUserEmail; password = $TestUserPassword } | ConvertTo-Json
+    $loginStatus = Get-HttpStatusCode -Uri "$IdentityBaseUrl/api/v1/auth/login" -Method "POST" -Body $loginPayload -TimeoutSec 10
+    if ($loginStatus -ne 200) {
+        throw "Identity login failed while preparing authenticated check. Status=$loginStatus"
+    }
+
+    $loginResponse = Invoke-WebRequest -Uri "$IdentityBaseUrl/api/v1/auth/login" -Method Post -UseBasicParsing -TimeoutSec 10 -ContentType "application/json" -Body $loginPayload
+    $AccessToken = ($loginResponse.Content | ConvertFrom-Json).accessToken
+    if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+        throw "Identity login succeeded but access token was not returned."
+    }
+}
+
 Write-Host "[gateway-verify] Checking simulated route behavior..."
-$simulated = Invoke-WebRequest -Uri "$GatewayBaseUrl/api/v1/orders" -Headers @{ "X-Simulate" = "true" } -UseBasicParsing -TimeoutSec 10
-if ($simulated.StatusCode -lt 200 -or $simulated.StatusCode -ge 600) {
-    throw "Unexpected simulation response status=$($simulated.StatusCode)"
+$simulationHeaders = @{ "X-Simulate" = "true" }
+if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+    $simulationHeaders["Authorization"] = "Bearer $AccessToken"
+}
+
+$simulatedStatus = Get-HttpStatusCode -Uri "$GatewayBaseUrl/api/v1/orders" -Headers $simulationHeaders -TimeoutSec 10
+
+if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    if ($simulatedStatus -ne 401) {
+        throw "Expected 401 for protected /api/v1/orders without token, got $simulatedStatus"
+    }
+
+    Write-Host "[gateway-verify] Protected route check passed (401 without token)."
+}
+else {
+    if ($simulatedStatus -eq 401 -or $simulatedStatus -eq 403) {
+        throw "Authenticated simulated request was rejected. Status=$simulatedStatus"
+    }
+
+    Write-Host "[gateway-verify] Authenticated simulated request status=$simulatedStatus"
 }
 
 Write-Host "[gateway-verify] Verification completed successfully."
