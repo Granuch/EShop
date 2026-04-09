@@ -45,17 +45,17 @@ public class ShipOrderTests : AuthenticatedIntegrationTestBase
         var response = await Client.PostAsync($"/api/v1/orders/{order.Id}/ship", null);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Test]
-    public async Task ShipOrder_WithNonExistentOrder_ShouldReturnBadRequest()
+    public async Task ShipOrder_WithNonExistentOrder_ShouldReturnNotFound()
     {
         // Act
         var response = await Client.PostAsync($"/api/v1/orders/{Guid.NewGuid()}/ship", null);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Test]

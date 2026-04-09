@@ -24,6 +24,7 @@ using Serilog;
 using Serilog.Events;
 using Prometheus;
 using HealthChecks.UI.Client;
+using Npgsql;
 using StackExchange.Redis;
 
 // Pre-warm thread pool to prevent saturation spikes under burst traffic.
@@ -366,38 +367,56 @@ try
     // Skip for Testing environment (uses in-memory database)
     if (!useInMemoryDb)
     {
-        try
+        const int maxMigrationAttempts = 8;
+        var migrationDelay = TimeSpan.FromSeconds(5);
+
+        for (var attempt = 1; attempt <= maxMigrationAttempts; attempt++)
         {
-            Log.Information("Applying database migrations...");
-            using var scope = app.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
-
-            // Apply pending migrations
-            await dbContext.Database.MigrateAsync();
-            Log.Information("Database migrations applied successfully");
-
-            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-
-            // Seed admin user only in Development and Sandbox environments (roles included)
-            if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
+            try
             {
-                Log.Information("Seeding default roles and admin user...");
-                var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-                await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, app.Configuration, Log.Logger);
-            }
-            else
-            {
-                // Seed default roles in all other non-testing environments
-                Log.Information("Seeding default roles...");
-                await SeedData.SeedRolesAsync(roleManager, Log.Logger);
-            }
+                Log.Information("Applying database migrations...");
+                using var scope = app.Services.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
 
-            Log.Information("Seeding completed successfully");
-        }
-        catch (Exception ex)
-        {
-            Log.Fatal(ex, "Failed to apply database migrations or seed data");
-            throw;
+                // Apply pending migrations
+                await dbContext.Database.MigrateAsync();
+                Log.Information("Database migrations applied successfully");
+
+                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+
+                // Seed admin user only in Development and Sandbox environments (roles included)
+                if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
+                {
+                    Log.Information("Seeding default roles and admin user...");
+                    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+                    await SeedData.SeedRolesAndAdminAsync(roleManager, userManager, app.Configuration, Log.Logger);
+                }
+                else
+                {
+                    // Seed default roles in all other non-testing environments
+                    Log.Information("Seeding default roles...");
+                    await SeedData.SeedRolesAsync(roleManager, Log.Logger);
+                }
+
+                Log.Information("Seeding completed successfully");
+                break;
+            }
+            catch (Exception ex) when (IsPostgresStartupException(ex) && attempt < maxMigrationAttempts)
+            {
+                Log.Warning(ex,
+                    "Database is not ready yet (attempt {Attempt}/{MaxAttempts}). Retrying in {Delay}...",
+                    attempt,
+                    maxMigrationAttempts,
+                    migrationDelay);
+
+                await Task.Delay(migrationDelay);
+                migrationDelay += TimeSpan.FromSeconds(5);
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Failed to apply database migrations or seed data");
+                throw;
+            }
         }
     }
 
@@ -412,6 +431,17 @@ try
     {
         app.UseForwardedHeaders();
     }
+
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
+}
 
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time
