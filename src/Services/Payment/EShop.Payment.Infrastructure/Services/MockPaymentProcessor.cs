@@ -61,15 +61,16 @@ public class MockPaymentProcessor : IPaymentProcessor
             return PaymentResult.Successful(paymentIntentId);
         }
 
+        var errors = new[]
+        {
+            "Insufficient funds",
+            "Card declined",
+            "Invalid card number",
+            "Card expired"
+        };
         var error = _settings.Mode == PaymentSimulationMode.AlwaysFailure
             ? _settings.ForcedFailureReason
-            : new[]
-            {
-                "Insufficient funds",
-                "Card declined",
-                "Invalid card number",
-                "Card expired"
-            }[_random.Next(4)];
+            : errors[_random.Next(errors.Length)];
 
         _logger.LogWarning(
             "Mock payment failed for OrderId={OrderId}. Reason={Reason}",

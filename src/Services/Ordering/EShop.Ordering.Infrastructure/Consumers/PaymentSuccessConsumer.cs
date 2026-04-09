@@ -13,7 +13,7 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 
 /// <summary>
 /// Idempotent consumer for PaymentSuccessEvent.
-/// Marks the order as paid.
+/// Marks the order as paid and immediately ships it.
 /// </summary>
 public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, OrderingDbContext>
 {
@@ -77,8 +77,11 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var baseUserOrdersKey = $"orders:user:{order.UserId}:";
-        await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps=5:cur=", cancellationToken);
-        await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps=10:cur=", cancellationToken);
+        int[] knownPageSizes = [5, 10, 20, 25, 50];
+        foreach (var ps in knownPageSizes)
+        {
+            await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps={ps}:cur=", cancellationToken);
+        }
 
         Logger.LogInformation("Order {OrderId} marked as paid and shipped by payment-success orchestration", message.OrderId);
     }

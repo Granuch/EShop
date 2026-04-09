@@ -2,8 +2,8 @@ using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Ordering.Application.Telemetry;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -39,15 +39,13 @@ public class ShipOrderCommandHandler : IRequestHandler<ShipOrderCommand, Result>
 
         _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
 
-        try
-        {
-            order.Ship();
-        }
-        catch (DomainException ex) when (ex.Message.Contains("Only paid orders can be shipped.", StringComparison.OrdinalIgnoreCase))
+        if (order.Status != OrderStatus.Paid)
         {
             activity?.SetStatus(ActivityStatusCode.Error, "order_not_paid");
             return Result.Failure(new Error("Order.NotPaidYet", "Order must be paid before shipping."));
         }
+
+        order.Ship();
 
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

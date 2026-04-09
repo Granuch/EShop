@@ -40,7 +40,7 @@ public class PaymentSuccessConsumerTests
 
         var cachingOptions = Options.Create(new CachingBehaviorOptions
         {
-            KeyPrefix = "eshop:",
+            KeyPrefix = "ordering:",
             Version = "v1",
             UseVersioning = true
         });
@@ -61,7 +61,7 @@ public class PaymentSuccessConsumerTests
     }
 
     [Test]
-    public async Task Consume_WithExistingOrder_ShouldMarkAsPaid()
+    public async Task Consume_WithExistingOrder_ShouldMarkAsPaidAndShipOrder()
     {
         // Arrange
         var order = CreatePendingOrder();
@@ -93,10 +93,19 @@ public class PaymentSuccessConsumerTests
         _orderRepositoryMock.Verify(x => x.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _cacheMock.Verify(x => x.RemoveAsync(
-            "eshop:v1:orders:user:user-1:p=1:ps=5:cur=",
+            "ordering:v1:orders:user:user-1:p=1:ps=5:cur=",
             It.IsAny<CancellationToken>()), Times.Once);
         _cacheMock.Verify(x => x.RemoveAsync(
-            "eshop:v1:orders:user:user-1:p=1:ps=10:cur=",
+            "ordering:v1:orders:user:user-1:p=1:ps=10:cur=",
+            It.IsAny<CancellationToken>()), Times.Once);
+        _cacheMock.Verify(x => x.RemoveAsync(
+            "ordering:v1:orders:user:user-1:p=1:ps=20:cur=",
+            It.IsAny<CancellationToken>()), Times.Once);
+        _cacheMock.Verify(x => x.RemoveAsync(
+            "ordering:v1:orders:user:user-1:p=1:ps=25:cur=",
+            It.IsAny<CancellationToken>()), Times.Once);
+        _cacheMock.Verify(x => x.RemoveAsync(
+            "ordering:v1:orders:user:user-1:p=1:ps=50:cur=",
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
