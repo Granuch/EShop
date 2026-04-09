@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using Prometheus;
 using Scalar.AspNetCore;
 using Serilog;
@@ -266,20 +267,38 @@ try
     // Apply database migrations automatically
     if (!useInMemoryDb)
     {
-        try
-        {
-            Log.Information("Applying database migrations...");
-            using var scope = app.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<OrderingDbContext>();
+        const int maxMigrationAttempts = 8;
+        var migrationDelay = TimeSpan.FromSeconds(5);
 
-            await dbContext.Database.MigrateAsync();
-
-            Log.Information("Database migrations applied successfully");
-        }
-        catch (Exception ex)
+        for (var attempt = 1; attempt <= maxMigrationAttempts; attempt++)
         {
-            Log.Fatal(ex, "Failed to apply database migrations");
-            throw;
+            try
+            {
+                Log.Information("Applying database migrations...");
+                using var scope = app.Services.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<OrderingDbContext>();
+
+                await dbContext.Database.MigrateAsync();
+
+                Log.Information("Database migrations applied successfully");
+                break;
+            }
+            catch (Exception ex) when (IsPostgresStartupException(ex) && attempt < maxMigrationAttempts)
+            {
+                Log.Warning(ex,
+                    "Database is not ready yet (attempt {Attempt}/{MaxAttempts}). Retrying in {Delay}...",
+                    attempt,
+                    maxMigrationAttempts,
+                    migrationDelay);
+
+                await Task.Delay(migrationDelay);
+                migrationDelay += TimeSpan.FromSeconds(5);
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Failed to apply database migrations");
+                throw;
+            }
         }
     }
 
@@ -290,6 +309,17 @@ try
     {
         app.UseForwardedHeaders();
     }
+
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
+}
 
     app.UseEShopRequestLogging();
 

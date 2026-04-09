@@ -1,0 +1,47 @@
+name: Gateway Quality Gates
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ feature/**, main, develop ]
+
+jobs:
+  gateway-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Validate env template secrets placeholders
+        shell: bash
+        run: |
+          if grep -E 'JWT_SECRET_KEY=[^C]|POSTGRES_PASSWORD=qweasdz1|REDIS_PASSWORD=4ZA2n' .env.example; then
+            echo 'Potential real secret-like values found in .env.example';
+            exit 1;
+          fi
+
+      - name: Restore
+        run: dotnet restore EShop.slnx
+
+      - name: Build
+        run: dotnet build EShop.slnx -c Release --no-restore
+
+      - name: Gateway unit tests
+        run: dotnet test tests/ApiGateways/EShop.ApiGateway.UnitTests/EShop.ApiGateway.UnitTests.csproj -c Release --no-build
+
+      - name: Gateway integration tests
+        run: dotnet test tests/ApiGateways/EShop.ApiGateway.IntegrationTests/EShop.ApiGateway.IntegrationTests.csproj -c Release --no-build
+
+      - name: Build API Gateway Docker image
+        run: docker build -f src/ApiGateways/EShop.ApiGateway/Dockerfile -t eshop/api-gateway:ci .
+
+      - name: Validate docker compose config
+        run: docker compose config > /tmp/docker-compose.resolved.yml

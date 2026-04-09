@@ -1,0 +1,135 @@
+services:
+  postgres:
+    ports: !reset []
+
+  catalog-postgres:
+    ports: !reset []
+
+  ordering-postgres:
+    ports: !reset []
+
+  payment-postgres:
+    ports: !reset []
+
+  notification-postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
+
+  rabbitmq:
+    ports: !reset []
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME is required in production}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required in production}
+
+  otel-collector:
+    ports: !reset []
+
+  postgres-exporter-identity:
+    ports: !reset []
+
+  postgres-exporter-catalog:
+    ports: !reset []
+
+  postgres-exporter-ordering:
+    ports: !reset []
+
+  postgres-exporter-payment:
+    ports: !reset []
+
+  postgres-exporter-notification:
+    ports: !reset []
+
+  redis-exporter:
+    ports: !reset []
+
+  redis-insight:
+    ports: !reset []
+
+  redis-commander:
+    ports: !reset []
+
+  mailpit:
+    profiles:
+      - production
+    ports: !reset []
+
+  seq:
+    ports: !reset []
+
+  prometheus:
+    ports: !reset []
+
+  grafana:
+    ports: !reset []
+
+  jaeger:
+    ports: !reset []
+
+  api-gateway:
+    ports:
+      - "${GATEWAY_API_PORT:?GATEWAY_API_PORT is required in production}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      AllowedHosts: ${GATEWAY_ALLOWED_HOSTS:?GATEWAY_ALLOWED_HOSTS is required in production}
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
+      JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
+
+  identity-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
+      JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
+      InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY is required in production}
+
+  catalog-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
+      JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
+
+  basket-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
+      JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
+
+  ordering-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
+      JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
+
+  payment-api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
+      JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
+
+  notification-api:
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity-api:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+        required: false
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY is required in production}
+      Smtp__Host: ${NOTIFICATION_SMTP_HOST:?NOTIFICATION_SMTP_HOST is required in production}
+      Smtp__Port: ${NOTIFICATION_SMTP_PORT:?NOTIFICATION_SMTP_PORT is required in production}
+      Smtp__UseSsl: ${NOTIFICATION_SMTP_USE_SSL:?NOTIFICATION_SMTP_USE_SSL is required in production}
+      Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:?NOTIFICATION_SMTP_FROM_EMAIL is required in production}

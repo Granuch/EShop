@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using Prometheus;
 using Scalar.AspNetCore;
 using Serilog;
@@ -317,51 +318,69 @@ try
     // Apply database migrations automatically
     if (!useInMemoryDb)
     {
-        try
+        const int maxMigrationAttempts = 8;
+        var migrationDelay = TimeSpan.FromSeconds(5);
+
+        for (var attempt = 1; attempt <= maxMigrationAttempts; attempt++)
         {
-            Log.Information("Applying database migrations...");
-            using var scope = app.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
-
-            var hasMigrations = dbContext.Database.GetMigrations().Any();
-            if (!hasMigrations)
+            try
             {
-                if (app.Environment.IsDevelopment()
-                    || app.Environment.IsEnvironment("Testing")
-                    || app.Environment.IsEnvironment("Sandbox"))
-                {
-                    Log.Warning("No EF Core migrations found for CatalogDbContext. Using EnsureCreated for {Environment}.",
-                        app.Environment.EnvironmentName);
+                Log.Information("Applying database migrations...");
+                using var scope = app.Services.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
 
-                    var missingTables = await CatalogSchemaMissingAsync(dbContext);
-                    if (missingTables)
+                var hasMigrations = dbContext.Database.GetMigrations().Any();
+                if (!hasMigrations)
+                {
+                    if (app.Environment.IsDevelopment()
+                        || app.Environment.IsEnvironment("Testing")
+                        || app.Environment.IsEnvironment("Sandbox"))
                     {
-                        await dbContext.Database.EnsureCreatedAsync();
+                        Log.Warning("No EF Core migrations found for CatalogDbContext. Using EnsureCreated for {Environment}.",
+                            app.Environment.EnvironmentName);
+
+                        var missingTables = await CatalogSchemaMissingAsync(dbContext);
+                        if (missingTables)
+                        {
+                            await dbContext.Database.EnsureCreatedAsync();
+                        }
+                        else
+                        {
+                            Log.Information("Catalog schema already exists. Skipping EnsureCreated.");
+                        }
                     }
                     else
                     {
-                        Log.Information("Catalog schema already exists. Skipping EnsureCreated.");
+                        throw new InvalidOperationException(
+                            $"No EF Core migrations found for CatalogDbContext in {app.Environment.EnvironmentName}. " +
+                            "Add migrations before deploying to non-development environments. " +
+                            "EnsureCreated is not allowed in production-like environments to prevent schema drift.");
                     }
                 }
                 else
                 {
-                    throw new InvalidOperationException(
-                        $"No EF Core migrations found for CatalogDbContext in {app.Environment.EnvironmentName}. " +
-                        "Add migrations before deploying to non-development environments. " +
-                        "EnsureCreated is not allowed in production-like environments to prevent schema drift.");
+                    await dbContext.Database.MigrateAsync();
                 }
-            }
-            else
-            {
-                await dbContext.Database.MigrateAsync();
-            }
 
-            Log.Information("Database schema ensured successfully");
-        }
-        catch (Exception ex)
-        {
-            Log.Fatal(ex, "Failed to apply database migrations");
-            throw;
+                Log.Information("Database schema ensured successfully");
+                break;
+            }
+            catch (Exception ex) when (IsPostgresStartupException(ex) && attempt < maxMigrationAttempts)
+            {
+                Log.Warning(ex,
+                    "Database is not ready yet (attempt {Attempt}/{MaxAttempts}). Retrying in {Delay}...",
+                    attempt,
+                    maxMigrationAttempts,
+                    migrationDelay);
+
+                await Task.Delay(migrationDelay);
+                migrationDelay += TimeSpan.FromSeconds(5);
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Failed to apply database migrations");
+                throw;
+            }
         }
     }
 
@@ -386,6 +405,17 @@ try
 
         Log.Information("Scalar API documentation available at /scalar/v1");
     }
+
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
+}
 
     // Forwarded Headers — must be before other middleware that depend on correct scheme/IP
     if (forwardedProxies.Length > 0)

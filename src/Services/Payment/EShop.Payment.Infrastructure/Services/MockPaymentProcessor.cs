@@ -10,7 +10,7 @@ namespace EShop.Payment.Infrastructure.Services;
 /// </summary>
 public class MockPaymentProcessor : IPaymentProcessor
 {
-    private readonly Random _random = new();
+    private readonly Random _random;
     private readonly ILogger<MockPaymentProcessor> _logger;
     private readonly PaymentSimulationSettings _settings;
 
@@ -20,6 +20,9 @@ public class MockPaymentProcessor : IPaymentProcessor
     {
         _logger = logger;
         _settings = settings.Value;
+        _random = _settings.RandomSeed.HasValue
+            ? new Random(_settings.RandomSeed.Value)
+            : new Random();
     }
 
     public async Task<PaymentResult> ProcessPaymentAsync(
@@ -40,7 +43,12 @@ public class MockPaymentProcessor : IPaymentProcessor
         await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
 
         var successRate = Math.Clamp(_settings.SuccessRatePercent, 0, 100);
-        var isSuccess = _random.Next(1, 101) <= successRate;
+        var isSuccess = _settings.Mode switch
+        {
+            PaymentSimulationMode.AlwaysSuccess => true,
+            PaymentSimulationMode.AlwaysFailure => false,
+            _ => _random.Next(1, 101) <= successRate
+        };
 
         if (isSuccess)
         {
@@ -60,8 +68,9 @@ public class MockPaymentProcessor : IPaymentProcessor
             "Invalid card number",
             "Card expired"
         };
-
-        var error = errors[_random.Next(errors.Length)];
+        var error = _settings.Mode == PaymentSimulationMode.AlwaysFailure
+            ? _settings.ForcedFailureReason
+            : errors[_random.Next(errors.Length)];
 
         _logger.LogWarning(
             "Mock payment failed for OrderId={OrderId}. Reason={Reason}",
