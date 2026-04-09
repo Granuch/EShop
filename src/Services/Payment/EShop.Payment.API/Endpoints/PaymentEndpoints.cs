@@ -5,7 +5,9 @@ using EShop.Payment.Application.Payments.Commands.RefundPayment;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Application.Payments.Queries.GetPaymentById;
 using EShop.Payment.Application.Payments.Queries.GetPaymentsByUser;
+using EShop.Payment.Infrastructure.Configuration;
 using MediatR;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
 
 namespace EShop.Payment.API.Endpoints;
@@ -165,6 +167,24 @@ public static class PaymentEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapGet("/simulation", (IOptions<PaymentSimulationSettings> options) =>
+        {
+            var settings = options.Value;
+
+            return Results.Ok(new PaymentSimulationDiagnosticsResponse(
+                settings.Mode.ToString(),
+                settings.ProcessingDelayMinSeconds,
+                settings.ProcessingDelayMaxSeconds,
+                settings.SuccessRatePercent,
+                settings.RefundDelaySeconds,
+                settings.RandomSeed,
+                settings.ForcedFailureReason));
+        })
+        .WithName("GetPaymentSimulationDiagnostics")
+        .RequireAuthorization("Admin")
+        .Produces<PaymentSimulationDiagnosticsResponse>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden);
     }
 
     private static PaymentResponse ToResponse(PaymentDto payment)
@@ -235,3 +255,12 @@ public sealed record PaymentResponse(
     DateTime CreatedAt,
     DateTime? ProcessedAt,
     DateTime? UpdatedAt);
+
+public sealed record PaymentSimulationDiagnosticsResponse(
+    string Mode,
+    int ProcessingDelayMinSeconds,
+    int ProcessingDelayMaxSeconds,
+    int SuccessRatePercent,
+    int RefundDelaySeconds,
+    int? RandomSeed,
+    string ForcedFailureReason);

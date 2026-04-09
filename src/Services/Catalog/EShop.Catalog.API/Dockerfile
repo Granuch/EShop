@@ -71,7 +71,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health/ready || exit 1
 
 # Environment variables (overridden by docker-compose)
-ENV ASPNETCORE_URLS=http://+:8080 \
+ENV ASPNETCORE_HTTP_PORTS=8080 \
     ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_RUNNING_IN_CONTAINER=true \
     DOTNET_EnableDiagnostics=0
