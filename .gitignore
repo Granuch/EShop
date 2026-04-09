@@ -372,3 +372,6 @@ FodyWeavers.xsd
 /pre_load_snapshot.json
 /comprehensive_fixes_prompt.md
 /.github/copilot-instructions.md
+/_tmp_packages.json
+/_tmp_packages_summary.json
+/_tmp_projects.json

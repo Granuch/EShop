@@ -17,18 +17,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/identity-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Redis Cache for Brute-Force Protection
@@ -48,11 +48,11 @@ services:
       --save 300 10
       --save 60 10000
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping"]
       interval: 10s
@@ -71,18 +71,18 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"       # AMQP protocol
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672" # Management UI
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"       # AMQP protocol
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT:-15672}:15672" # Management UI
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_listener 5672"]
       interval: 10s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 12
+      start_period: 40s
 
   # ============================================
   # OpenTelemetry Collector
@@ -100,8 +100,8 @@ services:
     volumes:
       - ./infrastructure/otel-collector/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
     ports:
-      - "${OTEL_GRPC_PORT:-4317}:4317"      # OTLP gRPC receiver
-      - "${OTEL_HTTP_PORT:-4318}:4318"      # OTLP HTTP receiver
+      - "127.0.0.1:${OTEL_GRPC_PORT:-4317}:4317"      # OTLP gRPC receiver
+      - "127.0.0.1:${OTEL_HTTP_PORT:-4318}:4318"      # OTLP HTTP receiver
     networks:
       - eshop-network
     profiles:
@@ -120,9 +120,10 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${NOTIFICATION_POSTGRES_USER:-postgres}:${NOTIFICATION_POSTGRES_PASSWORD:-postgres}@notification-postgres:5432/${NOTIFICATION_POSTGRES_DB:-eshop_notification}?sslmode=disable"
     ports:
-      - "${PG_EXPORTER_NOTIFICATION_PORT:-9191}:9187"
+      - "127.0.0.1:${PG_EXPORTER_NOTIFICATION_PORT:-9191}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -138,7 +139,7 @@ services:
     depends_on:
       - prometheus
     ports:
-      - "${JAEGER_UI_PORT:-16686}:16686"         # Jaeger UI
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"         # Jaeger UI
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
       SPAN_STORAGE_TYPE: badger
@@ -176,18 +177,18 @@ services:
       POSTGRES_USER: ${CATALOG_POSTGRES_USER}
       POSTGRES_PASSWORD: ${CATALOG_POSTGRES_PASSWORD}
     ports:
-      - "${CATALOG_POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${CATALOG_POSTGRES_PORT:-5433}:5432"
     volumes:
       - catalog-postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/catalog-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${CATALOG_POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${CATALOG_POSTGRES_USER} -d ${CATALOG_POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Identity API - Instance 1
@@ -208,7 +209,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Database
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
@@ -256,10 +257,90 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
-    ports:
-      - "${IDENTITY_API_PORT_1:-7001}:8080"
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     volumes:
       - identity-logs:/app/logs
+    networks:
+      - eshop-network
+      - data-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - production
+      - sandbox
+
+  # ============================================
+  # API Gateway (YARP)
+  # ============================================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/ApiGateways/EShop.ApiGateway/Dockerfile
+    container_name: eshop-api-gateway
+    restart: unless-stopped
+    depends_on:
+      identity-api:
+        condition: service_healthy
+      catalog-api:
+        condition: service_healthy
+      basket-api:
+        condition: service_healthy
+      ordering-api:
+        condition: service_healthy
+      payment-api:
+        condition: service_healthy
+      notification-api:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+        required: false
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
+      ASPNETCORE_HTTP_PORTS: "8080"
+
+      # JWT
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      # CORS
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
+      # Internal identity resolver for email recipients
+      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
+      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+
+      # Email notifications via Mailpit in local profiles
+      Email__Host: ${GATEWAY_SMTP_HOST:-mailpit}
+      Email__Port: ${GATEWAY_SMTP_PORT:-1025}
+      Email__UseSsl: ${GATEWAY_SMTP_USE_SSL:-false}
+      Email__Username: ${GATEWAY_SMTP_USERNAME:-}
+      Email__Password: ${GATEWAY_SMTP_PASSWORD:-}
+      Email__From: ${GATEWAY_SMTP_FROM_EMAIL:-gateway@eshop.local}
+      Email__FromName: ${GATEWAY_SMTP_FROM_NAME:-EShop API Gateway}
+
+      # OpenTelemetry
+      OpenTelemetry__Enabled: "true"
+      OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
+      OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
+      OpenTelemetry__MetricsEnabled: "true"
+
+      # Serilog
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
+    ports:
+      - "${GATEWAY_API_PORT:-7000}:8080"
+    volumes:
+      - gateway-logs:/app/logs
     networks:
       - eshop-network
     healthcheck:
@@ -289,7 +370,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
@@ -321,12 +402,12 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
-    ports:
-      - "${BASKET_API_PORT:-7006}:8080"
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     volumes:
       - basket-logs:/app/logs
     networks:
       - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 30s
@@ -356,7 +437,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Database
       ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -391,12 +472,12 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
-    ports:
-      - "${CATALOG_API_PORT:-7004}:8080"
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     volumes:
       - catalog-logs:/app/logs
     networks:
       - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 30s
@@ -421,18 +502,18 @@ services:
       POSTGRES_USER: ${ORDERING_POSTGRES_USER}
       POSTGRES_PASSWORD: ${ORDERING_POSTGRES_PASSWORD}
     ports:
-      - "${ORDERING_POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${ORDERING_POSTGRES_PORT:-5434}:5432"
     volumes:
       - ordering-postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ORDERING_POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${ORDERING_POSTGRES_USER} -d ${ORDERING_POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Ordering API
@@ -453,7 +534,7 @@ services:
     environment:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       # Database
       ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -488,12 +569,12 @@ services:
 
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
-    ports:
-      - "${ORDERING_API_PORT:-7005}:8080"
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     volumes:
       - ordering-logs:/app/logs
     networks:
       - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 30s
@@ -517,18 +598,18 @@ services:
       POSTGRES_USER: ${PAYMENT_POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${PAYMENT_POSTGRES_PASSWORD:-postgres}
     ports:
-      - "${PAYMENT_POSTGRES_PORT:-5436}:5432"
+      - "127.0.0.1:${PAYMENT_POSTGRES_PORT:-5436}:5432"
     volumes:
       - payment-postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PAYMENT_POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${PAYMENT_POSTGRES_USER:-postgres} -d ${PAYMENT_POSTGRES_DB:-eshop_payment}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Payment API
@@ -546,7 +627,7 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -572,12 +653,12 @@ services:
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__WriteTo__2__Name: Seq
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
-    ports:
-      - "${PAYMENT_API_PORT:-7008}:8080"
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     volumes:
       - payment-logs:/app/logs
     networks:
       - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 30s
@@ -601,18 +682,18 @@ services:
       POSTGRES_USER: ${NOTIFICATION_POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${NOTIFICATION_POSTGRES_PASSWORD:-postgres}
     ports:
-      - "${NOTIFICATION_POSTGRES_PORT:-5435}:5432"
+      - "127.0.0.1:${NOTIFICATION_POSTGRES_PORT:-5435}:5432"
     volumes:
       - notification-postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
-      - eshop-network
+      - data-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${NOTIFICATION_POSTGRES_USER:-postgres} -d ${NOTIFICATION_POSTGRES_DB:-eshop_notification}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
 
   # ============================================
   # Notification API
@@ -629,12 +710,13 @@ services:
       rabbitmq:
         condition: service_healthy
       identity-api:
-        condition: service_started
+        condition: service_healthy
       mailpit:
-        condition: service_started
+        condition: service_healthy
+        required: false
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: "8080"
 
       ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -671,12 +753,12 @@ services:
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__WriteTo__2__Name: Seq
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
-    ports:
-      - "${NOTIFICATION_API_PORT:-7007}:8080"
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     volumes:
       - notification-logs:/app/logs
     networks:
       - eshop-network
+      - data-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
       interval: 30s
@@ -695,10 +777,16 @@ services:
     container_name: eshop-mailpit
     restart: unless-stopped
     ports:
-      - "${MAILPIT_UI_PORT:-8025}:8025"
-      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
     networks:
       - eshop-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     profiles:
       - development
       - sandbox
@@ -717,9 +805,10 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
     ports:
-      - "${PG_EXPORTER_IDENTITY_PORT:-9187}:9187"
+      - "127.0.0.1:${PG_EXPORTER_IDENTITY_PORT:-9187}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -736,9 +825,10 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${CATALOG_POSTGRES_USER}:${CATALOG_POSTGRES_PASSWORD}@catalog-postgres:5432/${CATALOG_POSTGRES_DB}?sslmode=disable"
     ports:
-      - "${PG_EXPORTER_CATALOG_PORT:-9188}:9187"
+      - "127.0.0.1:${PG_EXPORTER_CATALOG_PORT:-9188}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -755,9 +845,10 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${ORDERING_POSTGRES_USER}:${ORDERING_POSTGRES_PASSWORD}@ordering-postgres:5432/${ORDERING_POSTGRES_DB}?sslmode=disable"
     ports:
-      - "${PG_EXPORTER_ORDERING_PORT:-9189}:9187"
+      - "127.0.0.1:${PG_EXPORTER_ORDERING_PORT:-9189}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -774,9 +865,10 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${PAYMENT_POSTGRES_USER:-postgres}:${PAYMENT_POSTGRES_PASSWORD:-postgres}@payment-postgres:5432/${PAYMENT_POSTGRES_DB:-eshop_payment}?sslmode=disable"
     ports:
-      - "${PG_EXPORTER_PAYMENT_PORT:-9190}:9187"
+      - "127.0.0.1:${PG_EXPORTER_PAYMENT_PORT:-9190}:9187"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -794,9 +886,10 @@ services:
       REDIS_ADDR: redis:6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     ports:
-      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+      - "127.0.0.1:${REDIS_EXPORTER_PORT:-9121}:9121"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - monitoring
 
@@ -815,7 +908,7 @@ services:
       REDISINSIGHT_HOST: 0.0.0.0
       REDISINSIGHT_PORT: 5540
     ports:
-      - "${REDIS_INSIGHT_PORT:-8001}:5540"
+      - "127.0.0.1:${REDIS_INSIGHT_PORT:-8001}:5540"
     volumes:
       - redis-insight-data:/data
     networks:
@@ -837,9 +930,10 @@ services:
     environment:
       REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD}
     ports:
-      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+      - "127.0.0.1:${REDIS_COMMANDER_PORT:-8081}:8081"
     networks:
       - eshop-network
+      - data-network
     profiles:
       - development
       - monitoring
@@ -852,8 +946,8 @@ services:
     container_name: eshop-seq
     restart: unless-stopped
     ports:
-      - "${SEQ_UI_PORT:-5341}:80"      # Web UI and ingestion
-      - "${SEQ_INGEST_PORT:-5342}:5341" # Ingestion only
+      - "127.0.0.1:${SEQ_UI_PORT:-5341}:80"      # Web UI and ingestion
+      - "127.0.0.1:${SEQ_INGEST_PORT:-5342}:5341" # Ingestion only
     environment:
       ACCEPT_EULA: Y
       SEQ_FIRSTRUN_ADMINUSERNAME: ${SEQ_ADMIN_USERNAME:-admin}
@@ -879,7 +973,7 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       # Use existing infrastructure config if available, fallback to monitoring
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -907,7 +1001,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: false
       GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       # Use existing infrastructure config if available, fallback to monitoring
@@ -924,6 +1018,10 @@ networks:
   eshop-network:
     name: eshop-network
     driver: bridge
+  data-network:
+    name: eshop-data-network
+    driver: bridge
+    internal: true
 
 # ============================================
 # Volumes
@@ -957,6 +1055,8 @@ volumes:
     name: eshop-notification-logs
   basket-logs:
     name: eshop-basket-logs
+  gateway-logs:
+    name: eshop-gateway-logs
   seq-data:
     name: eshop-seq-data
   prometheus-data:
