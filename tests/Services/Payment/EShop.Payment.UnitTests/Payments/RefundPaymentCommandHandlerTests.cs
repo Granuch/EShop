@@ -1,4 +1,5 @@
 using EShop.Payment.Application.Payments.Commands.RefundPayment;
+using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
@@ -30,6 +31,7 @@ public class RefundPaymentCommandHandlerTests
         var handler = new RefundPaymentCommandHandler(
             repository,
             Mock.Of<IPaymentProcessor>(),
+            Mock.Of<IStripePaymentService>(),
             Mock.Of<IPublishEndpoint>(),
             dbContext);
 
@@ -68,6 +70,7 @@ public class RefundPaymentCommandHandlerTests
         var handler = new RefundPaymentCommandHandler(
             repository,
             processor.Object,
+            Mock.Of<IStripePaymentService>(),
             Mock.Of<IPublishEndpoint>(),
             dbContext);
 

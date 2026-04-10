@@ -1,8 +1,8 @@
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Payment.Application.Consumers;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
+using EShop.Payment.Infrastructure.Consumers;
 using EShop.Payment.Infrastructure.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +36,7 @@ public class OrderCreatedConsumerTests
         var publishEndpoint = new Mock<IPublishEndpoint>();
 
         var consumer = new OrderCreatedConsumer(
+            dbContext,
             repository,
             dbContext,
             processor.Object,
@@ -54,6 +55,7 @@ public class OrderCreatedConsumerTests
 
         var context = new Mock<ConsumeContext<OrderCreatedEvent>>();
         context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
         context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
 
         await consumer.Consume(context.Object);
@@ -86,6 +88,7 @@ public class OrderCreatedConsumerTests
         var publishEndpoint = new Mock<IPublishEndpoint>();
 
         var consumer = new OrderCreatedConsumer(
+            dbContext,
             repository,
             dbContext,
             processor.Object,
@@ -104,6 +107,7 @@ public class OrderCreatedConsumerTests
 
         var context = new Mock<ConsumeContext<OrderCreatedEvent>>();
         context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
         context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
 
         await consumer.Consume(context.Object);
@@ -147,6 +151,7 @@ public class OrderCreatedConsumerTests
         var publishEndpoint = new Mock<IPublishEndpoint>();
 
         var consumer = new OrderCreatedConsumer(
+            dbContext,
             repository,
             dbContext,
             processor.Object,
@@ -164,6 +169,7 @@ public class OrderCreatedConsumerTests
 
         var context = new Mock<ConsumeContext<OrderCreatedEvent>>();
         context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
         context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
 
         await consumer.Consume(context.Object);
