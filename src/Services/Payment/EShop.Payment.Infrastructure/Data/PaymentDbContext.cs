@@ -9,6 +9,8 @@ namespace EShop.Payment.Infrastructure.Data;
 public class PaymentDbContext : BaseDbContext
 {
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<PaymentCustomer> PaymentCustomers => Set<PaymentCustomer>();
+    public DbSet<ProcessedStripeWebhookEvent> ProcessedStripeWebhookEvents => Set<ProcessedStripeWebhookEvent>();
 
     public PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         : base(options)
@@ -43,6 +45,9 @@ public class PaymentDbContext : BaseDbContext
                 .HasMaxLength(100)
                 .IsRequired();
 
+            entity.Property(x => x.StripeCustomerId)
+                .HasMaxLength(200);
+
             entity.Property(x => x.Amount)
                 .HasColumnType("decimal(18,2)")
                 .IsRequired();
@@ -57,6 +62,9 @@ public class PaymentDbContext : BaseDbContext
 
             entity.Property(x => x.PaymentIntentId)
                 .HasMaxLength(200);
+
+            entity.Property(x => x.StripeStatus)
+                .HasMaxLength(100);
 
             entity.Property(x => x.Status)
                 .HasConversion<string>()
@@ -81,8 +89,56 @@ public class PaymentDbContext : BaseDbContext
                 .HasColumnType("timestamp with time zone");
 
             entity.HasIndex(x => x.OrderId).IsUnique();
+            entity.HasIndex(x => x.PaymentIntentId);
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });
             entity.HasIndex(x => new { x.Status, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<PaymentCustomer>(entity =>
+        {
+            entity.ToTable("PaymentCustomers");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.UserId)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(x => x.StripeCustomerId)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+
+            entity.Property(x => x.UpdatedAt)
+                .HasColumnType("timestamp with time zone");
+
+            entity.HasIndex(x => x.UserId).IsUnique();
+            entity.HasIndex(x => x.StripeCustomerId).IsUnique();
+        });
+
+        modelBuilder.Entity<ProcessedStripeWebhookEvent>(entity =>
+        {
+            entity.ToTable("ProcessedStripeWebhookEvents");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.EventId)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(x => x.EventType)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(x => x.ProcessedAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+
+            entity.HasIndex(x => x.EventId).IsUnique();
+            entity.HasIndex(x => x.ProcessedAt);
         });
 
         base.OnModelCreating(modelBuilder);
