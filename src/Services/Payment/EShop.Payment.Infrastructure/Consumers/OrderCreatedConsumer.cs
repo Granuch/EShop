@@ -1,16 +1,15 @@
-using MassTransit;
-using EShop.BuildingBlocks.Messaging.Events;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.Consumers;
+using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
+using EShop.Payment.Infrastructure.Data;
+using MassTransit;
 using Microsoft.Extensions.Logging;
 
-namespace EShop.Payment.Application.Consumers;
+namespace EShop.Payment.Infrastructure.Consumers;
 
-/// <summary>
-/// Consumer for OrderCreatedEvent - processes payment
-/// </summary>
-public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
+public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, PaymentDbContext>
 {
     private static readonly HashSet<PaymentStatus> TerminalStatuses =
     [
@@ -18,6 +17,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
         PaymentStatus.Failed,
         PaymentStatus.Refunded
     ];
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPaymentProcessor _paymentProcessor;
@@ -25,11 +25,13 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
     private readonly ILogger<OrderCreatedConsumer> _logger;
 
     public OrderCreatedConsumer(
+        PaymentDbContext dbContext,
         IPaymentRepository paymentRepository,
         IUnitOfWork unitOfWork,
         IPaymentProcessor paymentProcessor,
         IPublishEndpoint publishEndpoint,
         ILogger<OrderCreatedConsumer> logger)
+        : base(dbContext, logger)
     {
         _paymentRepository = paymentRepository;
         _unitOfWork = unitOfWork;
@@ -38,11 +40,11 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<OrderCreatedEvent> context)
+    protected override async Task HandleAsync(ConsumeContext<OrderCreatedEvent> context, CancellationToken cancellationToken)
     {
         var message = context.Message;
 
-        var payment = await _paymentRepository.GetByOrderIdAsync(message.OrderId, context.CancellationToken);
+        var payment = await _paymentRepository.GetByOrderIdAsync(message.OrderId, cancellationToken);
         if (payment is not null && TerminalStatuses.Contains(payment.Status))
         {
             _logger.LogInformation(
@@ -67,13 +69,13 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
                 UpdatedAt = DateTime.UtcNow
             };
 
-            await _paymentRepository.AddAsync(payment, context.CancellationToken);
+            await _paymentRepository.AddAsync(payment, cancellationToken);
         }
 
         payment.Status = PaymentStatus.Processing;
         payment.UpdatedAt = DateTime.UtcNow;
-        await _paymentRepository.UpdateAsync(payment, context.CancellationToken);
-        await _unitOfWork.SaveChangesAsync(context.CancellationToken);
+        await _paymentRepository.UpdateAsync(payment, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await _publishEndpoint.Publish(new PaymentCreatedEvent
         {
@@ -84,7 +86,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
             Currency = payment.Currency,
             Status = payment.Status.ToString().ToUpperInvariant(),
             CreatedAt = payment.CreatedAt
-        }, context.CancellationToken);
+        }, cancellationToken);
 
         _logger.LogInformation(
             "Processing payment for OrderId={OrderId}, UserId={UserId}, Amount={Amount}",
@@ -95,7 +97,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
         var result = await _paymentProcessor.ProcessPaymentAsync(
             message.OrderId,
             message.TotalAmount,
-            context.CancellationToken);
+            cancellationToken);
 
         if (result.Success)
         {
@@ -105,8 +107,8 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
             payment.ProcessedAt = DateTime.UtcNow;
             payment.UpdatedAt = DateTime.UtcNow;
 
-            await _paymentRepository.UpdateAsync(payment, context.CancellationToken);
-            await _unitOfWork.SaveChangesAsync(context.CancellationToken);
+            await _paymentRepository.UpdateAsync(payment, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             await _publishEndpoint.Publish(new PaymentSuccessEvent
             {
@@ -115,7 +117,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
                 PaymentIntentId = result.PaymentIntentId ?? string.Empty,
                 Amount = message.TotalAmount,
                 ProcessedAt = DateTime.UtcNow
-            }, context.CancellationToken);
+            }, cancellationToken);
 
             await _publishEndpoint.Publish(new PaymentCompletedEvent
             {
@@ -126,7 +128,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
                 Currency = payment.Currency,
                 PaymentIntentId = payment.PaymentIntentId,
                 CompletedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, context.CancellationToken);
+            }, cancellationToken);
 
             _logger.LogInformation(
                 "Payment successful for OrderId={OrderId}, PaymentIntentId={PaymentIntentId}",
@@ -140,8 +142,8 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
         payment.ErrorMessage = result.ErrorMessage ?? "Unknown payment processing error";
         payment.ProcessedAt = DateTime.UtcNow;
         payment.UpdatedAt = DateTime.UtcNow;
-        await _paymentRepository.UpdateAsync(payment, context.CancellationToken);
-        await _unitOfWork.SaveChangesAsync(context.CancellationToken);
+        await _paymentRepository.UpdateAsync(payment, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await _publishEndpoint.Publish(new PaymentFailedEvent
         {
@@ -150,7 +152,7 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
             UserId = message.UserId,
             Reason = payment.ErrorMessage,
             FailedAt = DateTime.UtcNow
-        }, context.CancellationToken);
+        }, cancellationToken);
 
         _logger.LogWarning(
             "Payment failed for OrderId={OrderId}. Reason={Reason}",
