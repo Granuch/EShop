@@ -1,10 +1,12 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.Payment.API.Infrastructure.Security;
+using EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 using EShop.Payment.Application.Payments.Commands.CreatePayment;
 using EShop.Payment.Application.Payments.Commands.RefundPayment;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Application.Payments.Queries.GetPaymentById;
 using EShop.Payment.Application.Payments.Queries.GetPaymentsByUser;
+using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Infrastructure.Configuration;
 using MediatR;
 using Microsoft.Extensions.Options;
@@ -18,6 +20,51 @@ public static class PaymentEndpoints
     {
         var group = app.MapGroup("/api/v1/payments")
             .WithTags("Payments");
+
+        group.MapPost("/create-intent", async (
+            CreatePaymentIntentRequest request,
+            ClaimsPrincipal user,
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryResolveUserContext(user, out var subjectId, out var authError))
+            {
+                return authError!;
+            }
+
+            if (!user.IsAdmin() &&
+                !string.Equals(subjectId, request.UserId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Forbid();
+            }
+
+            var resolvedUserId = user.IsAdmin() ? request.UserId : subjectId!;
+            var result = await mediator.Send(new CreatePaymentIntentCommand(
+                request.OrderId,
+                resolvedUserId,
+                request.Amount,
+                request.Currency,
+                request.Email), cancellationToken);
+
+            return result.Match(
+                value => Results.Ok(new CreatePaymentIntentResponse(
+                    value.PaymentId,
+                    value.PaymentIntentId,
+                    value.ClientSecret,
+                    value.Status)),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: error.Code == "PAYMENT_ALREADY_EXISTS"
+                        ? StatusCodes.Status409Conflict
+                        : StatusCodes.Status400BadRequest));
+        })
+        .WithName("CreateStripePaymentIntent")
+        .RequireAuthorization()
+        .Produces<CreatePaymentIntentResponse>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPost("/", async (
             CreatePaymentRequest request,
@@ -185,6 +232,55 @@ public static class PaymentEndpoints
         .RequireAuthorization("Admin")
         .Produces<PaymentSimulationDiagnosticsResponse>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status403Forbidden);
+
+        app.MapPost("/webhooks/stripe", async (
+            HttpRequest request,
+            IStripeWebhookProcessor webhookProcessor,
+            CancellationToken cancellationToken) =>
+        {
+            if (!request.Headers.TryGetValue("Stripe-Signature", out var signatureHeader)
+                || string.IsNullOrWhiteSpace(signatureHeader))
+            {
+                return Results.BadRequest(new { error = "Missing Stripe-Signature header." });
+            }
+
+            request.EnableBuffering();
+
+            string payload;
+            using (var reader = new StreamReader(request.Body, leaveOpen: true))
+            {
+                payload = await reader.ReadToEndAsync(cancellationToken);
+            }
+
+            request.Body.Position = 0;
+
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return Results.BadRequest(new { error = "Webhook payload is empty." });
+            }
+
+            try
+            {
+                var result = await webhookProcessor.ProcessAsync(payload, signatureHeader!, cancellationToken);
+                return Results.Ok(new
+                {
+                    received = true,
+                    result.IsDuplicate,
+                    result.PaymentFound,
+                    result.EventId,
+                    result.EventType
+                });
+            }
+            catch (ArgumentException ex) when (ex.Message == "Invalid Stripe webhook signature.")
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        })
+        .WithTags("Stripe Webhooks")
+        .WithName("StripeWebhook")
+        .AllowAnonymous()
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status400BadRequest);
     }
 
     private static PaymentResponse ToResponse(PaymentDto payment)
@@ -239,6 +335,19 @@ public sealed record CreatePaymentRequest(
     decimal Amount,
     string? Currency,
     string? PaymentMethod);
+
+public sealed record CreatePaymentIntentRequest(
+    Guid OrderId,
+    string UserId,
+    decimal Amount,
+    string? Currency,
+    string? Email);
+
+public sealed record CreatePaymentIntentResponse(
+    Guid PaymentId,
+    string PaymentIntentId,
+    string ClientSecret,
+    string Status);
 
 public sealed record RefundPaymentRequest(decimal? Amount, string? Reason);
 
