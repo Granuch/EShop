@@ -80,7 +80,7 @@
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         {
-          "expr": "basket:items_added:rate5m",
+          "expr": "sum(rate(http_request_duration_seconds_count{service=\"basket\",method=\"POST\"}[5m]))",
           "legendFormat": "items/sec"
         }
       ],
@@ -95,7 +95,7 @@
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         {
-          "expr": "basket:checkout_failure_ratio:rate5m",
+          "expr": "sum(rate(http_request_duration_seconds_count{service=\"basket\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_request_duration_seconds_count{service=\"basket\"}[5m])), 1)",
           "legendFormat": "failure ratio"
         }
       ],
@@ -108,8 +108,8 @@
       "id": 10,
       "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
       "targets": [
-        { "expr": "basket:checkout_success:rate5m", "legendFormat": "success" },
-        { "expr": "basket:checkout_failure:rate5m", "legendFormat": "failure" }
+        { "expr": "sum(rate(http_request_duration_seconds_count{service=\"basket\",code=~\"2..\"}[5m]))", "legendFormat": "success" },
+        { "expr": "sum(rate(http_request_duration_seconds_count{service=\"basket\",code=~\"5..\"}[5m]))", "legendFormat": "failure" }
       ],
       "title": "Checkout Throughput",
       "type": "timeseries"
@@ -121,8 +121,8 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "sum(rate(basket_price_sync_updates_total[5m])) by (status)",
-          "legendFormat": "{{status}}"
+          "expr": "sum(rate(http_request_duration_seconds_count{service=\"basket\"}[5m])) by (method)",
+          "legendFormat": "{{method}}"
         }
       ],
       "title": "Price Sync Updates",
@@ -135,8 +135,8 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(basket_operation_duration_seconds_bucket[5m])) by (le, operation))",
-          "legendFormat": "{{operation}} p95"
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"basket\"}[5m])) by (le, method))",
+          "legendFormat": "{{method}} p95"
         }
       ],
       "title": "Basket Operation Duration (p95)",

@@ -162,6 +162,11 @@ app.UseGlobalExceptionHandler();
 app.UseEShopRequestLogging();
 app.UseCors("AllowFrontend");
 
+app.UseHttpMetrics(options =>
+{
+    options.AddCustomLabel("service", _ => "payment");
+});
+
 app.UseAuthentication();
 app.UseAuthorization();
 
