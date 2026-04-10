@@ -6,6 +6,7 @@ using EShop.Payment.Application.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Extensions;
+using EShop.Payment.Infrastructure.Configuration;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -42,6 +43,20 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .Enrich.WithProperty("Application", "EShop.Payment.API"));
 
 var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+
+var startupStripeSettings = builder.Configuration
+    .GetSection(StripeSettings.SectionName)
+    .Get<StripeSettings>() ?? new StripeSettings();
+
+if (startupStripeSettings.SkipWebhookSignatureVerification
+    && !builder.Environment.IsDevelopment()
+    && !builder.Environment.IsEnvironment("Sandbox")
+    && !builder.Environment.IsEnvironment("Testing"))
+{
+    throw new InvalidOperationException(
+        "Stripe webhook signature verification bypass is only allowed in Development, Sandbox, or Testing environments.");
+}
+
 builder.Services.AddPaymentApplication();
 builder.Services.AddPaymentInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 builder.Services.AddPaymentMessaging(

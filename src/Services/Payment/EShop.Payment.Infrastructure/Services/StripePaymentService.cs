@@ -79,22 +79,22 @@ public sealed class StripePaymentService : IStripePaymentService
         }
         else
         {
-        try
-        {
-            stripeEvent = EventUtility.ConstructEvent(
-                payload,
-                signatureHeader,
-                _settings.WebhookSecret,
-                throwOnApiVersionMismatch: false);
-        }
-        catch (StripeException ex) when (ex.Message.Contains("signature", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("Invalid Stripe webhook signature.", ex);
-        }
-        catch (StripeException ex)
-        {
-            throw new InvalidOperationException("Stripe webhook payload parsing failed.", ex);
-        }
+            try
+            {
+                stripeEvent = EventUtility.ConstructEvent(
+                    payload,
+                    signatureHeader,
+                    _settings.WebhookSecret,
+                    throwOnApiVersionMismatch: false);
+            }
+            catch (StripeException ex) when (ex.Message.Contains("signature", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Invalid Stripe webhook signature.", ex);
+            }
+            catch (StripeException ex)
+            {
+                throw new InvalidOperationException("Stripe webhook payload parsing failed.", ex);
+            }
         }
 
         if (stripeEvent.Data.Object is not PaymentIntent paymentIntent)
@@ -104,7 +104,8 @@ public sealed class StripePaymentService : IStripePaymentService
                 stripeEvent.Type,
                 string.Empty,
                 string.Empty,
-                null);
+                null,
+                false);
         }
 
         return new StripeWebhookEvent(
@@ -112,7 +113,10 @@ public sealed class StripePaymentService : IStripePaymentService
             stripeEvent.Type,
             paymentIntent.Id,
             paymentIntent.Status ?? string.Empty,
-            paymentIntent.LastPaymentError?.Message);
+            paymentIntent.LastPaymentError?.Message,
+            stripeEvent.Type is "payment_intent.succeeded"
+                or "payment_intent.payment_failed"
+                or "payment_intent.canceled");
     }
 
     private static string NormalizeCurrency(string currency)

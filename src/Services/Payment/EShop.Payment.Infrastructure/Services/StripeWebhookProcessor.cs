@@ -1,9 +1,9 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -14,26 +14,34 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
     private readonly IPaymentRepository _paymentRepository;
     private readonly IStripePaymentService _stripePaymentService;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly ILogger<StripeWebhookProcessor> _logger;
 
     public StripeWebhookProcessor(
         IPaymentRepository paymentRepository,
         IStripePaymentService stripePaymentService,
         IUnitOfWork unitOfWork,
-        IPublishEndpoint publishEndpoint,
+        IIntegrationEventOutbox integrationEventOutbox,
         ILogger<StripeWebhookProcessor> logger)
     {
         _paymentRepository = paymentRepository;
         _stripePaymentService = stripePaymentService;
         _unitOfWork = unitOfWork;
-        _publishEndpoint = publishEndpoint;
+        _integrationEventOutbox = integrationEventOutbox;
         _logger = logger;
     }
 
     public async Task<StripeWebhookProcessResult> ProcessAsync(string payload, string signatureHeader, CancellationToken cancellationToken = default)
     {
         var stripeEvent = _stripePaymentService.ConstructWebhookEvent(payload, signatureHeader);
+
+        if (!stripeEvent.IsSupportedPaymentIntentEvent)
+        {
+            _logger.LogDebug(
+                "Ignoring unsupported Stripe event type {EventType} for idempotent payment processing.",
+                stripeEvent.Type);
+            return new StripeWebhookProcessResult(false, false, stripeEvent.Id, stripeEvent.Type);
+        }
 
         if (await _paymentRepository.IsStripeEventProcessedAsync(stripeEvent.Id, cancellationToken))
         {
@@ -109,18 +117,18 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
 
         if (publishSuccess)
         {
-            await _publishEndpoint.Publish(new PaymentSuccessEvent
+            _integrationEventOutbox.Enqueue(new PaymentSuccessEvent
             {
                 OrderId = payment.OrderId,
                 PaymentIntentId = payment.PaymentIntentId,
                 Amount = payment.Amount,
                 ProcessedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, cancellationToken);
+            });
         }
 
         if (publishCompleted)
         {
-            await _publishEndpoint.Publish(new PaymentCompletedEvent
+            _integrationEventOutbox.Enqueue(new PaymentCompletedEvent
             {
                 OrderId = payment.OrderId,
                 UserId = payment.UserId,
@@ -128,18 +136,18 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
                 Currency = payment.Currency,
                 PaymentIntentId = payment.PaymentIntentId,
                 CompletedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, cancellationToken);
+            });
         }
 
         if (publishFailure)
         {
-            await _publishEndpoint.Publish(new PaymentFailedEvent
+            _integrationEventOutbox.Enqueue(new PaymentFailedEvent
             {
                 OrderId = payment.OrderId,
                 UserId = payment.UserId,
                 Reason = payment.ErrorMessage ?? "Stripe payment failed.",
                 FailedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, cancellationToken);
+            });
         }
 
         return new StripeWebhookProcessResult(false, true, stripeEvent.Id, stripeEvent.Type);

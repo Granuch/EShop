@@ -1,11 +1,11 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
-using MassTransit;
 using MediatR;
 
 namespace EShop.Payment.Application.Payments.Commands.RefundPayment;
@@ -15,20 +15,20 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentProcessor _paymentProcessor;
     private readonly IStripePaymentService _stripePaymentService;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly IUnitOfWork _unitOfWork;
 
     public RefundPaymentCommandHandler(
         IPaymentRepository paymentRepository,
         IPaymentProcessor paymentProcessor,
         IStripePaymentService stripePaymentService,
-        IPublishEndpoint publishEndpoint,
+        IIntegrationEventOutbox integrationEventOutbox,
         IUnitOfWork unitOfWork)
     {
         _paymentRepository = paymentRepository;
         _paymentProcessor = paymentProcessor;
         _stripePaymentService = stripePaymentService;
-        _publishEndpoint = publishEndpoint;
+        _integrationEventOutbox = integrationEventOutbox;
         _unitOfWork = unitOfWork;
     }
 
@@ -73,16 +73,16 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
         payment.ProcessedAt = DateTime.UtcNow;
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        await _publishEndpoint.Publish(new PaymentRefundedEvent
+        _integrationEventOutbox.Enqueue(new PaymentRefundedEvent
         {
             OrderId = payment.OrderId,
             UserId = payment.UserId,
             PaymentIntentId = payment.PaymentIntentId,
             Amount = refundAmount,
             RefundedAt = payment.ProcessedAt ?? DateTime.UtcNow
-        }, cancellationToken);
+        });
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<PaymentDto>.Success(payment.ToDto());
     }

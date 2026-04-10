@@ -1,9 +1,10 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
 using EShop.Payment.Infrastructure.Services;
-using MassTransit;
+using EShop.BuildingBlocks.Messaging.Events;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -45,15 +46,15 @@ public class StripeWebhookProcessorTests
 
         var stripePaymentService = new Mock<IStripePaymentService>();
         stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(new StripeWebhookEvent("evt_test_001", "payment_intent.succeeded", "pi_test_001", "succeeded", null));
+            .Returns(new StripeWebhookEvent("evt_test_001", "payment_intent.succeeded", "pi_test_001", "succeeded", null, true));
 
-        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
 
         var processor = new StripeWebhookProcessor(
             repository,
             stripePaymentService.Object,
             dbContext,
-            publishEndpoint.Object,
+            outbox.Object,
             Mock.Of<ILogger<StripeWebhookProcessor>>());
 
         var result = await processor.ProcessAsync("payload", "sig", CancellationToken.None);
@@ -65,7 +66,8 @@ public class StripeWebhookProcessorTests
         Assert.That(updated!.Status, Is.EqualTo(PaymentStatus.Success));
         Assert.That(await repository.IsStripeEventProcessedAsync("evt_test_001", CancellationToken.None), Is.True);
 
-        publishEndpoint.Verify(x => x.Publish(It.IsAny<EShop.BuildingBlocks.Messaging.Events.PaymentSuccessEvent>(), It.IsAny<CancellationToken>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<EShop.BuildingBlocks.Messaging.Events.PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCompletedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Test]
@@ -76,18 +78,42 @@ public class StripeWebhookProcessorTests
 
         var stripePaymentService = new Mock<IStripePaymentService>();
         stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(new StripeWebhookEvent("evt_test_dup", "payment_intent.succeeded", "pi_missing", "succeeded", null));
+            .Returns(new StripeWebhookEvent("evt_test_dup", "payment_intent.succeeded", "pi_missing", "succeeded", null, true));
 
         var processor = new StripeWebhookProcessor(
             repository,
             stripePaymentService.Object,
             dbContext,
-            Mock.Of<IPublishEndpoint>(),
+            Mock.Of<IIntegrationEventOutbox>(),
             Mock.Of<ILogger<StripeWebhookProcessor>>());
 
         await processor.ProcessAsync("payload", "sig", CancellationToken.None);
         var duplicate = await processor.ProcessAsync("payload", "sig", CancellationToken.None);
 
         Assert.That(duplicate.IsDuplicate, Is.True);
+    }
+
+    [Test]
+    public async Task ProcessAsync_WhenUnsupportedEvent_ShouldIgnoreWithoutPersistence()
+    {
+        await using var dbContext = CreateDbContext();
+        var repository = new PaymentRepository(dbContext);
+
+        var stripePaymentService = new Mock<IStripePaymentService>();
+        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(new StripeWebhookEvent("evt_ignored", "charge.succeeded", string.Empty, string.Empty, null, false));
+
+        var processor = new StripeWebhookProcessor(
+            repository,
+            stripePaymentService.Object,
+            dbContext,
+            Mock.Of<IIntegrationEventOutbox>(),
+            Mock.Of<ILogger<StripeWebhookProcessor>>());
+
+        var result = await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+
+        Assert.That(result.IsDuplicate, Is.False);
+        Assert.That(result.PaymentFound, Is.False);
+        Assert.That(await repository.IsStripeEventProcessedAsync("evt_ignored", CancellationToken.None), Is.False);
     }
 }

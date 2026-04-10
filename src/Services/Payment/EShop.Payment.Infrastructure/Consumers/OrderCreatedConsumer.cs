@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Domain.Entities;
@@ -21,7 +22,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
     private readonly IPaymentRepository _paymentRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPaymentProcessor _paymentProcessor;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly ILogger<OrderCreatedConsumer> _logger;
 
     public OrderCreatedConsumer(
@@ -29,14 +30,14 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
         IPaymentRepository paymentRepository,
         IUnitOfWork unitOfWork,
         IPaymentProcessor paymentProcessor,
-        IPublishEndpoint publishEndpoint,
+        IIntegrationEventOutbox integrationEventOutbox,
         ILogger<OrderCreatedConsumer> logger)
         : base(dbContext, logger)
     {
         _paymentRepository = paymentRepository;
         _unitOfWork = unitOfWork;
         _paymentProcessor = paymentProcessor;
-        _publishEndpoint = publishEndpoint;
+        _integrationEventOutbox = integrationEventOutbox;
         _logger = logger;
     }
 
@@ -75,9 +76,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
         payment.Status = PaymentStatus.Processing;
         payment.UpdatedAt = DateTime.UtcNow;
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        await _publishEndpoint.Publish(new PaymentCreatedEvent
+        _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
         {
             CorrelationId = message.CorrelationId,
             OrderId = payment.OrderId,
@@ -86,7 +85,9 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
             Currency = payment.Currency,
             Status = payment.Status.ToString().ToUpperInvariant(),
             CreatedAt = payment.CreatedAt
-        }, cancellationToken);
+        }, message.CorrelationId);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
             "Processing payment for OrderId={OrderId}, UserId={UserId}, Amount={Amount}",
@@ -108,18 +109,16 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
             payment.UpdatedAt = DateTime.UtcNow;
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            await _publishEndpoint.Publish(new PaymentSuccessEvent
+            _integrationEventOutbox.Enqueue(new PaymentSuccessEvent
             {
                 CorrelationId = message.CorrelationId,
                 OrderId = message.OrderId,
                 PaymentIntentId = result.PaymentIntentId ?? string.Empty,
                 Amount = message.TotalAmount,
                 ProcessedAt = DateTime.UtcNow
-            }, cancellationToken);
+            }, message.CorrelationId);
 
-            await _publishEndpoint.Publish(new PaymentCompletedEvent
+            _integrationEventOutbox.Enqueue(new PaymentCompletedEvent
             {
                 CorrelationId = message.CorrelationId,
                 OrderId = payment.OrderId,
@@ -128,7 +127,9 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
                 Currency = payment.Currency,
                 PaymentIntentId = payment.PaymentIntentId,
                 CompletedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, cancellationToken);
+            }, message.CorrelationId);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
                 "Payment successful for OrderId={OrderId}, PaymentIntentId={PaymentIntentId}",
@@ -143,16 +144,16 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
         payment.ProcessedAt = DateTime.UtcNow;
         payment.UpdatedAt = DateTime.UtcNow;
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        await _publishEndpoint.Publish(new PaymentFailedEvent
+        _integrationEventOutbox.Enqueue(new PaymentFailedEvent
         {
             CorrelationId = message.CorrelationId,
             OrderId = message.OrderId,
             UserId = message.UserId,
             Reason = payment.ErrorMessage,
             FailedAt = DateTime.UtcNow
-        }, cancellationToken);
+        }, message.CorrelationId);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogWarning(
             "Payment failed for OrderId={OrderId}. Reason={Reason}",

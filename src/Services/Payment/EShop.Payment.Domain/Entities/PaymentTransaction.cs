@@ -20,6 +20,7 @@ public class PaymentTransaction
     public DateTime CreatedAt { get; set; }
     public DateTime? ProcessedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public uint Version { get; set; }
 }
 
 public enum PaymentStatus

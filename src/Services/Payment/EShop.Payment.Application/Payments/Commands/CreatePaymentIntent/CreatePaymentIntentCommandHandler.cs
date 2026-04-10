@@ -1,10 +1,10 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
-using MassTransit;
 using MediatR;
 
 namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
@@ -14,20 +14,20 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
     private readonly IPaymentRepository _paymentRepository;
     private readonly IStripeCustomerService _stripeCustomerService;
     private readonly IStripePaymentService _stripePaymentService;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreatePaymentIntentCommandHandler(
         IPaymentRepository paymentRepository,
         IStripeCustomerService stripeCustomerService,
         IStripePaymentService stripePaymentService,
-        IPublishEndpoint publishEndpoint,
+        IIntegrationEventOutbox integrationEventOutbox,
         IUnitOfWork unitOfWork)
     {
         _paymentRepository = paymentRepository;
         _stripeCustomerService = stripeCustomerService;
         _stripePaymentService = stripePaymentService;
-        _publishEndpoint = publishEndpoint;
+        _integrationEventOutbox = integrationEventOutbox;
         _unitOfWork = unitOfWork;
     }
 
@@ -79,9 +79,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
             payment.UpdatedAt = DateTime.UtcNow;
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            await _publishEndpoint.Publish(new PaymentCreatedEvent
+            _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
             {
                 OrderId = payment.OrderId,
                 UserId = payment.UserId,
@@ -89,7 +87,9 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
                 Currency = payment.Currency,
                 Status = payment.Status.ToString().ToUpperInvariant(),
                 CreatedAt = payment.CreatedAt
-            }, cancellationToken);
+            });
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<CreatePaymentIntentDto>.Success(new CreatePaymentIntentDto(
                 payment.Id,
@@ -106,15 +106,15 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
             payment.UpdatedAt = DateTime.UtcNow;
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            await _publishEndpoint.Publish(new PaymentFailedEvent
+            _integrationEventOutbox.Enqueue(new PaymentFailedEvent
             {
                 OrderId = payment.OrderId,
                 UserId = payment.UserId,
                 Reason = payment.ErrorMessage,
                 FailedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, cancellationToken);
+            });
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<CreatePaymentIntentDto>.Failure(new Error(
                 "STRIPE_PAYMENT_INTENT_FAILED",

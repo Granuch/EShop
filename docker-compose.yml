@@ -647,6 +647,7 @@ services:
 
       Stripe__Enabled: ${STRIPE_ENABLED:-false}
       Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-true}
+      Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-true}
       Stripe__SecretKey: ${STRIPE_SECRET_KEY:-}
       Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY:-}
       Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:-}

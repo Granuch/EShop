@@ -235,13 +235,22 @@ public static class PaymentEndpoints
 
         app.MapPost("/webhooks/stripe", async (
             HttpRequest request,
+            IOptions<StripeSettings> stripeOptions,
             IStripeWebhookProcessor webhookProcessor,
             CancellationToken cancellationToken) =>
         {
+            var stripeSettings = stripeOptions.Value;
+
             if (!request.Headers.TryGetValue("Stripe-Signature", out var signatureHeader)
                 || string.IsNullOrWhiteSpace(signatureHeader))
             {
-                return Results.BadRequest(new { error = "Missing Stripe-Signature header." });
+                if (!stripeSettings.SkipWebhookSignatureVerification
+                    || !stripeSettings.AllowMissingSignatureHeaderInBypassMode)
+                {
+                    return Results.BadRequest(new { error = "Missing Stripe-Signature header." });
+                }
+
+                signatureHeader = string.Empty;
             }
 
             request.EnableBuffering();

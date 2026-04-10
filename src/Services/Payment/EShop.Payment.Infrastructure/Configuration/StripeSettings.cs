@@ -6,6 +6,7 @@ public sealed class StripeSettings
 
     public bool Enabled { get; init; }
     public bool SkipWebhookSignatureVerification { get; init; }
+    public bool AllowMissingSignatureHeaderInBypassMode { get; init; }
     public string SecretKey { get; init; } = string.Empty;
     public string PublishableKey { get; init; } = string.Empty;
     public string WebhookSecret { get; init; } = string.Empty;

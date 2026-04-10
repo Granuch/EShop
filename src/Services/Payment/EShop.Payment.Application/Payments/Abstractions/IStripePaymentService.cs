@@ -33,4 +33,5 @@ public sealed record StripeWebhookEvent(
     string Type,
     string PaymentIntentId,
     string Status,
-    string? FailureMessage);
+    string? FailureMessage,
+    bool IsSupportedPaymentIntentEvent);

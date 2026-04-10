@@ -1,10 +1,10 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 
@@ -38,13 +38,13 @@ public class CreatePaymentIntentCommandHandlerTests
             .Setup(x => x.CreatePaymentIntentAsync(It.IsAny<StripePaymentIntentRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StripePaymentIntentResult("pi_test_123", "cs_test_123", "requires_payment_method"));
 
-        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
 
         var handler = new CreatePaymentIntentCommandHandler(
             repository,
             stripeCustomerService.Object,
             stripePaymentService.Object,
-            publishEndpoint.Object,
+            outbox.Object,
             dbContext);
 
         var result = await handler.Handle(new CreatePaymentIntentCommand(
@@ -58,7 +58,7 @@ public class CreatePaymentIntentCommandHandlerTests
         Assert.That(result.Value!.ClientSecret, Is.EqualTo("cs_test_123"));
         Assert.That(result.Value.PaymentIntentId, Is.EqualTo("pi_test_123"));
 
-        publishEndpoint.Verify(x => x.Publish(It.IsAny<PaymentCreatedEvent>(), It.IsAny<CancellationToken>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Test]
@@ -85,7 +85,7 @@ public class CreatePaymentIntentCommandHandlerTests
             repository,
             Mock.Of<IStripeCustomerService>(),
             Mock.Of<IStripePaymentService>(),
-            Mock.Of<IPublishEndpoint>(),
+            Mock.Of<IIntegrationEventOutbox>(),
             dbContext);
 
         var result = await handler.Handle(new CreatePaymentIntentCommand(

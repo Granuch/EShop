@@ -88,6 +88,9 @@ public class PaymentDbContext : BaseDbContext
             entity.Property(x => x.UpdatedAt)
                 .HasColumnType("timestamp with time zone");
 
+            entity.Property(x => x.Version)
+                .IsRowVersion();
+
             entity.HasIndex(x => x.OrderId).IsUnique();
             entity.HasIndex(x => x.PaymentIntentId);
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });

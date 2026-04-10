@@ -114,6 +114,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Stripe__Enabled: "false"
       Stripe__SkipWebhookSignatureVerification: "false"
+      Stripe__AllowMissingSignatureHeaderInBypassMode: "false"
       JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
       JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
       JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}

@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
@@ -33,14 +34,14 @@ public class OrderCreatedConsumerTests
         processor.Setup(x => x.ProcessPaymentAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PaymentResult.Successful("pi_123"));
 
-        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
 
         var consumer = new OrderCreatedConsumer(
             dbContext,
             repository,
             dbContext,
             processor.Object,
-            publishEndpoint.Object,
+            outbox.Object,
             Mock.Of<ILogger<OrderCreatedConsumer>>());
 
         var orderId = Guid.NewGuid();
@@ -64,15 +65,9 @@ public class OrderCreatedConsumerTests
         Assert.That(payment.Status, Is.EqualTo(PaymentStatus.Success));
         Assert.That(payment.PaymentIntentId, Is.EqualTo("pi_123"));
 
-        publishEndpoint.Verify(x => x.Publish(
-            It.IsAny<PaymentSuccessEvent>(),
-            It.IsAny<CancellationToken>()), Times.Once);
-        publishEndpoint.Verify(x => x.Publish(
-            It.IsAny<PaymentCreatedEvent>(),
-            It.IsAny<CancellationToken>()), Times.Once);
-        publishEndpoint.Verify(x => x.Publish(
-            It.IsAny<PaymentCompletedEvent>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCompletedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Test]
@@ -85,14 +80,14 @@ public class OrderCreatedConsumerTests
         processor.Setup(x => x.ProcessPaymentAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PaymentResult.Failed("Card declined"));
 
-        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
 
         var consumer = new OrderCreatedConsumer(
             dbContext,
             repository,
             dbContext,
             processor.Object,
-            publishEndpoint.Object,
+            outbox.Object,
             Mock.Of<ILogger<OrderCreatedConsumer>>());
 
         var orderId = Guid.NewGuid();
@@ -116,12 +111,8 @@ public class OrderCreatedConsumerTests
         Assert.That(payment.Status, Is.EqualTo(PaymentStatus.Failed));
         Assert.That(payment.ErrorMessage, Is.EqualTo("Card declined"));
 
-        publishEndpoint.Verify(x => x.Publish(
-            It.IsAny<PaymentFailedEvent>(),
-            It.IsAny<CancellationToken>()), Times.Once);
-        publishEndpoint.Verify(x => x.Publish(
-            It.IsAny<PaymentCreatedEvent>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Test]
@@ -148,14 +139,14 @@ public class OrderCreatedConsumerTests
         await dbContext.SaveChangesAsync();
 
         var processor = new Mock<IPaymentProcessor>();
-        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
 
         var consumer = new OrderCreatedConsumer(
             dbContext,
             repository,
             dbContext,
             processor.Object,
-            publishEndpoint.Object,
+            outbox.Object,
             Mock.Of<ILogger<OrderCreatedConsumer>>());
 
         var evt = new OrderCreatedEvent
@@ -176,7 +167,7 @@ public class OrderCreatedConsumerTests
 
         processor.Verify(x => x.ProcessPaymentAsync(
             It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()), Times.Never);
-        publishEndpoint.Verify(x => x.Publish(
-            It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Never);
+        outbox.Verify(x => x.Enqueue(
+            It.IsAny<EShop.BuildingBlocks.Messaging.IIntegrationEvent>(), It.IsAny<string?>()), Times.Never);
     }
 }

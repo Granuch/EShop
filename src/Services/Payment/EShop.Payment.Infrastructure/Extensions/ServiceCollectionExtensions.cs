@@ -39,6 +39,9 @@ public static class ServiceCollectionExtensions
                 string.IsNullOrWhiteSpace(settings.PublishableKey)
                 || settings.PublishableKey.StartsWith("pk_test_", StringComparison.Ordinal),
                 "Stripe publishable key must use pk_test_ prefix in sandbox mode.")
+            .Validate(static settings =>
+                !settings.AllowMissingSignatureHeaderInBypassMode || settings.SkipWebhookSignatureVerification,
+                "AllowMissingSignatureHeaderInBypassMode requires SkipWebhookSignatureVerification to be enabled.")
             .ValidateOnStart();
 
         if (useInMemoryDatabase)
