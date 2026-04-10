@@ -40,7 +40,7 @@ public class RefundPaymentCommandHandlerTests
             Mock.Of<ILogger<RefundPaymentCommandHandler>>());
     }
 
-    private static async Task<PaymentTransaction> AddStripePaymentAsync(PaymentDbContext dbContext, string paymentIntentId = "pi_test")
+    private static async Task<PaymentTransaction> CreateAndAddStripePaymentAsync(PaymentDbContext dbContext, string paymentIntentId = "pi_test")
     {
         var repository = new PaymentRepository(dbContext);
         var payment = new PaymentTransaction
@@ -120,7 +120,7 @@ public class RefundPaymentCommandHandlerTests
     public async Task Handle_WhenStripeRefundSucceeds_ShouldSetRefundedStatusAndEnqueueEvent()
     {
         await using var dbContext = CreateDbContext();
-        var payment = await AddStripePaymentAsync(dbContext, "pi_stripe_001");
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_stripe_001");
 
         var stripePaymentService = new Mock<IStripePaymentService>();
         stripePaymentService
@@ -142,7 +142,7 @@ public class RefundPaymentCommandHandlerTests
     public async Task Handle_WhenStripeRefundHasFailedStatus_ShouldReturnFailureAndNotMarkRefunded(string stripeStatus)
     {
         await using var dbContext = CreateDbContext();
-        var payment = await AddStripePaymentAsync(dbContext, "pi_stripe_002");
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_stripe_002");
 
         var stripePaymentService = new Mock<IStripePaymentService>();
         stripePaymentService
@@ -166,7 +166,7 @@ public class RefundPaymentCommandHandlerTests
     public async Task Handle_WhenStripeRefundThrows_ShouldReturnSanitizedFailureAndNotMarkRefunded()
     {
         await using var dbContext = CreateDbContext();
-        var payment = await AddStripePaymentAsync(dbContext, "pi_stripe_003");
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_stripe_003");
 
         var stripePaymentService = new Mock<IStripePaymentService>();
         stripePaymentService
