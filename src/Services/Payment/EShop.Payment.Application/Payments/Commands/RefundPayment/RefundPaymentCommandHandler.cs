@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Messaging.Events;
+using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
@@ -13,17 +14,20 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
 {
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentProcessor _paymentProcessor;
+    private readonly IStripePaymentService _stripePaymentService;
     private readonly IPublishEndpoint _publishEndpoint;
     private readonly IUnitOfWork _unitOfWork;
 
     public RefundPaymentCommandHandler(
         IPaymentRepository paymentRepository,
         IPaymentProcessor paymentProcessor,
+        IStripePaymentService stripePaymentService,
         IPublishEndpoint publishEndpoint,
         IUnitOfWork unitOfWork)
     {
         _paymentRepository = paymentRepository;
         _paymentProcessor = paymentProcessor;
+        _stripePaymentService = stripePaymentService;
         _publishEndpoint = publishEndpoint;
         _unitOfWork = unitOfWork;
     }
@@ -53,10 +57,9 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
                 "Refund amount must be greater than 0 and less than or equal to original amount."));
         }
 
-        var refundResult = await _paymentProcessor.RefundPaymentAsync(
-            payment.PaymentIntentId,
-            refundAmount,
-            cancellationToken);
+        var refundResult = string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase)
+            ? await RefundStripePaymentAsync(payment, refundAmount, cancellationToken)
+            : await _paymentProcessor.RefundPaymentAsync(payment.PaymentIntentId, refundAmount, cancellationToken);
 
         if (!refundResult.Success)
         {
@@ -82,5 +85,32 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
         }, cancellationToken);
 
         return Result<PaymentDto>.Success(payment.ToDto());
+    }
+
+    private async Task<PaymentResult> RefundStripePaymentAsync(
+        PaymentTransaction payment,
+        decimal refundAmount,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stripeRefund = await _stripePaymentService.CreateRefundAsync(
+                payment.PaymentIntentId,
+                refundAmount,
+                payment.Currency,
+                cancellationToken);
+
+            if (string.Equals(stripeRefund.Status, "failed", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(stripeRefund.Status, "canceled", StringComparison.OrdinalIgnoreCase))
+            {
+                return PaymentResult.Failed($"Stripe refund failed with status '{stripeRefund.Status}'.");
+            }
+
+            return PaymentResult.Successful(payment.PaymentIntentId);
+        }
+        catch (Exception ex)
+        {
+            return PaymentResult.Failed(ex.Message);
+        }
     }
 }
