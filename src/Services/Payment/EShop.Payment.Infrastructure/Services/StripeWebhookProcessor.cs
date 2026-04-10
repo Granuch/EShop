@@ -6,6 +6,7 @@ using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace EShop.Payment.Infrastructure.Services;
 
@@ -60,7 +61,11 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         if (payment is null)
         {
             await _paymentRepository.AddProcessedStripeEventAsync(processedEvent, cancellationToken);
-            await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);
+            var savedNoPayment = await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);
+            if (!savedNoPayment)
+            {
+                return new StripeWebhookProcessResult(true, false, stripeEvent.Id, stripeEvent.Type);
+            }
             _logger.LogWarning("Stripe webhook event {EventId} has no matching payment for intent {PaymentIntentId}", stripeEvent.Id, stripeEvent.PaymentIntentId);
             return new StripeWebhookProcessResult(false, false, stripeEvent.Id, stripeEvent.Type);
         }
@@ -113,7 +118,11 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         }
 
         await _paymentRepository.AddProcessedStripeEventAsync(processedEvent, cancellationToken);
-        await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);
+        var saved = await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);
+        if (!saved)
+        {
+            return new StripeWebhookProcessResult(true, true, stripeEvent.Id, stripeEvent.Type);
+        }
 
         if (publishSuccess)
         {
@@ -153,15 +162,27 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         return new StripeWebhookProcessResult(false, true, stripeEvent.Id, stripeEvent.Type);
     }
 
-    private async Task SaveIdempotentAsync(string eventId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Persists pending changes and returns <c>true</c> if the save succeeded,
+    /// or <c>false</c> if it was rejected as a duplicate (unique-constraint violation on EventId).
+    /// Any other database error is rethrown so it is not silently swallowed.
+    /// </summary>
+    private async Task<bool> SaveIdempotentAsync(string eventId, CancellationToken cancellationToken)
     {
         try
         {
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
         }
-        catch (DbUpdateException ex)
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
             _logger.LogInformation(ex, "Duplicate Stripe webhook event ignored: {EventId}", eventId);
+            return false;
         }
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
     }
 }

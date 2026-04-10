@@ -6,6 +6,7 @@ using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace EShop.Payment.UnitTests.Payments;
@@ -20,6 +21,22 @@ public class CreatePaymentIntentCommandHandlerTests
             .Options;
 
         return new PaymentDbContext(options);
+    }
+
+    private static CreatePaymentIntentCommandHandler CreateHandler(
+        PaymentDbContext dbContext,
+        IStripeCustomerService? stripeCustomerService = null,
+        IStripePaymentService? stripePaymentService = null,
+        IIntegrationEventOutbox? outbox = null)
+    {
+        var repository = new PaymentRepository(dbContext);
+        return new CreatePaymentIntentCommandHandler(
+            repository,
+            stripeCustomerService ?? Mock.Of<IStripeCustomerService>(),
+            stripePaymentService ?? Mock.Of<IStripePaymentService>(),
+            outbox ?? Mock.Of<IIntegrationEventOutbox>(),
+            dbContext,
+            Mock.Of<ILogger<CreatePaymentIntentCommandHandler>>());
     }
 
     [Test]
@@ -45,7 +62,8 @@ public class CreatePaymentIntentCommandHandlerTests
             stripeCustomerService.Object,
             stripePaymentService.Object,
             outbox.Object,
-            dbContext);
+            dbContext,
+            Mock.Of<ILogger<CreatePaymentIntentCommandHandler>>());
 
         var result = await handler.Handle(new CreatePaymentIntentCommand(
             Guid.NewGuid(),
@@ -86,7 +104,8 @@ public class CreatePaymentIntentCommandHandlerTests
             Mock.Of<IStripeCustomerService>(),
             Mock.Of<IStripePaymentService>(),
             Mock.Of<IIntegrationEventOutbox>(),
-            dbContext);
+            dbContext,
+            Mock.Of<ILogger<CreatePaymentIntentCommandHandler>>());
 
         var result = await handler.Handle(new CreatePaymentIntentCommand(
             Guid.Parse("11111111-1111-1111-1111-111111111111"),
@@ -97,5 +116,88 @@ public class CreatePaymentIntentCommandHandlerTests
 
         Assert.That(result.IsFailure, Is.True);
         Assert.That(result.Error!.Code, Is.EqualTo("PAYMENT_ALREADY_EXISTS"));
+    }
+
+    [Test]
+    public async Task Handle_WhenCustomerCreationFails_ShouldMarkPaymentFailedAndEnqueueFailedEvent()
+    {
+        await using var dbContext = CreateDbContext();
+
+        var stripeCustomerService = new Mock<IStripeCustomerService>();
+        stripeCustomerService
+            .Setup(x => x.CreateOrGetCustomerAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Stripe customer API error"));
+
+        var outbox = new Mock<IIntegrationEventOutbox>();
+
+        var handler = CreateHandler(dbContext, stripeCustomerService.Object, outbox: outbox.Object);
+
+        var result = await handler.Handle(new CreatePaymentIntentCommand(
+            Guid.NewGuid(), "user-1", 50m, "USD", "user@test.com"), CancellationToken.None);
+
+        Assert.That(result.IsFailure, Is.True);
+        Assert.That(result.Error!.Code, Is.EqualTo("STRIPE_PAYMENT_INTENT_FAILED"));
+
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Never);
+
+        var payment = dbContext.PaymentTransactions.Single();
+        Assert.That(payment.Status, Is.EqualTo(EShop.Payment.Domain.Entities.PaymentStatus.Failed));
+        Assert.That(payment.ErrorMessage, Is.EqualTo("Failed to create Stripe payment intent."));
+    }
+
+    [Test]
+    public async Task Handle_WhenIntentCreationFails_ShouldMarkPaymentFailedAndEnqueueFailedEvent()
+    {
+        await using var dbContext = CreateDbContext();
+
+        var stripeCustomerService = new Mock<IStripeCustomerService>();
+        stripeCustomerService
+            .Setup(x => x.CreateOrGetCustomerAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("cus_test_123");
+
+        var stripePaymentService = new Mock<IStripePaymentService>();
+        stripePaymentService
+            .Setup(x => x.CreatePaymentIntentAsync(It.IsAny<StripePaymentIntentRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Stripe payment intent API error"));
+
+        var outbox = new Mock<IIntegrationEventOutbox>();
+
+        var handler = CreateHandler(dbContext, stripeCustomerService.Object, stripePaymentService.Object, outbox.Object);
+
+        var result = await handler.Handle(new CreatePaymentIntentCommand(
+            Guid.NewGuid(), "user-1", 75m, "EUR", "user@test.com"), CancellationToken.None);
+
+        Assert.That(result.IsFailure, Is.True);
+        Assert.That(result.Error!.Code, Is.EqualTo("STRIPE_PAYMENT_INTENT_FAILED"));
+
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Never);
+
+        var payment = dbContext.PaymentTransactions.Single();
+        Assert.That(payment.Status, Is.EqualTo(EShop.Payment.Domain.Entities.PaymentStatus.Failed));
+        Assert.That(payment.ErrorMessage, Is.EqualTo("Failed to create Stripe payment intent."));
+    }
+
+    [TestCase("  USD  ", "USD")]
+    [TestCase("   ", "USD")]
+    [TestCase(null, "USD")]
+    [TestCase("eur", "EUR")]
+    public async Task Handle_CurrencyNormalization_ShouldStoreNormalizedCurrency(string? inputCurrency, string expectedCurrency)
+    {
+        await using var dbContext = CreateDbContext();
+
+        var stripeCustomerService = new Mock<IStripeCustomerService>();
+        stripeCustomerService
+            .Setup(x => x.CreateOrGetCustomerAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("stop early"));
+
+        var handler = CreateHandler(dbContext, stripeCustomerService.Object);
+
+        await handler.Handle(new CreatePaymentIntentCommand(
+            Guid.NewGuid(), "user-1", 10m, inputCurrency, null), CancellationToken.None);
+
+        var payment = dbContext.PaymentTransactions.Single();
+        Assert.That(payment.Currency, Is.EqualTo(expectedCurrency));
     }
 }

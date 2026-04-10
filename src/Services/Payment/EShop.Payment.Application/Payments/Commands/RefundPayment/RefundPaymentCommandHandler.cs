@@ -7,6 +7,7 @@ using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace EShop.Payment.Application.Payments.Commands.RefundPayment;
 
@@ -17,19 +18,22 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
     private readonly IStripePaymentService _stripePaymentService;
     private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<RefundPaymentCommandHandler> _logger;
 
     public RefundPaymentCommandHandler(
         IPaymentRepository paymentRepository,
         IPaymentProcessor paymentProcessor,
         IStripePaymentService stripePaymentService,
         IIntegrationEventOutbox integrationEventOutbox,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<RefundPaymentCommandHandler> logger)
     {
         _paymentRepository = paymentRepository;
         _paymentProcessor = paymentProcessor;
         _stripePaymentService = stripePaymentService;
         _integrationEventOutbox = integrationEventOutbox;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<PaymentDto>> Handle(RefundPaymentCommand request, CancellationToken cancellationToken)
@@ -110,7 +114,8 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
         }
         catch (Exception ex)
         {
-            return PaymentResult.Failed(ex.Message);
+            _logger.LogError(ex, "Stripe refund failed for payment {PaymentId} (intent {PaymentIntentId})", payment.Id, payment.PaymentIntentId);
+            return PaymentResult.Failed("An error occurred while processing the refund. Please try again later.");
         }
     }
 }

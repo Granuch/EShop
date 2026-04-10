@@ -6,6 +6,7 @@ using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using MediatR;
+using Microsoft.Extensions.Logging;
 
 namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 
@@ -16,19 +17,22 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
     private readonly IStripePaymentService _stripePaymentService;
     private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<CreatePaymentIntentCommandHandler> _logger;
 
     public CreatePaymentIntentCommandHandler(
         IPaymentRepository paymentRepository,
         IStripeCustomerService stripeCustomerService,
         IStripePaymentService stripePaymentService,
         IIntegrationEventOutbox integrationEventOutbox,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<CreatePaymentIntentCommandHandler> logger)
     {
         _paymentRepository = paymentRepository;
         _stripeCustomerService = stripeCustomerService;
         _stripePaymentService = stripePaymentService;
         _integrationEventOutbox = integrationEventOutbox;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<CreatePaymentIntentDto>> Handle(CreatePaymentIntentCommand request, CancellationToken cancellationToken)
@@ -47,7 +51,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
             OrderId = request.OrderId,
             UserId = request.UserId,
             Amount = request.Amount,
-            Currency = (request.Currency ?? "USD").ToUpperInvariant(),
+            Currency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim().ToUpperInvariant(),
             PaymentMethod = "Stripe",
             Status = PaymentStatus.Processing,
             CreatedAt = DateTime.UtcNow,
@@ -99,8 +103,10 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to create Stripe payment intent for order {OrderId} and user {UserId}", request.OrderId, request.UserId);
+
             payment.Status = PaymentStatus.Failed;
-            payment.ErrorMessage = ex.Message;
+            payment.ErrorMessage = "Failed to create Stripe payment intent.";
             payment.StripeStatus = "failed";
             payment.ProcessedAt = DateTime.UtcNow;
             payment.UpdatedAt = DateTime.UtcNow;

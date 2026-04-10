@@ -25,8 +25,17 @@ public static class PaymentEndpoints
             CreatePaymentIntentRequest request,
             ClaimsPrincipal user,
             IMediator mediator,
+            IOptions<StripeSettings> stripeOptions,
             CancellationToken cancellationToken) =>
         {
+            if (!stripeOptions.Value.Enabled)
+            {
+                return Results.Problem(
+                    detail: "Stripe payments are not enabled.",
+                    title: "STRIPE_NOT_ENABLED",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
             if (!TryResolveUserContext(user, out var subjectId, out var authError))
             {
                 return authError!;
@@ -241,6 +250,11 @@ public static class PaymentEndpoints
         {
             var stripeSettings = stripeOptions.Value;
 
+            if (!stripeSettings.Enabled)
+            {
+                return Results.NotFound();
+            }
+
             if (!request.Headers.TryGetValue("Stripe-Signature", out var signatureHeader)
                 || string.IsNullOrWhiteSpace(signatureHeader))
             {
@@ -283,6 +297,10 @@ public static class PaymentEndpoints
             catch (ArgumentException ex) when (ex.Message == "Invalid Stripe webhook signature.")
             {
                 return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return Results.BadRequest(new { error = "Invalid webhook payload." });
             }
         })
         .WithTags("Stripe Webhooks")

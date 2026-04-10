@@ -15,7 +15,8 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
                 table: "PaymentTransactions",
                 type: "xid",
                 rowVersion: true,
-                nullable: false);
+                nullable: false,
+                defaultValue: 0u);
         }
 
         /// <inheritdoc />
