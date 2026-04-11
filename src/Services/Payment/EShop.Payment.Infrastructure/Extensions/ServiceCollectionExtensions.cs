@@ -1,12 +1,14 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
-using EShop.Payment.Application.Consumers;
+using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Infrastructure.Consumers;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
 using EShop.Payment.Infrastructure.Services;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +26,24 @@ public static class ServiceCollectionExtensions
         services.Configure<PaymentSimulationSettings>(
             configuration.GetSection(PaymentSimulationSettings.SectionName));
 
+        services.AddOptions<StripeSettings>()
+            .Bind(configuration.GetSection(StripeSettings.SectionName))
+            .Validate(static settings =>
+                !settings.Enabled ||
+                (!string.IsNullOrWhiteSpace(settings.SecretKey)
+                 && settings.SecretKey.StartsWith("sk_test_", StringComparison.Ordinal)
+                 && (settings.SkipWebhookSignatureVerification || !string.IsNullOrWhiteSpace(settings.WebhookSecret))),
+                "Stripe sandbox mode requires SecretKey with sk_test_ prefix and webhook secret unless signature verification is explicitly skipped.")
+            .Validate(static settings =>
+                !settings.Enabled ||
+                string.IsNullOrWhiteSpace(settings.PublishableKey)
+                || settings.PublishableKey.StartsWith("pk_test_", StringComparison.Ordinal),
+                "Stripe publishable key must use pk_test_ prefix in sandbox mode.")
+            .Validate(static settings =>
+                !settings.AllowMissingSignatureHeaderInBypassMode || settings.SkipWebhookSignatureVerification,
+                "AllowMissingSignatureHeaderInBypassMode requires SkipWebhookSignatureVerification to be enabled.")
+            .ValidateOnStart();
+
         if (useInMemoryDatabase)
         {
             var dbName = inMemoryDatabaseName ?? $"PaymentTestDb_{Guid.NewGuid()}";
@@ -40,6 +60,9 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IPaymentProcessor, MockPaymentProcessor>();
+        services.AddScoped<IStripeCustomerService, StripeCustomerService>();
+        services.AddScoped<IStripePaymentService, StripePaymentService>();
+        services.AddScoped<IStripeWebhookProcessor, StripeWebhookProcessor>();
 
         services.AddHealthChecks();
 

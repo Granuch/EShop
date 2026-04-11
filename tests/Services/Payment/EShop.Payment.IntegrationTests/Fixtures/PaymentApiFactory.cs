@@ -37,7 +37,10 @@ public class PaymentApiFactory : WebApplicationFactory<Program>
                 ["PaymentSimulation:ProcessingDelayMinSeconds"] = "0",
                 ["PaymentSimulation:ProcessingDelayMaxSeconds"] = "0",
                 ["PaymentSimulation:RefundDelaySeconds"] = "0",
-                ["PaymentSimulation:SuccessRatePercent"] = "100"
+                ["PaymentSimulation:SuccessRatePercent"] = "100",
+                ["Stripe:Enabled"] = "false",
+                ["Stripe:SkipWebhookSignatureVerification"] = "false",
+                ["Stripe:AllowMissingSignatureHeaderInBypassMode"] = "false"
             };
 
             configBuilder.AddInMemoryCollection(settings);
@@ -64,9 +67,6 @@ public class PaymentApiFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IPaymentProcessor>();
             services.AddScoped<IPaymentProcessor, MockPaymentProcessor>();
-
-            services.RemoveAll<IPublishEndpoint>();
-            services.AddSingleton(Mock.Of<IPublishEndpoint>());
         });
     }
 }

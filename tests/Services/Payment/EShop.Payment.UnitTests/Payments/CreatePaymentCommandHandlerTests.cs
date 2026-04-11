@@ -1,10 +1,10 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Commands.CreatePayment;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 
@@ -42,7 +42,7 @@ public class CreatePaymentCommandHandlerTests
         var handler = new CreatePaymentCommandHandler(
             repository,
             Mock.Of<IPaymentProcessor>(),
-            Mock.Of<IPublishEndpoint>(),
+            Mock.Of<IIntegrationEventOutbox>(),
             dbContext);
 
         var result = await handler.Handle(new CreatePaymentCommand(
@@ -67,12 +67,12 @@ public class CreatePaymentCommandHandlerTests
         processor.Setup(x => x.ProcessPaymentAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PaymentResult.Successful("pi_handler"));
 
-        var publish = new Mock<IPublishEndpoint>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
 
         var handler = new CreatePaymentCommandHandler(
             repository,
             processor.Object,
-            publish.Object,
+            outbox.Object,
             dbContext);
 
         var result = await handler.Handle(new CreatePaymentCommand(
@@ -85,8 +85,8 @@ public class CreatePaymentCommandHandlerTests
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value!.Status, Is.EqualTo("SUCCESS"));
-        publish.Verify(x => x.Publish(It.IsAny<PaymentCreatedEvent>(), It.IsAny<CancellationToken>()), Times.Once);
-        publish.Verify(x => x.Publish(It.IsAny<PaymentSuccessEvent>(), It.IsAny<CancellationToken>()), Times.Once);
-        publish.Verify(x => x.Publish(It.IsAny<PaymentCompletedEvent>(), It.IsAny<CancellationToken>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCompletedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 }
