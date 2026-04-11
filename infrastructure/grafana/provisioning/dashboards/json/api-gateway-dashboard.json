@@ -16,7 +16,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(gateway_requests_total[1m])) by (mode)",
+          "expr": "sum(rate(gateway_requests_requests_total[1m])) by (mode)",
           "legendFormat": "{{mode}}",
           "refId": "A"
         }
@@ -30,7 +30,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(gateway_request_duration_ms_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(gateway_request_duration_ms_milliseconds_bucket[5m])) by (le))",
           "legendFormat": "p95",
           "refId": "A"
         }
@@ -44,12 +44,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(gateway_email_queued_total[1m])) by (event_type)",
+          "expr": "sum(rate(gateway_email_queued_notifications_total[1m])) by (event_type)",
           "legendFormat": "queued {{event_type}}",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(gateway_email_sent_total[1m])) by (status)",
+          "expr": "sum(rate(gateway_email_sent_emails_total[1m])) by (status)",
           "legendFormat": "sent {{status}}",
           "refId": "B"
         }
@@ -63,12 +63,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(gateway_simulated_failures_total[1m]))",
+          "expr": "sum(rate(gateway_simulated_failures_failures_total[1m]))",
           "legendFormat": "simulated failures",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(gateway_rate_limited_total[1m]))",
+          "expr": "sum(rate(gateway_rate_limited_requests_total[1m]))",
           "legendFormat": "rate limited",
           "refId": "B"
         }

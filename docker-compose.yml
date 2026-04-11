@@ -645,6 +645,13 @@ services:
       PaymentSimulation__SuccessRatePercent: ${PAYMENT_SUCCESS_RATE_PERCENT:-80}
       PaymentSimulation__RefundDelaySeconds: ${PAYMENT_REFUND_DELAY_SECONDS:-2}
 
+      Stripe__Enabled: ${STRIPE_ENABLED:-false}
+      Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-true}
+      Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-true}
+      Stripe__SecretKey: ${STRIPE_SECRET_KEY:-}
+      Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY:-}
+      Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:-}
+
       OpenTelemetry__Enabled: "true"
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
       OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"
@@ -654,6 +661,8 @@ services:
       Serilog__WriteTo__2__Name: Seq
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
+    ports:
+      - "${PAYMENT_API_PORT:-7008}:8080"
     volumes:
       - payment-logs:/app/logs
     networks:
@@ -667,6 +676,29 @@ services:
       start_period: 60s
     profiles:
       - production
+      - sandbox
+
+  # ============================================
+  # Stripe CLI Listener (Sandbox webhook bridge)
+  # ============================================
+  stripe-listener:
+    image: stripe/stripe-cli:latest
+    container_name: eshop-stripe-listener
+    restart: unless-stopped
+    depends_on:
+      payment-api:
+        condition: service_healthy
+    command:
+      - listen
+      - --api-key
+      - ${STRIPE_SECRET_KEY:-}
+      - --forward-to
+      - http://payment-api:8080/webhooks/stripe
+      - --events
+      - payment_intent.created,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.succeeded,charge.failed,charge.updated
+    networks:
+      - eshop-network
+    profiles:
       - sandbox
 
   # ============================================

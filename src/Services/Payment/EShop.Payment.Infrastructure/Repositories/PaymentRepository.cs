@@ -26,6 +26,12 @@ public class PaymentRepository : IPaymentRepository
             .FirstOrDefaultAsync(x => x.OrderId == orderId, cancellationToken);
     }
 
+    public Task<PaymentTransaction?> GetByPaymentIntentIdAsync(string paymentIntentId, CancellationToken cancellationToken = default)
+    {
+        return _context.PaymentTransactions
+            .FirstOrDefaultAsync(x => x.PaymentIntentId == paymentIntentId, cancellationToken);
+    }
+
     public Task<List<PaymentTransaction>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
     {
         return _context.PaymentTransactions
@@ -38,6 +44,28 @@ public class PaymentRepository : IPaymentRepository
     public async Task AddAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
     {
         await _context.PaymentTransactions.AddAsync(payment, cancellationToken);
+    }
+
+    public Task<PaymentCustomer?> GetCustomerByUserIdAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        return _context.PaymentCustomers
+            .FirstOrDefaultAsync(x => x.UserId == userId, cancellationToken);
+    }
+
+    public async Task AddCustomerAsync(PaymentCustomer customer, CancellationToken cancellationToken = default)
+    {
+        await _context.PaymentCustomers.AddAsync(customer, cancellationToken);
+    }
+
+    public Task<bool> IsStripeEventProcessedAsync(string eventId, CancellationToken cancellationToken = default)
+    {
+        return _context.ProcessedStripeWebhookEvents
+            .AnyAsync(x => x.EventId == eventId, cancellationToken);
+    }
+
+    public async Task AddProcessedStripeEventAsync(ProcessedStripeWebhookEvent processedEvent, CancellationToken cancellationToken = default)
+    {
+        await _context.ProcessedStripeWebhookEvents.AddAsync(processedEvent, cancellationToken);
     }
 
     public Task UpdateAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
