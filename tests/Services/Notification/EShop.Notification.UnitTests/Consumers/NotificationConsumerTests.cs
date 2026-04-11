@@ -477,4 +477,58 @@ public class NotificationConsumerTests
             It.IsAny<PaymentCompletedEmailModel>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Test]
+    public async Task PasswordResetRequestedConsumer_WhenRecipientResolved_ShouldSendAndMarkSent()
+    {
+        await using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PasswordResetRequestedIntegrationEvent
+        {
+            EventId = Guid.NewGuid(),
+            UserId = "user-reset",
+            ResetToken = "token-value"
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecipientAddress("reset@test.com", "Reset User"));
+
+        emailService.Setup(x => x.SendPasswordResetAsync(
+                It.IsAny<RecipientAddress>(),
+                It.IsAny<PasswordResetEmailModel>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var options = Options.Create(new PasswordResetSettings
+        {
+            ResetUrlBase = "https://frontend/reset-password"
+        });
+
+        var consumer = new PasswordResetRequestedConsumer(
+            dbContext,
+            repo.Object,
+            resolver.Object,
+            emailService.Object,
+            options,
+            Mock.Of<ILogger<PasswordResetRequestedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PasswordResetRequestedIntegrationEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        emailService.Verify(x => x.SendPasswordResetAsync(
+            It.IsAny<RecipientAddress>(),
+            It.Is<PasswordResetEmailModel>(m => m.ResetLink.Contains("userId=user-reset", StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(x => x.UpdateAsync(It.Is<NotificationLog>(l => l.Status == NotificationStatus.Sent), It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

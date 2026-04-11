@@ -19,7 +19,25 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
 
     public async Task<Result<Guid>> Handle(CreateCategoryCommand request, CancellationToken cancellationToken)
     {
-        var category = Category.Create(request.Name, request.Slug, request.ParentCategoryId);
+        Category category;
+
+        if (request.ParentCategoryId.HasValue)
+        {
+            var parentCategory = await _categoryRepository.GetById(request.ParentCategoryId.Value, cancellationToken);
+            if (parentCategory is null)
+            {
+                return Result<Guid>.Failure(new Error(
+                    "Category.ParentNotFound",
+                    $"Parent category with ID '{request.ParentCategoryId.Value}' was not found."));
+            }
+
+            category = Category.Create(request.Name, request.Slug, null);
+            category.SetParent(parentCategory);
+        }
+        else
+        {
+            category = Category.Create(request.Name, request.Slug, null);
+        }
 
         await _categoryRepository.AddAsync(category, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

@@ -1,7 +1,9 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Identity.Domain.Entities;
-using EShop.Identity.Domain.Events;
 using EShop.Identity.Application.Telemetry;
 using EShop.Identity.Domain.Security;
 using Microsoft.AspNetCore.Identity;
@@ -15,13 +17,22 @@ namespace EShop.Identity.Application.Auth.Commands.ForgotPassword;
 public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordCommand, Result<ForgotPasswordResponse>>
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IIntegrationEventOutbox _outbox;
+    private readonly ICurrentUserContext _currentUserContext;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ForgotPasswordCommandHandler> _logger;
 
     public ForgotPasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
+        IIntegrationEventOutbox outbox,
+        ICurrentUserContext currentUserContext,
+        IUnitOfWork unitOfWork,
         ILogger<ForgotPasswordCommandHandler> logger)
     {
         _userManager = userManager;
+        _outbox = outbox;
+        _currentUserContext = currentUserContext;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -45,10 +56,13 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         // Generate password reset token
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
 
-        // TODO: EXTERNAL INTEGRATION REQUIRED
-        // Send email with reset link using IEmailService
-        // Example:
-        // await _emailService.SendPasswordResetEmailAsync(user.Email!, user.Id, token);
+        _outbox.Enqueue(new PasswordResetRequestedIntegrationEvent
+        {
+            UserId = user.Id,
+            ResetToken = token,
+            CorrelationId = _currentUserContext.CorrelationId
+        }, _currentUserContext.CorrelationId);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Password reset token generated. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordForgotPassword();

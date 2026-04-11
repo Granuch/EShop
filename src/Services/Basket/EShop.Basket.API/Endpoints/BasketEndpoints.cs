@@ -44,8 +44,6 @@ public static class BasketEndpoints
             {
                 UserId = userId,
                 ProductId = request.ProductId,
-                ProductName = request.ProductName,
-                Price = request.Price,
                 Quantity = request.Quantity
             };
 
@@ -158,7 +156,7 @@ public static class BasketEndpoints
     }
 }
 
-public record AddItemToBasketRequest(Guid ProductId, string ProductName, decimal Price, int Quantity);
+public record AddItemToBasketRequest(Guid ProductId, int Quantity);
 
 public record UpdateBasketItemQuantityRequest(int Quantity);
 
