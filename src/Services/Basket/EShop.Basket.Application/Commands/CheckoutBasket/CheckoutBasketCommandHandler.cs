@@ -123,6 +123,10 @@ public class CheckoutBasketCommandHandler : IRequestHandler<CheckoutBasketComman
 
             return Result<Guid>.Success(domainEvent.EventId);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _metrics.RecordCheckout("failure");

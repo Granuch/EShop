@@ -82,7 +82,8 @@ public class OutboxProcessorService : BackgroundService
                 _logger.LogCritical(
                     "DbContext base type is not registered in DI. OutboxProcessorService cannot function. " +
                     "Add: services.AddScoped<DbContext>(sp => sp.GetRequiredService<YourDbContext>())");
-                return;
+                throw new InvalidOperationException(
+                    "DbContext base type is not registered in DI. OutboxProcessorService cannot function.");
             }
         }
 

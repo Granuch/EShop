@@ -52,6 +52,15 @@ public class RedisBasketRepository : IBasketRepository
             return null;
         }
 
+        if (!string.Equals(document.UserId, userId, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Basket payload user mismatch for key user {RequestedUserId}. Document contains user {DocumentUserId}. Treating record as corrupted.",
+                userId,
+                document.UserId);
+            return null;
+        }
+
         var createdAt = document.CreatedAt == default ? DateTime.UtcNow : document.CreatedAt;
         var lastModifiedAt = document.LastModifiedAt == default ? createdAt : document.LastModifiedAt;
 

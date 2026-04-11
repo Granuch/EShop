@@ -201,4 +201,50 @@ public class CheckoutBasketCommandHandlerTests
         idempotencyStore.Verify(x => x.ReleaseProcessingAsync("user-1", It.IsAny<CancellationToken>()), Times.Once);
         metrics.Verify(x => x.RecordCheckout("success"), Times.Once);
     }
+
+    [Test]
+    public void Handle_WhenRequestIsCanceled_ShouldRethrowOperationCanceledException()
+    {
+        var repository = new Mock<IBasketRepository>();
+        repository
+            .Setup(x => x.GetBasketAsync("user-1", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var idempotencyStore = new Mock<ICheckoutIdempotencyStore>();
+        idempotencyStore
+            .Setup(x => x.GetCompletedCheckoutIdAsync("user-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid?)null);
+        idempotencyStore
+            .Setup(x => x.TryBeginProcessingAsync("user-1", It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        idempotencyStore
+            .Setup(x => x.ReleaseProcessingAsync("user-1", It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var mediator = new Mock<IMediator>(MockBehavior.Strict);
+        var logger = new Mock<ILogger<CheckoutBasketCommandHandler>>();
+        var metrics = new Mock<IBasketMetrics>();
+        metrics
+            .Setup(x => x.MeasureOperation(It.IsAny<string>()))
+            .Returns(Mock.Of<IDisposable>());
+
+        var handler = new CheckoutBasketCommandHandler(
+            repository.Object,
+            idempotencyStore.Object,
+            mediator.Object,
+            logger.Object,
+            metrics.Object);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Assert.ThrowsAsync<OperationCanceledException>(() => handler.Handle(new CheckoutBasketCommand
+        {
+            UserId = "user-1",
+            ShippingAddress = "Street",
+            PaymentMethod = "Card"
+        }, cts.Token));
+
+        metrics.Verify(x => x.RecordCheckout("failure"), Times.Never);
+    }
 }
