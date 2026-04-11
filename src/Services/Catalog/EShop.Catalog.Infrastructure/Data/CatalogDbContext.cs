@@ -82,6 +82,7 @@ public class CatalogDbContext : BaseDbContext
                 .HasDatabaseName("IX_Products_Sku_Trgm")
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops")
+                // Trigram index must stay non-unique; SKU uniqueness is enforced by the dedicated B-tree index above.
                 .IsUnique(false);
 
             entity.HasMany(p => p.Images)

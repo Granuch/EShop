@@ -141,7 +141,20 @@ public class CheckoutBasketCommandHandler : IRequestHandler<CheckoutBasketComman
         {
             if (processingLockAcquired)
             {
-                await _checkoutIdempotencyStore.ReleaseProcessingAsync(request.UserId, cancellationToken);
+                try
+                {
+                    await _checkoutIdempotencyStore.ReleaseProcessingAsync(request.UserId, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception releaseEx)
+                {
+                    _logger.LogWarning(releaseEx,
+                        "Failed to release checkout processing lock. UserId={UserId}",
+                        request.UserId);
+                }
             }
         }
     }

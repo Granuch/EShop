@@ -2,13 +2,17 @@ using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using EShop.Notification.Application.Abstractions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace EShop.Notification.Infrastructure.Services;
 
 public sealed class TemplateRenderer : ITemplateRenderer
 {
     private readonly string _templatesRoot;
-    private readonly ConcurrentDictionary<string, string> _templateCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly MemoryCache _templateCache = new(new MemoryCacheOptions
+    {
+        SizeLimit = 64
+    });
 
     public TemplateRenderer(IHostEnvironment environment)
     {
@@ -41,7 +45,8 @@ public sealed class TemplateRenderer : ITemplateRenderer
 
     private async Task<string> GetTemplateAsync(string templateName, CancellationToken ct)
     {
-        if (_templateCache.TryGetValue(templateName, out var cachedTemplate))
+        if (_templateCache.TryGetValue(templateName, out string? cachedTemplate)
+            && cachedTemplate is not null)
         {
             return cachedTemplate;
         }
@@ -56,7 +61,15 @@ public sealed class TemplateRenderer : ITemplateRenderer
         using var reader = new StreamReader(stream);
         var template = await reader.ReadToEndAsync(ct);
 
-        _templateCache[templateName] = template;
+        _templateCache.Set(
+            templateName,
+            template,
+            new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = TimeSpan.FromMinutes(30),
+                Size = 1
+            });
+
         return template;
     }
 }
