@@ -8,6 +8,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="Stripe.net" Version="49.0.0" />
     <ProjectReference Include="..\EShop.Payment.Domain\EShop.Payment.Domain.csproj" />
     <ProjectReference Include="..\EShop.Payment.Application\EShop.Payment.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\EShop.BuildingBlocks.Infrastructure\EShop.BuildingBlocks.Infrastructure.csproj" />
