@@ -54,6 +54,10 @@ public class PaymentSuccessConsumerTests
             _orderRepositoryMock.Object,
             _unitOfWorkMock.Object,
             cachingOptions,
+            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions
+            {
+                AutoShipOnPaymentSuccess = true
+            }),
             Mock.Of<ILogger<PaymentSuccessConsumer>>());
     }
 
@@ -168,6 +172,50 @@ public class PaymentSuccessConsumerTests
     }
 
     [Test]
+    public async Task Consume_WhenAutoShipDisabled_ShouldMarkAsPaidOnly()
+    {
+        var options = new DbContextOptionsBuilder<OrderingDbContext>()
+            .UseInMemoryDatabase($"PaymentSuccessTests_Disabled_{Guid.NewGuid()}")
+            .Options;
+
+        using var dbContext = new OrderingDbContext(options);
+        var orderRepository = new Mock<IOrderRepository>();
+        var unitOfWork = new Mock<IUnitOfWork>();
+        var cache = new Mock<IDistributedCache>();
+
+        var order = CreatePendingOrder();
+        var message = new PaymentSuccessEvent
+        {
+            OrderId = order.Id,
+            PaymentIntentId = "pi_paid_only",
+            Amount = 10m,
+            ProcessedAt = DateTime.UtcNow
+        };
+
+        orderRepository
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+        unitOfWork
+            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+
+        var consumer = new PaymentSuccessConsumer(
+            dbContext,
+            cache.Object,
+            orderRepository.Object,
+            unitOfWork.Object,
+            Options.Create(new CachingBehaviorOptions()),
+            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions { AutoShipOnPaymentSuccess = false }),
+            Mock.Of<ILogger<PaymentSuccessConsumer>>());
+
+        var context = CreateConsumeContext(message);
+        await consumer.Consume(context.Object);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        Assert.That(order.ShippedAt, Is.Null);
+    }
+
+    [Test]
     public async Task Consume_WhenRedisIsAvailable_ShouldInvalidateByPrefixScan()
     {
         var order = CreatePendingOrder();
@@ -212,13 +260,16 @@ public class PaymentSuccessConsumerTests
             Version = "v1",
             UseVersioning = true
         });
-
         var consumer = new PaymentSuccessConsumer(
             _dbContext,
             _cacheMock.Object,
             _orderRepositoryMock.Object,
             _unitOfWorkMock.Object,
             cachingOptions,
+            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions
+            {
+                AutoShipOnPaymentSuccess = true
+            }),
             Mock.Of<ILogger<PaymentSuccessConsumer>>(),
             multiplexer.Object);
 

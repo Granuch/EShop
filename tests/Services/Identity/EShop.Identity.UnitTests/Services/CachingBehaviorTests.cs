@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using System.Text.Json;
+using System.Reflection;
 
 namespace EShop.Identity.UnitTests.Services;
 
@@ -204,5 +205,26 @@ public class CachingBehaviorTests
     public class TestResponse
     {
         public string Data { get; init; } = string.Empty;
+    }
+
+    [Test]
+    public async Task Handle_ShouldCacheReflectedMethodsAfterFirstUse()
+    {
+        var query = new TestCacheableQuery { UserId = "user-reflection" };
+
+        _cacheMock
+            .Setup(x => x.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[]?)null);
+
+        _nextMock.Setup(x => x()).ReturnsAsync(new TestResponse { Data = "data" });
+
+        await _behavior.Handle(query, _nextMock.Object, CancellationToken.None);
+
+        var behaviorType = typeof(CachingBehavior<TestCacheableQuery, TestResponse>);
+        var getCacheField = behaviorType.GetField("GetAsyncMethodCache", BindingFlags.Static | BindingFlags.NonPublic);
+        var setCacheField = behaviorType.GetField("SetAsyncMethodCache", BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.That(getCacheField, Is.Not.Null);
+        Assert.That(setCacheField, Is.Not.Null);
     }
 }

@@ -57,6 +57,13 @@ if (startupStripeSettings.SkipWebhookSignatureVerification
         "Stripe webhook signature verification bypass is only allowed in Development, Sandbox, or Testing environments.");
 }
 
+if (startupStripeSettings.SkipWebhookSignatureVerification
+    && builder.Environment.IsEnvironment("Sandbox"))
+{
+    Log.Warning(
+        "Stripe webhook signature verification is disabled in Sandbox by design for integration testing. Never enable this bypass outside Development/Sandbox/Testing.");
+}
+
 builder.Services.AddPaymentApplication();
 builder.Services.AddPaymentInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 builder.Services.AddPaymentMessaging(

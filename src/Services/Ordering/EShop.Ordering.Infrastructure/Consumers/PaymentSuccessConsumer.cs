@@ -23,6 +23,7 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConnectionMultiplexer? _redis;
+    private readonly PaymentSuccessProcessingOptions _processingOptions;
 
     public PaymentSuccessConsumer(
         OrderingDbContext dbContext,
@@ -30,6 +31,7 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
         Microsoft.Extensions.Options.IOptions<CachingBehaviorOptions> cachingOptions,
+        Microsoft.Extensions.Options.IOptions<PaymentSuccessProcessingOptions>? processingOptions,
         ILogger<PaymentSuccessConsumer> logger,
         IConnectionMultiplexer? redis = null)
         : base(dbContext, logger)
@@ -39,6 +41,7 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
         _redis = redis;
+        _processingOptions = processingOptions?.Value ?? new PaymentSuccessProcessingOptions();
     }
 
     protected override async Task HandleAsync(ConsumeContext<PaymentSuccessEvent> context, CancellationToken cancellationToken)
@@ -75,15 +78,30 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         }
 
         order.MarkAsPaid(message.PaymentIntentId);
-        order.Ship();
+
+        if (_processingOptions.AutoShipOnPaymentSuccess)
+        {
+            order.Ship();
+        }
 
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await InvalidateUserOrdersCacheAsync(order.UserId, cancellationToken);
 
-        Logger.LogInformation("Order {OrderId} marked as paid and shipped by payment-success orchestration", message.OrderId);
+        Logger.LogInformation(
+            _processingOptions.AutoShipOnPaymentSuccess
+                ? "Order {OrderId} marked as paid and shipped by payment-success orchestration"
+                : "Order {OrderId} marked as paid by payment-success orchestration",
+            message.OrderId);
     }
+
+public sealed class PaymentSuccessProcessingOptions
+{
+    public const string SectionName = "PaymentSuccessProcessing";
+
+    public bool AutoShipOnPaymentSuccess { get; init; } = true;
+}
 
     private async Task InvalidateUserOrdersCacheAsync(string userId, CancellationToken cancellationToken)
     {

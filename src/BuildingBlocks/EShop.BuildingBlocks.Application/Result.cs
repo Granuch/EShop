@@ -54,6 +54,13 @@ public class Result<T>
     /// Implicit conversion from Error to failed Result
     /// </summary>
     public static implicit operator Result<T>(Error error) => Failure(error);
+
+    public override string ToString()
+    {
+        return IsSuccess
+            ? $"Success<{typeof(T).Name}>({Value})"
+            : $"Failure<{typeof(T).Name}>({Error?.Code}: {Error?.Message})";
+    }
 }
 
 /// <summary>
@@ -103,4 +110,11 @@ public class Result
     /// Implicit conversion from Error to failed Result
     /// </summary>
     public static implicit operator Result(Error error) => Failure(error);
+
+    public override string ToString()
+    {
+        return IsSuccess
+            ? "Success"
+            : $"Failure({Error?.Code}: {Error?.Message})";
+    }
 }
