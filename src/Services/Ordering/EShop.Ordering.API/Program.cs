@@ -142,6 +142,18 @@ try
             options.ConfigurationOptions.ReconnectRetryPolicy = new LinearRetry(5000);
         });
 
+        builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+        {
+            var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+            redisOptions.AbortOnConnectFail = false;
+            redisOptions.ConnectTimeout = 5000;
+            redisOptions.SyncTimeout = 5000;
+            redisOptions.ConnectRetry = 3;
+            redisOptions.KeepAlive = 60;
+            redisOptions.ReconnectRetryPolicy = new LinearRetry(5000);
+            return ConnectionMultiplexer.Connect(redisOptions);
+        });
+
         Log.Information("Redis distributed cache configured successfully");
     }
     else if (builder.Environment.IsEnvironment("Testing"))

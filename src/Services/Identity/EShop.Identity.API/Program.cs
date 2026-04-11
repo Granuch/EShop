@@ -175,6 +175,18 @@ try
             // options.ConfigurationOptions.ClientName = $"EShop_Identity_{Environment.MachineName}";
         });
 
+        builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ =>
+        {
+            var redisOptions = StackExchange.Redis.ConfigurationOptions.Parse(redisConnectionString);
+            redisOptions.AbortOnConnectFail = false;
+            redisOptions.ConnectTimeout = 5000;
+            redisOptions.SyncTimeout = 5000;
+            redisOptions.ConnectRetry = 3;
+            redisOptions.KeepAlive = 60;
+            redisOptions.ReconnectRetryPolicy = new StackExchange.Redis.LinearRetry(5000);
+            return StackExchange.Redis.ConnectionMultiplexer.Connect(redisOptions);
+        });
+
         Log.Information("Redis distributed cache configured successfully");
     }
     else if (builder.Environment.IsEnvironment("Testing"))

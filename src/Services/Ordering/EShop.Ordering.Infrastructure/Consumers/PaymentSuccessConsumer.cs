@@ -8,6 +8,7 @@ using MassTransit;
 using Microsoft.Extensions.Caching.Distributed;
 using EShop.BuildingBlocks.Application.Caching;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 
 namespace EShop.Ordering.Infrastructure.Consumers;
 
@@ -21,6 +22,7 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
     private readonly CachingBehaviorOptions _cachingOptions;
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IConnectionMultiplexer? _redis;
 
     public PaymentSuccessConsumer(
         OrderingDbContext dbContext,
@@ -28,13 +30,15 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
         Microsoft.Extensions.Options.IOptions<CachingBehaviorOptions> cachingOptions,
-        ILogger<PaymentSuccessConsumer> logger)
+        ILogger<PaymentSuccessConsumer> logger,
+        IConnectionMultiplexer? redis = null)
         : base(dbContext, logger)
     {
         _cache = cache;
         _cachingOptions = cachingOptions.Value;
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
+        _redis = redis;
     }
 
     protected override async Task HandleAsync(ConsumeContext<PaymentSuccessEvent> context, CancellationToken cancellationToken)
@@ -76,14 +80,59 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var baseUserOrdersKey = $"orders:user:{order.UserId}:";
+        await InvalidateUserOrdersCacheAsync(order.UserId, cancellationToken);
+
+        Logger.LogInformation("Order {OrderId} marked as paid and shipped by payment-success orchestration", message.OrderId);
+    }
+
+    private async Task InvalidateUserOrdersCacheAsync(string userId, CancellationToken cancellationToken)
+    {
+        if (_redis != null)
+        {
+            try
+            {
+                var database = _redis.GetDatabase();
+                var dbNumber = database.Database;
+                var keyPattern = $"*orders:user:{userId}:*";
+                var deletedCount = 0L;
+
+                foreach (var endpoint in _redis.GetEndPoints(configuredOnly: true))
+                {
+                    var server = _redis.GetServer(endpoint);
+                    if (!server.IsConnected || server.IsReplica)
+                    {
+                        continue;
+                    }
+
+                    foreach (var key in server.Keys(dbNumber, keyPattern, pageSize: 250))
+                    {
+                        if (await database.KeyDeleteAsync(key))
+                        {
+                            deletedCount++;
+                        }
+                    }
+                }
+
+                if (deletedCount > 0)
+                {
+                    Logger.LogDebug("Invalidated {Count} user order cache entries for UserId={UserId}", deletedCount, userId);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex,
+                    "Prefix cache invalidation failed for UserId={UserId}. Falling back to known keys.",
+                    userId);
+            }
+        }
+
+        var baseUserOrdersKey = $"orders:user:{userId}:";
         int[] knownPageSizes = [5, 10, 20, 25, 50];
         foreach (var ps in knownPageSizes)
         {
             await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps={ps}:cur=", cancellationToken);
         }
-
-        Logger.LogInformation("Order {OrderId} marked as paid and shipped by payment-success orchestration", message.OrderId);
     }
 
     private Task InvalidateCacheAsync(string keyPattern, CancellationToken cancellationToken)
