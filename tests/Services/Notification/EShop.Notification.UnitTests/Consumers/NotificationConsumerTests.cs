@@ -531,4 +531,78 @@ public class NotificationConsumerTests
             It.IsAny<CancellationToken>()), Times.Once);
         repo.Verify(x => x.UpdateAsync(It.Is<NotificationLog>(l => l.Status == NotificationStatus.Sent), It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Test]
+    public void PasswordResetRequestedConsumer_WhenResetUrlIsNotAbsolute_ShouldThrowOnCreation()
+    {
+        using var dbContext = CreateDbContext();
+        var options = Options.Create(new PasswordResetSettings
+        {
+            ResetUrlBase = "/reset-password"
+        });
+
+        Assert.Throws<InvalidOperationException>(() => new PasswordResetRequestedConsumer(
+            dbContext,
+            Mock.Of<INotificationLogRepository>(),
+            Mock.Of<IUserContactResolver>(),
+            Mock.Of<IEmailService>(),
+            options,
+            Mock.Of<ILogger<PasswordResetRequestedConsumer>>()));
+    }
+
+    [Test]
+    public void PasswordResetRequestedConsumer_WhenEmailSendFails_ShouldStoreSanitizedError()
+    {
+        using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        var emailService = new Mock<IEmailService>();
+        var resolver = new Mock<IUserContactResolver>();
+
+        var evt = new PasswordResetRequestedIntegrationEvent
+        {
+            EventId = Guid.NewGuid(),
+            UserId = "user-reset-failed",
+            ResetToken = "token-value"
+        };
+
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecipientAddress("reset@test.com", "Reset User"));
+
+        emailService.Setup(x => x.SendPasswordResetAsync(
+                It.IsAny<RecipientAddress>(),
+                It.IsAny<PasswordResetEmailModel>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("smtp provider timeout at internal.mailtrap.local:2525"));
+
+        NotificationLog? updatedLog = null;
+        repo.Setup(x => x.UpdateAsync(It.IsAny<NotificationLog>(), It.IsAny<CancellationToken>()))
+            .Callback<NotificationLog, CancellationToken>((log, _) => updatedLog = log)
+            .Returns(Task.CompletedTask);
+
+        var options = Options.Create(new PasswordResetSettings
+        {
+            ResetUrlBase = "https://frontend/reset-password"
+        });
+
+        var consumer = new PasswordResetRequestedConsumer(
+            dbContext,
+            repo.Object,
+            resolver.Object,
+            emailService.Object,
+            options,
+            Mock.Of<ILogger<PasswordResetRequestedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PasswordResetRequestedIntegrationEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => consumer.Consume(context.Object));
+        Assert.That(updatedLog, Is.Not.Null);
+        Assert.That(updatedLog!.Status, Is.EqualTo(NotificationStatus.Failed));
+        Assert.That(updatedLog.LastError, Is.EqualTo("Email provider timeout."));
+    }
 }

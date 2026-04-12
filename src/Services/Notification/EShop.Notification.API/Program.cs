@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.Infrastructure.Extensions;
+using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using HealthChecks.UI.Client;
@@ -52,6 +53,23 @@ try
         serviceVersion: "1.0.0",
         environment: builder.Environment,
         additionalSources: "EShop.Notification");
+
+    var passwordResetSettings = builder.Configuration
+        .GetSection(PasswordResetSettings.SectionName)
+        .Get<PasswordResetSettings>() ?? new PasswordResetSettings();
+
+    if (!Uri.TryCreate(passwordResetSettings.ResetUrlBase, UriKind.Absolute, out var resetUri))
+    {
+        throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute URL.");
+    }
+
+    if (!builder.Environment.IsDevelopment()
+        && !builder.Environment.IsEnvironment("Testing")
+        && !string.Equals(resetUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"PasswordReset:ResetUrlBase must use HTTPS in {builder.Environment.EnvironmentName}.");
+    }
 
     var app = builder.Build();
 

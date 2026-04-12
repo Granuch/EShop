@@ -35,6 +35,12 @@ public sealed class PasswordResetRequestedConsumer : IdempotentConsumer<Password
         _userContactResolver = userContactResolver;
         _emailService = emailService;
         _passwordResetSettings = passwordResetSettings.Value;
+
+        if (!Uri.TryCreate(_passwordResetSettings.ResetUrlBase, UriKind.Absolute, out _)
+            || string.IsNullOrWhiteSpace(_passwordResetSettings.ResetUrlBase))
+        {
+            throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute URL.");
+        }
     }
 
     protected override async Task HandleAsync(ConsumeContext<PasswordResetRequestedIntegrationEvent> context, CancellationToken cancellationToken)
@@ -108,9 +114,7 @@ public sealed class PasswordResetRequestedConsumer : IdempotentConsumer<Password
 
     private string BuildResetLink(string userId, string token)
     {
-        var baseUrl = string.IsNullOrWhiteSpace(_passwordResetSettings.ResetUrlBase)
-            ? "http://localhost:3000/reset-password"
-            : _passwordResetSettings.ResetUrlBase;
+        var baseUrl = _passwordResetSettings.ResetUrlBase;
 
         var separator = baseUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         return $"{baseUrl}{separator}userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(token)}";
