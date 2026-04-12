@@ -115,6 +115,16 @@ try
             throw new InvalidOperationException(
                 $"{InternalServiceAuthSettings.SectionName}:ApiKey is required in {builder.Environment.EnvironmentName} for internal service authorization.");
         }
+
+        var apiKeyPlaceholderPatterns = new[] { "CHANGE_ME", "LOCAL_", "#{", "REPLACE_WITH_", "YOUR_", "placeholder" };
+        foreach (var pattern in apiKeyPlaceholderPatterns)
+        {
+            if (internalServiceAuth.ApiKey.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"{InternalServiceAuthSettings.SectionName}:ApiKey contains placeholder pattern '{pattern}' in {builder.Environment.EnvironmentName}. Replace with a secure value.");
+            }
+        }
     }
 
     // Configure Token Cleanup Settings
@@ -238,7 +248,7 @@ try
     }
 
     // Detect placeholder patterns that must be replaced before deployment
-    var placeholderPatterns = new[] { "#{" , "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
+    var placeholderPatterns = new[] { "#{" , "CHANGE_ME", "LOCAL_", "REPLACE_WITH_", "YOUR_", "TestKey", "placeholder" };
     if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
     {
         foreach (var pattern in placeholderPatterns)

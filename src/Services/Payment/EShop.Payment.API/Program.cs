@@ -85,6 +85,20 @@ if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey) || jwtSettings.SecretKey.Le
     throw new InvalidOperationException("JWT SecretKey must be configured and at least 32 characters long.");
 }
 
+if (IsProductionLikeEnvironment(builder.Environment))
+{
+    EnsureNoPlaceholderValue(jwtSettings.SecretKey, "JwtSettings:SecretKey", builder.Environment.EnvironmentName);
+
+    var paymentDbConnectionString = builder.Configuration.GetConnectionString("PaymentDb");
+    EnsureNoPlaceholderValue(paymentDbConnectionString, "ConnectionStrings:PaymentDb", builder.Environment.EnvironmentName);
+
+    if (paymentDbConnectionString!.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"ConnectionStrings:PaymentDb contains localhost in {builder.Environment.EnvironmentName}. Use managed environment-specific connection configuration.");
+    }
+}
+
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddAuthentication(options =>
@@ -244,6 +258,32 @@ static bool IsPostgresStartupException(Exception exception)
 
     return exception.InnerException is not null
         && IsPostgresStartupException(exception.InnerException);
+}
+
+static bool IsProductionLikeEnvironment(IHostEnvironment environment)
+{
+    return !environment.IsDevelopment()
+        && !environment.IsEnvironment("Testing")
+        && !environment.IsEnvironment("Sandbox");
+}
+
+static void EnsureNoPlaceholderValue(string? value, string settingName, string environmentName)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        throw new InvalidOperationException($"{settingName} is required in {environmentName}.");
+    }
+
+    var placeholderPatterns = new[] { "CHANGE_ME", "LOCAL_", "#{", "REPLACE_WITH_", "YOUR_", "placeholder" };
+
+    foreach (var pattern in placeholderPatterns)
+    {
+        if (value.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{settingName} contains placeholder pattern '{pattern}' in {environmentName}. Replace it with a secure value.");
+        }
+    }
 }
 
 public partial class Program;
