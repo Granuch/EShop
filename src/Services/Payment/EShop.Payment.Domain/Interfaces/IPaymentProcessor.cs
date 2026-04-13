@@ -5,10 +5,8 @@ namespace EShop.Payment.Domain.Interfaces;
 /// </summary>
 public interface IPaymentProcessor
 {
-    // TODO: Implement payment processing (mock or real integration)
     Task<PaymentResult> ProcessPaymentAsync(Guid orderId, decimal amount, CancellationToken cancellationToken = default);
 
-    // TODO: Implement refund
     Task<PaymentResult> RefundPaymentAsync(string paymentIntentId, decimal amount, CancellationToken cancellationToken = default);
 }
 

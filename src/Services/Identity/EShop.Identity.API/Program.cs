@@ -290,41 +290,51 @@ try
 
     builder.Services.AddSingleton<IAuthorizationHandler, InternalServiceAuthorizationHandler>();
 
-    // Add Rate Limiting (disable in Testing to avoid throttling integration tests)
-    if (!builder.Environment.IsEnvironment("Testing"))
+    var enableRateLimiting = !builder.Environment.IsEnvironment("Testing")
+        || builder.Configuration.GetValue<bool>("RateLimiting:EnableInTesting");
+    var globalRateLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+    var globalRateWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Global:WindowSeconds") ?? 60;
+    var authRateLimit = builder.Configuration.GetValue<int?>("RateLimiting:Auth:PermitLimit") ?? 10;
+    var authRateWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Auth:WindowSeconds") ?? 60;
+    var loginRateLimit = builder.Configuration.GetValue<int?>("RateLimiting:Login:PermitLimit") ?? 5;
+    var loginRateWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Login:WindowSeconds") ?? 60;
+
+    var effectiveGlobalRateLimit = enableRateLimiting ? globalRateLimit : int.MaxValue;
+    var effectiveAuthRateLimit = enableRateLimiting ? authRateLimit : int.MaxValue;
+    var effectiveLoginRateLimit = enableRateLimiting ? loginRateLimit : int.MaxValue;
+
+    // Add Rate Limiting (Testing uses permissive limits by default, can be hardened for dedicated tests)
+    builder.Services.AddRateLimiter(options =>
     {
-        builder.Services.AddRateLimiter(options =>
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        // Global rate limiter
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = effectiveGlobalRateLimit,
+                    Window = TimeSpan.FromSeconds(globalRateWindowSeconds)
+                }));
+
+        // Auth endpoints limiter
+        options.AddFixedWindowLimiter("auth", limiterOptions =>
         {
-            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-            // Global rate limiter - 100 requests per minute per IP
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-                RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-                    factory: _ => new FixedWindowRateLimiterOptions
-                    {
-                        AutoReplenishment = true,
-                        PermitLimit = 100,
-                        Window = TimeSpan.FromMinutes(1)
-                    }));
-
-            // Strict rate limiter for auth endpoints - 10 requests per minute
-            options.AddFixedWindowLimiter("auth", limiterOptions =>
-            {
-                limiterOptions.AutoReplenishment = true;
-                limiterOptions.PermitLimit = 10;
-                limiterOptions.Window = TimeSpan.FromMinutes(1);
-            });
-
-            // Login rate limiter - 5 attempts per minute (more strict)
-            options.AddFixedWindowLimiter("login", limiterOptions =>
-            {
-                limiterOptions.AutoReplenishment = true;
-                limiterOptions.PermitLimit = 5;
-                limiterOptions.Window = TimeSpan.FromMinutes(1);
-            });
+            limiterOptions.AutoReplenishment = true;
+            limiterOptions.PermitLimit = effectiveAuthRateLimit;
+            limiterOptions.Window = TimeSpan.FromSeconds(authRateWindowSeconds);
         });
-    }
+
+        // Login-specific limiter
+        options.AddFixedWindowLimiter("login", limiterOptions =>
+        {
+            limiterOptions.AutoReplenishment = true;
+            limiterOptions.PermitLimit = effectiveLoginRateLimit;
+            limiterOptions.Window = TimeSpan.FromSeconds(loginRateWindowSeconds);
+        });
+    });
 
     // Add CORS
     builder.Services.AddCors(options =>
@@ -493,10 +503,7 @@ static bool IsPostgresStartupException(Exception exception)
     }
 
     // Add Rate Limiting middleware
-    if (!app.Environment.IsEnvironment("Testing"))
-    {
-        app.UseRateLimiter();
-    }
+    app.UseRateLimiter();
 
     // Add CORS
     app.UseCors("AllowFrontend");

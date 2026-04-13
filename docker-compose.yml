@@ -682,7 +682,7 @@ services:
   # Stripe CLI Listener (Sandbox webhook bridge)
   # ============================================
   stripe-listener:
-    image: stripe/stripe-cli:latest
+    image: stripe/stripe-cli:v1
     container_name: eshop-stripe-listener
     restart: unless-stopped
     depends_on:
@@ -805,7 +805,7 @@ services:
   # Mailpit (local SMTP catcher for development)
   # ============================================
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.27
     container_name: eshop-mailpit
     restart: unless-stopped
     ports:
@@ -908,7 +908,7 @@ services:
   # Redis Exporter (Prometheus Metrics)
   # ============================================
   redis-exporter:
-    image: oliver006/redis_exporter:latest
+    image: oliver006/redis_exporter:v1.67.0
     container_name: eshop-redis-exporter
     restart: unless-stopped
     depends_on:
@@ -929,7 +929,7 @@ services:
   # RedisInsight - Modern Redis GUI (recommended)
   # ============================================
   redis-insight:
-    image: redis/redisinsight:latest
+    image: redis/redisinsight:2.58
     container_name: eshop-redis-insight
     restart: unless-stopped
     depends_on:
@@ -953,7 +953,7 @@ services:
   # Redis Commander (Web UI for Redis - alternative)
   # ============================================
   redis-commander:
-    image: rediscommander/redis-commander:latest
+    image: rediscommander/redis-commander:0.8.0
     container_name: eshop-redis-commander
     restart: unless-stopped
     depends_on:
@@ -995,7 +995,7 @@ services:
   # Prometheus (Metrics Collection)
   # ============================================
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
     container_name: eshop-prometheus
     restart: unless-stopped
     command:
@@ -1021,7 +1021,7 @@ services:
   # Grafana (Visualization)
   # ============================================
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.2.0
     container_name: eshop-grafana
     restart: unless-stopped
     depends_on:

@@ -14,8 +14,12 @@ public class PaymentDbContextFactory : IDesignTimeDbContextFactory<PaymentDbCont
             .AddEnvironmentVariables()
             .Build();
 
-        var connectionString = configuration.GetConnectionString("PaymentDb")
-            ?? "Host=localhost;Port=5436;Database=eshop_payment;Username=postgres;Password=postgres";
+        var connectionString = configuration.GetConnectionString("PaymentDb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Connection string 'PaymentDb' is not configured. Set it in appsettings or environment variables before running design-time commands.");
+        }
 
         var optionsBuilder = new DbContextOptionsBuilder<PaymentDbContext>();
         optionsBuilder.UseNpgsql(connectionString);

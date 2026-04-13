@@ -149,7 +149,6 @@ public static class ServiceCollectionExtensions
 
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
-        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
         return services;
     }
