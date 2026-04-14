@@ -101,7 +101,7 @@ For local development, password-based values in environment files are intentiona
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Test Framework | xUnit | Unit and integration test execution |
+| Test Framework | NUnit | Unit and integration test execution |
 | Service-Level Test Projects | Per-service `UnitTests` and `IntegrationTests` | Coverage by bounded context |
 
 ---
