@@ -246,8 +246,10 @@ public static class PaymentEndpoints
             HttpRequest request,
             IOptions<StripeSettings> stripeOptions,
             IStripeWebhookProcessor webhookProcessor,
+            ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
         {
+            var logger = loggerFactory.CreateLogger("PaymentEndpoints");
             var stripeSettings = stripeOptions.Value;
 
             if (!stripeSettings.Enabled)
@@ -294,20 +296,39 @@ public static class PaymentEndpoints
                     result.EventType
                 });
             }
-            catch (ArgumentException ex) when (ex.Message == "Invalid Stripe webhook signature.")
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (IsStripeWebhookPayloadOrSignatureError(ex))
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
-                return Results.BadRequest(new { error = "Invalid webhook payload." });
+                logger.LogError(ex, "Stripe webhook processing failed due to internal error.");
+                return Results.Problem(
+                    detail: "Failed to process Stripe webhook due to an internal error.",
+                    title: "STRIPE_WEBHOOK_PROCESSING_FAILED",
+                    statusCode: StatusCodes.Status500InternalServerError);
             }
         })
         .WithTags("Stripe Webhooks")
         .WithName("StripeWebhook")
         .AllowAnonymous()
         .Produces(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status400BadRequest);
+        .Produces(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
+    }
+
+    private static bool IsStripeWebhookPayloadOrSignatureError(Exception ex)
+    {
+        if (ex is ArgumentException { Message: "Invalid Stripe webhook signature." })
+        {
+            return true;
+        }
+
+        return ex is InvalidOperationException { Message: "Stripe webhook payload parsing failed." };
     }
 
     private static PaymentResponse ToResponse(PaymentDto payment)

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace EShop.Basket.Infrastructure.Outbox;
@@ -8,6 +9,7 @@ namespace EShop.Basket.Infrastructure.Outbox;
 public class BasketRedisOutbox : IIntegrationEventOutbox
 {
     private readonly IDatabase _database;
+    private readonly ILogger<BasketRedisOutbox> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -15,9 +17,10 @@ public class BasketRedisOutbox : IIntegrationEventOutbox
         WriteIndented = false
     };
 
-    public BasketRedisOutbox(IConnectionMultiplexer redis)
+    public BasketRedisOutbox(IConnectionMultiplexer redis, ILogger<BasketRedisOutbox> logger)
     {
         _database = redis.GetDatabase();
+        _logger = logger;
     }
 
     public void Enqueue(IIntegrationEvent integrationEvent, string? correlationId = null)
@@ -35,7 +38,16 @@ public class BasketRedisOutbox : IIntegrationEventOutbox
         };
 
         var serialized = JsonSerializer.Serialize(envelope, JsonOptions);
-        _database.ListLeftPush(BasketOutboxKeys.Pending, serialized);
+        _ = _database.ListLeftPushAsync(BasketOutboxKeys.Pending, serialized)
+            .ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    _logger.LogError(t.Exception?.GetBaseException(),
+                        "Failed to enqueue basket outbox message {MessageId}",
+                        envelope.Id);
+                }
+            }, TaskScheduler.Default);
     }
 }
 

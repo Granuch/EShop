@@ -18,8 +18,12 @@ public class CatalogDbContextFactory : IDesignTimeDbContextFactory<CatalogDbCont
             .AddEnvironmentVariables()
             .Build();
 
-        var connectionString = configuration.GetConnectionString("CatalogDb")
-            ?? "Host=localhost;Port=5432;Database=EShopCatalog;Username=postgres;Password=postgres";
+        var connectionString = configuration.GetConnectionString("CatalogDb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Connection string 'CatalogDb' is not configured. Set it in appsettings or environment variables before running design-time commands.");
+        }
 
         var optionsBuilder = new DbContextOptionsBuilder<CatalogDbContext>();
         optionsBuilder.UseNpgsql(connectionString);

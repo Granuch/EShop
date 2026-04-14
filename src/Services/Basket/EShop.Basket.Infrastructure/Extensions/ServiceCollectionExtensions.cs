@@ -6,6 +6,7 @@ using EShop.Basket.Infrastructure.Idempotency;
 using EShop.Basket.Infrastructure.Metrics;
 using EShop.Basket.Infrastructure.Outbox;
 using EShop.Basket.Infrastructure.Repositories;
+using EShop.Basket.Infrastructure.Services;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
@@ -32,6 +33,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
         services.Configure<RedisBasketOptions>(configuration.GetSection(RedisBasketOptions.SectionName));
+        services.Configure<CatalogServiceOptions>(configuration.GetSection(CatalogServiceOptions.SectionName));
 
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
@@ -50,6 +52,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped<IBasketRepository, RedisBasketRepository>();
+        services.AddHttpClient<IProductCatalogReader, CatalogProductCatalogReader>();
         services.AddScoped<IIntegrationEventOutbox, BasketRedisOutbox>();
         services.AddSingleton<IBasketMetrics, BasketMetrics>();
         services.AddSingleton<ICheckoutIdempotencyStore, RedisCheckoutIdempotencyStore>();

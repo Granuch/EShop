@@ -67,9 +67,21 @@ public sealed class DownstreamHealthCheck : IHealthCheck
                         failedDestinations.Add($"{cluster.ClusterId}:{readinessUri}=>{(int)response.StatusCode}");
                     }
                 }
-                catch (Exception)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (TaskCanceledException)
+                {
+                    failedDestinations.Add($"{cluster.ClusterId}:{readinessUri}=>timeout");
+                }
+                catch (HttpRequestException)
                 {
                     failedDestinations.Add($"{cluster.ClusterId}:{readinessUri}=>unreachable");
+                }
+                catch
+                {
+                    failedDestinations.Add($"{cluster.ClusterId}:{readinessUri}=>error");
                 }
             }
         }

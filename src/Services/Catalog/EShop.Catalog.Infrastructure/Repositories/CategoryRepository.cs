@@ -47,6 +47,7 @@ public class CategoryRepository : ICategoryRepository
                 .ThenInclude(c => c.ChildCategories)
             .OrderBy(c => c.DisplayOrder)
             .Take(100)
+            .AsSplitQuery()
             .AsNoTracking()
             .ToListAsync(cancellationToken);
     }

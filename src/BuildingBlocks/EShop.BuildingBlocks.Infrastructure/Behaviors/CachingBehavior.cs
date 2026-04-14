@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Reflection;
+using System.Collections.Concurrent;
 
 namespace EShop.BuildingBlocks.Infrastructure.Behaviors;
 
@@ -34,6 +35,9 @@ namespace EShop.BuildingBlocks.Infrastructure.Behaviors;
 public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
+    private static readonly ConcurrentDictionary<Type, MethodInfo> GetAsyncMethodCache = new();
+    private static readonly ConcurrentDictionary<Type, MethodInfo> SetAsyncMethodCache = new();
+
     private readonly IDistributedCache _cache;
     private readonly ILogger<CachingBehavior<TRequest, TResponse>> _logger;
     private readonly CachingBehaviorOptions _options;
@@ -214,9 +218,10 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     private async Task<object?> GetCachedPayloadAsync(string cacheKey, Type payloadType, CancellationToken cancellationToken)
     {
         // Call: await _cache.GetAsync<T>(cacheKey, cancellationToken)
-        var method = typeof(Caching.DistributedCacheExtensions)
-            .GetMethod(nameof(Caching.DistributedCacheExtensions.GetAsync), BindingFlags.Public | BindingFlags.Static)!
-            .MakeGenericMethod(payloadType);
+        var method = GetAsyncMethodCache.GetOrAdd(payloadType, static type =>
+            typeof(Caching.DistributedCacheExtensions)
+                .GetMethod(nameof(Caching.DistributedCacheExtensions.GetAsync), BindingFlags.Public | BindingFlags.Static)!
+                .MakeGenericMethod(type));
 
         var task = (Task)method.Invoke(null, new object[] { _cache, cacheKey, cancellationToken })!;
         await task.ConfigureAwait(false);
@@ -237,9 +242,10 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
         CancellationToken cancellationToken)
     {
         // Call: await _cache.SetAsync<T>(cacheKey, payload, duration, sliding, cancellationToken)
-        var method = typeof(Caching.DistributedCacheExtensions)
-            .GetMethod(nameof(Caching.DistributedCacheExtensions.SetAsync), BindingFlags.Public | BindingFlags.Static)!
-            .MakeGenericMethod(payloadType);
+        var method = SetAsyncMethodCache.GetOrAdd(payloadType, static type =>
+            typeof(Caching.DistributedCacheExtensions)
+                .GetMethod(nameof(Caching.DistributedCacheExtensions.SetAsync), BindingFlags.Public | BindingFlags.Static)!
+                .MakeGenericMethod(type));
 
         var task = (Task)method.Invoke(null, new object?[] { _cache, cacheKey, payload, duration, sliding, cancellationToken })!;
         await task.ConfigureAwait(false);

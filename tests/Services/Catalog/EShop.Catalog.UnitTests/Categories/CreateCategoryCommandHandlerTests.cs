@@ -51,12 +51,18 @@ public class CreateCategoryCommandHandlerTests
     public async Task Handle_WithParentCategoryId_ShouldCreateChildCategory()
     {
         // Arrange
-        var parentId = Guid.NewGuid();
+        var parent = Category.Create("Parent", "parent", null);
+        var parentId = parent.Id;
+
         var command = new CreateCategoryCommand
         {
             Name = "Laptops",
             ParentCategoryId = parentId
         };
+
+        _categoryRepositoryMock
+            .Setup(x => x.GetById(parentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(parent);
 
         _unitOfWorkMock
             .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
@@ -72,6 +78,27 @@ public class CreateCategoryCommandHandlerTests
                 It.Is<Category>(c => c.ParentCategoryId == parentId),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Test]
+    public async Task Handle_WithUnknownParentCategoryId_ShouldReturnFailure()
+    {
+        var parentId = Guid.NewGuid();
+        var command = new CreateCategoryCommand
+        {
+            Name = "Laptops",
+            ParentCategoryId = parentId
+        };
+
+        _categoryRepositoryMock
+            .Setup(x => x.GetById(parentId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Category?)null);
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        Assert.That(result.IsFailure, Is.True);
+        Assert.That(result.Error!.Code, Is.EqualTo("Category.ParentNotFound"));
+        _categoryRepositoryMock.Verify(x => x.AddAsync(It.IsAny<Category>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]

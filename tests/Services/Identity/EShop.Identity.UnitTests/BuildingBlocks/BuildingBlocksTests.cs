@@ -128,6 +128,22 @@ public class ResultTests
         Assert.That(successCalled, Is.False);
         Assert.That(failureCalled, Is.True);
     }
+
+    [Test]
+    public void ToString_OnSuccess_ShouldContainPayloadTypeAndValue()
+    {
+        var result = Result<int>.Success(42);
+
+        Assert.That(result.ToString(), Is.EqualTo("Success<Int32>(42)"));
+    }
+
+    [Test]
+    public void ToString_OnFailure_ShouldContainErrorCode()
+    {
+        var result = Result<int>.Failure(new Error("Test.Error", "Broken"));
+
+        Assert.That(result.ToString(), Does.Contain("Test.Error"));
+    }
 }
 
 [TestFixture]

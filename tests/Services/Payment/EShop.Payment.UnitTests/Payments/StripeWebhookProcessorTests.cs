@@ -4,7 +4,9 @@ using EShop.Payment.Domain.Entities;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
 using EShop.Payment.Infrastructure.Services;
+using EShop.BuildingBlocks.Domain.Outbox;
 using EShop.BuildingBlocks.Messaging.Events;
+using EShop.BuildingBlocks.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -14,13 +16,67 @@ namespace EShop.Payment.UnitTests.Payments;
 [TestFixture]
 public class StripeWebhookProcessorTests
 {
-    private static PaymentDbContext CreateDbContext()
+    private static PaymentDbContext CreateDbContext(string? databaseName = null)
     {
         var options = new DbContextOptionsBuilder<PaymentDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseInMemoryDatabase(databaseName ?? Guid.NewGuid().ToString())
             .Options;
 
         return new PaymentDbContext(options);
+    }
+
+    [Test]
+    public async Task ProcessAsync_WhenSucceededEvent_ShouldPersistOutboxMessages()
+    {
+        var dbName = Guid.NewGuid().ToString();
+
+        await using (var writeDbContext = CreateDbContext(dbName))
+        {
+            var repository = new PaymentRepository(writeDbContext);
+
+            await repository.AddAsync(new PaymentTransaction
+            {
+                Id = Guid.NewGuid(),
+                OrderId = Guid.NewGuid(),
+                UserId = "user-1",
+                Amount = 100m,
+                Currency = "USD",
+                PaymentMethod = "Stripe",
+                PaymentIntentId = "pi_test_outbox_001",
+                Status = PaymentStatus.Processing,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            await writeDbContext.SaveChangesAsync();
+
+            var stripePaymentService = new Mock<IStripePaymentService>();
+            stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(new StripeWebhookEvent(
+                    "evt_test_outbox_001",
+                    "payment_intent.succeeded",
+                    "pi_test_outbox_001",
+                    "succeeded",
+                    null,
+                    true));
+
+            var processor = new StripeWebhookProcessor(
+                repository,
+                stripePaymentService.Object,
+                writeDbContext,
+                new IntegrationEventOutbox(writeDbContext),
+                Mock.Of<ILogger<StripeWebhookProcessor>>());
+
+            var result = await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+
+            Assert.That(result.IsDuplicate, Is.False);
+        }
+
+        await using var readDbContext = CreateDbContext(dbName);
+        var outboxMessages = await readDbContext.Set<OutboxMessage>().ToListAsync();
+
+        Assert.That(outboxMessages, Has.Count.EqualTo(2));
+        Assert.That(outboxMessages.Any(m => m.Type.EndsWith(nameof(PaymentSuccessEvent), StringComparison.Ordinal)), Is.True);
+        Assert.That(outboxMessages.Any(m => m.Type.EndsWith(nameof(PaymentCompletedEvent), StringComparison.Ordinal)), Is.True);
     }
 
     [Test]

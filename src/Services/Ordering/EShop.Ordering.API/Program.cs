@@ -142,6 +142,18 @@ try
             options.ConfigurationOptions.ReconnectRetryPolicy = new LinearRetry(5000);
         });
 
+        builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+        {
+            var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+            redisOptions.AbortOnConnectFail = false;
+            redisOptions.ConnectTimeout = 5000;
+            redisOptions.SyncTimeout = 5000;
+            redisOptions.ConnectRetry = 3;
+            redisOptions.KeepAlive = 60;
+            redisOptions.ReconnectRetryPolicy = new LinearRetry(5000);
+            return ConnectionMultiplexer.Connect(redisOptions);
+        });
+
         Log.Information("Redis distributed cache configured successfully");
     }
     else if (builder.Environment.IsEnvironment("Testing"))
@@ -223,6 +235,15 @@ try
         options.AddPolicy("AllowFrontend", policy =>
         {
             var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+
+            if (allowedOrigins.Length == 0 &&
+                !builder.Environment.IsDevelopment() &&
+                !builder.Environment.IsEnvironment("Testing"))
+            {
+                throw new InvalidOperationException(
+                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
+                    "Configure allowed origins before deploying to non-development environments.");
+            }
 
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyMethod()

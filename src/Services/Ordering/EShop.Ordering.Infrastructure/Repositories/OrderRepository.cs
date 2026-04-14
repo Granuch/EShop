@@ -61,34 +61,38 @@ public class OrderRepository : IOrderRepository
         await _context.Orders.AddAsync(order, cancellationToken);
     }
 
-    public Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
     {
-        // EF Core detects scalar property changes on tracked entities automatically.
-        // However, new child entities added to a tracked parent's navigation via domain
-        // methods get a non-default key (Guid.NewGuid() in constructor), which causes
-        // EF Core's DetectChanges to treat them as Modified (existing) instead of Added.
-        //
-        // Fix: capture IDs of items already tracked (loaded from DB) BEFORE DetectChanges
-        // runs. Then trigger DetectChanges manually and fix up any new items that were
-        // incorrectly marked as Modified.
-        var loadedItemIds = _context.ChangeTracker.Entries<OrderItem>()
-            .Where(e => e.State != EntityState.Added && e.State != EntityState.Detached)
-            .Select(e => e.Entity.Id)
-            .ToHashSet();
-
-        // Force EF to discover the new items in the navigation collection
-        _context.ChangeTracker.DetectChanges();
-
-        // Any item not in the original loaded set is new — mark as Added
-        foreach (var item in order.Items)
+        var trackedOrder = _context.Entry(order);
+        if (trackedOrder.State == EntityState.Detached)
         {
-            if (!loadedItemIds.Contains(item.Id))
-            {
-                _context.Entry(item).State = EntityState.Added;
-            }
+            _context.Attach(order);
         }
 
-        return Task.CompletedTask;
+        _context.ChangeTracker.DetectChanges();
+
+        var persistedItemIds = await _context.OrderItems
+            .AsNoTracking()
+            .Where(i => i.OrderId == order.Id)
+            .Select(i => i.Id)
+            .ToHashSetAsync(cancellationToken);
+
+        // Ensure newly added items are marked as Added for insert.
+        foreach (var item in order.Items)
+        {
+            var itemEntry = _context.Entry(item);
+            if (itemEntry.State == EntityState.Detached)
+            {
+                _context.Attach(item);
+                itemEntry = _context.Entry(item);
+            }
+
+            if (!persistedItemIds.Contains(item.Id)
+                && (itemEntry.State == EntityState.Modified || itemEntry.State == EntityState.Unchanged))
+            {
+                itemEntry.State = EntityState.Added;
+            }
+        }
     }
 
     public IQueryable<Order> Query()
