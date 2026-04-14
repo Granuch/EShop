@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 
 namespace EShop.Catalog.Domain.Entities;
 
@@ -15,12 +16,40 @@ public class ProductAttribute : Entity<Guid>
 
     public ProductAttribute(Guid productId, string name, string value)
     {
+        if (productId == Guid.Empty)
+            throw new DomainException("Product attribute requires a valid product id.");
+
+        var normalizedName = NormalizeName(name);
+        var normalizedValue = NormalizeValue(value);
+
         Id = Guid.NewGuid();
         ProductId = productId;
-        Name = name;
-        Value = value;
+        Name = normalizedName;
+        Value = normalizedValue;
         CreatedAt = DateTime.UtcNow;
     }
 
-    // TODO: Add attribute validation (e.g., Size must be S/M/L/XL)
+    private static string NormalizeName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Attribute name cannot be empty.");
+
+        var normalizedName = name.Trim();
+        if (normalizedName.Length > 100)
+            throw new DomainException("Attribute name must be 100 characters or fewer.");
+
+        return normalizedName;
+    }
+
+    private static string NormalizeValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new DomainException("Attribute value cannot be empty.");
+
+        var normalizedValue = value.Trim();
+        if (normalizedValue.Length > 200)
+            throw new DomainException("Attribute value must be 200 characters or fewer.");
+
+        return normalizedValue;
+    }
 }

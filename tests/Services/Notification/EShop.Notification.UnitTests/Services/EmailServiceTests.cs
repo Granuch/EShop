@@ -118,4 +118,30 @@ public class EmailServiceTests
                 && d["SupportEmail"] == "support@eshop.local"),
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Test]
+    public void SendPasswordResetAsync_ShouldRenderExpectedTokens()
+    {
+        var renderer = new Mock<ITemplateRenderer>();
+        renderer
+            .Setup(x => x.RenderAsync("password-reset", It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("stop-after-render"));
+
+        var service = CreateService(renderer);
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => service.SendPasswordResetAsync(
+            new RecipientAddress("customer@test.com", "Customer"),
+            new PasswordResetEmailModel
+            {
+                CustomerName = "Customer",
+                ResetLink = "https://frontend/reset-password?userId=u1&token=t1"
+            }));
+
+        renderer.Verify(x => x.RenderAsync(
+            "password-reset",
+            It.Is<IReadOnlyDictionary<string, string>>(d =>
+                d["CustomerName"] == "Customer"
+                && d["ResetLink"] == "https://frontend/reset-password?userId=u1&token=t1"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

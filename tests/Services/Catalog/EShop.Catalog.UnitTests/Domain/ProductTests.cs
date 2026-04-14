@@ -352,6 +352,41 @@ public class ProductTests
         Assert.That(product.Images, Has.Count.EqualTo(1));
         Assert.That(product.Images.First().Url, Is.EqualTo("https://example.com/img.jpg"));
         Assert.That(product.Images.First().AltText, Is.EqualTo("Alt text"));
+        Assert.That(product.Images.First().IsMain, Is.True);
+    }
+
+    [Test]
+    public void SetMainImage_WithMultipleImages_ShouldSwitchMainImage()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img-1.jpg", "Main", 0);
+        product.AddImage("https://example.com/img-2.png", "Secondary", 1);
+        var secondaryImageId = product.Images.Single(i => i.Url.EndsWith("img-2.png")).Id;
+
+        // Act
+        product.SetMainImage(secondaryImageId);
+
+        // Assert
+        Assert.That(product.Images.Count(i => i.IsMain), Is.EqualTo(1));
+        Assert.That(product.Images.Single(i => i.Id == secondaryImageId).IsMain, Is.True);
+    }
+
+    [Test]
+    public void RemoveImage_WhenRemovingMainImage_ShouldPromoteNextImageAsMain()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img-main.jpg", "Main", 0);
+        product.AddImage("https://example.com/img-second.png", "Second", 1);
+        var mainImageId = product.Images.Single(i => i.IsMain).Id;
+
+        // Act
+        product.RemoveImage(mainImageId);
+
+        // Assert
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+        Assert.That(product.Images.Single().IsMain, Is.True);
     }
 
     [Test]
@@ -366,6 +401,17 @@ public class ProductTests
 
         // Assert
         Assert.That(product.Images, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddImage_WithUnsupportedFormat_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://example.com/manual.pdf", "Alt text", 0));
     }
 
     [Test]
@@ -456,6 +502,31 @@ public class ProductTests
         Assert.That(product.Attributes, Has.Count.EqualTo(1));
         Assert.That(product.Attributes.First().Name, Is.EqualTo("Color"));
         Assert.That(product.Attributes.First().Value, Is.EqualTo("Red"));
+    }
+
+    [Test]
+    public void AddAttribute_WithExtraWhitespace_ShouldTrimNameAndValue()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        product.AddAttribute("  Color  ", "  Red  ");
+
+        // Assert
+        Assert.That(product.Attributes.Single().Name, Is.EqualTo("Color"));
+        Assert.That(product.Attributes.Single().Value, Is.EqualTo("Red"));
+    }
+
+    [Test]
+    public void AddAttribute_WithLongName_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        var longName = new string('A', 101);
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.AddAttribute(longName, "Red"));
     }
 
     [Test]

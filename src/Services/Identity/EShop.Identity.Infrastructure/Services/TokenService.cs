@@ -256,11 +256,11 @@ public class TokenService : ITokenService
 
             await _refreshTokenRepository.AddAsync(newRefreshToken, cancellationToken);
 
-            // Step 3: Commit only if we own the transaction; otherwise let the caller commit
+            // Step 3: Commit only if we own the transaction.
+            // If an outer transaction exists (e.g. MediatR TransactionBehavior),
+            // defer persistence to that owner to avoid nested save semantics.
             if (ownsTransaction)
                 await _unitOfWork.CommitTransactionAsync(cancellationToken);
-            else
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return newTokenString;
         }

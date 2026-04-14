@@ -9,10 +9,10 @@ public sealed class SimulationResponseFactory : ISimulationResponseFactory
         WriteIndented = false
     };
 
-    private static readonly IReadOnlyDictionary<string, object> Templates = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+    private static readonly IReadOnlyDictionary<string, Func<object>> Templates = new Dictionary<string, Func<object>>(StringComparer.OrdinalIgnoreCase)
     {
-        ["default"] = new { status = "simulated", source = "gateway" },
-        ["orders_list"] = new
+        ["default"] = static () => new { status = "simulated", source = "gateway" },
+        ["orders_list"] = static () => new
         {
             items = new[]
             {
@@ -46,9 +46,9 @@ public sealed class SimulationResponseFactory : ISimulationResponseFactory
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json";
 
-        var payload = Templates.TryGetValue(profile.ResponseTemplate, out var template)
-            ? template
-            : Templates["default"];
+        var payload = Templates.TryGetValue(profile.ResponseTemplate, out var templateFactory)
+            ? templateFactory()
+            : Templates["default"]();
 
         await JsonSerializer.SerializeAsync(context.Response.Body, payload, JsonOptions, cancellationToken);
     }

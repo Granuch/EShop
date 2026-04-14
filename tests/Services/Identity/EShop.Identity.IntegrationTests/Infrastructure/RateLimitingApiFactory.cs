@@ -1,27 +1,37 @@
 using EShop.Identity.IntegrationTests.Fixtures;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EShop.Identity.IntegrationTests.Infrastructure;
 
 /// <summary>
-/// Custom factory for rate limiting tests
-/// Note: Rate limiting configuration in WebApplicationFactory is complex
-/// as AddRateLimiter is typically called on WebApplicationBuilder, not IServiceCollection.
-/// For now, this factory serves as a placeholder. Rate limiting tests may need
-/// to be run against a real deployment or use a different approach.
+/// Custom factory for rate limiting tests.
+/// Enables rate limiting in Testing environment through configuration override.
 /// </summary>
 public class RateLimitingApiFactory : IdentityApiFactory
 {
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureAppConfiguration((_, configBuilder) =>
+        {
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["RateLimiting:EnableInTesting"] = "true",
+                ["RateLimiting:Global:PermitLimit"] = "3",
+                ["RateLimiting:Global:WindowSeconds"] = "60",
+                ["RateLimiting:Auth:PermitLimit"] = "2",
+                ["RateLimiting:Auth:WindowSeconds"] = "60",
+                ["RateLimiting:Login:PermitLimit"] = "2",
+                ["RateLimiting:Login:WindowSeconds"] = "60"
+            });
+        });
+
+        base.ConfigureWebHost(builder);
+    }
+
     protected override void ConfigureTestServices(IServiceCollection services)
     {
         base.ConfigureTestServices(services);
-
-        // TODO: Configure rate limiting for tests
-        // This would typically require builder.Services.AddRateLimiter() 
-        // which is not directly accessible from ConfigureServices
-        // Consider alternative approaches:
-        // 1. Custom middleware for testing
-        // 2. Test against deployed service
-        // 3. Use a different WebApplicationFactory configuration approach
     }
 }

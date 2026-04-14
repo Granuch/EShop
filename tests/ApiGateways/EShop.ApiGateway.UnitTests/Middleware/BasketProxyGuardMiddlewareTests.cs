@@ -69,6 +69,25 @@ public class BasketProxyGuardMiddlewareTests
         Assert.That(context.Response.Headers.ContainsKey("Retry-After"), Is.False);
     }
 
+    [Test]
+    public async Task InvokeAsync_DoesNotTreatBasketballPathAsBasketRoute()
+    {
+        var middleware = CreateMiddleware(
+            next: context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status502BadGateway;
+                return Task.CompletedTask;
+            });
+
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/v1/basketball";
+
+        await middleware.InvokeAsync(context);
+
+        Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status502BadGateway));
+        Assert.That(context.Response.Headers.ContainsKey("Retry-After"), Is.False);
+    }
+
     private static BasketProxyGuardMiddleware CreateMiddleware(
         RequestDelegate next,
         long maxBodySizeBytes = 1024,

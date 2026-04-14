@@ -53,8 +53,6 @@ public sealed class BasketProxyGuardMiddleware
 
     private static bool IsBasketPath(PathString path)
     {
-        var value = path.Value;
-        return !string.IsNullOrWhiteSpace(value)
-            && value.StartsWith(BasketPathPrefix, StringComparison.OrdinalIgnoreCase);
+        return path.StartsWithSegments(BasketPathPrefix, StringComparison.OrdinalIgnoreCase);
     }
 }

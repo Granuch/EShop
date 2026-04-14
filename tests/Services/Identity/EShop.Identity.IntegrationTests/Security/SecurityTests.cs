@@ -9,14 +9,12 @@ using FluentAssertions;
 namespace EShop.Identity.IntegrationTests.Security;
 
 /// <summary>
-/// Integration tests for Rate Limiting
-/// Note: These tests require proper rate limiting configuration.
-/// Currently marked as Explicit until RateLimitingApiFactory is properly configured.
+/// Integration tests for Rate Limiting.
 /// </summary>
 [TestFixture]
 [Category("Integration")]
 [Category("Security")]
-[Explicit("Rate limiting configuration requires WebApplicationBuilder access")]
+[Explicit("In-memory TestServer does not currently enforce endpoint-specific ASP.NET rate limiter metadata deterministically.")]
 public class RateLimitingTests : IntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
@@ -37,11 +35,12 @@ public class RateLimitingTests : IntegrationTestBase
             Password = "WrongPassword@123"
         };
 
-        // Act - Make requests exceeding the limit (5 per 10 seconds)
-        var tasks = Enumerable.Range(0, 10)
-            .Select(_ => Client.PostAsJsonAsync(LoginEndpoint, loginRequest));
-
-        var responses = await Task.WhenAll(tasks);
+        // Act - Make requests exceeding the test limit (2 per minute)
+        var responses = new List<HttpResponseMessage>();
+        for (var i = 0; i < 5; i++)
+        {
+            responses.Add(await Client.PostAsJsonAsync(LoginEndpoint, loginRequest));
+        }
 
         // Assert - At least some should be rate limited
         responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,
@@ -52,20 +51,19 @@ public class RateLimitingTests : IntegrationTestBase
     public async Task Register_ExceedingRateLimit_ShouldReturn429()
     {
         // Arrange & Act
-        var tasks = Enumerable.Range(0, 10)
-            .Select(i => 
+        var responses = new List<HttpResponseMessage>();
+        for (var i = 0; i < 5; i++)
+        {
+            var request = new RegisterRequest
             {
-                var request = new RegisterRequest
-                {
-                    Email = $"ratelimit{i}@test.com",
-                    Password = "Test@123456",
-                    FirstName = "Test",
-                    LastName = "User"
-                };
-                return Client.PostAsJsonAsync(RegisterEndpoint, request);
-            });
+                Email = $"ratelimit{i}@test.com",
+                Password = "Test@123456",
+                FirstName = "Test",
+                LastName = "User"
+            };
 
-        var responses = await Task.WhenAll(tasks);
+            responses.Add(await Client.PostAsJsonAsync(RegisterEndpoint, request));
+        }
 
         // Assert - At least some should be rate limited
         responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,

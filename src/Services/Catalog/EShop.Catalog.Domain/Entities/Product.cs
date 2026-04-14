@@ -155,7 +155,30 @@ public class Product : AggregateRoot<Guid>
             return;
         
         var newImage = new ProductImage(Id ,url, altText, displayOrder);
+
+        if (_images.Count == 0)
+        {
+            newImage.SetAsMain();
+        }
+
         _images.Add(newImage);
+    }
+
+    public void SetMainImage(Guid imageId)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update main image for a deleted product.");
+
+        var targetImage = _images.FirstOrDefault(i => i.Id == imageId);
+        if (targetImage is null)
+            throw new DomainException("Product image not found.");
+
+        foreach (var image in _images)
+        {
+            image.UnsetAsMain();
+        }
+
+        targetImage.SetAsMain();
     }
 
     public void RemoveImage(Guid imageId)
@@ -168,6 +191,16 @@ public class Product : AggregateRoot<Guid>
             throw new DomainException("Product image not found.");
 
         _images.Remove(image);
+
+        if (image.IsMain && _images.Count > 0)
+        {
+            var nextMainImage = _images
+                .OrderBy(i => i.DisplayOrder)
+                .ThenBy(i => i.CreatedAt)
+                .First();
+
+            SetMainImage(nextMainImage.Id);
+        }
     }
     
     public void AddAttribute(string name, string value)

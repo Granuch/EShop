@@ -112,6 +112,25 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+
+        if (origins.Length == 0 &&
+            (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing")))
+        {
+            policy.AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+            return;
+        }
+
+        if (origins.Length == 0 &&
+            !builder.Environment.IsDevelopment() &&
+            !builder.Environment.IsEnvironment("Testing"))
+        {
+            throw new InvalidOperationException(
+                $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
+                "Configure allowed origins before deploying to non-development environments.");
+        }
+
         policy.WithOrigins(origins)
             .AllowAnyMethod()
             .AllowAnyHeader()

@@ -36,6 +36,8 @@ public static class ServiceCollectionExtensions
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+        services.Configure<PaymentSuccessConsumer.PaymentSuccessProcessingOptions>(
+            configuration.GetSection(PaymentSuccessConsumer.PaymentSuccessProcessingOptions.SectionName));
 
         // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
         services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();

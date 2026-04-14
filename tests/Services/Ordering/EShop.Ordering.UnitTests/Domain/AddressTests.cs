@@ -25,6 +25,28 @@ public class AddressTests
     }
 
     [Test]
+    public void Constructor_WithInvalidCountryCode_ShouldThrowArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new Address("123 Main St", "Springfield", "IL", "62701", "USA"));
+    }
+
+    [Test]
+    public void Constructor_WithInvalidUsZipCode_ShouldThrowArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new Address("123 Main St", "Springfield", "IL", "62A01", "US"));
+    }
+
+    [Test]
+    public void Constructor_WithLongUsZipCode_ShouldCreateAddress()
+    {
+        var address = new Address("123 Main St", "Springfield", "IL", "62701-1234", "US");
+
+        Assert.That(address.ZipCode, Is.EqualTo("62701-1234"));
+    }
+
+    [Test]
     public void Equality_SameValues_ShouldBeEqual()
     {
         var a = new Address("123 Main St", "Springfield", "IL", "62701", "US");

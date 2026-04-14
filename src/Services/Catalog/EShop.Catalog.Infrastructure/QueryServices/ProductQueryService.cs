@@ -55,13 +55,17 @@ public class ProductQueryService : IProductQueryService
         if (maxPrice.HasValue)
             query = query.Where(p => p.Price <= maxPrice.Value);
 
-        var totalCount = await query.CountAsync(cancellationToken);
-
         // Cursor-based pagination: when cursor is provided and sorting by CreatedAt DESC,
         // use keyset pagination for constant-time performance regardless of page depth.
-        if (cursor.HasValue && sortBy == ProductSortBy.CreatedAt && isDescending)
+        var useCursorPagination = cursor.HasValue && sortBy == ProductSortBy.CreatedAt && isDescending;
+
+        // Count against the pre-cursor filter so TotalPages/HasNextPage are accurate
+        // even when keyset pagination is in use.
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        if (useCursorPagination)
         {
-            query = query.Where(p => p.CreatedAt < cursor.Value);
+            query = query.Where(p => p.CreatedAt < cursor!.Value);
         }
 
         // Sorting
@@ -93,7 +97,7 @@ public class ProductQueryService : IProductQueryService
 
         // Use cursor-based Take when cursor is provided, otherwise OFFSET pagination
         List<ProductDto> dtos;
-        if (cursor.HasValue && sortBy == ProductSortBy.CreatedAt && isDescending)
+        if (useCursorPagination)
         {
             dtos = await dtosQuery
                 .Take(pageSize)

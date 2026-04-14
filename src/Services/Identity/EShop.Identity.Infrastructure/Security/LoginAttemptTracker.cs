@@ -4,6 +4,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using StackExchange.Redis;
 
 namespace EShop.Identity.Infrastructure.Security;
 
@@ -14,6 +15,7 @@ namespace EShop.Identity.Infrastructure.Security;
 public class LoginAttemptTracker : ILoginAttemptTracker
 {
     private readonly IDistributedCache _cache;
+    private readonly IConnectionMultiplexer? _redis;
     private readonly BruteForceProtectionSettings _settings;
     private readonly ILogger<LoginAttemptTracker> _logger;
 
@@ -27,9 +29,11 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     public LoginAttemptTracker(
         IDistributedCache cache,
         IOptions<BruteForceProtectionSettings> settings,
-        ILogger<LoginAttemptTracker> logger)
+        ILogger<LoginAttemptTracker> logger,
+        IConnectionMultiplexer? redis = null)
     {
         _cache = cache;
+        _redis = redis;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -183,11 +187,30 @@ public class LoginAttemptTracker : ILoginAttemptTracker
         CancellationToken cancellationToken = default)
     {
         var hashedIdentifier = IdentifierHasher.HashShort(identifier);
+        var accountAttemptsKey = GetCacheKey(AccountAttemptsKey, hashedIdentifier);
+        var ipSetKey = GetCacheKey(IpSetKey, hashedIdentifier);
+        var accountLockKey = GetCacheKey(AccountLockKey, hashedIdentifier);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            await db.KeyDeleteAsync(new RedisKey[]
+            {
+                accountAttemptsKey,
+                ipSetKey,
+                accountLockKey
+            });
+
+            _logger.LogInformation(
+                "Account attempt counters reset. HashedIdentifier={HashedIdentifier}",
+                hashedIdentifier);
+            return;
+        }
 
         // Remove all tracking entries for this account
-        await _cache.RemoveAsync(GetCacheKey(AccountAttemptsKey, hashedIdentifier), cancellationToken);
-        await _cache.RemoveAsync(GetCacheKey(IpSetKey, hashedIdentifier), cancellationToken);
-        await _cache.RemoveAsync(GetCacheKey(AccountLockKey, hashedIdentifier), cancellationToken);
+        await _cache.RemoveAsync(accountAttemptsKey, cancellationToken);
+        await _cache.RemoveAsync(ipSetKey, cancellationToken);
+        await _cache.RemoveAsync(accountLockKey, cancellationToken);
 
         _logger.LogInformation(
             "Account attempt counters reset. HashedIdentifier={HashedIdentifier}",
@@ -207,6 +230,14 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task<int> GetAccountAttemptCountAsync(string hashedIdentifier, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(AccountAttemptsKey, hashedIdentifier);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            var redisValue = await db.StringGetAsync(key);
+            return int.TryParse(redisValue.ToString(), out var redisCount) ? redisCount : 0;
+        }
+
         var value = await _cache.GetStringAsync(key, cancellationToken);
         return int.TryParse(value, out var count) ? count : 0;
     }
@@ -214,6 +245,14 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task<int> GetIpAttemptCountAsync(string ipAddress, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(IpAttemptsKey, ipAddress);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            var redisValue = await db.StringGetAsync(key);
+            return int.TryParse(redisValue.ToString(), out var redisCount) ? redisCount : 0;
+        }
+
         var value = await _cache.GetStringAsync(key, cancellationToken);
         return int.TryParse(value, out var count) ? count : 0;
     }
@@ -221,6 +260,13 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task<bool> IsAccountLockedAsync(string hashedIdentifier, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(AccountLockKey, hashedIdentifier);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            return await db.KeyExistsAsync(key);
+        }
+
         var value = await _cache.GetStringAsync(key, cancellationToken);
         return value != null;
     }
@@ -228,6 +274,16 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task<DateTime?> GetAccountLockExpirationAsync(string hashedIdentifier, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(AccountLockKey, hashedIdentifier);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            var redisValue = await db.StringGetAsync(key);
+            return redisValue.HasValue && DateTime.TryParse(redisValue.ToString(), out var redisExpiration)
+                ? redisExpiration
+                : null;
+        }
+
         var value = await _cache.GetStringAsync(key, cancellationToken);
         return value != null && DateTime.TryParse(value, out var expiration) ? expiration : null;
     }
@@ -235,6 +291,13 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task<bool> IsIpBlockedAsync(string ipAddress, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(IpBlockKey, ipAddress);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            return await db.KeyExistsAsync(key);
+        }
+
         var value = await _cache.GetStringAsync(key, cancellationToken);
         return value != null;
     }
@@ -242,6 +305,14 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task<int> GetDistinctIpCountForAccountAsync(string hashedIdentifier, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(IpSetKey, hashedIdentifier);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            var cardinality = await db.SetLengthAsync(key);
+            return (int)cardinality;
+        }
+
         var json = await _cache.GetStringAsync(key, cancellationToken);
 
         if (string.IsNullOrEmpty(json))
@@ -260,16 +331,16 @@ public class LoginAttemptTracker : ILoginAttemptTracker
         }
     }
 
-    /// <summary>
-    /// Increments a counter in distributed cache.
-    /// NOTE: This is a Read-Increment-Write pattern which is not atomic with IDistributedCache.
-    /// Under high concurrency, some increments may be lost. This is acceptable for brute-force
-    /// protection because the counter is a best-effort heuristic — lost increments slightly
-    /// delay lockout but never bypass it entirely (lockout still triggers within a few extra attempts).
-    /// For stronger guarantees, use Redis INCR via IConnectionMultiplexer directly.
-    /// </summary>
     private async Task<int> IncrementCounterAsync(string key, int expirationMinutes, CancellationToken cancellationToken)
     {
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            var value = await db.StringIncrementAsync(key);
+            await db.KeyExpireAsync(key, TimeSpan.FromMinutes(expirationMinutes));
+            return (int)value;
+        }
+
         var currentValue = await _cache.GetStringAsync(key, cancellationToken);
         var newValue = int.TryParse(currentValue, out var count) ? count + 1 : 1;
 
@@ -285,6 +356,15 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private async Task AddIpToAccountSetAsync(string hashedIdentifier, string ipAddress, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(IpSetKey, hashedIdentifier);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            await db.SetAddAsync(key, ipAddress);
+            await db.KeyExpireAsync(key, TimeSpan.FromMinutes(_settings.AttemptTrackingWindowMinutes));
+            return;
+        }
+
         var json = await _cache.GetStringAsync(key, cancellationToken);
 
         HashSet<string> ips;
@@ -312,6 +392,16 @@ public class LoginAttemptTracker : ILoginAttemptTracker
         var key = GetCacheKey(AccountLockKey, hashedIdentifier);
         var expiresAt = DateTime.UtcNow.AddMinutes(_settings.TemporaryLockoutMinutes);
 
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(
+                key,
+                expiresAt.ToString("O"),
+                TimeSpan.FromMinutes(_settings.TemporaryLockoutMinutes));
+            return;
+        }
+
         var options = new DistributedCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_settings.TemporaryLockoutMinutes)
@@ -324,6 +414,16 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     {
         var key = GetCacheKey(IpBlockKey, ipAddress);
         var expiresAt = DateTime.UtcNow.AddMinutes(_settings.IpBlockDurationMinutes);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(
+                key,
+                expiresAt.ToString("O"),
+                TimeSpan.FromMinutes(_settings.IpBlockDurationMinutes));
+            return;
+        }
 
         var options = new DistributedCacheEntryOptions
         {
