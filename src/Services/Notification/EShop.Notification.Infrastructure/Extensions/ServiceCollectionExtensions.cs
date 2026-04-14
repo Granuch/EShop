@@ -34,6 +34,7 @@ public static class ServiceCollectionExtensions
 
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
         services.Configure<IdentityServiceSettings>(configuration.GetSection(IdentityServiceSettings.SectionName));
+        services.Configure<PasswordResetSettings>(configuration.GetSection(PasswordResetSettings.SectionName));
         services.Configure<RabbitMqSettings>(configuration.GetSection(RabbitMqSettings.SectionName));
 
         if (useInMemoryDatabase)
@@ -119,6 +120,7 @@ public static class ServiceCollectionExtensions
                 bus.AddConsumer<PaymentCompletedConsumer>();
                 bus.AddConsumer<PaymentFailedConsumer>();
                 bus.AddConsumer<PaymentRefundedConsumer>();
+                bus.AddConsumer<PasswordResetRequestedConsumer>();
             });
 
         return services;

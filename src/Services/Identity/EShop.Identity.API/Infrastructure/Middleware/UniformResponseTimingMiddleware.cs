@@ -68,23 +68,26 @@ public class UniformResponseTimingMiddleware
         }
         finally
         {
-            stopwatch.Stop();
-
-            // Calculate how long to wait to reach minimum response time
-            // Add random jitter to prevent timing pattern detection
-            var jitter = Random.Shared.Next(0, _settings.ResponseTimeVariationMs);
-            var targetResponseTime = _settings.MinimumResponseTimeMs + jitter;
-            var actualResponseTime = (int)stopwatch.ElapsedMilliseconds;
-
-            if (actualResponseTime < targetResponseTime)
+            if (_settings.MinimumResponseTimeMs > 0)
             {
-                var delayMs = targetResponseTime - actualResponseTime;
-                await Task.Delay(delayMs);
-            }
+                stopwatch.Stop();
 
-            // Note: If actual time exceeds minimum, we don't add delay
-            // This is acceptable as it doesn't leak timing information
-            // (could be slow password hashing, database query, etc.)
+                // Calculate how long to wait to reach minimum response time
+                // Add random jitter to prevent timing pattern detection
+                var jitter = Random.Shared.Next(0, _settings.ResponseTimeVariationMs);
+                var targetResponseTime = _settings.MinimumResponseTimeMs + jitter;
+                var actualResponseTime = (int)stopwatch.ElapsedMilliseconds;
+
+                if (actualResponseTime < targetResponseTime)
+                {
+                    var delayMs = targetResponseTime - actualResponseTime;
+                    await Task.Delay(delayMs);
+                }
+
+                // Note: If actual time exceeds minimum, we don't add delay
+                // This is acceptable as it doesn't leak timing information
+                // (could be slow password hashing, database query, etc.)
+            }
         }
     }
 }

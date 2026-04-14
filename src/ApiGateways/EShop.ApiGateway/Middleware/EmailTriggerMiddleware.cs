@@ -42,7 +42,7 @@ public sealed class EmailTriggerMiddleware
             statusCode: context.Response.StatusCode,
             elapsedMs: elapsedMs);
 
-        if (!TryBuildNotification(context, out var notification))
+        if (!TryBuildNotification(context, isSimulation, out var notification))
         {
             return;
         }
@@ -65,12 +65,9 @@ public sealed class EmailTriggerMiddleware
         await _emailNotificationService.QueueAsync(notification, context.RequestAborted);
     }
 
-    private bool TryBuildNotification(HttpContext context, out EmailNotificationContext notification)
+    private bool TryBuildNotification(HttpContext context, bool isSimulation, out EmailNotificationContext notification)
     {
         var statusCode = context.Response.StatusCode;
-        var isSimulation = context.Items.TryGetValue(SimulationContextKeys.Enabled, out var simulationObj)
-            && simulationObj is bool simulationEnabled
-            && simulationEnabled;
 
         var routeName = ResolveRouteName(context);
         var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)

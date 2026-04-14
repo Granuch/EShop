@@ -49,6 +49,25 @@ public sealed class EmailService : IEmailService
         await SendAsync(message, ct);
     }
 
+    public async Task SendPasswordResetAsync(
+        RecipientAddress recipient,
+        PasswordResetEmailModel model,
+        CancellationToken ct = default)
+    {
+        var subject = "Reset your EShop password";
+        var htmlBody = await _templateRenderer.RenderAsync(
+            "password-reset",
+            new Dictionary<string, string>
+            {
+                ["CustomerName"] = model.CustomerName,
+                ["ResetLink"] = model.ResetLink
+            },
+            ct);
+
+        var message = BuildMessage(recipient, subject, htmlBody);
+        await SendAsync(message, ct);
+    }
+
     public async Task SendPaymentCreatedAsync(
         RecipientAddress recipient,
         PaymentCreatedEmailModel model,

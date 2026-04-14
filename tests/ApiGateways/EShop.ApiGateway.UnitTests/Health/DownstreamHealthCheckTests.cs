@@ -89,6 +89,39 @@ public sealed class DownstreamHealthCheckTests
         Assert.That(result.Description, Is.EqualTo("All downstream destinations are reachable and healthy."));
     }
 
+    [Test]
+    public void CheckHealthAsync_ShouldPropagateCancellation_WhenTokenIsCanceled()
+    {
+        var proxyProvider = new Mock<IProxyConfigProvider>();
+        proxyProvider.Setup(x => x.GetConfig()).Returns(CreateValidConfig("http://identity-api:8080/"));
+
+        var clientFactory = CreateHttpClientFactoryWithException(new OperationCanceledException());
+        var sut = new DownstreamHealthCheck(proxyProvider.Object, clientFactory.Object);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Assert.That(async () => await sut.CheckHealthAsync(
+                new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext(),
+                cts.Token),
+            Throws.InstanceOf<OperationCanceledException>());
+    }
+
+    [Test]
+    public async Task CheckHealthAsync_ShouldReturnUnhealthy_WhenDestinationTimesOut()
+    {
+        var proxyProvider = new Mock<IProxyConfigProvider>();
+        proxyProvider.Setup(x => x.GetConfig()).Returns(CreateValidConfig("http://identity-api:8080/"));
+
+        var clientFactory = CreateHttpClientFactoryWithException(new TaskCanceledException("timeout"));
+        var sut = new DownstreamHealthCheck(proxyProvider.Object, clientFactory.Object);
+
+        var result = await sut.CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext());
+
+        Assert.That(result.Status, Is.EqualTo(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy));
+        Assert.That(result.Data.ContainsKey("failedDestinations"), Is.True);
+    }
+
     private static TestProxyConfig CreateValidConfig(string destinationAddress)
     {
         return new TestProxyConfig(
@@ -121,6 +154,22 @@ public sealed class DownstreamHealthCheckTests
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync(new HttpResponseMessage(statusCode));
+
+        var clientFactory = new Mock<IHttpClientFactory>(MockBehavior.Strict);
+        clientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(new HttpClient(handler.Object));
+
+        return clientFactory;
+    }
+
+    private static Mock<IHttpClientFactory> CreateHttpClientFactoryWithException(Exception exception)
+    {
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(exception);
 
         var clientFactory = new Mock<IHttpClientFactory>(MockBehavior.Strict);
         clientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(new HttpClient(handler.Object));

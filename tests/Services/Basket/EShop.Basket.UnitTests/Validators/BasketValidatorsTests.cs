@@ -36,8 +36,6 @@ public class BasketValidatorsTests
         {
             UserId = "user-1",
             ProductId = Guid.NewGuid(),
-            ProductName = "Phone",
-            Price = 100m,
             Quantity = 2
         };
 
@@ -53,8 +51,6 @@ public class BasketValidatorsTests
         {
             UserId = string.Empty,
             ProductId = Guid.Empty,
-            ProductName = new string('x', 201),
-            Price = -1m,
             Quantity = 0
         };
 
@@ -62,8 +58,6 @@ public class BasketValidatorsTests
 
         result.ShouldHaveValidationErrorFor(x => x.UserId);
         result.ShouldHaveValidationErrorFor(x => x.ProductId);
-        result.ShouldHaveValidationErrorFor(x => x.ProductName);
-        result.ShouldHaveValidationErrorFor(x => x.Price);
         result.ShouldHaveValidationErrorFor(x => x.Quantity);
     }
 

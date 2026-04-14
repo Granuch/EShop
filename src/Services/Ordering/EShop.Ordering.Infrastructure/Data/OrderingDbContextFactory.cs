@@ -17,8 +17,12 @@ public class OrderingDbContextFactory : IDesignTimeDbContextFactory<OrderingDbCo
             .AddEnvironmentVariables()
             .Build();
 
-        var connectionString = configuration.GetConnectionString("OrderingDb")
-            ?? "Host=localhost;Port=5434;Database=eshop_ordering;Username=postgres;Password=postgres";
+        var connectionString = configuration.GetConnectionString("OrderingDb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Connection string 'OrderingDb' is not configured. Set it in appsettings or environment variables before running design-time commands.");
+        }
 
         var optionsBuilder = new DbContextOptionsBuilder<OrderingDbContext>();
         optionsBuilder.UseNpgsql(connectionString);
