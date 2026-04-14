@@ -1,143 +1,104 @@
-# EShop Observability Stack
+# Observability Setup
 
-Документация по настройке и использованию observability инструментов для EShop.
+Practical setup guide for local observability components.
 
-## Компоненты
+---
 
-### 1. Seq - Централизованное логирование
-- **URL**: http://localhost:5341
-- **Описание**: Сервер для сбора и анализа структурированных логов
+## Components
 
-### 2. Prometheus - Сбор метрик
-- **URL**: http://localhost:9090
-- **Описание**: Time-series база данных для метрик
+When monitoring profile is enabled, the local stack includes:
 
-### 3. Grafana - Визуализация
-- **URL**: http://localhost:3000
-- **Credentials**: admin / admin
-- **Описание**: Дашборды и алерты
+- Seq (logs)
+- Prometheus (metrics store/scraper)
+- Grafana (dashboards)
+- Jaeger (trace UI)
+- OpenTelemetry Collector
+- Exporters (for selected infrastructure components)
 
-## Быстрый старт
+---
+
+## Start Local Observability
+
+From repository root:
 
 ```bash
-# Запустить observability stack
-docker-compose -f docker-compose.observability.yml up -d
-
-# Проверить статус
-docker-compose -f docker-compose.observability.yml ps
-
-# Остановить
-docker-compose -f docker-compose.observability.yml down
+docker compose --profile sandbox --profile monitoring up -d
 ```
 
-## Identity Service Endpoints
+Check status:
 
-### Health Checks
-- `/health` - Полный health check с детальным ответом
-- `/health/ready` - Проверка готовности (database, roles)
-- `/health/live` - Проверка жизнеспособности
-
-### Metrics
-- `/metrics` - Prometheus metrics endpoint
-
-## Метрики Identity Service
-
-### Аутентификация
-- `identity_login_attempts_total` - Попытки входа (status: success/failure/2fa_required, reason)
-- `identity_login_duration_seconds` - Длительность операции входа
-
-### Регистрация
-- `identity_registrations_total` - Регистрации пользователей (status)
-
-### Токены
-- `identity_token_refresh_total` - Обновления токенов
-- `identity_token_revocations_total` - Отзывы токенов
-- `identity_token_generation_duration_seconds` - Время генерации токенов
-
-### Пароли
-- `identity_password_operations_total` - Операции с паролями (operation: change/reset/forgot)
-
-### 2FA
-- `identity_2fa_operations_total` - Операции 2FA (operation: enable/verify/disable)
-
-### Email
-- `identity_email_operations_total` - Операции с email (operation: confirm)
-
-## Structured Logging
-
-Все логи обогащены следующими свойствами:
-- `Application` - Имя приложения
-- `MachineName` - Имя хоста
-- `ThreadId` - ID потока
-- `EnvironmentName` - Окружение (Development/Production)
-
-### Примеры запросов в Seq
-
-```sql
--- Неудачные попытки входа
-Application = 'EShop.Identity.API' and @Level = 'Warning' and @Message like '%Login attempt failed%'
-
--- Все операции пользователя
-UserId = 'user-guid-here'
-
--- Ошибки за последний час
-@Level = 'Error' and @Timestamp > Now() - 1h
+```bash
+docker compose ps
 ```
 
-## Grafana Dashboards
+Stop:
 
-### EShop Identity Service Dashboard
-- Успешные/неудачные входы (24ч)
-- Новые регистрации (24ч)
-- Rate входов
-- Latency входов (p50, p95, p99)
-- HTTP request rate
-- HTTP response time
-- Password operations
-- 2FA operations
-
-## Конфигурация
-
-### appsettings.json
-
-```json
-{
-  "Serilog": {
-    "WriteTo": [
-      {
-        "Name": "Seq",
-        "Args": {
-          "serverUrl": "http://localhost:5341"
-        }
-      }
-    ]
-  }
-}
+```bash
+docker compose down
 ```
 
-### Prometheus scrape config
+---
 
-```yaml
-scrape_configs:
-  - job_name: 'identity-service'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['host.docker.internal:5001']
-```
+## Default Access URLs
+
+(Values can be overridden by `.env`)
+
+- Seq: `http://localhost:5341`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+- Jaeger: `http://localhost:16686`
+
+---
+
+## Service Endpoints to Validate
+
+For gateway and services, verify:
+- readiness/liveness endpoints
+- `/prometheus`
+- `/metrics`
+
+---
+
+## Basic Validation Checklist
+
+1. Containers are healthy in `docker compose ps`.
+2. Prometheus targets show as up.
+3. Logs are arriving in Seq.
+4. Dashboards show active metrics in Grafana.
+5. Traces appear in Jaeger after requests.
+
+---
 
 ## Troubleshooting
 
-### Seq не получает логи
-1. Проверьте, что Seq запущен: `docker ps | grep seq`
-2. Проверьте URL в appsettings.json
-3. Проверьте firewall
+### No metrics in Prometheus
+- Check service endpoint exposure and scrape target config.
+- Confirm service container/network availability.
 
-### Prometheus не скрапит метрики
-1. Откройте http://localhost:9090/targets
-2. Проверьте, что Identity service доступен
-3. Проверьте `/metrics` endpoint напрямую
+### No logs in Seq
+- Check Serilog sink configuration for service.
+- Confirm Seq container is running and reachable.
 
-### Grafana не показывает данные
-1. Проверьте подключение к Prometheus в Grafana
-2. Убедитесь, что метрики существуют в Prometheus
-3. Проверьте временной диапазон в дашборде
+### No traces in Jaeger
+- Verify OTEL collector is running.
+- Check OTLP endpoint configuration in service environment.
+
+---
+
+## Operational Notes
+
+- Keep local credentials convenient for development only.
+- For non-local environments, use secure credentials and strict access control.
+
+---
+
+## Related Documents
+
+- [Observability](observability.md)
+- [Resilience](resilience.md)
+- [Services](../05-services/)
+
+---
+
+**Version**: 2.0  
+**Last Updated**: 2026-04-14
