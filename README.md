@@ -182,7 +182,7 @@ git push origin feature/my-awesome-feature
 - **Logs**: Seq - http://localhost:5341
 - **Metrics**: Grafana - http://localhost:3000 (admin/admin)
 - **Traces**: Jaeger - http://localhost:16686
-- **Health**: http://localhost:5000/health
+- **Health**: http://localhost:7000/health
 
 **Налаштування**: [docs/06-infrastructure/observability.md](docs/06-infrastructure/observability.md)
 

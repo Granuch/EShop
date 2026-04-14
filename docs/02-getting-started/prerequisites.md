@@ -44,6 +44,8 @@ dotnet --version
 winget install Microsoft.DotNet.SDK.10
 ```
 
+If the WinGet package ID has changed, run `winget search dotnet sdk` to find the current name, or download the SDK directly from https://dotnet.microsoft.com/download/dotnet/10.0.
+
 **macOS**
 
 ```bash

@@ -115,13 +115,13 @@ When running mixed mode (some services local, some in Docker), verify connection
 You can start individual services from repository root, one per terminal.
 
 ```bash
-dotnet run --project src/Services/Identity/EShop.Identity.API
-dotnet run --project src/Services/Catalog/EShop.Catalog.API
-dotnet run --project src/Services/Basket/EShop.Basket.API
-dotnet run --project src/Services/Ordering/EShop.Ordering.API
-dotnet run --project src/Services/Payment/EShop.Payment.API
-dotnet run --project src/Services/Notification/EShop.Notification.API
-dotnet run --project src/ApiGateways/EShop.ApiGateway
+dotnet run --project src/Services/Identity/EShop.Identity.API/EShop.Identity.API.csproj
+dotnet run --project src/Services/Catalog/EShop.Catalog.API/EShop.Catalog.API.csproj
+dotnet run --project src/Services/Basket/EShop.Basket.API/EShop.Basket.API.csproj
+dotnet run --project src/Services/Ordering/EShop.Ordering.API/EShop.Ordering.API.csproj
+dotnet run --project src/Services/Payment/EShop.Payment.API/EShop.Payment.API.csproj
+dotnet run --project src/Services/Notification/EShop.Notification.API/EShop.Notification.API.csproj
+dotnet run --project src/ApiGateways/EShop.ApiGateway/EShop.ApiGateway.csproj
 ```
 
 ---
