@@ -100,7 +100,7 @@ public sealed class NotificationLog
         }
 
         Status = NotificationStatus.Failed;
-        LastError = error;
+        LastError = SanitizeError(error);
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -108,6 +108,43 @@ public sealed class NotificationLog
     {
         RetryCount++;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static string SanitizeError(string rawError)
+    {
+        var error = rawError.Trim();
+
+        if (error.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Email provider timeout.";
+        }
+
+        if (error.Contains("authentication", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("forbidden", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Email provider authentication failed.";
+        }
+
+        if (error.Contains("smtp", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("socket", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("connection", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("network", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("host", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Email provider connectivity error.";
+        }
+
+        if (error.Contains("invalid", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("recipient", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("address", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("mailbox", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Email request validation failed.";
+        }
+
+        return "Email sending failed.";
     }
 }
 

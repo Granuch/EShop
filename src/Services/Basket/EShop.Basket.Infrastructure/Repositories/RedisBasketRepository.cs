@@ -52,6 +52,15 @@ public class RedisBasketRepository : IBasketRepository
             return null;
         }
 
+        if (!string.Equals(document.UserId, userId, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Basket payload user mismatch for key user {RequestedUserId}. Document contains user {DocumentUserId}. Treating record as corrupted.",
+                userId,
+                document.UserId);
+            return null;
+        }
+
         var createdAt = document.CreatedAt == default ? DateTime.UtcNow : document.CreatedAt;
         var lastModifiedAt = document.LastModifiedAt == default ? createdAt : document.LastModifiedAt;
 
@@ -91,12 +100,6 @@ public class RedisBasketRepository : IBasketRepository
             _ = transaction.SetAddAsync(productUsersKey, basket.UserId);
         }
 
-        // Refresh TTL for all active reverse-index keys to keep index lifetime aligned with basket lifetime.
-        foreach (var productId in currentProductIds)
-        {
-            _ = transaction.KeyExpireAsync(GetProductUsersKey(productId), _options.BasketTtl);
-        }
-
         foreach (var removedProductId in previousProductIds.Except(currentProductIds))
         {
             var productUsersKey = GetProductUsersKey(removedProductId);
@@ -109,6 +112,13 @@ public class RedisBasketRepository : IBasketRepository
             _logger.LogWarning("Redis transaction failed when saving basket for user {UserId}", basket.UserId);
             throw new InvalidOperationException($"Failed to save basket for user '{basket.UserId}'.");
         }
+
+        // TTL refresh is best-effort and does not require MULTI/EXEC atomicity.
+        // Run as pipelined async operations after commit to avoid bloating transaction payload.
+        var ttlRefreshTasks = currentProductIds
+            .Select(productId => _database.KeyExpireAsync(GetProductUsersKey(productId), _options.BasketTtl));
+
+        await Task.WhenAll(ttlRefreshTasks);
 
         return basket;
     }

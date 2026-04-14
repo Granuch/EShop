@@ -47,6 +47,12 @@ public class CategoryTests
     }
 
     [Test]
+    public void Create_WithEmptyParentCategoryId_ShouldThrowDomainException()
+    {
+        Assert.Throws<DomainException>(() => Category.Create("Laptops", null, Guid.Empty));
+    }
+
+    [Test]
     public void Create_WithEmptyName_ShouldThrowDomainException()
     {
         // Act & Assert
@@ -141,6 +147,24 @@ public class CategoryTests
 
         // Assert
         Assert.That(parent.ChildCategories.First().Slug, Is.EqualTo("laptops-notebooks"));
+    }
+
+    [Test]
+    public void SetParent_WithSelf_ShouldThrowDomainException()
+    {
+        var category = Category.Create("Electronics", null, null);
+
+        Assert.Throws<DomainException>(() => category.SetParent(category));
+    }
+
+    [Test]
+    public void SetParent_WhenWouldCreateCycle_ShouldThrowDomainException()
+    {
+        var root = Category.Create("Root", null, null);
+        var child = Category.Create("Child", null, null);
+        child.SetParent(root);
+
+        Assert.Throws<DomainException>(() => root.SetParent(child));
     }
 
     [Test]

@@ -57,22 +57,24 @@ public sealed class OrderingProxyGuardMiddleware
 
     private static bool IsOrderingPath(PathString path)
     {
-        var value = path.Value;
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        if (value.StartsWith(OrderingPathPrefixes[0], StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWithSegments(OrderingPathPrefixes[0], StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        if (value.StartsWith(OrderingPathPrefixes[1], StringComparison.OrdinalIgnoreCase))
+        if (!path.StartsWithSegments(OrderingPathPrefixes[1], out var remainingPath))
         {
-            return value.Contains("/orders", StringComparison.OrdinalIgnoreCase);
+            return false;
         }
 
-        return false;
+        var segments = remainingPath.Value?
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (segments is null || segments.Length < 2)
+        {
+            return false;
+        }
+
+        return string.Equals(segments[1], "orders", StringComparison.OrdinalIgnoreCase);
     }
 }

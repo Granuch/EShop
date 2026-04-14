@@ -89,6 +89,25 @@ public class OrderingProxyGuardMiddlewareTests
         Assert.That(context.Response.Headers.ContainsKey("Retry-After"), Is.False);
     }
 
+    [Test]
+    public async Task InvokeAsync_DoesNotTreatOrdersArchivePathAsOrderingRoute()
+    {
+        var middleware = CreateMiddleware(
+            next: context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status502BadGateway;
+                return Task.CompletedTask;
+            });
+
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/v1/orders-archive";
+
+        await middleware.InvokeAsync(context);
+
+        Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status502BadGateway));
+        Assert.That(context.Response.Headers.ContainsKey("Retry-After"), Is.False);
+    }
+
     private static OrderingProxyGuardMiddleware CreateMiddleware(
         RequestDelegate next,
         long maxBodySizeBytes = 1024,

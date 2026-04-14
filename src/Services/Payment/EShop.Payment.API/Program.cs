@@ -57,6 +57,13 @@ if (startupStripeSettings.SkipWebhookSignatureVerification
         "Stripe webhook signature verification bypass is only allowed in Development, Sandbox, or Testing environments.");
 }
 
+if (startupStripeSettings.SkipWebhookSignatureVerification
+    && builder.Environment.IsEnvironment("Sandbox"))
+{
+    Log.Warning(
+        "Stripe webhook signature verification is disabled in Sandbox by design for integration testing. Never enable this bypass outside Development/Sandbox/Testing.");
+}
+
 builder.Services.AddPaymentApplication();
 builder.Services.AddPaymentInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 builder.Services.AddPaymentMessaging(
@@ -76,6 +83,20 @@ var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<
 if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey) || jwtSettings.SecretKey.Length < 32)
 {
     throw new InvalidOperationException("JWT SecretKey must be configured and at least 32 characters long.");
+}
+
+if (IsProductionLikeEnvironment(builder.Environment))
+{
+    EnsureNoPlaceholderValue(jwtSettings.SecretKey, "JwtSettings:SecretKey", builder.Environment.EnvironmentName);
+
+    var paymentDbConnectionString = builder.Configuration.GetConnectionString("PaymentDb");
+    EnsureNoPlaceholderValue(paymentDbConnectionString, "ConnectionStrings:PaymentDb", builder.Environment.EnvironmentName);
+
+    if (paymentDbConnectionString!.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"ConnectionStrings:PaymentDb contains localhost in {builder.Environment.EnvironmentName}. Use managed environment-specific connection configuration.");
+    }
 }
 
 builder.Services.AddHttpContextAccessor();
@@ -114,6 +135,15 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+
+        if (allowedOrigins.Length == 0 &&
+            !builder.Environment.IsDevelopment() &&
+            !builder.Environment.IsEnvironment("Testing"))
+        {
+            throw new InvalidOperationException(
+                $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
+                "Configure allowed origins before deploying to non-development environments.");
+        }
 
         policy.WithOrigins(allowedOrigins)
             .AllowAnyMethod()
@@ -228,6 +258,32 @@ static bool IsPostgresStartupException(Exception exception)
 
     return exception.InnerException is not null
         && IsPostgresStartupException(exception.InnerException);
+}
+
+static bool IsProductionLikeEnvironment(IHostEnvironment environment)
+{
+    return !environment.IsDevelopment()
+        && !environment.IsEnvironment("Testing")
+        && !environment.IsEnvironment("Sandbox");
+}
+
+static void EnsureNoPlaceholderValue(string? value, string settingName, string environmentName)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        throw new InvalidOperationException($"{settingName} is required in {environmentName}.");
+    }
+
+    var placeholderPatterns = new[] { "CHANGE_ME", "LOCAL_", "#{", "REPLACE_WITH_", "YOUR_", "placeholder" };
+
+    foreach (var pattern in placeholderPatterns)
+    {
+        if (value.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{settingName} contains placeholder pattern '{pattern}' in {environmentName}. Replace it with a secure value.");
+        }
+    }
 }
 
 public partial class Program;

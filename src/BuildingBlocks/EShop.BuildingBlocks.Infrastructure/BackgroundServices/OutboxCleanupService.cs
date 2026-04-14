@@ -63,14 +63,14 @@ public class OutboxCleanupService : BackgroundService
 
         if (isRelational)
         {
-            // Use raw SQL for efficient bulk deletion
-            var outboxDeleted = await dbContext.Database.ExecuteSqlRawAsync(
-                """DELETE FROM outbox_messages WHERE "ProcessedOnUtc" IS NOT NULL AND "ProcessedOnUtc" < {0}""",
-                cutoff);
+            // Use provider-agnostic bulk delete for relational databases
+            var outboxDeleted = await dbContext.Set<OutboxMessage>()
+                .Where(m => m.ProcessedOnUtc != null && m.ProcessedOnUtc < cutoff)
+                .ExecuteDeleteAsync(cancellationToken);
 
-            var processedDeleted = await dbContext.Database.ExecuteSqlRawAsync(
-                """DELETE FROM processed_messages WHERE "ProcessedOnUtc" < {0}""",
-                cutoff);
+            var processedDeleted = await dbContext.Set<ProcessedMessage>()
+                .Where(m => m.ProcessedOnUtc < cutoff)
+                .ExecuteDeleteAsync(cancellationToken);
 
             if (outboxDeleted > 0 || processedDeleted > 0)
             {

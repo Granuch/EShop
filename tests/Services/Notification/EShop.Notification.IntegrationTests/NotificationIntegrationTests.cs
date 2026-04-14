@@ -369,5 +369,10 @@ public class NotificationIntegrationTests
 
             return Task.CompletedTask;
         }
+
+        public Task SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 }

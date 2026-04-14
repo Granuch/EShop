@@ -29,6 +29,9 @@ public class Category : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException("Category name is required.");
+
+        if (parentCategoryId == Guid.Empty)
+            throw new DomainException("Parent category ID cannot be empty GUID.");
         
         var finalSlug = (slug ?? GenerateSlug(name)).Trim();
         
@@ -53,9 +56,29 @@ public class Category : AggregateRoot<Guid>
 
         string newSlug = (slug ?? GenerateSlug(name)).Trim();
         
-        var juniorCategory = Category.Create(name, newSlug, Id);
+        var juniorCategory = Category.Create(name, newSlug, null);
+        juniorCategory.SetParent(this);
         
         _childCategories.Add(juniorCategory);
+    }
+
+    public void SetParent(Category? parentCategory)
+    {
+        if (parentCategory is null)
+        {
+            ParentCategory = null;
+            ParentCategoryId = null;
+            return;
+        }
+
+        if (parentCategory.Id == Id)
+            throw new DomainException("Category cannot be its own parent.");
+
+        if (parentCategory.IsAncestorOf(Id))
+            throw new DomainException("Circular category hierarchy is not allowed.");
+
+        ParentCategory = parentCategory;
+        ParentCategoryId = parentCategory.Id;
     }
 
     public void UpdateCategory(string name, string description)
@@ -75,7 +98,6 @@ public class Category : AggregateRoot<Guid>
         slug = Regex.Replace(slug, @"-+", "-"); // remove multiple dashes
         return slug;
     }
-    // TODO: Add validation to prevent circular parent-child relationships
     private bool IsAncestorOf(Guid categoryId)
     {
         if (ParentCategoryId == null)

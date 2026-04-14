@@ -118,11 +118,6 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         }
 
         await _paymentRepository.AddProcessedStripeEventAsync(processedEvent, cancellationToken);
-        var saved = await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);
-        if (!saved)
-        {
-            return new StripeWebhookProcessResult(true, true, stripeEvent.Id, stripeEvent.Type);
-        }
 
         if (publishSuccess)
         {
@@ -157,6 +152,12 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
                 Reason = payment.ErrorMessage ?? "Stripe payment failed.",
                 FailedAt = payment.ProcessedAt ?? DateTime.UtcNow
             });
+        }
+
+        var saved = await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);
+        if (!saved)
+        {
+            return new StripeWebhookProcessResult(true, true, stripeEvent.Id, stripeEvent.Type);
         }
 
         return new StripeWebhookProcessResult(false, true, stripeEvent.Id, stripeEvent.Type);

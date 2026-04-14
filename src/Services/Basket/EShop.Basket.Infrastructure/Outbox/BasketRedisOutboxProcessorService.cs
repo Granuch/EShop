@@ -84,7 +84,7 @@ public class BasketRedisOutboxProcessorService : BackgroundService
         if (publishEndpoint == null)
         {
             _logger.LogWarning("IPublishEndpoint is not registered. Outbox processor is pausing until messaging is available.");
-            await Task.Delay(TimeSpan.FromSeconds(5));
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             return false;
         }
 
