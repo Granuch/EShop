@@ -1,128 +1,340 @@
-# 🛒 E-Shop Microservices - Документація
+# EShop — Cloud-Native Microservices Platform
 
-Вітаємо у документації E-Shop Microservices проекту!
+<div align="center">
 
-## 📖 Навігація
+![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
+![C#](https://img.shields.io/badge/C%23-13-239120?style=for-the-badge&logo=csharp&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?style=for-the-badge&logo=rabbitmq&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
-### 🎯 Початок роботи
-- [01. Огляд проекту](01-overview/project-overview.md)
-- [Архітектурна діаграма](01-overview/architecture-diagram.md)
-- [Технологічний стек](01-overview/tech-stack.md)
+Production-grade backend platform built on .NET 10 with DDD, CQRS, and event-driven integration.
 
-### 🚀 Швидкий старт
-- ✅ [Передумови та встановлення](02-getting-started/prerequisites.md)
-- ✅ [Локальне середовище](02-getting-started/local-setup.md) - **NEW!**
-- ✅ [Docker налаштування](02-getting-started/docker-setup.md) - **NEW!**
-- ✅ [Team Agreement](02-getting-started/team-agreement.md) - **NEW!**
+[Architecture](#architecture) • [Services](#services) • [Getting Started](#getting-started) • [Documentation Map](#documentation-map) • [Tech Stack](#tech-stack)
 
-### 🏗️ Архітектура
-- [Структура Solution](03-architecture/solution-structure.md)
-- [BuildingBlocks](03-architecture/building-blocks.md)
-- [Clean Architecture & DDD](03-architecture/clean-architecture.md)
-- [Паттерни комунікації](03-architecture/communication-patterns.md)
-
-### 🔧 Сервіси
-- ✅ [Identity Service](04-services/identity-service.md) - Автентифікація та авторизація - **NEW!**
-- ✅ [Catalog Service](04-services/catalog-service.md) - Каталог продуктів - **NEW!**
-- ✅ [Basket Service](04-services/basket-service.md) - Кошик покупок - **NEW!**
-- ✅ [Ordering Service](04-services/ordering-service.md) - Обробка замовлень - **NEW!**
-- ✅ [Payment Service](04-services/payment-service.md) - Платежі (Mock) - **NEW!**
-- ✅ [Notification Service](04-services/notification-service.md) - Email/SMS нотифікації - **NEW!**
-- ✅ [API Gateway](04-services/api-gateway.md) - YARP Gateway - **NEW!**
-
-### 💾 Інфраструктура
-- [Бази даних](05-infrastructure/databases.md) - PostgreSQL setup
-- [Кешування](05-infrastructure/caching.md) - Redis configuration
-- [Message Broker](05-infrastructure/message-broker.md) - RabbitMQ & MassTransit
-- [Observability](05-infrastructure/observability.md) - Logging, metrics, tracing
-- [Resilience](05-infrastructure/resilience.md) - Polly patterns
-
-### 👥 Робочий процес
-- [Git Workflow](06-development-workflow/git-workflow.md)
-- [Issue Templates](06-development-workflow/issue-templates.md)
-- [Pull Request Process](06-development-workflow/pull-request-process.md)
-- [Управління задачами](06-development-workflow/task-management.md)
-
-### 📅 План імплементації (56 днів)
-- [Phase 0: Infrastructure](07-implementation-plan/phase-00-infrastructure.md) - День 1-3
-- [Phase 1: Identity](07-implementation-plan/phase-01-identity.md) - День 4-9
-- [Phase 2: Catalog](07-implementation-plan/phase-02-catalog.md) - День 10-15
-- [Phase 2.5: Testing](07-implementation-plan/phase-02.5-testing.md) - День 16-17
-- [Phase 3: Gateway](07-implementation-plan/phase-03-gateway.md) - День 18-20
-- [Phase 4: Basket](07-implementation-plan/phase-04-basket.md) - День 20-23
-- [Phase 5: Ordering](07-implementation-plan/phase-05-ordering.md) - День 23-30
-- [Phase 6: Payment](07-implementation-plan/phase-06-payment.md) - День 30-32
-- [Phase 7: Notification](07-implementation-plan/phase-07-notification.md) - День 32-34
-- [Phase 8: Frontend](07-implementation-plan/phase-08-frontend.md) - День 34-43
-- [Phase 9: Observability](07-implementation-plan/phase-09-observability.md) - День 43-48
-- [Phase 10: Production](07-implementation-plan/phase-10-production.md) - День 48-56
-
-### 🧪 Тестування
-- [Стратегія тестування](08-testing/testing-strategy.md)
-- [TestContainers Setup](08-testing/testcontainers-setup.md)
-- [Load Testing (k6)](08-testing/load-testing.md)
-
-### 🚢 Deployment
-- [CI/CD Pipeline](09-deployment/ci-cd-pipeline.md)
-- [Docker Deployment](09-deployment/docker-deployment.md)
-- [Kubernetes Deployment](09-deployment/kubernetes-deployment.md)
-- [Migration Strategy](09-deployment/migration-strategy.md)
-
-### 🔐 Production Readiness
-- [Security Hardening](10-production-readiness/security-hardening.md)
-- [Monitoring & Alerts](10-production-readiness/monitoring-alerts.md)
-- [Disaster Recovery](10-production-readiness/disaster-recovery.md)
-- [Performance Benchmarks](10-production-readiness/performance-benchmarks.md)
-- [API Versioning](10-production-readiness/api-versioning.md)
-
-### 🔧 Troubleshooting
-- [Типові проблеми](11-troubleshooting/common-issues.md)
-- [Debugging Guide](11-troubleshooting/debugging-guide.md)
-- [Diagnostic Scripts](11-troubleshooting/diagnostic-scripts.md)
-
-### 👥 Командна робота
-- [Інструменти комунікації](12-team-collaboration/communication-tools.md)
-- [Розклад зустрічей](12-team-collaboration/meeting-schedule.md)
-- [Onboarding Checklist](12-team-collaboration/onboarding-checklist.md)
-- [Розподіл ролей](12-team-collaboration/role-distribution.md)
-
-### 📚 Додатки
-- [Глосарій](13-appendix/glossary.md)
-- [Ресурси та посилання](13-appendix/resources.md)
-- [Architecture Decision Records](13-appendix/adr/)
-- [Post-MVP Roadmap](13-appendix/roadmap.md)
-- [Success Criteria](13-appendix/success-criteria.md)
+</div>
 
 ---
 
-## 🎯 Швидкі посилання
+## Overview
 
-### Для новачків
-1. 📖 [Огляд проекту](01-overview/project-overview.md)
-2. 💻 [Передумови встановлення](02-getting-started/prerequisites.md)
-3. 🚀 [Локальний запуск](02-getting-started/local-setup.md)
-4. 👋 [Onboarding](12-team-collaboration/onboarding-checklist.md)
+EShop is an event-driven microservices platform designed with clean service boundaries, strong operational visibility, and pragmatic production-focused defaults.
 
-### Для розробників
-1. 🌳 [Git Workflow](06-development-workflow/git-workflow.md)
-2. 🔍 [Pull Request Process](06-development-workflow/pull-request-process.md)
-3. 🐛 [Debugging Guide](11-troubleshooting/debugging-guide.md)
-
-### Для DevOps
-1. 🐳 [Docker Deployment](09-deployment/docker-deployment.md)
-2. ⚙️ [CI/CD Pipeline](09-deployment/ci-cd-pipeline.md)
-3. 📊 [Monitoring](10-production-readiness/monitoring-alerts.md)
+Key design goals:
+- reliability over accidental complexity
+- explicit configuration and fail-fast startup validation
+- service autonomy with clear ownership boundaries
+- observable behavior across all critical workflows
 
 ---
 
-## 📞 Контакти та підтримка
+## Architecture
 
-- **GitHub Issues**: Повідомлення про баги та нові фічі
-- **GitHub Discussions**: Архітектурні питання та пропозиції
-- **Discord/Slack**: Щоденна комунікація команди
+```text
+Clients
+  -> API Gateway (YARP: routing, auth policies, rate limiting)
+      -> Identity | Catalog | Basket | Ordering | Payment | Notification
+          -> PostgreSQL (service-owned databases) + Redis
+          -> RabbitMQ (async workflows via MassTransit)
+          -> Seq + Prometheus/Grafana + OpenTelemetry/Jaeger
+```
+
+Detailed architecture:
+- [Architecture Diagram](01-overview/architecture-diagram.md)
+- [C4 Diagrams](03-architecture/c4-diagrams.md)
+- [Data Flow](03-architecture/data-flow.md)
+
+### Key Architectural Patterns
+
+| Pattern | Implementation |
+|---------|----------------|
+| Outbox-Oriented Reliability | Integration events persisted and published through infrastructure patterns |
+| CQRS | Command and query responsibilities separated through application handlers |
+| DDD Service Boundaries | Domain logic isolated per service with clear ownership |
+| Event-Driven Integration | RabbitMQ + MassTransit for asynchronous workflow transitions |
+| Circuit Breaker / Retry | Applied in gateway, messaging, and dependency-sensitive paths |
+| Health-Driven Operations | Liveness/readiness endpoints for orchestration and diagnostics |
 
 ---
 
-**Версія документації**: 1.0  
-**Остання оновлення**: 2024-01-27  
-**Ліцензія**: MIT
+## Services
+
+### Identity Service
+Authentication and authorization capabilities:
+- JWT-based access control
+- account lifecycle endpoints
+- role/policy support
+- internal service authorization support
+
+Documentation: [05-services/identity-service.md](05-services/identity-service.md)
+
+### Catalog Service
+Product and category management:
+- read/write catalog operations
+- validation-driven request handling
+- cache-aware read paths
+
+Documentation: [05-services/catalog-service.md](05-services/catalog-service.md)
+
+### Basket Service
+Redis-backed basket lifecycle:
+- add/update/remove basket items
+- checkout initiation into async ordering flow
+- user-scoped authorization policies
+
+Documentation: [05-services/basket-service.md](05-services/basket-service.md)
+
+### Ordering Service
+Order lifecycle orchestration:
+- order creation and status transitions
+- integration with payment and notification flows
+- asynchronous workflow coordination
+
+Documentation: [05-services/ordering-service.md](05-services/ordering-service.md)
+
+### Payment Service
+Payment processing service:
+- payment lifecycle handling
+- Stripe-oriented integration support
+- payment outcome event publication
+
+Documentation: [05-services/payment-service.md](05-services/payment-service.md)
+
+### Notification Service
+Event-driven notifications:
+- notification event consumers
+- SMTP-based delivery pipeline
+- operational delivery tracking
+
+Documentation: [05-services/notification-service.md](05-services/notification-service.md)
+
+### API Gateway
+YARP gateway and ingress policy enforcement:
+- route forwarding to backend services
+- auth policies and throttling
+- simulation and operational middleware behaviors
+
+Documentation:
+- [05-services/api-gateway.md](05-services/api-gateway.md)
+- [05-services/api-gateway-runtime-guide.md](05-services/api-gateway-runtime-guide.md)
+
+---
+
+## Project Structure
+
+```text
+docs/
+├── 01-overview/
+├── 02-getting-started/
+├── 03-architecture/
+├── 04-implementation-plan/
+├── 05-services/
+├── 06-infrastructure/
+├── 07-development-workflow/
+├── 08-testing/
+└── 09-appendix/
+```
+
+Implementation code structure is documented in:
+- [Project Overview](01-overview/project-overview.md)
+- [Architecture Decisions](03-architecture/architecture-decisions.md)
+
+---
+
+## Event Flow
+
+```text
+Client checkout request
+   -> Basket service validates basket
+      -> Basket publishes checkout event
+         -> Ordering creates order
+            -> Payment processes payment
+               -> Ordering updates state
+                  -> Notification sends delivery updates
+```
+
+Detailed flow: [03-architecture/data-flow.md](03-architecture/data-flow.md)
+
+---
+
+## Tech Stack
+
+| Category | Technology |
+|----------|-----------|
+| Runtime | .NET 10, ASP.NET Core |
+| Messaging | MassTransit, RabbitMQ |
+| Persistence | PostgreSQL, EF Core |
+| Caching | Redis, IDistributedCache |
+| Gateway | YARP |
+| Logging | Serilog, Seq |
+| Metrics | Prometheus, Grafana |
+| Tracing | OpenTelemetry, Jaeger |
+| Validation | FluentValidation |
+| Mapping | Mapster |
+| Containers | Docker, Docker Compose |
+
+Stack details: [01-overview/tech-stack.md](01-overview/tech-stack.md)
+
+---
+
+## Getting Started
+
+### Prerequisites
+- .NET 10 SDK
+- Docker Desktop (or Docker Engine + Compose)
+- Git
+
+Full prerequisites: [02-getting-started/prerequisites.md](02-getting-started/prerequisites.md)
+
+### Local Setup
+1. [Local Setup](02-getting-started/local-setup.md)
+2. [Docker Setup](02-getting-started/docker-setup.md)
+
+### Typical Local Endpoints
+- API Gateway: `http://localhost:7000`
+- Seq: `http://localhost:5341`
+- RabbitMQ Management: `http://localhost:15672`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+- Jaeger: `http://localhost:16686`
+
+---
+
+## API Reference
+
+Service API behavior and route responsibilities are documented in:
+- [Services documentation](05-services/)
+- [Architecture data flow](03-architecture/data-flow.md)
+
+In development mode, OpenAPI/Scalar endpoints are available per service as configured.
+
+---
+
+## Observability
+
+- Logs: Serilog + Seq
+- Metrics: Prometheus + Grafana
+- Traces: OpenTelemetry + Jaeger
+- Health: `/health`, `/health/ready`, `/health/live` (service-dependent)
+
+Details:
+- [06-infrastructure/observability.md](06-infrastructure/observability.md)
+- [06-infrastructure/observability-setup.md](06-infrastructure/observability-setup.md)
+
+---
+
+## Security Highlights
+
+- JWT-based authentication and policy enforcement
+- strict non-local configuration validation for placeholders/secrets
+- role/user-scoped authorization patterns
+- environment-aware runtime safeguards
+
+Details: [03-architecture/security-architecture.md](03-architecture/security-architecture.md)
+
+---
+
+## Documentation Map
+
+### 01. Overview
+- [Project Overview](01-overview/project-overview.md)
+- [Architecture Diagram](01-overview/architecture-diagram.md)
+- [Technology Stack](01-overview/tech-stack.md)
+
+### 02. Getting Started
+- [Prerequisites](02-getting-started/prerequisites.md)
+- [Local Setup](02-getting-started/local-setup.md)
+- [Docker Setup](02-getting-started/docker-setup.md)
+- [Team Agreement](02-getting-started/team-agreement.md)
+
+### 03. Architecture
+- [Architecture Decisions](03-architecture/architecture-decisions.md)
+- [C4 Diagrams](03-architecture/c4-diagrams.md)
+- [Data Flow](03-architecture/data-flow.md)
+- [Design Patterns](03-architecture/design-patterns.md)
+- [Security Architecture](03-architecture/security-architecture.md)
+
+### 04. Implementation Plan
+- [Phase 1: Foundation](04-implementation-plan/phase-1-foundation.md)
+- [Phase 2: Identity](04-implementation-plan/phase-2-identity.md)
+- [Phase 3: Catalog](04-implementation-plan/phase-3-catalog.md)
+- [Phase 4: Basket](04-implementation-plan/phase-4-basket.md)
+- [Phase 5: Ordering](04-implementation-plan/phase-5-ordering.md)
+- [Phase 6: Payment](04-implementation-plan/phase-6-payment.md)
+- [Phase 7: Notifications](04-implementation-plan/phase-7-notifications.md)
+- [Phase 8: Client Integration Track](04-implementation-plan/phase-8-frontend.md)
+- [Phase 9: Testing](04-implementation-plan/phase-9-testing.md)
+- [Phase 10: Operations and Delivery](04-implementation-plan/phase-10-devops.md)
+- [Phase 11: Optimization](04-implementation-plan/phase-11-optimization.md)
+- [Phase 12: Launch and Post-Launch](04-implementation-plan/phase-12-launch.md)
+
+### 05. Services
+- [API Gateway](05-services/api-gateway.md)
+- [API Gateway Runtime Guide](05-services/api-gateway-runtime-guide.md)
+- [Identity Service](05-services/identity-service.md)
+- [Catalog Service](05-services/catalog-service.md)
+- [Basket Service](05-services/basket-service.md)
+- [Ordering Service](05-services/ordering-service.md)
+- [Payment Service](05-services/payment-service.md)
+- [Notification Service](05-services/notification-service.md)
+
+### 06. Infrastructure
+- [Databases](06-infrastructure/databases.md)
+- [Caching](06-infrastructure/caching.md)
+- [Message Broker](06-infrastructure/message-broker.md)
+- [Observability](06-infrastructure/observability.md)
+- [Observability Setup](06-infrastructure/observability-setup.md)
+- [Resilience](06-infrastructure/resilience.md)
+
+### 07. Development Workflow
+- [Git Workflow](07-development-workflow/git-workflow.md)
+- [Coding Standards](07-development-workflow/coding-standards.md)
+- [Code Review Process](07-development-workflow/code-review-process.md)
+- [CI/CD Workflow](07-development-workflow/ci-cd-workflow.md)
+- [Deployment Process](07-development-workflow/deployment-process.md)
+
+### 08. Testing
+- [Testing Strategy](08-testing/testing-strategy.md)
+- [Unit Testing Guide](08-testing/unit-testing.md)
+- [Integration Testing Guide](08-testing/integration-testing.md)
+- [Performance Testing Guide](08-testing/performance-testing.md)
+- [End-to-End Testing Guide](08-testing/e2e-testing.md)
+
+### 09. Appendix
+- [Glossary](09-appendix/glossary.md)
+- [Resources](09-appendix/resources.md)
+- [Roadmap](09-appendix/roadmap.md)
+- [Success Criteria](09-appendix/success-criteria.md)
+
+---
+
+## Contributing
+
+```sh
+# 1. Create feature branch
+git checkout -b feature/my-change
+
+# 2. Commit changes
+git add .
+git commit -m "feat(scope): concise description"
+
+# 3. Push and create PR
+git push -u origin feature/my-change
+```
+
+Contribution workflow details:
+- [07-development-workflow/git-workflow.md](07-development-workflow/git-workflow.md)
+- [07-development-workflow/code-review-process.md](07-development-workflow/code-review-process.md)
+- [07-development-workflow/coding-standards.md](07-development-workflow/coding-standards.md)
+
+---
+
+## License
+
+This project uses the MIT license.
+
+---
+
+**Documentation Version**: 2.4  
+**Last Updated**: 2026-04-14

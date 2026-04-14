@@ -21,9 +21,9 @@ Production-ready інтернет-магазин на мікросервісні
 - **[Огляд проекту](docs/01-overview/project-overview.md)** - Цілі, scope, метрики успіху  
 - **[Архітектура](docs/01-overview/architecture-diagram.md)** - Діаграми та пояснення компонентів  
 - **[Технологічний стек](docs/01-overview/tech-stack.md)** - Детальний опис усіх технологій  
-- **[Сервіси](docs/04-services/)** - Документація кожного мікросервісу  
-- **[План реалізації](docs/07-implementation-plan/)** - Покрокова інструкція (56 днів)  
-- **[Roadmap](docs/13-appendix/roadmap.md)** - Майбутні features  
+- **[Сервіси](docs/05-services/)** - Документація кожного мікросервісу  
+- **[План реалізації](docs/04-implementation-plan/)** - Покрокова інструкція (56 днів)  
+- **[Roadmap](docs/09-appendix/roadmap.md)** - Майбутні features  
 
 ---
 
@@ -163,7 +163,7 @@ git push origin feature/my-awesome-feature
 - Code review пройдено (мінімум 1 approve)
 - PR опис заповнений ([template](.github/pull_request_template.md))
 
-**Детальніше**: [docs/06-development-workflow/pull-request-process.md](docs/06-development-workflow/pull-request-process.md)
+**Детальніше**: [docs/07-development-workflow/pull-request-process.md](docs/07-development-workflow/pull-request-process.md)
 
 ---
 
@@ -172,8 +172,8 @@ git push origin feature/my-awesome-feature
 Перед початком роботи обов'язково ознайомтеся з:
 
 - [Team Agreement](docs/02-getting-started/team-agreement.md) - Coding conventions, PR rules
-- [Git Workflow](docs/06-development-workflow/git-workflow.md) - Branching strategy
-- [Task Management](docs/06-development-workflow/task-management.md) - GitHub Projects
+- [Git Workflow](docs/07-development-workflow/git-workflow.md) - Branching strategy
+- [Task Management](docs/07-development-workflow/task-management.md) - GitHub Projects
 
 ---
 
@@ -182,9 +182,9 @@ git push origin feature/my-awesome-feature
 - **Logs**: Seq - http://localhost:5341
 - **Metrics**: Grafana - http://localhost:3000 (admin/admin)
 - **Traces**: Jaeger - http://localhost:16686
-- **Health**: http://localhost:5000/health
+- **Health**: http://localhost:7000/health
 
-**Налаштування**: [docs/05-infrastructure/observability.md](docs/05-infrastructure/observability.md)
+**Налаштування**: [docs/06-infrastructure/observability.md](docs/06-infrastructure/observability.md)
 
 ---
 
@@ -213,7 +213,7 @@ git push origin feature/my-awesome-feature
 - **Domain-Driven Design** - Eric Evans
 - **Clean Architecture** - Robert C. Martin
 
-**Більше ресурсів**: [docs/13-appendix/resources.md](docs/13-appendix/resources.md)
+**Більше ресурсів**: [docs/09-appendix/resources.md](docs/09-appendix/resources.md)
 
 ---
 

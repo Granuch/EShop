@@ -1,459 +1,195 @@
-# 📐 C4 Model Diagrams
+# C4 Model Diagrams
 
-C4 model для візуалізації архітектури на 4 рівнях: Context, Container, Component, Code.
+This document provides C4-style architecture views for the current EShop backend platform.
 
 ---
 
 ## Level 1: System Context
 
-Показує E-Shop систему та її взаємодію з користувачами і зовнішніми системами.
-
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    System Context                        │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│   ┌──────────┐                                          │
-│   │  Customer│                                          │
-│   │  (User)  │                                          │
-│   └────┬─────┘                                          │
-│        │                                                 │
-│        │ Uses                                            │
-│        ▼                                                 │
-│   ┌──────────────────────────────────┐                  │
-│   │     E-Shop Platform              │                  │
-│   │  (Microservices System)          │                  │
-│   │                                  │                  │
-│   │  Browse products, Place orders,  │                  │
-│   │  Track deliveries                │                  │
-│   └──────────┬──────────┬────────────┘                  │
-│              │          │                               │
-│              │          │ Uses                          │
-│              │          ▼                               │
-│              │   ┌─────────────┐                        │
-│              │   │   Stripe    │                        │
-│              │   │  (Payment)  │                        │
-│              │   └─────────────┘                        │
-│              │                                           │
-│              │ Sends emails                             │
-│              ▼                                           │
-│       ┌─────────────┐                                   │
-│       │  SendGrid   │                                   │
-│       │   (Email)   │                                   │
-│       └─────────────┘                                   │
-│                                                          │
-│   ┌──────────┐                                          │
-│   │  Admin   │                                          │
-│   │  (User)  │                                          │
-│   └────┬─────┘                                          │
-│        │                                                 │
-│        │ Manages                                         │
-│        ▼                                                 │
-│   ┌──────────────────────────────────┐                  │
-│   │    Admin Panel                   │                  │
-│   │  (Web Application)               │                  │
-│   └──────────────────────────────────┘                  │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                           System Context                           │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  ┌───────────────────────┐                                         │
+│  │ API Client            │                                         │
+│  │ (Web/mobile/tooling)  │                                         │
+│  └───────────┬───────────┘                                         │
+│              │ Uses HTTPS APIs                                     │
+│              ▼                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ EShop Backend Platform                                      │   │
+│  │ - API Gateway + domain services                             │   │
+│  │ - Event-driven integration                                  │   │
+│  └───────────┬───────────────────────────────┬─────────────────┘   │
+│              │                               │                     │
+│              │ Uses                          │ Uses                │
+│              ▼                               ▼                     │
+│     ┌──────────────────┐            ┌─────────────────────┐        │
+│     │ Stripe           │            │ SMTP provider /     │        │
+│     │ (payment flows)  │            │ local Mailpit       │        │
+│     └──────────────────┘            └─────────────────────┘        │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
 ```
-
-**Key:**
-- **Customer**: End user browsing and purchasing products
-- **Admin**: Internal user managing catalog, orders
-- **E-Shop Platform**: Our microservices system
-- **Stripe**: External payment processor
-- **SendGrid**: External email delivery service
 
 ---
 
 ## Level 2: Container Diagram
 
-Показує високорівневу технічну архітектуру (containers = deployable units).
-
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                     Container Diagram                          │
-├───────────────────────────────────────────────────────────────┤
-│                                                                │
-│  ┌──────────┐                                                 │
-│  │ Customer │                                                 │
-│  └────┬─────┘                                                 │
-│       │ HTTPS                                                 │
-│       ▼                                                        │
-│  ┌──────────────────────────────────┐                         │
-│  │     Web Application              │                         │
-│  │  (React SPA)                     │                         │
-│  │  [TypeScript, Vite]              │                         │
-│  └────────────┬─────────────────────┘                         │
-│               │ HTTPS/JSON                                    │
-│               ▼                                                │
-│  ┌──────────────────────────────────┐                         │
-│  │     API Gateway                  │                         │
-│  │  (YARP Reverse Proxy)            │                         │
-│  │  [ASP.NET Core]                  │                         │
-│  └────┬────┬────┬────┬────┬─────────┘                         │
-│       │    │    │    │    │                                   │
-│  ┌────▼─┐ ┌▼───┐ ┌──▼┐ ┌─▼──┐ ┌───▼───┐                      │
-│  │Identity│Catalog│Basket│Order│Payment│                      │
-│  │Service││Service│Serv.││Serv.││Service│                     │
-│  │[.NET] ││[.NET]│[.NET]││[.NET]││[.NET]│                     │
-│  └───┬───┘└──┬──┘└──┬──┘└──┬──┘└───┬───┘                      │
-│      │       │       │      │       │                         │
-│      │       │       │      │       │                         │
-│  ┌───▼───────▼───────▼──────▼───────▼───┐                     │
-│  │        Message Broker                │                     │
-│  │         (RabbitMQ)                   │                     │
-│  └──────────────────────────────────────┘                     │
-│                                                                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                    │
-│  │PostgreSQL│  │  Redis   │  │  Seq     │                    │
-│  │(Database)│  │ (Cache)  │  │ (Logs)   │                    │
-│  └──────────┘  └──────────┘  └──────────┘                    │
-│                                                                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                    │
-│  │Prometheus│  │  Jaeger  │  │ Grafana  │                    │
-│  │(Metrics) │  │(Tracing) │  │(Dashbds) │                    │
-│  └──────────┘  └──────────┘  └──────────┘                    │
-│                                                                │
-└───────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                          Container Diagram                         │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  Client                                                            │
+│    │ HTTPS                                                         │
+│    ▼                                                               │
+│  API Gateway (YARP, ASP.NET Core)                                  │
+│    │                                                               │
+│    ├────────► Identity API                                         │
+│    ├────────► Catalog API                                          │
+│    ├────────► Basket API                                           │
+│    ├────────► Ordering API                                         │
+│    ├────────► Payment API                                          │
+│    └────────► Notification API                                     │
+│                                                                    │
+│  Shared runtime dependencies:                                      │
+│    - RabbitMQ + MassTransit                                        │
+│    - PostgreSQL (service-owned databases)                          │
+│    - Redis (basket/cache)                                          │
+│                                                                    │
+│  Observability stack:                                              │
+│    - Serilog + Seq                                                 │
+│    - Prometheus + Grafana                                          │
+│    - OpenTelemetry + Collector + Jaeger                            │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-**Containers:**
+### Containers
 
-| Container | Technology | Purpose |
-|-----------|------------|---------|
-| **Web Application** | React + TypeScript | User interface |
-| **API Gateway** | YARP (ASP.NET Core) | Routing, auth, rate limiting |
-| **Identity Service** | ASP.NET Core | Authentication, JWT |
-| **Catalog Service** | ASP.NET Core | Product management |
-| **Basket Service** | ASP.NET Core | Shopping cart |
-| **Ordering Service** | ASP.NET Core | Order processing |
-| **Payment Service** | ASP.NET Core | Payment integration |
-| **Message Broker** | RabbitMQ | Async communication |
-| **Database** | PostgreSQL | Data persistence |
-| **Cache** | Redis | Distributed cache |
-| **Logging** | Seq | Centralized logs |
-| **Tracing** | Jaeger | Distributed tracing |
-| **Metrics** | Prometheus + Grafana | Monitoring |
+| Container | Technology | Responsibility |
+|----------|------------|----------------|
+| API Gateway | ASP.NET Core + YARP | Routing, auth policies, rate limiting, gateway middleware |
+| Identity API | ASP.NET Core | Auth and account operations |
+| Catalog API | ASP.NET Core | Product/category operations |
+| Basket API | ASP.NET Core | Basket lifecycle and checkout trigger |
+| Ordering API | ASP.NET Core | Order lifecycle management |
+| Payment API | ASP.NET Core | Payment processing and integration |
+| Notification API | ASP.NET Core | Notification workflows |
+| RabbitMQ | RabbitMQ 3.13 | Async transport |
+| Redis | Redis 7 | Basket persistence and cache scenarios |
+| PostgreSQL instances | PostgreSQL 16 | Transactional service data |
+| Seq | Seq | Centralized logs |
+| Prometheus | Prometheus | Metrics scraping |
+| Grafana | Grafana | Dashboard visualization |
+| OTEL Collector | OpenTelemetry Collector | Telemetry processing pipeline |
+| Jaeger | Jaeger | Trace analysis |
 
 ---
 
-## Level 3: Component Diagram (Catalog Service)
-
-Показує внутрішню структуру Catalog Service (Clean Architecture).
+## Level 3: Component Diagram (API Gateway)
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              Catalog Service Components                  │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌────────────────────────────────────────────────┐     │
-│  │              API Layer                         │     │
-│  │  ┌──────────────┐  ┌──────────────┐           │     │
-│  │  │Products      │  │Categories    │           │     │
-│  │  │Controller    │  │Controller    │           │     │
-│  │  └──────┬───────┘  └──────┬───────┘           │     │
-│  └─────────┼──────────────────┼───────────────────┘     │
-│            │                  │                         │
-│            ▼                  ▼                         │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │          Application Layer (CQRS)               │    │
-│  │  ┌─────────────┐       ┌──────────────┐        │    │
-│  │  │  Commands   │       │   Queries    │        │    │
-│  │  │  ─────────  │       │  ──────────  │        │    │
-│  │  │CreateProduct│       │GetProducts   │        │    │
-│  │  │UpdateProduct│       │GetProductById│        │    │
-│  │  │DeleteProduct│       │SearchProducts│        │    │
-│  │  └──────┬──────┘       └──────┬───────┘        │    │
-│  └─────────┼──────────────────────┼──────────────┘     │
-│            │                      │                     │
-│            ▼                      ▼                     │
-│  ┌──────────────────────────────────────────────┐      │
-│  │           Domain Layer                       │      │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐   │      │
-│  │  │ Product  │  │ Category │  │  Money   │   │      │
-│  │  │(Aggregate│  │ (Entity) │  │ (Value   │   │      │
-│  │  │  Root)   │  │          │  │  Object) │   │      │
-│  │  └──────────┘  └──────────┘  └──────────┘   │      │
-│  │                                              │      │
-│  │  ┌───────────────────────────────────┐      │      │
-│  │  │       Domain Events               │      │      │
-│  │  │  ProductCreated                   │      │      │
-│  │  │  ProductPriceChanged              │      │      │
-│  │  │  ProductPublished                 │      │      │
-│  │  └───────────────────────────────────┘      │      │
-│  └──────────────┬───────────────────────────────┘      │
-│                 │                                      │
-│                 ▼                                      │
-│  ┌──────────────────────────────────────────────┐     │
-│  │        Infrastructure Layer                  │     │
-│  │  ┌──────────────┐  ┌──────────────┐         │     │
-│  │  │CatalogDb     │  │Product       │         │     │
-│  │  │Context       │  │Repository    │         │     │
-│  │  │(EF Core)     │  │(with Cache)  │         │     │
-│  │  └──────┬───────┘  └──────┬───────┘         │     │
-│  └─────────┼──────────────────┼──────────────────┘    │
-│            │                  │                       │
-│            ▼                  ▼                       │
-│     ┌────────────┐     ┌────────────┐               │
-│     │ PostgreSQL │     │   Redis    │               │
-│     └────────────┘     └────────────┘               │
-│                                                      │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                      API Gateway Components                        │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ AuthN/AuthZ                                                  │  │
+│  │ - JWT validation                                             │  │
+│  │ - Route policies (Authenticated/Admin)                       │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ Reverse Proxy Routing (YARP)                                 │  │
+│  │ - Route table / clusters                                     │  │
+│  │ - Downstream forwarding                                      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ Cross-cutting Middleware                                     │  │
+│  │ - Correlation ID                                             │  │
+│  │ - Error handling                                             │  │
+│  │ - Rate limiting                                              │  │
+│  │ - Optional simulation middleware                             │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ Operational Endpoints                                        │  │
+│  │ - /health, /health/ready, /health/live                       │  │
+│  │ - /prometheus and OpenTelemetry metrics                      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
 ```
-
-**Components:**
-
-| Layer | Component | Responsibility |
-|-------|-----------|----------------|
-| **API** | ProductsController | HTTP endpoints |
-| **Application** | CreateProductCommand | Business use case |
-| **Application** | GetProductsQuery | Data retrieval |
-| **Domain** | Product (Aggregate) | Business logic |
-| **Domain** | Money (Value Object) | Price representation |
-| **Infrastructure** | CatalogDbContext | Database access |
-| **Infrastructure** | ProductRepository | Data persistence |
 
 ---
 
-## Level 4: Code Diagram (Product Aggregate)
-
-Детальна UML діаграма класу Product.
+## Level 4: Code Diagram (Request Pipeline View)
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                Product (Aggregate Root)              │
-├─────────────────────────────────────────────────────┤
-│ - Id: Guid                                          │
-│ - Name: string                                      │
-│ - Description: string                               │
-│ - Sku: string                                       │
-│ - Price: Money                                      │
-│ - DiscountPrice: Money?                             │
-│ - StockQuantity: int                                │
-│ - CategoryId: Guid                                  │
-│ - Status: ProductStatus                             │
-│ - Images: List<ProductImage>                        │
-│ - CreatedAt: DateTime                               │
-│ - CreatedBy: string                                 │
-│ - DomainEvents: List<IDomainEvent>                  │
-├─────────────────────────────────────────────────────┤
-│ + Create(name, sku, price, ...): Product           │
-│ + UpdatePrice(newPrice: Money): void               │
-│ + UpdateStock(quantity: int): void                 │
-│ + Publish(): void                                  │
-│ + AddImage(url, altText): void                     │
-│ + AddDomainEvent(event: IDomainEvent): void        │
-│ - ValidateName(name: string): void                 │
-│ - ValidateSku(sku: string): void                   │
-└─────────────────────────────────────────────────────┘
+Client Request
+   │
+   ▼
+API Gateway
+   ├─ Global exception handling
+   ├─ Request logging + correlation middleware
+   ├─ CORS + rate limiter
+   ├─ Authentication + authorization
+   ├─ Proxy guard middlewares
+   ├─ Optional simulation middlewares
+   └─ YARP route forwarding
          │
-         │ contains
          ▼
-┌─────────────────────────────────────────────────────┐
-│              Money (Value Object)                    │
-├─────────────────────────────────────────────────────┤
-│ + Amount: decimal                                   │
-│ + Currency: string                                  │
-├─────────────────────────────────────────────────────┤
-│ + Add(other: Money): Money                         │
-│ + Subtract(other: Money): Money                    │
-│ + Equals(other: Money): bool                       │
-└─────────────────────────────────────────────────────┘
+Target Service API
+   ├─ Auth validation (where required)
+   ├─ Endpoint handler/controller
+   ├─ Application pipeline behaviors (validation, etc.)
+   ├─ Domain/application logic
+   └─ Infrastructure access (PostgreSQL/Redis/RabbitMQ)
 ```
 
 ---
 
-## Deployment Diagram (Kubernetes)
-
-Фізичне розгортання в production.
+## Deployment View (Current Local Runtime)
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  Kubernetes Cluster                      │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              Ingress Controller                  │   │
-│  │         (NGINX / Azure App Gateway)              │   │
-│  └────────────────┬─────────────────────────────────┘   │
-│                   │                                      │
-│                   ▼                                      │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │            API Gateway Service                   │   │
-│  │  ┌─────┐  ┌─────┐  ┌─────┐                      │   │
-│  │  │ Pod │  │ Pod │  │ Pod │  (3 replicas)        │   │
-│  │  └─────┘  └─────┘  └─────┘                      │   │
-│  └────┬─────┬─────┬─────┬─────┬──────────────────┘    │
-│       │     │     │     │     │                       │
-│  ┌────▼─┐ ┌─▼───┐ ┌───▼┐ ┌──▼─┐ ┌────▼────┐          │
-│  │Ident.│ │Cata-│ │Bask-│ │Ord-│ │Payment  │          │
-│  │Svc   │ │log  │ │et   │ │er  │ │Service  │          │
-│  │      │ │Svc  │ │Svc  │ │Svc │ │         │          │
-│  │3 pods│ │3pods│ │2pods│ │3pds│ │2 pods   │          │
-│  └──────┘ └─────┘ └─────┘ └────┘ └─────────┘          │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │              Stateful Services                   │  │
-│  │  ┌─────────────┐  ┌─────────────┐               │  │
-│  │  │ PostgreSQL  │  │  RabbitMQ   │               │  │
-│  │  │ StatefulSet │  │ StatefulSet │               │  │
-│  │  │  (3 nodes)  │  │  (3 nodes)  │               │  │
-│  │  └─────────────┘  └─────────────┘               │  │
-│  │                                                  │  │
-│  │  ┌─────────────┐  ┌─────────────┐               │  │
-│  │  │   Redis     │  │     Seq     │               │  │
-│  │  │ StatefulSet │  │ Deployment  │               │  │
-│  │  │  (3 nodes)  │  │  (1 pod)    │               │  │
-│  │  └─────────────┘  └─────────────┘               │  │
-│  └──────────────────────────────────────────────────┘  │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │           Persistent Volumes                     │  │
-│  │  (Azure Disk / AWS EBS)                          │  │
-│  └──────────────────────────────────────────────────┘  │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
+Docker Compose (root)
+  - sandbox profile:
+      api-gateway, identity-api, catalog-api, basket-api,
+      ordering-api, payment-api, notification-api,
+      postgres instances, redis, rabbitmq, mailpit
 
-**Resources:**
-
-| Service | Replicas | CPU Request | Memory Request |
-|---------|----------|-------------|----------------|
-| API Gateway | 3 | 250m | 512Mi |
-| Identity | 3 | 250m | 512Mi |
-| Catalog | 3 | 250m | 512Mi |
-| Basket | 2 | 250m | 256Mi |
-| Ordering | 3 | 250m | 512Mi |
-| Payment | 2 | 250m | 256Mi |
-| PostgreSQL | 3 | 500m | 2Gi |
-| RabbitMQ | 3 | 250m | 1Gi |
-| Redis | 3 | 250m | 512Mi |
-
----
-
-## Sequence Diagram: Create Order Flow
-
-```
-Customer  WebApp  Gateway  Basket  Ordering  Payment  RabbitMQ  Email
-   │         │       │        │        │        │         │        │
-   │─Checkout──────►│        │        │        │         │        │
-   │         │       │        │        │        │         │        │
-   │         │       │──POST /basket/checkout─►│         │        │
-   │         │       │        │        │        │         │        │
-   │         │       │        │──Get Basket────►│         │        │
-   │         │       │        │◄────Items───────│         │        │
-   │         │       │        │        │        │         │        │
-   │         │       │        │─Publish: BasketCheckedOut─►        │
-   │         │       │        │        │        │         │        │
-   │         │       │        │        │◄─Consume Event──┘        │
-   │         │       │        │        │        │         │        │
-   │         │       │        │        │─Create Order────►│        │
-   │         │       │        │        │◄─Order Created──┘        │
-   │         │       │        │        │        │         │        │
-   │         │       │        │        │─Publish: OrderCreated────►│
-   │         │       │        │        │        │         │        │
-   │         │       │        │        │        │◄─Consume Event──┘│
-   │         │       │        │        │        │         │        │
-   │         │       │        │        │        │─Process Payment─►│
-   │         │       │        │        │        │◄─Success────────┘│
-   │         │       │        │        │        │         │        │
-   │         │       │        │        │        │─Publish: PaymentSuccess─►│
-   │         │       │        │        │◄───────┘         │        │
-   │         │       │        │        │                  │        │
-   │         │       │        │        │─Update Order Status       │
-   │         │       │        │        │                  │        │
-   │         │       │        │        │──────────────────┘        │
-   │         │       │        │        │                           │
-   │         │       │◄─200 OK (OrderId)─────────────────────────►│
-   │         │◄──────┘        │        │                  │        │
-   │◄────────┘                │        │                  │        │
-   │                          │        │                  │        │
+  - monitoring profile:
+      seq, prometheus, grafana, jaeger, otel-collector,
+      exporters
 ```
 
 ---
 
-## Data Flow Diagram
+## Sequence Diagram: Checkout to Order Progression
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Data Flow                             │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  User ───► Web App ───► API Gateway                     │
-│                            │                             │
-│                            ├──► Identity Service         │
-│                            │      └──► PostgreSQL        │
-│                            │                             │
-│                            ├──► Catalog Service          │
-│                            │      ├──► PostgreSQL        │
-│                            │      └──► Redis (Cache)     │
-│                            │                             │
-│                            ├──► Basket Service           │
-│                            │      └──► Redis             │
-│                            │                             │
-│                            ├──► Ordering Service         │
-│                            │      ├──► PostgreSQL        │
-│                            │      └──► RabbitMQ          │
-│                            │                             │
-│                            └──► Payment Service          │
-│                                   ├──► PostgreSQL        │
-│                                   ├──► Stripe API        │
-│                                   └──► RabbitMQ          │
-│                                                          │
-│  All Services ───► Seq (Logging)                        │
-│  All Services ───► Prometheus (Metrics)                 │
-│  All Services ───► Jaeger (Tracing)                     │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
+Client -> Gateway -> Basket API : POST /api/v1/basket/checkout
+Basket API -> Redis            : read basket
+Basket API -> RabbitMQ         : publish checkout event
+Ordering API <- RabbitMQ       : consume checkout event
+Ordering API -> ordering DB    : create order
+Ordering API -> RabbitMQ       : publish order-created/payment-required events
+Payment API <- RabbitMQ        : consume payment event
+Payment API -> payment DB      : persist payment state
+Notification API <- RabbitMQ   : consume notification events
 ```
 
 ---
 
-## Tools for Creating C4 Diagrams
+## Diagram Tooling
 
-### 1. Structurizr (Recommended)
-
-```csharp
-// C4 model as code
-
-var workspace = new Workspace("E-Shop", "Microservices e-commerce platform");
-var model = workspace.Model;
-
-var customer = model.AddPerson("Customer", "E-Shop customer");
-var eshop = model.AddSoftwareSystem("E-Shop", "E-commerce platform");
-
-customer.Uses(eshop, "Browse products, Place orders");
-
-var webApp = eshop.AddContainer("Web Application", "React SPA", "TypeScript");
-var apiGateway = eshop.AddContainer("API Gateway", "Reverse proxy", "YARP");
-
-customer.Uses(webApp, "Uses", "HTTPS");
-webApp.Uses(apiGateway, "Makes API calls", "JSON/HTTPS");
-```
-
-### 2. PlantUML
-
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
-
-Person(customer, "Customer", "E-Shop user")
-System_Boundary(c1, "E-Shop Platform") {
-    Container(web, "Web App", "React", "User interface")
-    Container(gateway, "API Gateway", "YARP", "Routing")
-    Container(identity, "Identity Service", ".NET", "Auth")
-}
-
-Rel(customer, web, "Uses", "HTTPS")
-Rel(web, gateway, "Calls", "JSON/HTTPS")
-Rel(gateway, identity, "Routes to", "HTTP")
-@enduml
-```
-
-### 3. Draw.io / Excalidraw
-
-Візуальні редактори для швидкого створення діаграм.
+- Structurizr
+- PlantUML (including C4-PlantUML)
+- Draw.io or Excalidraw
 
 ---
 
@@ -465,5 +201,5 @@ Rel(gateway, identity, "Routes to", "HTTP")
 
 ---
 
-**Версія**: 1.0  
-**Останнє оновлення**: 2024-01-15
+**Version**: 2.0  
+**Last Updated**: 2026-04-14

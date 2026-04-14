@@ -4,3 +4,4 @@
 - User prefers having a convenient local-development option for storing passwords in configuration files, with secrets replaced later for production.
 - Changes must strictly adhere to the existing architecture of the project's code and code-writing rules.
 - User expects that when implementing changes, tests are added with maximum coverage of the new functionality.
+- For documentation updates, rewrite content to match current project reality, keep the current docs file/folder structure stable going forward, write in English, and avoid mentioning Copilot activities.
