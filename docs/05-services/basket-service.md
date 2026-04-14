@@ -615,8 +615,8 @@ public void AddItem_WhenProductExists_ShouldIncreaseQuantity()
 ## Наступні кроки
 
 - ✅ [Ordering Service](ordering-service.md) - Consume BasketCheckedOutEvent
-- ✅ [Redis Infrastructure](../../05-infrastructure/caching.md)
-- ✅ [RabbitMQ Setup](../../05-infrastructure/message-broker.md)
+- ✅ [Redis Infrastructure](../../06-infrastructure/caching.md)
+- ✅ [RabbitMQ Setup](../../06-infrastructure/message-broker.md)
 
 ---
 

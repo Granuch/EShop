@@ -258,7 +258,7 @@ x.AddConsumer<OrderCreatedConsumer>(cfg =>
 ## Наступні кроки
 
 - ✅ [API Gateway](api-gateway.md)
-- ✅ [Observability](../../05-infrastructure/observability.md)
+- ✅ [Observability](../../06-infrastructure/observability.md)
 
 ---
 

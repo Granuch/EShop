@@ -125,8 +125,8 @@ Telemetry, health checks, and structured logging are part of service runtime con
 
 - [Architecture Diagram](architecture-diagram.md)
 - [Technology Stack](tech-stack.md)
-- [Service Documentation](../04-services/)
-- [Roadmap](../13-appendix/roadmap.md)
+- [Service Documentation](../05-services/)
+- [Roadmap](../09-appendix/roadmap.md)
 
 ---
 

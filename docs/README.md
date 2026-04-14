@@ -22,40 +22,40 @@
 - [Паттерни комунікації](03-architecture/communication-patterns.md)
 
 ### 🔧 Сервіси
-- ✅ [Identity Service](04-services/identity-service.md) - Автентифікація та авторизація - **NEW!**
-- ✅ [Catalog Service](04-services/catalog-service.md) - Каталог продуктів - **NEW!**
-- ✅ [Basket Service](04-services/basket-service.md) - Кошик покупок - **NEW!**
-- ✅ [Ordering Service](04-services/ordering-service.md) - Обробка замовлень - **NEW!**
-- ✅ [Payment Service](04-services/payment-service.md) - Платежі (Mock) - **NEW!**
-- ✅ [Notification Service](04-services/notification-service.md) - Email/SMS нотифікації - **NEW!**
-- ✅ [API Gateway](04-services/api-gateway.md) - YARP Gateway - **NEW!**
+- ✅ [Identity Service](05-services/identity-service.md) - Автентифікація та авторизація - **NEW!**
+- ✅ [Catalog Service](05-services/catalog-service.md) - Каталог продуктів - **NEW!**
+- ✅ [Basket Service](05-services/basket-service.md) - Кошик покупок - **NEW!**
+- ✅ [Ordering Service](05-services/ordering-service.md) - Обробка замовлень - **NEW!**
+- ✅ [Payment Service](05-services/payment-service.md) - Платежі (Mock) - **NEW!**
+- ✅ [Notification Service](05-services/notification-service.md) - Email/SMS нотифікації - **NEW!**
+- ✅ [API Gateway](05-services/api-gateway.md) - YARP Gateway - **NEW!**
 
 ### 💾 Інфраструктура
-- [Бази даних](05-infrastructure/databases.md) - PostgreSQL setup
-- [Кешування](05-infrastructure/caching.md) - Redis configuration
-- [Message Broker](05-infrastructure/message-broker.md) - RabbitMQ & MassTransit
-- [Observability](05-infrastructure/observability.md) - Logging, metrics, tracing
-- [Resilience](05-infrastructure/resilience.md) - Polly patterns
+- [Бази даних](06-infrastructure/databases.md) - PostgreSQL setup
+- [Кешування](06-infrastructure/caching.md) - Redis configuration
+- [Message Broker](06-infrastructure/message-broker.md) - RabbitMQ & MassTransit
+- [Observability](06-infrastructure/observability.md) - Logging, metrics, tracing
+- [Resilience](06-infrastructure/resilience.md) - Polly patterns
 
 ### 👥 Робочий процес
-- [Git Workflow](06-development-workflow/git-workflow.md)
-- [Issue Templates](06-development-workflow/issue-templates.md)
-- [Pull Request Process](06-development-workflow/pull-request-process.md)
-- [Управління задачами](06-development-workflow/task-management.md)
+- [Git Workflow](07-development-workflow/git-workflow.md)
+- [Issue Templates](07-development-workflow/issue-templates.md)
+- [Pull Request Process](07-development-workflow/pull-request-process.md)
+- [Управління задачами](07-development-workflow/task-management.md)
 
 ### 📅 План імплементації (56 днів)
-- [Phase 0: Infrastructure](07-implementation-plan/phase-00-infrastructure.md) - День 1-3
-- [Phase 1: Identity](07-implementation-plan/phase-01-identity.md) - День 4-9
-- [Phase 2: Catalog](07-implementation-plan/phase-02-catalog.md) - День 10-15
-- [Phase 2.5: Testing](07-implementation-plan/phase-02.5-testing.md) - День 16-17
-- [Phase 3: Gateway](07-implementation-plan/phase-03-gateway.md) - День 18-20
-- [Phase 4: Basket](07-implementation-plan/phase-04-basket.md) - День 20-23
-- [Phase 5: Ordering](07-implementation-plan/phase-05-ordering.md) - День 23-30
-- [Phase 6: Payment](07-implementation-plan/phase-06-payment.md) - День 30-32
-- [Phase 7: Notification](07-implementation-plan/phase-07-notification.md) - День 32-34
-- [Phase 8: Frontend](07-implementation-plan/phase-08-frontend.md) - День 34-43
-- [Phase 9: Observability](07-implementation-plan/phase-09-observability.md) - День 43-48
-- [Phase 10: Production](07-implementation-plan/phase-10-production.md) - День 48-56
+- [Phase 0: Infrastructure](04-implementation-plan/phase-00-infrastructure.md) - День 1-3
+- [Phase 1: Identity](04-implementation-plan/phase-01-identity.md) - День 4-9
+- [Phase 2: Catalog](04-implementation-plan/phase-02-catalog.md) - День 10-15
+- [Phase 2.5: Testing](04-implementation-plan/phase-02.5-testing.md) - День 16-17
+- [Phase 3: Gateway](04-implementation-plan/phase-03-gateway.md) - День 18-20
+- [Phase 4: Basket](04-implementation-plan/phase-04-basket.md) - День 20-23
+- [Phase 5: Ordering](04-implementation-plan/phase-05-ordering.md) - День 23-30
+- [Phase 6: Payment](04-implementation-plan/phase-06-payment.md) - День 30-32
+- [Phase 7: Notification](04-implementation-plan/phase-07-notification.md) - День 32-34
+- [Phase 8: Frontend](04-implementation-plan/phase-08-frontend.md) - День 34-43
+- [Phase 9: Observability](04-implementation-plan/phase-09-observability.md) - День 43-48
+- [Phase 10: Production](04-implementation-plan/phase-10-production.md) - День 48-56
 
 ### 🧪 Тестування
 - [Стратегія тестування](08-testing/testing-strategy.md)
@@ -87,11 +87,11 @@
 - [Розподіл ролей](12-team-collaboration/role-distribution.md)
 
 ### 📚 Додатки
-- [Глосарій](13-appendix/glossary.md)
-- [Ресурси та посилання](13-appendix/resources.md)
-- [Architecture Decision Records](13-appendix/adr/)
-- [Post-MVP Roadmap](13-appendix/roadmap.md)
-- [Success Criteria](13-appendix/success-criteria.md)
+- [Глосарій](09-appendix/glossary.md)
+- [Ресурси та посилання](09-appendix/resources.md)
+- [Architecture Decision Records](09-appendix/adr/)
+- [Post-MVP Roadmap](09-appendix/roadmap.md)
+- [Success Criteria](09-appendix/success-criteria.md)
 
 ---
 
@@ -104,8 +104,8 @@
 4. 👋 [Onboarding](12-team-collaboration/onboarding-checklist.md)
 
 ### Для розробників
-1. 🌳 [Git Workflow](06-development-workflow/git-workflow.md)
-2. 🔍 [Pull Request Process](06-development-workflow/pull-request-process.md)
+1. 🌳 [Git Workflow](07-development-workflow/git-workflow.md)
+2. 🔍 [Pull Request Process](07-development-workflow/pull-request-process.md)
 3. 🐛 [Debugging Guide](11-troubleshooting/debugging-guide.md)
 
 ### Для DevOps

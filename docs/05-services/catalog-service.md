@@ -938,7 +938,7 @@ public async Task GET_Products_ShouldReturnPagedResults()
 
 - ✅ [Basket Service](basket-service.md) - Shopping cart
 - ✅ [Ordering Service](ordering-service.md) - Order management
-- ✅ [Infrastructure - Caching](../../05-infrastructure/caching.md)
+- ✅ [Infrastructure - Caching](../../06-infrastructure/caching.md)
 
 ---
 

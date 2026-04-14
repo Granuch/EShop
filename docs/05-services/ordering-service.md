@@ -324,7 +324,7 @@ public class BasketCheckedOutConsumer : IConsumer<BasketCheckedOutEvent>
 
 - ✅ [Payment Service](payment-service.md) - Process payments
 - ✅ [Notification Service](notification-service.md) - Send order confirmations
-- ✅ [Message Broker Setup](../../05-infrastructure/message-broker.md)
+- ✅ [Message Broker Setup](../../06-infrastructure/message-broker.md)
 
 ---
 

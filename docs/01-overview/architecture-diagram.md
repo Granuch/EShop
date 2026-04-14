@@ -135,8 +135,8 @@
 
 - [Project Overview](project-overview.md)
 - [Technology Stack](tech-stack.md)
-- [API Gateway Service Details](../04-services/api-gateway.md)
-- [Infrastructure Details](../05-infrastructure/)
+- [API Gateway Service Details](../05-services/api-gateway.md)
+- [Infrastructure Details](../06-infrastructure/)
 
 ---
 

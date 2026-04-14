@@ -241,7 +241,7 @@ public class StripePaymentProcessor : IPaymentProcessor
 ## Наступні кроки
 
 - ✅ [Notification Service](notification-service.md)
-- ✅ [Resilience Patterns](../../05-infrastructure/resilience.md)
+- ✅ [Resilience Patterns](../../06-infrastructure/resilience.md)
 
 ---
 

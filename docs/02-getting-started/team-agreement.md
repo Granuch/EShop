@@ -140,7 +140,7 @@ A change is done when:
 - [Prerequisites](prerequisites.md)
 - [Local Setup](local-setup.md)
 - [Docker Setup](docker-setup.md)
-- [Development Workflow](../06-development-workflow/)
+- [Development Workflow](../07-development-workflow/)
 
 ---
 

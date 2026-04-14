@@ -117,8 +117,8 @@ For local development, password-based values in environment files are intentiona
 
 - [Project Overview](project-overview.md)
 - [Architecture Diagram](architecture-diagram.md)
-- [Infrastructure Documentation](../05-infrastructure/)
-- [Service Documentation](../04-services/)
+- [Infrastructure Documentation](../06-infrastructure/)
+- [Service Documentation](../05-services/)
 
 ---
 

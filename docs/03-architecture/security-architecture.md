@@ -150,7 +150,7 @@ Mitigation is distributed across gateway policy, service validation, configurati
 
 - [Architecture Decisions](architecture-decisions.md)
 - [Data Flow](data-flow.md)
-- [Infrastructure Security and Resilience](../05-infrastructure/)
+- [Infrastructure Security and Resilience](../06-infrastructure/)
 
 ---
 

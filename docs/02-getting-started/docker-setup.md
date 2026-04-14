@@ -173,7 +173,7 @@ docker compose --profile sandbox up -d
 
 - [Prerequisites](prerequisites.md)
 - [Local Setup](local-setup.md)
-- [Infrastructure](../05-infrastructure/)
+- [Infrastructure](../06-infrastructure/)
 
 ---
 

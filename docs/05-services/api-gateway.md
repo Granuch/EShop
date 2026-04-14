@@ -614,9 +614,9 @@ public async Task GET_Basket_WithoutAuth_ShouldReturn401()
 
 ## Наступні кроки
 
-- ✅ [Infrastructure Overview](../../05-infrastructure/)
-- ✅ [Resilience Patterns](../../05-infrastructure/resilience.md)
-- ✅ [Observability Setup](../../05-infrastructure/observability.md)
+- ✅ [Infrastructure Overview](../../06-infrastructure/)
+- ✅ [Resilience Patterns](../../06-infrastructure/resilience.md)
+- ✅ [Observability Setup](../../06-infrastructure/observability.md)
 
 ---
 
