@@ -1,332 +1,107 @@
-# 📦 Ordering Service
+# Ordering Service
 
-Сервіс управління замовленнями з підтримкою DDD, Saga patterns та event sourcing.
-
----
-
-## Огляд
-
-Ordering Service відповідає за:
-- ✅ Створення замовлень (consume BasketCheckedOutEvent)
-- ✅ Управління lifecycle замовлення (OrderAggregate з DDD)
-- ✅ Order Saga pattern (координація з Payment і Notification)
-- ✅ Order history та статуси
-- ✅ Cancellation та Refunds
-- ✅ Publishing events (OrderCreated, OrderPaid, OrderShipped)
+Order lifecycle service that coordinates with basket, payment, and notification workflows.
 
 ---
 
-## Архітектура
+## Overview
 
-### Технології
-
-| Компонент | Технологія | Призначення |
-|-----------|------------|-------------|
-| **Framework** | ASP.NET Core 9.0 | Web API |
-| **Database** | PostgreSQL | Order storage |
-| **Message Bus** | RabbitMQ + MassTransit | Event-driven communication |
-| **CQRS** | MediatR | Command/Query separation |
-| **DDD** | Aggregates, Value Objects | Domain modeling |
-| **Outbox Pattern** | EF Core | Transactional messaging |
-
-### Domain Model (DDD)
-
-```
-EShop.Ordering.Domain/
-├── Aggregates/
-│   └── Order/
-│       ├── Order.cs                # Aggregate Root
-│       ├── OrderItem.cs            # Entity
-│       └── OrderStatus.cs          # Enum
-├── ValueObjects/
-│   ├── Address.cs
-│   ├── Money.cs
-│   └── OrderId.cs
-├── Events/
-│   ├── OrderCreatedEvent.cs
-│   ├── OrderPaidEvent.cs
-│   ├── OrderShippedEvent.cs
-│   └── OrderCancelledEvent.cs
-└── Interfaces/
-    └── IOrderRepository.cs
-```
+Ordering Service provides:
+- Order creation and lifecycle management
+- User and administrative order query paths
+- Event-driven coordination with upstream/downstream services
+- Domain/application separation for business rules
+- Health and telemetry integration
 
 ---
 
-## Order Aggregate
+## Technology
 
-```csharp
-// EShop.Ordering.Domain/Aggregates/Order/Order.cs
-
-public class Order : AggregateRoot<Guid>
-{
-    public string UserId { get; private set; }
-    public Address ShippingAddress { get; private set; }
-    public Money TotalPrice { get; private set; }
-    public OrderStatus Status { get; private set; }
-    public string? PaymentIntentId { get; private set; }
-    
-    private readonly List<OrderItem> _items = [];
-    public IReadOnlyCollection<OrderItem> Items => _items.AsReadOnly();
-    
-    public DateTime CreatedAt { get; private set; }
-    public DateTime? PaidAt { get; private set; }
-    public DateTime? ShippedAt { get; private set; }
-    public DateTime? CancelledAt { get; private set; }
-
-    private Order() { }
-
-    public static Order Create(
-        string userId,
-        Address shippingAddress,
-        IEnumerable<OrderItem> items)
-    {
-        var order = new Order
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            ShippingAddress = shippingAddress,
-            Status = OrderStatus.Pending,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        foreach (var item in items)
-        {
-            order._items.Add(item);
-        }
-
-        order.TotalPrice = new Money(order._items.Sum(i => i.SubTotal.Amount));
-        order.AddDomainEvent(new OrderCreatedEvent(order.Id, userId, order.TotalPrice.Amount));
-
-        return order;
-    }
-
-    public void MarkAsPaid(string paymentIntentId)
-    {
-        if (Status != OrderStatus.Pending)
-            throw new DomainException("Only pending orders can be marked as paid");
-
-        Status = OrderStatus.Paid;
-        PaymentIntentId = paymentIntentId;
-        PaidAt = DateTime.UtcNow;
-
-        AddDomainEvent(new OrderPaidEvent(Id, paymentIntentId));
-    }
-
-    public void Ship()
-    {
-        if (Status != OrderStatus.Paid)
-            throw new DomainException("Only paid orders can be shipped");
-
-        Status = OrderStatus.Shipped;
-        ShippedAt = DateTime.UtcNow;
-
-        AddDomainEvent(new OrderShippedEvent(Id, UserId));
-    }
-
-    public void Cancel(string reason)
-    {
-        if (Status == OrderStatus.Shipped || Status == OrderStatus.Delivered)
-            throw new DomainException("Cannot cancel shipped/delivered orders");
-
-        Status = OrderStatus.Cancelled;
-        CancelledAt = DateTime.UtcNow;
-
-        AddDomainEvent(new OrderCancelledEvent(Id, reason));
-    }
-}
-
-public enum OrderStatus
-{
-    Pending,
-    Paid,
-    Shipped,
-    Delivered,
-    Cancelled,
-    Refunded
-}
-```
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| Runtime | ASP.NET Core (.NET 10) | API host |
+| Database | PostgreSQL | Order persistence |
+| Cache/auxiliary | Redis (configured scenarios) | Distributed cache support |
+| Messaging | RabbitMQ + MassTransit | Async workflow coordination |
+| Validation | FluentValidation + MediatR pipeline | Command/query validation |
+| Security | JWT + policy handlers | User/admin authorization |
+| Observability | Serilog + OpenTelemetry + Prometheus | Logs, traces, metrics |
 
 ---
 
-## Address Value Object
+## Project Structure
 
-```csharp
-// EShop.Ordering.Domain/ValueObjects/Address.cs
+Ordering service follows layered architecture:
 
-public record Address
-{
-    public string Street { get; init; }
-    public string City { get; init; }
-    public string State { get; init; }
-    public string ZipCode { get; init; }
-    public string Country { get; init; }
-
-    public Address(string street, string city, string state, string zipCode, string country)
-    {
-        Street = !string.IsNullOrWhiteSpace(street) 
-            ? street 
-            : throw new ArgumentException("Street is required");
-        City = city;
-        State = state;
-        ZipCode = zipCode;
-        Country = country;
-    }
-
-    public override string ToString() => $"{Street}, {City}, {State} {ZipCode}, {Country}";
-}
-```
+- `EShop.Ordering.API`
+- `EShop.Ordering.Application`
+- `EShop.Ordering.Domain`
+- `EShop.Ordering.Infrastructure`
 
 ---
 
-## Event Consumers
+## Runtime Characteristics
 
-### BasketCheckedOutConsumer
+### Startup Guards
 
-```csharp
-// EShop.Ordering.Application/Consumers/BasketCheckedOutConsumer.cs
+Ordering validates critical config (JWT and connection settings) and enforces stricter checks in non-local environments.
 
-public class BasketCheckedOutConsumer : IConsumer<BasketCheckedOutEvent>
-{
-    private readonly IMediator _mediator;
-    private readonly ILogger<BasketCheckedOutConsumer> _logger;
+### Messaging Integration
 
-    public BasketCheckedOutConsumer(
-        IMediator mediator,
-        ILogger<BasketCheckedOutConsumer> logger)
-    {
-        _mediator = mediator;
-        _logger = logger;
-    }
+Consumes and publishes workflow events through MassTransit/RabbitMQ.
 
-    public async Task Consume(ConsumeContext<BasketCheckedOutEvent> context)
-    {
-        _logger.LogInformation(
-            "Received BasketCheckedOutEvent for user {UserId}", 
-            context.Message.UserId);
+### Authorization
 
-        var command = new CreateOrderCommand
-        {
-            UserId = context.Message.UserId,
-            Items = context.Message.Items.Select(i => new CreateOrderItem
-            {
-                ProductId = i.ProductId,
-                ProductName = i.ProductName,
-                Price = i.Price,
-                Quantity = i.Quantity
-            }).ToList(),
-            ShippingAddress = context.Message.ShippingAddress,
-            PaymentMethod = context.Message.PaymentMethod
-        };
-
-        var orderId = await _mediator.Send(command);
-
-        _logger.LogInformation("Order {OrderId} created from basket", orderId);
-    }
-}
-```
+Uses role/policy-based authorization, including user-scoped access policies.
 
 ---
 
-## API Endpoints
+## API Areas (High Level)
 
-### GET /api/v1/orders
+Typical capabilities include:
+- User order list/detail
+- Order lifecycle actions (where allowed)
+- Admin-focused order visibility/management paths
 
-Отримати всі замовлення користувача.
-
-**Response:** `200 OK`
-```json
-{
-  "items": [
-    {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "status": "Shipped",
-      "totalPrice": 2999.98,
-      "itemsCount": 2,
-      "createdAt": "2024-01-15T10:00:00Z",
-      "shippedAt": "2024-01-16T14:00:00Z"
-    }
-  ]
-}
-```
+Exact route exposure is mediated by gateway policy and service authorization rules.
 
 ---
 
-### GET /api/v1/orders/{id}
+## Workflow Role
 
-Отримати деталі замовлення.
-
-**Response:** `200 OK`
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "userId": "...",
-  "status": "Paid",
-  "items": [
-    {
-      "productId": "...",
-      "productName": "Laptop Dell XPS 15",
-      "price": 1499.99,
-      "quantity": 2,
-      "subTotal": 2999.98
-    }
-  ],
-  "shippingAddress": {
-    "street": "123 Main St",
-    "city": "New York",
-    "state": "NY",
-    "zipCode": "10001",
-    "country": "USA"
-  },
-  "totalPrice": 2999.98,
-  "paymentIntentId": "pi_abc123",
-  "createdAt": "2024-01-15T10:00:00Z",
-  "paidAt": "2024-01-15T10:05:00Z"
-}
-```
+Ordering is the central service for order state progression:
+- receives checkout-triggered flow input
+- persists order state
+- reacts to payment outcomes
+- emits order events for dependent services (for example notifications)
 
 ---
 
-### POST /api/v1/orders/{id}/cancel
+## Health and Telemetry
 
-Скасувати замовлення.
-
-**Request:**
-```json
-{
-  "reason": "Changed my mind"
-}
-```
-
-**Response:** `204 No Content`
+Ordering service exposes health endpoints and emits:
+- Structured logs
+- OpenTelemetry traces/metrics
+- Prometheus metrics endpoint support
 
 ---
 
-## Configuration
+## Operational Notes
 
-### appsettings.json
-
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=ordering;Username=eshop;Password=eshop123"
-  },
-  
-  "RabbitMQ": {
-    "Host": "localhost"
-  }
-}
-```
+- Keep order transition rules explicit and tested.
+- Track eventual consistency across payment/notification integrations.
+- Use traces to diagnose end-to-end order flow latency.
 
 ---
 
-## Наступні кроки
+## Related Documents
 
-- ✅ [Payment Service](payment-service.md) - Process payments
-- ✅ [Notification Service](notification-service.md) - Send order confirmations
-- ✅ [Message Broker Setup](../../06-infrastructure/message-broker.md)
+- [Basket Service](basket-service.md)
+- [Payment Service](payment-service.md)
+- [Notification Service](notification-service.md)
+- [Infrastructure - Databases](../06-infrastructure/databases.md)
 
 ---
 
-**Версія**: 1.0  
-**Останнє оновлення**: 2024-01-15
+**Version**: 2.0  
+**Last Updated**: 2026-04-14
