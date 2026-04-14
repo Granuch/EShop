@@ -110,8 +110,6 @@ public abstract class BaseIdentityDbContext<TUser, TRole, TKey> : IdentityDbCont
                     }
                 }
             }
-
-            return;
         }
 
         if (_currentTransaction == null)

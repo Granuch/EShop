@@ -6,7 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace EShop.Notification.Infrastructure.Services;
 
-public sealed class TemplateRenderer : ITemplateRenderer
+public sealed class TemplateRenderer : ITemplateRenderer, IDisposable
 {
     private readonly string _templatesRoot;
     private readonly MemoryCache _templateCache = new(new MemoryCacheOptions
@@ -72,4 +72,6 @@ public sealed class TemplateRenderer : ITemplateRenderer
 
         return template;
     }
+
+    public void Dispose() => _templateCache.Dispose();
 }

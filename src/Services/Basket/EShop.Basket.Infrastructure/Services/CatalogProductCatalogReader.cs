@@ -25,12 +25,19 @@ public sealed class CatalogProductCatalogReader : IProductCatalogReader
         _httpClient = httpClient;
         _logger = logger;
 
-        if (Uri.TryCreate(options.Value.BaseUrl, UriKind.Absolute, out var baseUri))
+        _httpClient.BaseAddress = GetRequiredBaseUri(options.Value.BaseUrl);
+        _httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.TimeoutSeconds));
+    }
+
+    private static Uri GetRequiredBaseUri(string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
         {
-            _httpClient.BaseAddress = baseUri;
+            throw new InvalidOperationException(
+                "CatalogServiceOptions.BaseUrl must be configured as a valid absolute URI.");
         }
 
-        _httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.TimeoutSeconds));
+        return baseUri;
     }
 
     public async Task<ProductCatalogSnapshot?> GetByIdAsync(Guid productId, CancellationToken cancellationToken = default)

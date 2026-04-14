@@ -156,7 +156,11 @@ public static class BasketEndpoints
     }
 }
 
-public record AddItemToBasketRequest(Guid ProductId, int Quantity);
+public record AddItemToBasketRequest(
+    Guid ProductId,
+    int Quantity,
+    string? ProductName = null,
+    decimal? Price = null);
 
 public record UpdateBasketItemQuantityRequest(int Quantity);
 

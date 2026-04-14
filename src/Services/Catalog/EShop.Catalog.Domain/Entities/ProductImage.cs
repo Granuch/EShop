@@ -9,13 +9,14 @@ namespace EShop.Catalog.Domain.Entities;
 public class ProductImage : Entity<Guid>
 {
     private static readonly HashSet<string> AllowedExtensions =
-    [
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp",
-        ".gif"
-    ];
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp",
+            ".gif"
+        };
 
     public Guid ProductId { get; private set; }
     public string Url { get; private set; } = string.Empty;

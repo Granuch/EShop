@@ -59,14 +59,14 @@ public class ProductQueryService : IProductQueryService
         // use keyset pagination for constant-time performance regardless of page depth.
         var useCursorPagination = cursor.HasValue && sortBy == ProductSortBy.CreatedAt && isDescending;
 
+        // Count against the pre-cursor filter so TotalPages/HasNextPage are accurate
+        // even when keyset pagination is in use.
+        var totalCount = await query.CountAsync(cancellationToken);
+
         if (useCursorPagination)
         {
-            query = query.Where(p => p.CreatedAt < cursor.Value);
+            query = query.Where(p => p.CreatedAt < cursor!.Value);
         }
-
-        var totalCount = useCursorPagination
-            ? 0
-            : await query.CountAsync(cancellationToken);
 
         // Sorting
         query = sortBy switch

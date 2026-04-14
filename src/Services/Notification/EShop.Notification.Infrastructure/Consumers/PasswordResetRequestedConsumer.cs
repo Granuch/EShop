@@ -36,10 +36,11 @@ public sealed class PasswordResetRequestedConsumer : IdempotentConsumer<Password
         _emailService = emailService;
         _passwordResetSettings = passwordResetSettings.Value;
 
-        if (!Uri.TryCreate(_passwordResetSettings.ResetUrlBase, UriKind.Absolute, out _)
-            || string.IsNullOrWhiteSpace(_passwordResetSettings.ResetUrlBase))
+        if (string.IsNullOrWhiteSpace(_passwordResetSettings.ResetUrlBase)
+            || !Uri.TryCreate(_passwordResetSettings.ResetUrlBase, UriKind.Absolute, out var parsedResetUri)
+            || (parsedResetUri.Scheme != Uri.UriSchemeHttp && parsedResetUri.Scheme != Uri.UriSchemeHttps))
         {
-            throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute URL.");
+            throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute HTTP/HTTPS URL.");
         }
     }
 
