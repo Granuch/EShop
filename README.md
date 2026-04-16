@@ -41,9 +41,9 @@ Clients
 ```
 
 Detailed architecture:
-- [Architecture Diagram](01-overview/architecture-diagram.md)
-- [C4 Diagrams](03-architecture/c4-diagrams.md)
-- [Data Flow](03-architecture/data-flow.md)
+- [Architecture Diagram](docs/01-overview/architecture-diagram.md)
+- [C4 Diagrams](docs/03-architecture/c4-diagrams.md)
+- [Data Flow](docs/03-architecture/data-flow.md)
 
 ### Key Architectural Patterns
 
@@ -67,7 +67,7 @@ Authentication and authorization capabilities:
 - role/policy support
 - internal service authorization support
 
-Documentation: [05-services/identity-service.md](05-services/identity-service.md)
+Documentation: [05-services/identity-service.md](docs/05-services/identity-service.md)
 
 ### Catalog Service
 Product and category management:
@@ -75,7 +75,7 @@ Product and category management:
 - validation-driven request handling
 - cache-aware read paths
 
-Documentation: [05-services/catalog-service.md](05-services/catalog-service.md)
+Documentation: [05-services/catalog-service.md](docs/05-services/catalog-service.md)
 
 ### Basket Service
 Redis-backed basket lifecycle:
@@ -83,7 +83,7 @@ Redis-backed basket lifecycle:
 - checkout initiation into async ordering flow
 - user-scoped authorization policies
 
-Documentation: [05-services/basket-service.md](05-services/basket-service.md)
+Documentation: [05-services/basket-service.md](docs/05-services/basket-service.md)
 
 ### Ordering Service
 Order lifecycle orchestration:
@@ -91,7 +91,7 @@ Order lifecycle orchestration:
 - integration with payment and notification flows
 - asynchronous workflow coordination
 
-Documentation: [05-services/ordering-service.md](05-services/ordering-service.md)
+Documentation: [05-services/ordering-service.md](docs/05-services/ordering-service.md)
 
 ### Payment Service
 Payment processing service:
@@ -99,7 +99,7 @@ Payment processing service:
 - Stripe-oriented integration support
 - payment outcome event publication
 
-Documentation: [05-services/payment-service.md](05-services/payment-service.md)
+Documentation: [05-services/payment-service.md](docs/05-services/payment-service.md)
 
 ### Notification Service
 Event-driven notifications:
@@ -107,7 +107,7 @@ Event-driven notifications:
 - SMTP-based delivery pipeline
 - operational delivery tracking
 
-Documentation: [05-services/notification-service.md](05-services/notification-service.md)
+Documentation: [05-services/notification-service.md](docs/05-services/notification-service.md)
 
 ### API Gateway
 YARP gateway and ingress policy enforcement:
@@ -116,8 +116,8 @@ YARP gateway and ingress policy enforcement:
 - simulation and operational middleware behaviors
 
 Documentation:
-- [05-services/api-gateway.md](05-services/api-gateway.md)
-- [05-services/api-gateway-runtime-guide.md](05-services/api-gateway-runtime-guide.md)
+- [05-services/api-gateway.md](docs/05-services/api-gateway.md)
+- [05-services/api-gateway-runtime-guide.md](docs/05-services/api-gateway-runtime-guide.md)
 
 ---
 
@@ -137,8 +137,8 @@ docs/
 ```
 
 Implementation code structure is documented in:
-- [Project Overview](01-overview/project-overview.md)
-- [Architecture Decisions](03-architecture/architecture-decisions.md)
+- [Project Overview](docs/01-overview/project-overview.md)
+- [Architecture Decisions](docs/03-architecture/architecture-decisions.md)
 
 ---
 
@@ -154,7 +154,7 @@ Client checkout request
                   -> Notification sends delivery updates
 ```
 
-Detailed flow: [03-architecture/data-flow.md](03-architecture/data-flow.md)
+Detailed flow: [03-architecture/data-flow.md](docs/03-architecture/data-flow.md)
 
 ---
 
@@ -174,7 +174,7 @@ Detailed flow: [03-architecture/data-flow.md](03-architecture/data-flow.md)
 | Mapping | Mapster |
 | Containers | Docker, Docker Compose |
 
-Stack details: [01-overview/tech-stack.md](01-overview/tech-stack.md)
+Stack details: [01-overview/tech-stack.md](docs/01-overview/tech-stack.md)
 
 ---
 
@@ -185,11 +185,11 @@ Stack details: [01-overview/tech-stack.md](01-overview/tech-stack.md)
 - Docker Desktop (or Docker Engine + Compose)
 - Git
 
-Full prerequisites: [02-getting-started/prerequisites.md](02-getting-started/prerequisites.md)
+Full prerequisites: [02-getting-started/prerequisites.md](docs/02-getting-started/prerequisites.md)
 
 ### Local Setup
-1. [Local Setup](02-getting-started/local-setup.md)
-2. [Docker Setup](02-getting-started/docker-setup.md)
+1. [Local Setup](docs/02-getting-started/local-setup.md)
+2. [Docker Setup](docs/02-getting-started/docker-setup.md)
 
 ### Typical Local Endpoints
 - API Gateway: `http://localhost:7000`
@@ -204,8 +204,8 @@ Full prerequisites: [02-getting-started/prerequisites.md](02-getting-started/pre
 ## API Reference
 
 Service API behavior and route responsibilities are documented in:
-- [Services documentation](05-services/)
-- [Architecture data flow](03-architecture/data-flow.md)
+- [Services documentation](docs/05-services/)
+- [Architecture data flow](docs/03-architecture/data-flow.md)
 
 In development mode, OpenAPI/Scalar endpoints are available per service as configured.
 
@@ -219,8 +219,8 @@ In development mode, OpenAPI/Scalar endpoints are available per service as confi
 - Health: `/health`, `/health/ready`, `/health/live` (service-dependent)
 
 Details:
-- [06-infrastructure/observability.md](06-infrastructure/observability.md)
-- [06-infrastructure/observability-setup.md](06-infrastructure/observability-setup.md)
+- [06-infrastructure/observability.md](docs/06-infrastructure/observability.md)
+- [06-infrastructure/observability-setup.md](docs/06-infrastructure/observability-setup.md)
 
 ---
 
@@ -231,81 +231,81 @@ Details:
 - role/user-scoped authorization patterns
 - environment-aware runtime safeguards
 
-Details: [03-architecture/security-architecture.md](03-architecture/security-architecture.md)
+Details: [03-architecture/security-architecture.md](docs/03-architecture/security-architecture.md)
 
 ---
 
 ## Documentation Map
 
 ### 01. Overview
-- [Project Overview](01-overview/project-overview.md)
-- [Architecture Diagram](01-overview/architecture-diagram.md)
-- [Technology Stack](01-overview/tech-stack.md)
+- [Project Overview](docs/01-overview/project-overview.md)
+- [Architecture Diagram](docs/01-overview/architecture-diagram.md)
+- [Technology Stack](docs/01-overview/tech-stack.md)
 
 ### 02. Getting Started
-- [Prerequisites](02-getting-started/prerequisites.md)
-- [Local Setup](02-getting-started/local-setup.md)
-- [Docker Setup](02-getting-started/docker-setup.md)
-- [Team Agreement](02-getting-started/team-agreement.md)
+- [Prerequisites](docs/02-getting-started/prerequisites.md)
+- [Local Setup](docs/02-getting-started/local-setup.md)
+- [Docker Setup](docs/02-getting-started/docker-setup.md)
+- [Team Agreement](docs/02-getting-started/team-agreement.md)
 
 ### 03. Architecture
-- [Architecture Decisions](03-architecture/architecture-decisions.md)
-- [C4 Diagrams](03-architecture/c4-diagrams.md)
-- [Data Flow](03-architecture/data-flow.md)
-- [Design Patterns](03-architecture/design-patterns.md)
-- [Security Architecture](03-architecture/security-architecture.md)
+- [Architecture Decisions](docs/03-architecture/architecture-decisions.md)
+- [C4 Diagrams](docs/03-architecture/c4-diagrams.md)
+- [Data Flow](docs/03-architecture/data-flow.md)
+- [Design Patterns](docs/03-architecture/design-patterns.md)
+- [Security Architecture](docs/03-architecture/security-architecture.md)
 
 ### 04. Implementation Plan
-- [Phase 1: Foundation](04-implementation-plan/phase-1-foundation.md)
-- [Phase 2: Identity](04-implementation-plan/phase-2-identity.md)
-- [Phase 3: Catalog](04-implementation-plan/phase-3-catalog.md)
-- [Phase 4: Basket](04-implementation-plan/phase-4-basket.md)
-- [Phase 5: Ordering](04-implementation-plan/phase-5-ordering.md)
-- [Phase 6: Payment](04-implementation-plan/phase-6-payment.md)
-- [Phase 7: Notifications](04-implementation-plan/phase-7-notifications.md)
-- [Phase 8: Client Integration Track](04-implementation-plan/phase-8-frontend.md)
-- [Phase 9: Testing](04-implementation-plan/phase-9-testing.md)
-- [Phase 10: Operations and Delivery](04-implementation-plan/phase-10-devops.md)
-- [Phase 11: Optimization](04-implementation-plan/phase-11-optimization.md)
-- [Phase 12: Launch and Post-Launch](04-implementation-plan/phase-12-launch.md)
+- [Phase 1: Foundation](docs/04-implementation-plan/phase-1-foundation.md)
+- [Phase 2: Identity](docs/04-implementation-plan/phase-2-identity.md)
+- [Phase 3: Catalog](docs/04-implementation-plan/phase-3-catalog.md)
+- [Phase 4: Basket](docs/04-implementation-plan/phase-4-basket.md)
+- [Phase 5: Ordering](docs/04-implementation-plan/phase-5-ordering.md)
+- [Phase 6: Payment](docs/04-implementation-plan/phase-6-payment.md)
+- [Phase 7: Notifications](docs/04-implementation-plan/phase-7-notifications.md)
+- [Phase 8: Client Integration Track](docs/04-implementation-plan/phase-8-frontend.md)
+- [Phase 9: Testing](docs/04-implementation-plan/phase-9-testing.md)
+- [Phase 10: Operations and Delivery](docs/04-implementation-plan/phase-10-devops.md)
+- [Phase 11: Optimization](docs/04-implementation-plan/phase-11-optimization.md)
+- [Phase 12: Launch and Post-Launch](docs/04-implementation-plan/phase-12-launch.md)
 
 ### 05. Services
-- [API Gateway](05-services/api-gateway.md)
-- [API Gateway Runtime Guide](05-services/api-gateway-runtime-guide.md)
-- [Identity Service](05-services/identity-service.md)
-- [Catalog Service](05-services/catalog-service.md)
-- [Basket Service](05-services/basket-service.md)
-- [Ordering Service](05-services/ordering-service.md)
-- [Payment Service](05-services/payment-service.md)
-- [Notification Service](05-services/notification-service.md)
+- [API Gateway](docs/05-services/api-gateway.md)
+- [API Gateway Runtime Guide](docs/05-services/api-gateway-runtime-guide.md)
+- [Identity Service](docs/05-services/identity-service.md)
+- [Catalog Service](docs/05-services/catalog-service.md)
+- [Basket Service](docs/05-services/basket-service.md)
+- [Ordering Service](docs/05-services/ordering-service.md)
+- [Payment Service](docs/05-services/payment-service.md)
+- [Notification Service](docs/05-services/notification-service.md)
 
 ### 06. Infrastructure
-- [Databases](06-infrastructure/databases.md)
-- [Caching](06-infrastructure/caching.md)
-- [Message Broker](06-infrastructure/message-broker.md)
-- [Observability](06-infrastructure/observability.md)
-- [Observability Setup](06-infrastructure/observability-setup.md)
-- [Resilience](06-infrastructure/resilience.md)
+- [Databases](docs/06-infrastructure/databases.md)
+- [Caching](docs/06-infrastructure/caching.md)
+- [Message Broker](docs/06-infrastructure/message-broker.md)
+- [Observability](docs/06-infrastructure/observability.md)
+- [Observability Setup](docs/06-infrastructure/observability-setup.md)
+- [Resilience](docs/06-infrastructure/resilience.md)
 
 ### 07. Development Workflow
-- [Git Workflow](07-development-workflow/git-workflow.md)
-- [Coding Standards](07-development-workflow/coding-standards.md)
-- [Code Review Process](07-development-workflow/code-review-process.md)
-- [CI/CD Workflow](07-development-workflow/ci-cd-workflow.md)
-- [Deployment Process](07-development-workflow/deployment-process.md)
+- [Git Workflow](docs/07-development-workflow/git-workflow.md)
+- [Coding Standards](docs/07-development-workflow/coding-standards.md)
+- [Code Review Process](docs/07-development-workflow/code-review-process.md)
+- [CI/CD Workflow](docs/07-development-workflow/ci-cd-workflow.md)
+- [Deployment Process](docs/07-development-workflow/deployment-process.md)
 
 ### 08. Testing
-- [Testing Strategy](08-testing/testing-strategy.md)
-- [Unit Testing Guide](08-testing/unit-testing.md)
-- [Integration Testing Guide](08-testing/integration-testing.md)
-- [Performance Testing Guide](08-testing/performance-testing.md)
-- [End-to-End Testing Guide](08-testing/e2e-testing.md)
+- [Testing Strategy](docs/08-testing/testing-strategy.md)
+- [Unit Testing Guide](docs/08-testing/unit-testing.md)
+- [Integration Testing Guide](docs/08-testing/integration-testing.md)
+- [Performance Testing Guide](docs/08-testing/performance-testing.md)
+- [End-to-End Testing Guide](docs/08-testing/e2e-testing.md)
 
 ### 09. Appendix
-- [Glossary](09-appendix/glossary.md)
-- [Resources](09-appendix/resources.md)
-- [Roadmap](09-appendix/roadmap.md)
-- [Success Criteria](09-appendix/success-criteria.md)
+- [Glossary](docs/09-appendix/glossary.md)
+- [Resources](docs/09-appendix/resources.md)
+- [Roadmap](docs/09-appendix/roadmap.md)
+- [Success Criteria](docs/09-appendix/success-criteria.md)
 
 ---
 
@@ -324,9 +324,9 @@ git push -u origin feature/my-change
 ```
 
 Contribution workflow details:
-- [07-development-workflow/git-workflow.md](07-development-workflow/git-workflow.md)
-- [07-development-workflow/code-review-process.md](07-development-workflow/code-review-process.md)
-- [07-development-workflow/coding-standards.md](07-development-workflow/coding-standards.md)
+- [07-development-workflow/git-workflow.md](docs/07-development-workflow/git-workflow.md)
+- [07-development-workflow/code-review-process.md](docs/07-development-workflow/code-review-process.md)
+- [07-development-workflow/coding-standards.md](docs/07-development-workflow/coding-standards.md)
 
 ---
 
