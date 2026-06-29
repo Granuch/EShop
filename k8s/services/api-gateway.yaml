@@ -1,0 +1,90 @@
+# ============================================================
+# API Gateway (YARP) — Deployment + Service
+# NodePort 30700 → доступен снаружи кластера на localhost:30700
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: eshop-api-gateway:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
+        - name: IdentityService__ApiKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: internal-service-api-key
+        - name: IdentityService__ApiKeyHeaderName
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: internal-service-api-key-header
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# NodePort — основная точка входа для локального доступа
+# http://localhost:30700
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: eshop
+spec:
+  type: NodePort
+  selector:
+    app: api-gateway
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30700

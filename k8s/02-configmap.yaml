@@ -1,0 +1,66 @@
+# ============================================================
+# EShop ConfigMap — не-секретные переменные окружения
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eshop-config
+  namespace: eshop
+data:
+  ASPNETCORE_ENVIRONMENT: "Sandbox"
+  ASPNETCORE_HTTP_PORTS: "8080"
+  LOG_LEVEL: "Information"
+
+  # OpenTelemetry
+  OpenTelemetry__Enabled: "true"
+  OpenTelemetry__OtlpEndpoint: "http://otel-collector:4317"
+  OpenTelemetry__SamplingRatio: "0.1"
+  OpenTelemetry__MetricsEnabled: "true"
+
+  # Serilog → Seq
+  Serilog__MinimumLevel__Default: "Information"
+  Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: "Error"
+  Serilog__WriteTo__1__Name: "Seq"
+  Serilog__WriteTo__1__Args__serverUrl: "http://seq:5341"
+
+  # JWT expiration (non-secret)
+  JwtSettings__AccessTokenExpirationMinutes: "60"
+  JwtSettings__RefreshTokenExpirationDays: "7"
+
+  # CORS
+  Cors__AllowedOrigins__0: "http://localhost:3000"
+  Cors__AllowedOrigins__1: "https://localhost:3000"
+
+  # Identity settings
+  Identity__RequireConfirmedEmail: "false"
+
+  # Internal service timeouts
+  IdentityService__TimeoutSeconds: "5"
+  IdentityService__BaseUrl: "http://identity-api:8080"
+
+  # SMTP (Mailpit в k8s)
+  Smtp__Host: "mailpit"
+  Smtp__Port: "1025"
+  Smtp__UseSsl: "false"
+  Smtp__FromEmail: "noreply@eshop.local"
+  Smtp__FromName: "EShop"
+
+  # Payment simulation
+  PaymentSimulation__ProcessingDelayMinSeconds: "1"
+  PaymentSimulation__ProcessingDelayMaxSeconds: "3"
+  PaymentSimulation__SuccessRatePercent: "80"
+  PaymentSimulation__RefundDelaySeconds: "2"
+
+  # Stripe (disabled by default)
+  Stripe__Enabled: "false"
+  Stripe__SkipWebhookSignatureVerification: "true"
+  Stripe__AllowMissingSignatureHeaderInBypassMode: "true"
+
+  # RabbitMQ delayed exchange
+  RabbitMQ__RetryCount: "3"
+  RabbitMQ__RetryIntervalSeconds: "5"
+  RabbitMQ__RetryIncrementSeconds: "5"
+  RabbitMQ__UseDelayedExchangePlugin: "true"
+  RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
+  RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
+  RabbitMQ__DelayedRedeliveryIntervalsMinutes__2: "15"

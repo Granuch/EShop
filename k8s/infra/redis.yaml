@@ -1,0 +1,83 @@
+# ============================================================
+# Redis — StatefulSet + Service
+# Fix: пароль передаётся как env var, command не использует $(VAR)
+# ============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: eshop
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        # Fix: не используем $(VAR) в command — передаём пароль через envvar
+        # и запускаем через sh -c чтобы shell раскрыл переменную
+        command: ["sh", "-c"]
+        args:
+          - >
+            redis-server
+            --requirepass "$REDIS_PASSWORD"
+            --appendonly yes
+            --appendfsync everysec
+            --maxmemory 256mb
+            --maxmemory-policy allkeys-lru
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: redis-password
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        readinessProbe:
+          # Fix: не используем $(VAR) в probe — используем /bin/sh
+          exec:
+            command:
+              - sh
+              - -c
+              - redis-cli -a "$REDIS_PASSWORD" ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "300Mi"
+            cpu: "300m"
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: eshop
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  clusterIP: None
