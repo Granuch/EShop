@@ -22,8 +22,8 @@ spec:
     spec:
       containers:
       - name: identity-api
-        image: eshop-identity-api:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-identity-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
@@ -131,8 +131,8 @@ spec:
     spec:
       containers:
       - name: catalog-api
-        image: eshop-catalog-api:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-catalog-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
@@ -224,8 +224,8 @@ spec:
     spec:
       containers:
       - name: basket-api
-        image: eshop-basket-api:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-basket-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
@@ -312,8 +312,8 @@ spec:
     spec:
       containers:
       - name: ordering-api
-        image: eshop-ordering-api:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-ordering-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
@@ -405,8 +405,8 @@ spec:
     spec:
       containers:
       - name: payment-api
-        image: eshop-payment-api:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-payment-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
@@ -493,8 +493,8 @@ spec:
     spec:
       containers:
       - name: notification-api
-        image: eshop-notification-api:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-notification-api:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:

@@ -19,8 +19,8 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: eshop-api-gateway:latest
-        imagePullPolicy: Never
+        image: host.docker.internal:5000/eshop-api-gateway:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
