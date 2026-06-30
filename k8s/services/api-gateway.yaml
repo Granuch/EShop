@@ -1,6 +1,6 @@
 # ============================================================
 # API Gateway (YARP) — Deployment + Service
-# NodePort 30700 → доступен снаружи кластера на localhost:30700
+# NodePort 30700 → localhost:30700
 # ============================================================
 apiVersion: apps/v1
 kind: Deployment

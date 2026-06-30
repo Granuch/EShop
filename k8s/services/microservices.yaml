@@ -1,7 +1,5 @@
 # ============================================================
 # EShop Microservices — Deployments + ClusterIP Services
-# Fix: connection strings берутся целиком из Secret (valueFrom),
-#      не через $(VAR) интерполяцию которая не работает в k8s
 # ============================================================
 
 # ---- Identity API ----
