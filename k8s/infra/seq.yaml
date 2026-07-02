@@ -1,0 +1,83 @@
+# ============================================================
+# Seq — Centralized Structured Logging
+# Fix: правильный маппинг портов
+#   80  = Web UI  (http://seq:80)
+#   5341 = Ingestion endpoint (http://seq:5341)
+# Serilog serverUrl должен указывать на 5341
+# ============================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seq
+  namespace: eshop
+spec:
+  serviceName: seq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seq
+  template:
+    metadata:
+      labels:
+        app: seq
+    spec:
+      containers:
+      - name: seq
+        image: datalust/seq:2025.1
+        env:
+        - name: ACCEPT_EULA
+          value: "Y"
+        - name: SEQ_FIRSTRUN_ADMINUSERNAME
+          value: "admin"
+        - name: SEQ_FIRSTRUN_ADMINPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: seq-admin-password
+        ports:
+        - containerPort: 80
+          name: ui
+        - containerPort: 5341
+          name: ingest
+        volumeMounts:
+        - name: seq-data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+  volumeClaimTemplates:
+  - metadata:
+      name: seq-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seq
+  namespace: eshop
+spec:
+  selector:
+    app: seq
+  ports:
+  # UI: http://seq:80 (или port-forward для доступа снаружи)
+  - port: 80
+    targetPort: 80
+    name: ui
+  # Ingestion: http://seq:5341 — именно этот адрес в Serilog config
+  - port: 5341
+    targetPort: 5341
+    name: ingest

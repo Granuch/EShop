@@ -1,0 +1,556 @@
+# ============================================================
+# EShop Microservices — Deployments + ClusterIP Services
+# ============================================================
+
+# ---- Identity API ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-api
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identity-api
+  template:
+    metadata:
+      labels:
+        app: identity-api
+    spec:
+      containers:
+      - name: identity-api
+        image: host.docker.internal:5000/eshop-identity-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: ConnectionStrings__IdentityDb
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-identity-db
+        - name: ConnectionStrings__Redis
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-redis
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-username
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-password
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
+        - name: InternalServiceAuth__ApiKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: internal-service-api-key
+        - name: InternalServiceAuth__HeaderName
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: internal-service-api-key-header
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-api
+  namespace: eshop
+spec:
+  selector:
+    app: identity-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# ---- Catalog API ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-api
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catalog-api
+  template:
+    metadata:
+      labels:
+        app: catalog-api
+    spec:
+      containers:
+      - name: catalog-api
+        image: host.docker.internal:5000/eshop-catalog-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: ConnectionStrings__CatalogDb
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-catalog-db
+        - name: ConnectionStrings__Redis
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-redis
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-username
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-password
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-api
+  namespace: eshop
+spec:
+  selector:
+    app: catalog-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# ---- Basket API ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: basket-api
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: basket-api
+  template:
+    metadata:
+      labels:
+        app: basket-api
+    spec:
+      containers:
+      - name: basket-api
+        image: host.docker.internal:5000/eshop-basket-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: ConnectionStrings__Redis
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-redis
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-username
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-password
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: basket-api
+  namespace: eshop
+spec:
+  selector:
+    app: basket-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# ---- Ordering API ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ordering-api
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ordering-api
+  template:
+    metadata:
+      labels:
+        app: ordering-api
+    spec:
+      containers:
+      - name: ordering-api
+        image: host.docker.internal:5000/eshop-ordering-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: ConnectionStrings__OrderingDb
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-ordering-db
+        - name: ConnectionStrings__Redis
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-redis
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-username
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-password
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordering-api
+  namespace: eshop
+spec:
+  selector:
+    app: ordering-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# ---- Payment API ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+    spec:
+      containers:
+      - name: payment-api
+        image: host.docker.internal:5000/eshop-payment-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: ConnectionStrings__PaymentDb
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-payment-db
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-username
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-password
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: eshop
+spec:
+  selector:
+    app: payment-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# ---- Notification API ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-api
+  namespace: eshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-api
+  template:
+    metadata:
+      labels:
+        app: notification-api
+    spec:
+      containers:
+      - name: notification-api
+        image: host.docker.internal:5000/eshop-notification-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: eshop-config
+        env:
+        - name: ConnectionStrings__NotificationDb
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: connstr-notification-db
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-username
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: rabbitmq-password
+        - name: IdentityService__ApiKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: internal-service-api-key
+        - name: IdentityService__ApiKeyHeaderName
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: internal-service-api-key-header
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-api
+  namespace: eshop
+spec:
+  selector:
+    app: notification-api
+  ports:
+  - port: 8080
+    targetPort: 8080
