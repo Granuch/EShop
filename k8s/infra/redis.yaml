@@ -1,6 +1,5 @@
 # ============================================================
 # Redis — StatefulSet + Service
-# Fix: пароль передаётся как env var, command не использует $(VAR)
 # ============================================================
 apiVersion: apps/v1
 kind: StatefulSet
@@ -21,8 +20,6 @@ spec:
       containers:
       - name: redis
         image: redis:7-alpine
-        # Fix: не используем $(VAR) в command — передаём пароль через envvar
-        # и запускаем через sh -c чтобы shell раскрыл переменную
         command: ["sh", "-c"]
         args:
           - >
@@ -44,7 +41,6 @@ spec:
         - name: redis-data
           mountPath: /data
         readinessProbe:
-          # Fix: не используем $(VAR) в probe — используем /bin/sh
           exec:
             command:
               - sh
