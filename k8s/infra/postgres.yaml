@@ -1,5 +1,5 @@
 # ============================================================
-# PostgreSQL — 5 instances (по одному на каждый сервис)
+# PostgreSQL — 5 instances
 # Identity, Catalog, Ordering, Payment, Notification
 # ============================================================
 
