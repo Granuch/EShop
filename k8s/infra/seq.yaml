@@ -1,9 +1,5 @@
 # ============================================================
 # Seq — Centralized Structured Logging
-# Fix: правильный маппинг портов
-#   80  = Web UI  (http://seq:80)
-#   5341 = Ingestion endpoint (http://seq:5341)
-# Serilog serverUrl должен указывать на 5341
 # ============================================================
 apiVersion: apps/v1
 kind: StatefulSet
