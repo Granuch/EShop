@@ -1,4 +1,5 @@
 using MediatR;
+using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
@@ -172,6 +173,25 @@ public static class ProductEndpoints
         .WithName("SetMainProductImage")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/attributes (admin only)
+        group.MapPost("/{id:guid}/attributes", async (Guid id, AddProductAttributeCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                value => Results.Created($"/api/v1/products/{id}", new { id = value }),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status404NotFound));
+        })
+        .WithName("AddProductAttribute")
+        .RequireAuthorization("Admin")
+        .Produces<object>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
     }
 }
