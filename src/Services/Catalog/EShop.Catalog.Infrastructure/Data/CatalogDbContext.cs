@@ -143,6 +143,13 @@ public class CatalogDbContext : BaseDbContext
 
             entity.HasKey(pi => pi.Id);
 
+            // The aggregate assigns child ids (Product.AddImage returns the new Guid), so the
+            // key is NOT store-generated. Leaving it ValueGeneratedOnAdd makes EF treat an image
+            // added to an already-loaded product as an existing row — it issues an UPDATE that
+            // matches nothing and throws DbUpdateConcurrencyException.
+            entity.Property(pi => pi.Id)
+                .ValueGeneratedNever();
+
             entity.Property(pi => pi.Url)
                 .IsRequired()
                 .HasMaxLength(500);
@@ -172,6 +179,10 @@ public class CatalogDbContext : BaseDbContext
             entity.ToTable("ProductAttributes");
 
             entity.HasKey(pa => pa.Id);
+
+            // Domain-assigned key — see the note on ProductImage.Id above.
+            entity.Property(pa => pa.Id)
+                .ValueGeneratedNever();
 
             entity.Property(pa => pa.Name)
                 .IsRequired()

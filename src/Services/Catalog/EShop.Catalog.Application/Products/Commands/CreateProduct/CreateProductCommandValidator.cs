@@ -30,8 +30,9 @@ public class CreateProductCommandValidator : AbstractValidator<CreateProductComm
         RuleFor(x => x.CategoryId)
             .NotEmpty().WithMessage("Category is required");
 
+        // Null is a valid "no images" — it is what a client serializing an absent optional
+        // collection sends — so these rules tolerate it rather than rejecting with NotNull.
         RuleFor(x => x.Images)
-            .NotNull().WithMessage("Images cannot be null")
             .Must(images => images is null || images.Count <= MaxImages)
                 .WithMessage($"A product cannot have more than {MaxImages} images")
             .Must(HaveUniqueUrls)
@@ -41,7 +42,6 @@ public class CreateProductCommandValidator : AbstractValidator<CreateProductComm
             .SetValidator(new CreateProductImageRequestValidator());
 
         RuleFor(x => x.Attributes)
-            .NotNull().WithMessage("Attributes cannot be null")
             .Must(attributes => attributes is null || attributes.Count <= MaxAttributes)
                 .WithMessage($"A product cannot have more than {MaxAttributes} attributes")
             .Must(HaveUniqueNames)

@@ -1,4 +1,5 @@
 using MediatR;
+using EShop.BuildingBlocks.Application;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
@@ -19,6 +20,20 @@ namespace EShop.Catalog.API.Endpoints;
 /// </summary>
 public static class ProductEndpoints
 {
+    /// <summary>
+    /// Maps a failed Result to a problem response. Sub-resource endpoints can fail two ways:
+    /// the product or image genuinely does not exist (404), or the request was rejected by
+    /// ValidationBehavior, which surfaces as a "Validation.Failed" Result error rather than an
+    /// exception (400). Mapping every error to one status gets one of those cases wrong.
+    /// </summary>
+    private static IResult ProblemForError(Error error)
+        => Results.Problem(
+            detail: error.Message,
+            title: error.Code,
+            statusCode: error.Code.EndsWith(".NotFound", StringComparison.Ordinal)
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest);
+
     public static void MapProductEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/products")
@@ -122,10 +137,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/products/{id}", new { id = value }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProblemForError);
         })
         .WithName("AddProductImage")
         .RequireAuthorization("Admin")
@@ -144,10 +156,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProblemForError);
         })
         .WithName("RemoveProductImage")
         .RequireAuthorization("Admin")
@@ -165,10 +174,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProblemForError);
         })
         .WithName("SetMainProductImage")
         .RequireAuthorization("Admin")
@@ -183,10 +189,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/products/{id}", new { id = value }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProblemForError);
         })
         .WithName("AddProductAttribute")
         .RequireAuthorization("Admin")

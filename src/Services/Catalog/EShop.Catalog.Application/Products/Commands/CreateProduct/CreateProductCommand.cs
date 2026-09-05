@@ -20,13 +20,16 @@ public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingC
 
     /// <summary>
     /// Optional images to attach to the new product. The first one added becomes the main image.
+    /// Null and omitted are both treated as "no images" — clients that serialize absent
+    /// collections as explicit JSON null are not rejected.
     /// </summary>
-    public IReadOnlyList<CreateProductImageRequest> Images { get; init; } = [];
+    public IReadOnlyList<CreateProductImageRequest>? Images { get; init; }
 
     /// <summary>
     /// Optional key/value attributes to attach to the new product.
+    /// Null and omitted are both treated as "no attributes".
     /// </summary>
-    public IReadOnlyList<CreateProductAttributeRequest> Attributes { get; init; } = [];
+    public IReadOnlyList<CreateProductAttributeRequest>? Attributes { get; init; }
 
     public IEnumerable<string> CacheKeysToInvalidate =>
     [

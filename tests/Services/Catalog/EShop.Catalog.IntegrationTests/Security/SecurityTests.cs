@@ -56,6 +56,42 @@ public class SecurityTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Test]
+    public async Task AddProductImage_WithoutAuth_ShouldReturnUnauthorized()
+    {
+        var request = new AddProductImageRequest
+        {
+            Url = "https://cdn.example.com/unauth.jpg",
+            DisplayOrder = 0
+        };
+
+        var response = await Client.PostAsJsonAsync($"{ProductsEndpoint}/{Guid.NewGuid()}/images", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task RemoveProductImage_WithoutAuth_ShouldReturnUnauthorized()
+    {
+        var response = await Client.DeleteAsync($"{ProductsEndpoint}/{Guid.NewGuid()}/images/{Guid.NewGuid()}");
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task SetMainProductImage_WithoutAuth_ShouldReturnUnauthorized()
+    {
+        var response = await Client.PutAsync($"{ProductsEndpoint}/{Guid.NewGuid()}/images/{Guid.NewGuid()}/main", null);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task AddProductAttribute_WithoutAuth_ShouldReturnUnauthorized()
+    {
+        var request = new AddProductAttributeRequest { Name = "Color", Value = "Red" };
+
+        var response = await Client.PostAsJsonAsync($"{ProductsEndpoint}/{Guid.NewGuid()}/attributes", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     #endregion
 
     #region Category Write Endpoints — Require Admin Auth

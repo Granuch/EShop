@@ -52,12 +52,12 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         // Images and attributes are applied before the product is persisted, so a rejected
         // image leaves nothing behind — no partial product. The command is also
         // ITransactionalCommand, which covers anything that fails after SaveChangesAsync.
-        foreach (var image in request.Images)
+        foreach (var image in request.Images ?? [])
         {
             product.AddImage(image.Url, image.AltText, image.DisplayOrder);
         }
 
-        foreach (var attribute in request.Attributes)
+        foreach (var attribute in request.Attributes ?? [])
         {
             product.AddAttribute(attribute.Name, attribute.Value);
         }
