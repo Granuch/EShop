@@ -390,28 +390,110 @@ public class ProductTests
     }
 
     [Test]
-    public void AddImage_DuplicateUrl_ShouldNotAddDuplicate()
+    public void AddImage_DuplicateUrl_ShouldThrowDomainException()
     {
         // Arrange
         var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
         product.AddImage("https://example.com/img.jpg", "Alt text", 0);
 
-        // Act
-        product.AddImage("https://example.com/img.jpg", "Alt text 2", 1);
-
-        // Assert
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://example.com/img.jpg", "Alt text 2", 1));
         Assert.That(product.Images, Has.Count.EqualTo(1));
     }
 
     [Test]
-    public void AddImage_WithUnsupportedFormat_ShouldThrowDomainException()
+    public void AddImage_DuplicateUrlDifferingOnlyByWhitespace_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+
+        // Act & Assert — the URL is normalized before the duplicate check
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("  https://example.com/img.jpg  ", "Alt text 2", 1));
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddImage_DuplicateUrlDifferingOnlyByCase_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://EXAMPLE.com/IMG.JPG", "Alt text 2", 1));
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddImage_ExtensionlessUrl_ShouldSucceed()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act — extensionless CDN links are valid; there is no extension allowlist
+        product.AddImage("https://cdn.example.com/img/abc123", "Alt text", 0);
+
+        // Assert
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+        Assert.That(product.Images.Single().Url, Is.EqualTo("https://cdn.example.com/img/abc123"));
+    }
+
+    [Test]
+    public void AddImage_NonHttpScheme_ShouldThrowDomainException()
     {
         // Arrange
         var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
 
         // Act & Assert
         Assert.Throws<DomainException>(() =>
-            product.AddImage("https://example.com/manual.pdf", "Alt text", 0));
+            product.AddImage("ftp://example.com/img.jpg", "Alt text", 0));
+    }
+
+    [Test]
+    public void AddImage_WhenTenImagesExist_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        for (var i = 0; i < 10; i++)
+        {
+            product.AddImage($"https://example.com/img-{i}.jpg", "Alt text", i);
+        }
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://example.com/img-11.jpg", "Alt text", 10));
+        Assert.That(product.Images, Has.Count.EqualTo(10));
+    }
+
+    [Test]
+    public void AddImage_UrlLongerThan500Characters_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        var prefix = "https://example.com/";
+        var longUrl = prefix + new string('a', 501 - prefix.Length);
+
+        // Act & Assert
+        Assert.That(longUrl, Has.Length.EqualTo(501));
+        Assert.Throws<DomainException>(() => product.AddImage(longUrl, "Alt text", 0));
+    }
+
+    [Test]
+    public void AddImage_ShouldReturnIdOfAddedImage()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        var imageId = product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+
+        // Assert
+        Assert.That(imageId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(product.Images.Single().Id, Is.EqualTo(imageId));
     }
 
     [Test]
@@ -502,6 +584,20 @@ public class ProductTests
         Assert.That(product.Attributes, Has.Count.EqualTo(1));
         Assert.That(product.Attributes.First().Name, Is.EqualTo("Color"));
         Assert.That(product.Attributes.First().Value, Is.EqualTo("Red"));
+    }
+
+    [Test]
+    public void AddAttribute_ShouldReturnIdOfAddedAttribute()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        var attributeId = product.AddAttribute("Color", "Red");
+
+        // Assert
+        Assert.That(attributeId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(product.Attributes.Single().Id, Is.EqualTo(attributeId));
     }
 
     [Test]

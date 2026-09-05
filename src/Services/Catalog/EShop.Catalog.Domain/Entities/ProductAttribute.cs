@@ -14,7 +14,7 @@ public class ProductAttribute : Entity<Guid>
 
     private ProductAttribute() { }
 
-    public ProductAttribute(Guid productId, string name, string value)
+    internal ProductAttribute(Guid productId, string name, string value)
     {
         if (productId == Guid.Empty)
             throw new DomainException("Product attribute requires a valid product id.");

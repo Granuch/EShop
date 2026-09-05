@@ -9,6 +9,8 @@ namespace EShop.Catalog.Domain.Entities;
 /// </summary>
 public class Product : AggregateRoot<Guid>
 {
+    private const int MaxImages = 10;
+
     public string Name { get; private set; } = string.Empty;
     public string? Description { get; private set; }
     public string Sku { get; private set; } = string.Empty;
@@ -140,7 +142,7 @@ public class Product : AggregateRoot<Guid>
         Status = ProductStatus.Discontinued;
     }
     
-    public void AddImage(string url, string? altText, int displayOrder)
+    public Guid AddImage(string url, string? altText, int displayOrder)
     {
         if (IsDeleted)
             throw new DomainException("Cannot add image to a deleted product.");
@@ -151,10 +153,15 @@ public class Product : AggregateRoot<Guid>
         if (displayOrder < 0)
             throw new DomainException("Display order cannot be negative.");
 
-        if (_images.Any(x => x.Url == url))
-            return;
-        
-        var newImage = new ProductImage(Id ,url, altText, displayOrder);
+        if (_images.Count >= MaxImages)
+            throw new DomainException($"A product cannot have more than {MaxImages} images.");
+
+        // Constructing normalizes and validates the URL, so the duplicate check below
+        // compares normalized values rather than raw input.
+        var newImage = new ProductImage(Id, url, altText, displayOrder);
+
+        if (_images.Any(x => string.Equals(x.Url, newImage.Url, StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("Product image URL already exists for this product.");
 
         if (_images.Count == 0)
         {
@@ -162,6 +169,8 @@ public class Product : AggregateRoot<Guid>
         }
 
         _images.Add(newImage);
+
+        return newImage.Id;
     }
 
     public void SetMainImage(Guid imageId)
@@ -203,7 +212,7 @@ public class Product : AggregateRoot<Guid>
         }
     }
     
-    public void AddAttribute(string name, string value)
+    public Guid AddAttribute(string name, string value)
     {
         if (IsDeleted)
             throw new DomainException("Cannot add attribute to a deleted product.");
@@ -214,8 +223,10 @@ public class Product : AggregateRoot<Guid>
         if (string.IsNullOrWhiteSpace(value))
             throw new DomainException("Attribute value cannot be empty.");
         
-        var  newAttribute = new ProductAttribute(Id , name, value);
+        var newAttribute = new ProductAttribute(Id, name, value);
         _attributes.Add(newAttribute);
+
+        return newAttribute.Id;
     }
 }
 
