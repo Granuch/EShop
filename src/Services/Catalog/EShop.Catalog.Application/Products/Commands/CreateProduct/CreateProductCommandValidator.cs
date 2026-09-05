@@ -7,6 +7,9 @@ namespace EShop.Catalog.Application.Products.Commands.CreateProduct;
 /// </summary>
 public class CreateProductCommandValidator : AbstractValidator<CreateProductCommand>
 {
+    private const int MaxImages = 10;
+    private const int MaxAttributes = 50;
+
     public CreateProductCommandValidator()
     {
         RuleFor(x => x.Name)
@@ -26,5 +29,53 @@ public class CreateProductCommandValidator : AbstractValidator<CreateProductComm
 
         RuleFor(x => x.CategoryId)
             .NotEmpty().WithMessage("Category is required");
+
+        RuleFor(x => x.Images)
+            .NotNull().WithMessage("Images cannot be null")
+            .Must(images => images is null || images.Count <= MaxImages)
+                .WithMessage($"A product cannot have more than {MaxImages} images")
+            .Must(HaveUniqueUrls)
+                .WithMessage("Image URLs must be unique within a product");
+
+        RuleForEach(x => x.Images)
+            .SetValidator(new CreateProductImageRequestValidator());
+
+        RuleFor(x => x.Attributes)
+            .NotNull().WithMessage("Attributes cannot be null")
+            .Must(attributes => attributes is null || attributes.Count <= MaxAttributes)
+                .WithMessage($"A product cannot have more than {MaxAttributes} attributes")
+            .Must(HaveUniqueNames)
+                .WithMessage("Attribute names must be unique within a product");
+
+        RuleForEach(x => x.Attributes)
+            .SetValidator(new CreateProductAttributeRequestValidator());
+    }
+
+    // Duplicate detection matches the domain's comparison: trimmed and case-insensitive.
+    // Entries that are empty are left to the per-item validators to report.
+    private static bool HaveUniqueUrls(IReadOnlyList<CreateProductImageRequest>? images)
+    {
+        if (images is null)
+            return true;
+
+        var urls = images
+            .Where(i => !string.IsNullOrWhiteSpace(i.Url))
+            .Select(i => i.Url.Trim())
+            .ToList();
+
+        return urls.Distinct(StringComparer.OrdinalIgnoreCase).Count() == urls.Count;
+    }
+
+    private static bool HaveUniqueNames(IReadOnlyList<CreateProductAttributeRequest>? attributes)
+    {
+        if (attributes is null)
+            return true;
+
+        var names = attributes
+            .Where(a => !string.IsNullOrWhiteSpace(a.Name))
+            .Select(a => a.Name.Trim())
+            .ToList();
+
+        return names.Distinct(StringComparer.OrdinalIgnoreCase).Count() == names.Count;
     }
 }

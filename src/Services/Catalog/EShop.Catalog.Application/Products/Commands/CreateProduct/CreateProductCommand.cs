@@ -18,6 +18,16 @@ public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingC
     public int StockQuantity { get; init; }
     public Guid CategoryId { get; init; }
 
+    /// <summary>
+    /// Optional images to attach to the new product. The first one added becomes the main image.
+    /// </summary>
+    public IReadOnlyList<CreateProductImageRequest> Images { get; init; } = [];
+
+    /// <summary>
+    /// Optional key/value attributes to attach to the new product.
+    /// </summary>
+    public IReadOnlyList<CreateProductAttributeRequest> Attributes { get; init; } = [];
+
     public IEnumerable<string> CacheKeysToInvalidate =>
     [
         $"products:category:{CategoryId}"
