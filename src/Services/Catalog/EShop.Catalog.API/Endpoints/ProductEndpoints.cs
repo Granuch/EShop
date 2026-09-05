@@ -1,6 +1,9 @@
 using MediatR;
+using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
+using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
+using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
@@ -106,6 +109,67 @@ public static class ProductEndpoints
                     statusCode: StatusCodes.Status404NotFound));
         })
         .WithName("DeleteProduct")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/images (admin only)
+        group.MapPost("/{id:guid}/images", async (Guid id, AddProductImageCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                value => Results.Created($"/api/v1/products/{id}", new { id = value }),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status404NotFound));
+        })
+        .WithName("AddProductImage")
+        .RequireAuthorization("Admin")
+        .Produces<object>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // DELETE /api/v1/products/{id}/images/{imageId} (admin only)
+        group.MapDelete("/{id:guid}/images/{imageId:guid}", async (Guid id, Guid imageId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new RemoveProductImageCommand
+            {
+                ProductId = id,
+                ImageId = imageId
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status404NotFound));
+        })
+        .WithName("RemoveProductImage")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/images/{imageId}/main (admin only)
+        group.MapPut("/{id:guid}/images/{imageId:guid}/main", async (Guid id, Guid imageId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new SetMainProductImageCommand
+            {
+                ProductId = id,
+                ImageId = imageId
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => Results.Problem(
+                    detail: error.Message,
+                    title: error.Code,
+                    statusCode: StatusCodes.Status404NotFound));
+        })
+        .WithName("SetMainProductImage")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound);
