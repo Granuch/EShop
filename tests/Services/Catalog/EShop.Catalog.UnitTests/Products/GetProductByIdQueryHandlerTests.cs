@@ -1,4 +1,3 @@
-using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -25,13 +24,13 @@ public class GetProductByIdQueryHandlerTests
     }
 
     [Test]
-    public async Task Handle_WithExistingProduct_ShouldReturnProductDto()
+    public async Task Handle_WithExistingProduct_ShouldReturnProductDetailsDto()
     {
         // Arrange
         var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
         var query = new GetProductByIdQuery { ProductId = product.Id };
 
-        var expectedDto = new ProductDto
+        var expectedDto = new ProductDetailsDto
         {
             Id = product.Id,
             Name = "Test Product",
@@ -44,7 +43,7 @@ public class GetProductByIdQueryHandlerTests
             .ReturnsAsync(product);
 
         _mapperMock
-            .Setup(x => x.Map<ProductDto>(product))
+            .Setup(x => x.Map<ProductDetailsDto>(product))
             .Returns(expectedDto);
 
         // Act

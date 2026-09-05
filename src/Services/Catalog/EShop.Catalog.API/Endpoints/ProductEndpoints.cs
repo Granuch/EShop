@@ -50,7 +50,7 @@ public static class ProductEndpoints
                     statusCode: StatusCodes.Status404NotFound));
         })
         .WithName("GetProductById")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<ProductDetailsDto>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/products (admin only)
