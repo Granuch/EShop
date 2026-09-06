@@ -332,4 +332,123 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem!.Title.Should().Be("Product.NotFound");
     }
+
+    [Test]
+    public async Task AddAttribute_WithDuplicateName_ShouldReturnBadRequestAndNotAddIt()
+    {
+        // Arrange — the sub-resource path used to accept the same Name twice because the cap
+        // and dedupe lived only in CreateProductCommandValidator, which never sees the rows
+        // already persisted on the product.
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+        var productId = await CatalogDataHelper.CreateProductAsync(
+            scope.ServiceProvider, "Dup Attr Product", CatalogDataHelper.GenerateUniqueSku("DUP"), 19.99m, 5, categoryId);
+
+        var first = await Client.PostAsJsonAsync(
+            $"{ProductsEndpoint}/{productId}/attributes", new AddProductAttributeRequest { Name = "Color", Value = "Red" });
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Act — differs only by case, which the trimmed case-insensitive compare still catches
+        var response = await Client.PostAsJsonAsync(
+            $"{ProductsEndpoint}/{productId}/attributes", new AddProductAttributeRequest { Name = "  color  ", Value = "Blue" });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{productId}"))
+            .Content.ReadFromJsonAsync<ProductDetailsResponse>();
+        detail!.Attributes.Should().ContainSingle("the rejected duplicate must not be persisted");
+        detail.Attributes.Single().Value.Should().Be("Red");
+    }
+
+    [Test]
+    public async Task AddAttribute_BeyondFiftyAttributes_ShouldReturnBadRequest()
+    {
+        // Arrange — 50 inline (the create validator's ceiling), then one more over the wire.
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+
+        var request = new CreateProductRequest
+        {
+            Name = "Capped Product",
+            Sku = CatalogDataHelper.GenerateUniqueSku("CAP"),
+            Price = 19.99m,
+            StockQuantity = 5,
+            CategoryId = categoryId,
+            Attributes = Enumerable.Range(0, 50)
+                .Select(i => new CreateProductAttributeRequestDto { Name = $"Attribute-{i}", Value = "value" })
+                .ToList()
+        };
+
+        var createResponse = await Client.PostAsJsonAsync(ProductsEndpoint, request);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createResponse.Content.ReadFromJsonAsync<CreatedResponse>();
+
+        // Act
+        var response = await Client.PostAsJsonAsync(
+            $"{ProductsEndpoint}/{created!.Id}/attributes", new AddProductAttributeRequest { Name = "OneTooMany", Value = "value" });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{created.Id}"))
+            .Content.ReadFromJsonAsync<ProductDetailsResponse>();
+        detail!.Attributes.Should().HaveCount(50);
+    }
+
+    [Test]
+    public async Task CreateProduct_WithDescription_ShouldRoundTripItOnDetail()
+    {
+        // Arrange — Description was accepted and documented but silently dropped: Product.Create
+        // took no such parameter, so the field always came back null.
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+
+        var request = new CreateProductRequest
+        {
+            Name = "Described Product",
+            Description = "A useful description",
+            Sku = CatalogDataHelper.GenerateUniqueSku("DSC"),
+            Price = 19.99m,
+            StockQuantity = 5,
+            CategoryId = categoryId
+        };
+
+        // Act
+        var createResponse = await Client.PostAsJsonAsync(ProductsEndpoint, request);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createResponse.Content.ReadFromJsonAsync<CreatedResponse>();
+
+        // Assert
+        var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{created!.Id}"))
+            .Content.ReadFromJsonAsync<ProductDetailsResponse>();
+        detail!.Description.Should().Be("A useful description");
+    }
+
+    [Test]
+    public async Task CreateProduct_WithoutDescription_ShouldReturnNullDescription()
+    {
+        // Arrange
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+
+        var request = new CreateProductRequest
+        {
+            Name = "Undescribed Product",
+            Sku = CatalogDataHelper.GenerateUniqueSku("NDS"),
+            Price = 19.99m,
+            StockQuantity = 5,
+            CategoryId = categoryId
+        };
+
+        // Act
+        var createResponse = await Client.PostAsJsonAsync(ProductsEndpoint, request);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createResponse.Content.ReadFromJsonAsync<CreatedResponse>();
+
+        // Assert
+        var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{created!.Id}"))
+            .Content.ReadFromJsonAsync<ProductDetailsResponse>();
+        detail!.Description.Should().BeNull();
+    }
 }

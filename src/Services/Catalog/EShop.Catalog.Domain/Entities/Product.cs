@@ -10,6 +10,7 @@ namespace EShop.Catalog.Domain.Entities;
 public class Product : AggregateRoot<Guid>
 {
     private const int MaxImages = 10;
+    private const int MaxAttributes = 50;
 
     public string Name { get; private set; } = string.Empty;
     public string? Description { get; private set; }
@@ -32,7 +33,12 @@ public class Product : AggregateRoot<Guid>
 
     private Product() { }
     
-    public static Product Create(string name, string sku, decimal price, int stockQuantity, Guid categoryId)
+    /// <param name="description">
+    /// Optional. Trimmed; blank or whitespace-only input is stored as null so "absent" and
+    /// "empty string" are indistinguishable downstream. Optional with a default so the many
+    /// existing five-argument call sites keep compiling.
+    /// </param>
+    public static Product Create(string name, string sku, decimal price, int stockQuantity, Guid categoryId, string? description = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException("Product name is required.");
@@ -51,6 +57,7 @@ public class Product : AggregateRoot<Guid>
             Id = Guid.NewGuid(),
             CategoryId = categoryId,
             Name = name,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
             Sku = sku,
             Price = price,
             StockQuantity = stockQuantity,
@@ -251,8 +258,17 @@ public class Product : AggregateRoot<Guid>
 
         if (string.IsNullOrWhiteSpace(value))
             throw new DomainException("Attribute value cannot be empty.");
-        
+
+        if (_attributes.Count >= MaxAttributes)
+            throw new DomainException($"A product cannot have more than {MaxAttributes} attributes.");
+
+        // Constructing normalizes (trims) the name, so the duplicate check below compares
+        // normalized values rather than raw input — same shape as AddImage.
         var newAttribute = new ProductAttribute(Id, name, value);
+
+        if (_attributes.Any(x => string.Equals(x.Name, newAttribute.Name, StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException($"Attribute '{newAttribute.Name}' already exists for this product.");
+
         _attributes.Add(newAttribute);
 
         return newAttribute.Id;

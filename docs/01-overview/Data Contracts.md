@@ -204,11 +204,15 @@ deliberately no update or delete endpoint for them.
 | `POST /api/v1/products/{id}/images` | `{ Url, AltText?, DisplayOrder }` | 201 `{ id }` | 400 invalid/duplicate URL or 10-image cap reached; 404 unknown product |
 | `DELETE /api/v1/products/{id}/images/{imageId}` | — | 204 | 404 unknown product or image |
 | `PUT /api/v1/products/{id}/images/{imageId}/main` | — | 204 | 404 unknown product or image |
-| `POST /api/v1/products/{id}/attributes` | `{ Name, Value }` | 201 `{ id }` | 400 invalid name/value; 404 unknown product |
+| `POST /api/v1/products/{id}/attributes` | `{ Name, Value }` | 201 `{ id }` | 400 invalid name/value, duplicate name, or 50-attribute cap reached; 404 unknown product |
 
 The product id comes from the route — the request body never needs to repeat it.
-Duplicate attribute names are permitted across separate requests; uniqueness is enforced
-only within a single `POST /api/v1/products` payload.
+Attribute names are unique per product, compared trimmed and case-insensitively, and a
+product is capped at 50 attributes. Both rules hold across separate requests, not just
+within a single `POST /api/v1/products` payload — they are enforced by the `Product`
+aggregate, which is the only place that can see the attributes already persisted.
+Since attributes are add-only, re-sending an existing name is rejected rather than
+treated as an update.
 
 > **Caching caveat:** these writes invalidate the product-detail and by-category caches
 > immediately, but the paged `GET /api/v1/products` results cannot be invalidated (their

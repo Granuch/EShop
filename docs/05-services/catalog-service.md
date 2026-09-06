@@ -80,7 +80,10 @@ some external host or CDN already serves.
 | Duplicate URLs | Rejected per product, compared trimmed and case-insensitively |
 | Main image | At most one per product; the first image added becomes main; removing the main image promotes the next in gallery order; a product with no images has no main |
 | Gallery order | `DisplayOrder`, then `CreatedAt` |
-| Attributes | `Name`/`Value` pairs, add-only — no update or remove operation exists |
+| Max attributes per product | 50 |
+| Duplicate attribute names | Rejected per product, compared trimmed and case-insensitively |
+| Attributes | `Name`/`Value` pairs, add-only — no update or remove operation exists, so a name already in use is rejected rather than overwritten |
+| Description | Optional; set only at creation, trimmed, blank stored as `null` — no endpoint changes it afterwards |
 
 Removing the extension allowlist was a deliberate trade for CDN support: nothing in the
 domain asserts a URL points at an actual image, so a mistyped link fails visually at render

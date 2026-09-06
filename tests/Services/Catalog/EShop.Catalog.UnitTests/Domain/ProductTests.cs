@@ -698,6 +698,111 @@ public class ProductTests
         Assert.Throws<DomainException>(() => product.AddAttribute("Color", "Red"));
     }
 
+    [Test]
+    public void AddAttribute_WithDuplicateName_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddAttribute("Color", "Red");
+
+        // Act & Assert — a second value for the same attribute name is a replace, not an add.
+        Assert.Throws<DomainException>(() => product.AddAttribute("Color", "Blue"));
+        Assert.That(product.Attributes, Has.Count.EqualTo(1));
+    }
+
+    [TestCase("color")]
+    [TestCase("COLOR")]
+    [TestCase("  Color  ")]
+    public void AddAttribute_WithDuplicateNameDifferingOnlyByCaseOrWhitespace_ShouldThrowDomainException(string duplicate)
+    {
+        // Arrange — the comparison runs on the normalized (trimmed) name, case-insensitively,
+        // matching CreateProductCommandValidator.HaveUniqueNames so both paths agree.
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddAttribute("Color", "Red");
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.AddAttribute(duplicate, "Blue"));
+        Assert.That(product.Attributes, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddAttribute_UpToFiftyAttributes_ShouldBeAllowed()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        for (var i = 0; i < 50; i++)
+        {
+            product.AddAttribute($"Attribute-{i}", "value");
+        }
+
+        // Assert
+        Assert.That(product.Attributes, Has.Count.EqualTo(50));
+    }
+
+    [Test]
+    public void AddAttribute_BeyondFiftyAttributes_ShouldThrowDomainException()
+    {
+        // Arrange — the cap lives in the domain, so it guards the sub-resource endpoint too,
+        // not just the inline-create validator.
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        for (var i = 0; i < 50; i++)
+        {
+            product.AddAttribute($"Attribute-{i}", "value");
+        }
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.AddAttribute("OneTooMany", "value"));
+        Assert.That(product.Attributes, Has.Count.EqualTo(50));
+    }
+
+    #endregion
+
+    #region Description
+
+    [Test]
+    public void Create_WithDescription_ShouldPersistIt()
+    {
+        // Act
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId, "A useful description");
+
+        // Assert
+        Assert.That(product.Description, Is.EqualTo("A useful description"));
+    }
+
+    [Test]
+    public void Create_WithoutDescription_ShouldLeaveItNull()
+    {
+        // Act
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Assert
+        Assert.That(product.Description, Is.Null);
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase(null)]
+    public void Create_WithBlankDescription_ShouldStoreNull(string? description)
+    {
+        // Act — "absent" and "empty string" must not be distinguishable downstream.
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId, description);
+
+        // Assert
+        Assert.That(product.Description, Is.Null);
+    }
+
+    [Test]
+    public void Create_WithPaddedDescription_ShouldTrimIt()
+    {
+        // Act
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId, "  padded  ");
+
+        // Assert
+        Assert.That(product.Description, Is.EqualTo("padded"));
+    }
+
     #endregion
 
     #region DomainEvents

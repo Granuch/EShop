@@ -29,10 +29,12 @@ public class AddProductAttributeCommandHandler : IRequestHandler<AddProductAttri
         if (product == null)
             return Result<Guid>.Failure(new Error("Product.NotFound", $"Product with ID '{request.ProductId}' was not found."));
 
-        // Domain guards (empty or over-length name/value) throw DomainException, which
-        // GlobalExceptionHandlerMiddleware maps to 400 — no catch needed here.
-        // Duplicate attribute names are permitted by the domain: uniqueness is enforced only
-        // within a single create request, and attributes are add-only in this variant.
+        // Domain guards throw DomainException, which GlobalExceptionHandlerMiddleware maps to
+        // 400 — no catch needed here. That covers empty/over-length name and value, the
+        // 50-attribute cap, and duplicate names (compared trimmed and case-insensitively).
+        // The cap and dedupe live in Product.AddAttribute rather than in this command's
+        // validator so they hold on both entry paths: CreateProductCommandValidator checks the
+        // inline collection it can see, but only the aggregate knows what is already persisted.
         var attributeId = product.AddAttribute(request.Name, request.Value);
 
         await _productRepository.UpdateAsync(product, cancellationToken);

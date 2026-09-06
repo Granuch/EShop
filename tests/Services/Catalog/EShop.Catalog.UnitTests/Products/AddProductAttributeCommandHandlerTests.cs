@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Domain.Entities;
@@ -90,10 +91,12 @@ public class AddProductAttributeCommandHandlerTests
     }
 
     [Test]
-    public async Task Handle_WithDuplicateName_ShouldSucceed()
+    public void Handle_WithDuplicateName_ShouldThrowDomainExceptionAndNotPersist()
     {
-        // Arrange — attributes are add-only and the domain permits duplicate names;
-        // uniqueness is enforced only within a single create request (plan §7, gap #11).
+        // Arrange — uniqueness used to be enforced only within a single create request, so this
+        // path let the same Name through twice. The cap and dedupe now live in
+        // Product.AddAttribute, which is the only place that can see the already-persisted rows.
+        // DomainException is correct here: GlobalExceptionHandlerMiddleware maps it to 400.
         var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
         product.AddAttribute("Color", "Red");
 
@@ -108,15 +111,36 @@ public class AddProductAttributeCommandHandlerTests
             .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(product);
 
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
+        // Act & Assert
+        Assert.ThrowsAsync<DomainException>(() => _handler.Handle(command, CancellationToken.None));
+        Assert.That(product.Attributes, Has.Count.EqualTo(1));
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
 
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
+    [Test]
+    public void Handle_BeyondFiftyAttributes_ShouldThrowDomainExceptionAndNotPersist()
+    {
+        // Arrange
+        var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
+        for (var i = 0; i < 50; i++)
+        {
+            product.AddAttribute($"Attribute-{i}", "value");
+        }
 
-        // Assert
-        Assert.That(result.IsSuccess, Is.True);
-        Assert.That(product.Attributes, Has.Count.EqualTo(2));
+        var command = new AddProductAttributeCommand
+        {
+            ProductId = product.Id,
+            Name = "OneTooMany",
+            Value = "value"
+        };
+
+        _productRepositoryMock
+            .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
+
+        // Act & Assert
+        Assert.ThrowsAsync<DomainException>(() => _handler.Handle(command, CancellationToken.None));
+        Assert.That(product.Attributes, Has.Count.EqualTo(50));
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

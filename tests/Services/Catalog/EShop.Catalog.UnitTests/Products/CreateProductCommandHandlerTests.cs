@@ -119,6 +119,49 @@ public class CreateProductCommandHandlerTests
     }
 
     [Test]
+    public async Task Handle_WithDescription_ShouldPersistItOnTheProduct()
+    {
+        // Arrange — the handler used to drop Description on the floor: Product.Create took no
+        // such parameter, so POST returned 201 and GET /{id} came back with "description": null.
+        var categoryId = Guid.NewGuid();
+        var command = new CreateProductCommand
+        {
+            Name = "Test Product",
+            Description = "A useful description",
+            Sku = "SKU-001",
+            Price = 29.99m,
+            StockQuantity = 100,
+            CategoryId = categoryId
+        };
+
+        Product? addedProduct = null;
+
+        _productRepositoryMock
+            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Product?)null);
+
+        _categoryRepositoryMock
+            .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Category.Create("Test Category", null, null));
+
+        _productRepositoryMock
+            .Setup(x => x.AddAsync(It.IsAny<Product>(), It.IsAny<CancellationToken>()))
+            .Callback<Product, CancellationToken>((p, _) => addedProduct = p);
+
+        _unitOfWorkMock
+            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(addedProduct, Is.Not.Null);
+        Assert.That(addedProduct!.Description, Is.EqualTo("A useful description"));
+    }
+
+    [Test]
     public void Handle_WithInvalidInlineImage_ShouldThrowBeforePersisting()
     {
         // Arrange — a rejected image must leave nothing behind: AddImage runs before AddAsync,

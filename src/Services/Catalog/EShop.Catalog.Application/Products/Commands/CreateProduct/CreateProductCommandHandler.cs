@@ -47,7 +47,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             return Result<Guid>.Failure(new Error("Category.NotFound", $"Category with ID '{request.CategoryId}' was not found."));
         }
 
-        var product = Product.Create(request.Name, request.Sku, request.Price, request.StockQuantity, request.CategoryId);
+        var product = Product.Create(request.Name, request.Sku, request.Price, request.StockQuantity, request.CategoryId, request.Description);
 
         // Images and attributes are applied before the product is persisted, so a rejected
         // image leaves nothing behind — no partial product. The command is also
