@@ -48,6 +48,10 @@
   </Folder>
   <Folder Name="/tests/" />
   <Folder Name="/tests/Services/" />
+  <Folder Name="/tests/Services/Basket/">
+    <Project Path="tests/Services/Basket/EShop.Basket.IntegrationTests/EShop.Basket.IntegrationTests.csproj" />
+    <Project Path="tests/Services/Basket/EShop.Basket.UnitTests/EShop.Basket.UnitTests.csproj" />
+  </Folder>
   <Folder Name="/tests/Services/Catalog/">
     <Project Path="tests/Services/Catalog/EShop.Catalog.IntegrationTests/EShop.Catalog.IntegrationTests.csproj" />
     <Project Path="tests/Services/Catalog/EShop.Catalog.UnitTests/EShop.Catalog.UnitTests.csproj" />
