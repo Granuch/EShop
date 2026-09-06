@@ -376,3 +376,18 @@ FodyWeavers.xsd
 /_tmp_packages_summary.json
 /_tmp_projects.json
 /k8s/README.md
+
+# Claude Code harness — personal setup, not tracked
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+SKILL.md
+**/SKILL.md
+
+# Stray full-repo mirror, not part of the real source tree
+.audit-base-worktree/
+
+# Build output in directories whose name contains a U+F05C look-alike backslash
+# (e.g. "bin<U+F05C>Debug" — a SINGLE directory, so the normal [Bb]in/ and
+# [Dd]ebug/ rules above do not match it).
+**/bin*Debug/
