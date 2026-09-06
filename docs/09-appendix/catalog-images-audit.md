@@ -5,6 +5,14 @@ as input to the "Variant A" (URL-based images and key/value attributes) effort.
 
 Audit only — no source under `src/` was modified.
 
+> **This audit describes the code as of 2026-09-05, before Variant A was implemented.**
+> The Variant A work (T1–T9 of
+> [catalog-images-variant-a-plan.md](catalog-images-variant-a-plan.md)) has since shipped
+> and closed 12 of the 19 gaps in [§8](#8-known-gaps), which now carries a per-gap status
+> column. Read the body below as a historical record: its line numbers and several of its
+> findings — including the headline one — no longer describe current code. Corrections are
+> marked inline where a section would otherwise mislead.
+
 ---
 
 ## 1. Scope & Method
@@ -46,8 +54,8 @@ list response.
 | Field | Rule | Location |
 |---|---|---|
 | `ProductImage.Url` | Non-empty; must parse as absolute URI with scheme `http`/`https` | `ProductImage.cs:61-69` |
-| `ProductImage.Url` | Extension of `Uri.AbsolutePath` must be in `.jpg .jpeg .png .webp .gif` (case-insensitive) | `ProductImage.cs:11-19, 71-75` |
-| `ProductImage.Url` | **No maximum length check** | `ProductImage.cs:59-78` |
+| ~~`ProductImage.Url`~~ | ~~Extension of `Uri.AbsolutePath` must be in `.jpg .jpeg .png .webp .gif`~~ — **removed by T1**, see the correction below | ~~`ProductImage.cs:11-19, 71-75`~~ |
+| ~~`ProductImage.Url`~~ | ~~**No maximum length check**~~ — **fixed by T1**: max 500 chars, matching the column | `ProductImage.cs` |
 | `ProductImage.AltText` | Optional; trimmed; max 200 chars | `ProductImage.cs:80-90` |
 | `ProductImage.DisplayOrder` | `>= 0` (checked twice — also in `Product.AddImage`) | `ProductImage.cs:34-35`, `Product.cs:151-152` |
 | `ProductAttribute.Name` | Non-empty; trimmed; max 100 chars | `ProductAttribute.cs:32-42` |
@@ -57,18 +65,26 @@ list response.
 All failures throw `DomainException`
 (`BuildingBlocks.Domain/Exceptions/DomainException.cs`) — the only exception type used.
 
-Because the URL extension test runs against `Uri.AbsolutePath`, a query string is
+> **Correction (Variant A, T1 — superseded).** The paragraph below described the extension
+> allowlist as a live constraint on which image hosts are usable. That allowlist has since
+> been **removed**: `NormalizeAndValidateUrl` now enforces only non-empty, absolute
+> `http`/`https`, and ≤500 characters, so extensionless CDN URLs are accepted. The trade —
+> nothing in the domain asserts the URL points at an image — is recorded in a comment on
+> that method and in `docs/05-services/catalog-service.md`. The original text is kept for
+> historical context:
+
+~~Because the URL extension test runs against `Uri.AbsolutePath`, a query string is
 tolerated (`…/a.jpg?w=800` passes) but an extensionless CDN URL (`…/img/abc123`) is
-rejected. This constrains which image hosts Variant A can accept.
+rejected. This constrains which image hosts Variant A can accept.~~
 
 ### 2.3 Mutator methods
 
 | Method | Location | Behaviour |
 |---|---|---|
-| `AddImage(url, altText, displayOrder)` | `Product.cs:143-165` | Rejects if `IsDeleted`; silently returns on duplicate URL; auto-mains the first image |
+| `AddImage(url, altText, displayOrder)` | `Product.cs` | Rejects if `IsDeleted`; auto-mains the first image. **Changed by T1**: now returns the new image's `Guid`, normalizes before the duplicate check, compares case-insensitively, **throws** on duplicate instead of silently returning, and caps a product at 10 images |
 | `SetMainImage(imageId)` | `Product.cs:167-182` | Rejects if `IsDeleted`; throws if id not found; unsets all, then sets target |
 | `RemoveImage(imageId)` | `Product.cs:184-204` | Rejects if `IsDeleted`; throws if not found; promotes a successor if the main was removed |
-| `AddAttribute(name, value)` | `Product.cs:206-219` | Rejects if `IsDeleted`; rejects empty name/value; no uniqueness check |
+| `AddAttribute(name, value)` | `Product.cs` | Rejects if `IsDeleted`; rejects empty name/value; no uniqueness check. **Changed by T1**: returns the new attribute's `Guid` |
 
 There is **no** `RemoveAttribute` or `UpdateAttribute` — attributes are append-only.
 None of the four methods raises a domain event.
@@ -433,27 +449,43 @@ indexes, and cascade deletes cannot be verified there.
 
 ## 8. Known Gaps
 
-| # | Gap | Location | Impact | Severity |
-|---|---|---|---|---|
-| 1 | `MainImageUrl` hard-coded `null` in both list projections | `ProductQueryService.cs:94,138` | Every list and by-category response returns `null`; no image can render in any listing | High |
-| 2 | No application or API surface for images/attributes | Catalog Application; `ProductEndpoints.cs` | Admins cannot create image or attribute data at all; four domain methods are dead code | High |
-| 3 | `ProductDto` exposes no `Images[]` or `Attributes[]` | `ProductDto.cs:8-21` | Detail view cannot render a gallery or spec table even though both are eagerly loaded | High |
-| 4 | Mapster orders by `DisplayOrder` and ignores `IsMain` | `MappingConfig.cs:16-21` | `IsMain` has no observable effect on any response; `SetMainImage` is invisible to clients | High |
-| 5 | `ProductAttribute` has no EF configuration | `CatalogDbContext.cs` (absent); snapshot `:263-265, 284` | Singular table name inconsistent with `ProductImages`; `Name`/`Value` unbounded `text`, so domain limits have no DB backing | Medium |
-| 6 | `ProductImage.Url` has no length validation but the column is `varchar(500)` | `ProductImage.cs:59-78` vs `CatalogDbContext.cs:145-147` | A >500-char URL surfaces as `DbUpdateException` (500) instead of `DomainException` (400) | Medium |
-| 7 | `products:list:*` cache family cannot be invalidated | `GetProductsQuery.cs:44-45`; `ICacheableQuery.cs:57-61` | Writes leave list results stale for the full TTL; will apply to image changes too | Medium |
-| 8 | `GetByIdReadOnlyAsync` loads Images + Attributes that are then discarded | `ProductRepository.cs:27-34` + `MappingConfig.cs` | Two extra split queries per detail request for data that never reaches the response | Medium |
-| 9 | No enforced "exactly one main image" invariant | `Product.cs:143-165`; `ProductImage.cs:49-57` | Property holds on the happy path only; public `SetAsMain`/`UnsetAsMain` and the public constructor can produce zero or multiple mains | Medium |
-| 10 | `AddImage` silently no-ops on duplicate URL, comparing un-normalized input | `Product.cs:154-155` | Caller gets success with nothing added; whitespace/case variants evade the check then collide after normalization | Medium |
-| 11 | No `RemoveAttribute` or `UpdateAttribute` | `Product.cs` | Attributes are append-only; a typo is permanent | Medium |
-| 12 | No test asserts `MainImageUrl` or covers the Mapster config | `tests/Services/Catalog/**` | Gaps 1 and 4 are invisible to the suite | Medium |
-| 13 | `Data Contracts.md` documents `MainImageUrl` without noting it is always null | `docs/01-overview/Data Contracts.md` | Frontend builds against a field that never has a value | Medium |
-| 14 | `ProductImage`/`ProductAttribute` constructors are `public` | `ProductImage.cs:29`; `ProductAttribute.cs:17` | Aggregate boundary is convention-only; `AddImage` dedupe and auto-main logic are bypassable | Low |
-| 15 | `DisplayOrder` has no uniqueness rule and tiebreaking is inconsistent | `Product.cs:197-200` vs `MappingConfig.cs:18-21` | Ties order non-deterministically in the mapping path | Low |
-| 16 | No maximum image count per product | `Product.cs:143-165` | Unbounded growth and unbounded detail payload | Low |
-| 17 | Image/attribute mutations raise no domain events | `Product.cs:143-219` | No hook for cache invalidation or future integration events | Low |
-| 18 | `ProductDeletedIntegrationEvent` is never published or consumed | `BuildingBlocks.Messaging/Events/` | Dead contract; downstream services never learn of deletions | Low |
-| 19 | Catalog integration tests run on EF InMemory | `CatalogApiFactory.cs:51` | Column limits, unique indexes, and cascade deletes are untestable in integration tests | Low |
+> **Status as of the Variant A implementation (2026-09-06).** The `Status` column records
+> what shipped; the gap descriptions themselves are left as originally written, so the
+> locations and line numbers below describe the code *before* the fix.
+>
+> - **Closed (12):** #1, #3, #4, #5, #6, #8, #9, #10, #12, #13, #14, #16
+> - **Deferred by decision (2):** #11 attribute edit/remove, #15 image reorder — both
+>   out of scope for Variant A, not oversights
+> - **Still open (5):** #2 (partially — see below), #7, #17, #18, #19
+>
+> One gap not in this table was found during implementation and fixed: EF tracked a child
+> added to an already-persisted `Product` as `Modified` rather than `Added`, because the
+> domain assigns child ids while the model mapped those keys `ValueGeneratedOnAdd`. Every
+> image/attribute sub-resource write failed with `DbUpdateConcurrencyException`/409 until
+> both keys were mapped `ValueGeneratedNever()`. Ordering's `OrderItem` has the same shape
+> and is still exposed.
+
+| # | Gap | Location | Impact | Severity | Status |
+|---|---|---|---|---|---|
+| 1 | `MainImageUrl` hard-coded `null` in both list projections | `ProductQueryService.cs:94,138` | Every list and by-category response returns `null`; no image can render in any listing | High | **Closed** — T4: canonical subquery in both projections |
+| 2 | No application or API surface for images/attributes | Catalog Application; `ProductEndpoints.cs` | Admins cannot create image or attribute data at all; four domain methods are dead code | High | **Mostly closed** — T5/T6/T7 added inline create + 4 endpoints; still no reorder or attribute edit/remove |
+| 3 | `ProductDto` exposes no `Images[]` or `Attributes[]` | `ProductDto.cs:8-21` | Detail view cannot render a gallery or spec table even though both are eagerly loaded | High | **Closed** — T3: new `ProductDetailsDto` with both arrays |
+| 4 | Mapster orders by `DisplayOrder` and ignores `IsMain` | `MappingConfig.cs:16-21` | `IsMain` has no observable effect on any response; `SetMainImage` is invisible to clients | High | **Closed** — T3: `IsMain` first, then `DisplayOrder`, then `CreatedAt` |
+| 5 | `ProductAttribute` has no EF configuration | `CatalogDbContext.cs` (absent); snapshot `:263-265, 284` | Singular table name inconsistent with `ProductImages`; `Name`/`Value` unbounded `text`, so domain limits have no DB backing | Medium | **Closed** — T2: `ProductAttributes` table, `varchar(100)`/`varchar(200)` |
+| 6 | `ProductImage.Url` has no length validation but the column is `varchar(500)` | `ProductImage.cs:59-78` vs `CatalogDbContext.cs:145-147` | A >500-char URL surfaces as `DbUpdateException` (500) instead of `DomainException` (400) | Medium | **Closed** — T1: 500-char check in the domain (400, not 500) |
+| 7 | `products:list:*` cache family cannot be invalidated | `GetProductsQuery.cs:44-45`; `ICacheableQuery.cs:57-61` | Writes leave list results stale for the full TTL; will apply to image changes too | Medium | **Open by decision** — exact-key-only invalidation is a `BuildingBlocks` limitation; the 5-minute staleness window is now documented instead |
+| 8 | `GetByIdReadOnlyAsync` loads Images + Attributes that are then discarded | `ProductRepository.cs:27-34` + `MappingConfig.cs` | Two extra split queries per detail request for data that never reaches the response | Medium | **Closed** — T3: the eager-loaded collections now reach the response |
+| 9 | No enforced "exactly one main image" invariant | `Product.cs:143-165`; `ProductImage.cs:49-57` | Property holds on the happy path only; public `SetAsMain`/`UnsetAsMain` and the public constructor can produce zero or multiple mains | Medium | **Closed** — T1 (internal ctor/setters) + T2 (filtered unique index) |
+| 10 | `AddImage` silently no-ops on duplicate URL, comparing un-normalized input | `Product.cs:154-155` | Caller gets success with nothing added; whitespace/case variants evade the check then collide after normalization | Medium | **Closed** — T1: normalizes first, compares case-insensitively, throws |
+| 11 | No `RemoveAttribute` or `UpdateAttribute` | `Product.cs` | Attributes are append-only; a typo is permanent | Medium | **Deferred by decision** — attributes stay add-only in Variant A |
+| 12 | No test asserts `MainImageUrl` or covers the Mapster config | `tests/Services/Catalog/**` | Gaps 1 and 4 are invisible to the suite | Medium | **Closed** — T3/T8: `MappingConfigTests` plus integration assertions on `MainImageUrl` |
+| 13 | `Data Contracts.md` documents `MainImageUrl` without noting it is always null | `docs/01-overview/Data Contracts.md` | Frontend builds against a field that never has a value | Medium | **Closed** — T9: `Data Contracts.md` corrected and extended |
+| 14 | `ProductImage`/`ProductAttribute` constructors are `public` | `ProductImage.cs:29`; `ProductAttribute.cs:17` | Aggregate boundary is convention-only; `AddImage` dedupe and auto-main logic are bypassable | Low | **Closed** — T1: both constructors are `internal` |
+| 15 | `DisplayOrder` has no uniqueness rule and tiebreaking is inconsistent | `Product.cs:197-200` vs `MappingConfig.cs:18-21` | Ties order non-deterministically in the mapping path | Low | **Deferred by decision** — reorder is out of scope; gallery tiebreak is now consistently `DisplayOrder` then `CreatedAt` |
+| 16 | No maximum image count per product | `Product.cs:143-165` | Unbounded growth and unbounded detail payload | Low | **Closed** — T1: max 10 images per product |
+| 17 | Image/attribute mutations raise no domain events | `Product.cs:143-219` | No hook for cache invalidation or future integration events | Low | **Open** — mutations still raise no domain events |
+| 18 | `ProductDeletedIntegrationEvent` is never published or consumed | `BuildingBlocks.Messaging/Events/` | Dead contract; downstream services never learn of deletions | Low | **Open** — `ProductDeletedIntegrationEvent` remains dead |
+| 19 | Catalog integration tests run on EF InMemory | `CatalogApiFactory.cs:51` | Column limits, unique indexes, and cascade deletes are untestable in integration tests | Low | **Open** — integration tests still run on EF InMemory; the filtered unique index is unverified by any test |
 
 ---
 
@@ -479,3 +511,10 @@ indexes, and cascade deletes cannot be verified there.
 Part 2 — the Variant A implementation plan — is written separately to
 `docs/09-appendix/catalog-images-variant-a-plan.md`, using this document as its source
 of truth.
+
+**Update (2026-09-06):** that plan has been implemented in full (T1–T9). See the status
+column in [§8](#8-known-gaps) for what closed, what was deferred by decision, and what
+remains open. Live behaviour is documented in
+[catalog-service.md](../05-services/catalog-service.md#product-images-and-attributes) and
+[Data Contracts.md](../01-overview/Data%20Contracts.md#catalog-service) — prefer those over
+this document for anything about how the service behaves today.
