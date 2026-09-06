@@ -190,6 +190,35 @@ public class Product : AggregateRoot<Guid>
         targetImage.SetAsMain();
     }
 
+    /// <summary>
+    /// Clears the current main image without electing a replacement, leaving the product
+    /// with zero mains (which the DB permits). Returns true when an image was actually
+    /// demoted.
+    /// </summary>
+    /// <remarks>
+    /// Exists so the application layer can persist the demotion *before* the promotion when
+    /// the main flag moves between two surviving rows. "At most one main" is backed by a
+    /// <b>non-deferrable</b> partial unique index (<c>ProductImages (ProductId) WHERE IsMain</c>),
+    /// and EF Core does not guarantee it emits the UNSET UPDATE before the SET one — when the
+    /// SET lands first, Postgres sees two IsMain rows mid-batch and aborts the whole command
+    /// with 23505. Splitting the two writes across separate SaveChanges calls is what keeps
+    /// that transient state from ever reaching the database. <see cref="RemoveImage"/> does not
+    /// need this: it deletes the outgoing main in the same batch, so no second IsMain row
+    /// survives to collide with the promotion.
+    /// </remarks>
+    public bool ClearMainImage()
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update main image for a deleted product.");
+
+        var currentMain = _images.FirstOrDefault(i => i.IsMain);
+        if (currentMain is null)
+            return false;
+
+        currentMain.UnsetAsMain();
+        return true;
+    }
+
     public void RemoveImage(Guid imageId)
     {
         if (IsDeleted)

@@ -34,6 +34,25 @@ public class SetMainProductImageCommandHandler : IRequestHandler<SetMainProductI
         if (product.Images.All(i => i.Id != request.ImageId))
             return Result.Failure(new Error("ProductImage.NotFound", $"Image with ID '{request.ImageId}' was not found on product '{request.ProductId}'."));
 
+        // Already the main image: nothing to write, and demoting/re-promoting the same row
+        // would emit two pointless UPDATEs.
+        if (product.Images.Any(i => i.Id == request.ImageId && i.IsMain))
+            return Result.Success();
+
+        // The main flag is moved in two persisted steps, demotion first. "At most one main"
+        // is enforced by a non-deferrable partial unique index, and EF Core does not
+        // guarantee it orders the UNSET UPDATE before the SET one within a single
+        // SaveChanges — when the SET went first, Postgres saw two IsMain rows and failed the
+        // batch with 23505, surfacing as an intermittent 409 (~1 in 3 calls). Both saves run
+        // inside the transaction opened by TransactionBehavior for this ITransactionalCommand,
+        // so the intermediate zero-main state is never visible outside it and rolls back
+        // together on failure.
+        if (product.ClearMainImage())
+        {
+            await _productRepository.UpdateAsync(product, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
         product.SetMainImage(request.ImageId);
 
         await _productRepository.UpdateAsync(product, cancellationToken);

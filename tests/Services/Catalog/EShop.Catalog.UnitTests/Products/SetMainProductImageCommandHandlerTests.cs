@@ -54,9 +54,65 @@ public class SetMainProductImageCommandHandlerTests
         Assert.That(product.Images.Count(i => i.IsMain), Is.EqualTo(1), "exactly one main image must remain");
         Assert.That(product.Images.Single(i => i.Id == secondImageId).IsMain, Is.True);
         Assert.That(product.Images.Single(i => i.Id == firstImageId).IsMain, Is.False);
-        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // Two saves, not one: the demotion is flushed before the promotion so the DB never
+        // holds two IsMain rows at once (non-deferrable partial unique index → 23505/409).
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         _cacheInvalidatorMock.Verify(
             x => x.InvalidateAsync($"products:category:{categoryId}", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task Handle_ShouldPersistDemotionBeforePromotion()
+    {
+        // Arrange — the regression guard for the intermittent 409. Records how many images
+        // were flagged IsMain at each SaveChanges; that count must never exceed one, which is
+        // exactly what the non-deferrable partial unique index enforces in Postgres.
+        var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
+        product.AddImage("https://example.com/first.jpg", "First", 0);
+        var secondImageId = product.AddImage("https://example.com/second.jpg", "Second", 1);
+
+        var command = new SetMainProductImageCommand { ProductId = product.Id, ImageId = secondImageId };
+
+        _productRepositoryMock
+            .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
+
+        var mainCountsAtSave = new List<int>();
+        _unitOfWorkMock
+            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1)
+            .Callback(() => mainCountsAtSave.Add(product.Images.Count(i => i.IsMain)));
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(mainCountsAtSave, Is.EqualTo(new[] { 0, 1 }),
+            "the demotion must be flushed on its own (0 mains) before the promotion (1 main)");
+        Assert.That(product.Images.Single(i => i.Id == secondImageId).IsMain, Is.True);
+    }
+
+    [Test]
+    public async Task Handle_WhenImageIsAlreadyMain_ShouldSucceedWithoutWriting()
+    {
+        // Arrange
+        var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
+        var onlyImageId = product.AddImage("https://example.com/only.jpg", "Only", 0);
+
+        var command = new SetMainProductImageCommand { ProductId = product.Id, ImageId = onlyImageId };
+
+        _productRepositoryMock
+            .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(product);
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(product.Images.Single(i => i.Id == onlyImageId).IsMain, Is.True);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]

@@ -567,6 +567,48 @@ public class ProductTests
         Assert.Throws<DomainException>(() => product.RemoveImage(imageId));
     }
 
+    [Test]
+    public void ClearMainImage_WithAMainImage_ShouldDemoteItAndReturnTrue()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/first.jpg", "First", 0);
+        product.AddImage("https://example.com/second.jpg", "Second", 1);
+
+        // Act
+        var demoted = product.ClearMainImage();
+
+        // Assert
+        Assert.That(demoted, Is.True);
+        Assert.That(product.Images.Count(i => i.IsMain), Is.EqualTo(0),
+            "zero mains is a legal intermediate state — the filtered unique index permits it");
+        Assert.That(product.Images.Count, Is.EqualTo(2), "no image is removed");
+    }
+
+    [Test]
+    public void ClearMainImage_WithNoMainImage_ShouldReturnFalse()
+    {
+        // Arrange — every image removed, so nothing is main
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        var imageId = product.AddImage("https://example.com/only.jpg", "Only", 0);
+        product.RemoveImage(imageId);
+
+        // Act & Assert
+        Assert.That(product.ClearMainImage(), Is.False);
+    }
+
+    [Test]
+    public void ClearMainImage_OnDeletedProduct_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+        product.SoftDelete();
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.ClearMainImage());
+    }
+
     #endregion
 
     #region Attributes
