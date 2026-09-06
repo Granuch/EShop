@@ -397,6 +397,93 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
+    public async Task AddAttribute_WhenRejected_ShouldExplainWhyInDetail()
+    {
+        // Arrange — every DomainException used to return the same opaque title with no detail,
+        // so "duplicate name" and "cap exceeded" were byte-identical over the wire and the only
+        // way to tell them apart was correlating TraceId against the server log.
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+        var productId = await CatalogDataHelper.CreateProductAsync(
+            scope.ServiceProvider, "Detail Attr Product", CatalogDataHelper.GenerateUniqueSku("DTL"), 19.99m, 5, categoryId);
+
+        await Client.PostAsJsonAsync(
+            $"{ProductsEndpoint}/{productId}/attributes", new AddProductAttributeRequest { Name = "Color", Value = "Red" });
+
+        // Act
+        var response = await Client.PostAsJsonAsync(
+            $"{ProductsEndpoint}/{productId}/attributes", new AddProductAttributeRequest { Name = "Color", Value = "Blue" });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem!.Detail.Should().NotBeNullOrWhiteSpace("the client must be able to tell which rule fired");
+        problem.Detail.Should().Contain("Color").And.Contain("already exists");
+    }
+
+    [Test]
+    public async Task CreateProduct_WithUnknownJsonField_ShouldReturnBadRequest()
+    {
+        // Arrange — an unmapped member used to be silently ignored, so a typo'd or stale field
+        // name returned 201 and the value was quietly dropped.
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+
+        var json = $$"""
+        {
+            "name": "Unknown Field Product",
+            "sku": "{{CatalogDataHelper.GenerateUniqueSku("UNK")}}",
+            "price": 19.99,
+            "stockQuantity": 5,
+            "categoryId": "{{categoryId}}",
+            "bogusField": "should be rejected"
+        }
+        """;
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        // Act
+        var response = await Client.PostAsync(ProductsEndpoint, content);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, "an unmapped member must not be silently dropped");
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem!.Detail.Should().Contain("bogusField", "the response must name the offending property");
+        problem.Detail.Should().NotContain("EShop.Catalog.Application",
+            "System.Text.Json's raw message embeds the target .NET type and must not be echoed to callers");
+    }
+
+    [Test]
+    public async Task CreateProduct_WithKnownFieldsOnly_ShouldStillSucceed()
+    {
+        // Arrange — guards against Disallow being over-strict: the documented optional
+        // collections, sent as explicit null, must still bind.
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+
+        var json = $$"""
+        {
+            "name": "Known Fields Product",
+            "description": "fine",
+            "sku": "{{CatalogDataHelper.GenerateUniqueSku("KNW")}}",
+            "price": 19.99,
+            "stockQuantity": 5,
+            "categoryId": "{{categoryId}}",
+            "images": null,
+            "attributes": null
+        }
+        """;
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        // Act
+        var response = await Client.PostAsync(ProductsEndpoint, content);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Test]
     public async Task CreateProduct_WithDescription_ShouldRoundTripItOnDetail()
     {
         // Arrange — Description was accepted and documented but silently dropped: Product.Create

@@ -21,10 +21,14 @@ namespace EShop.Catalog.API.Endpoints;
 public static class ProductEndpoints
 {
     /// <summary>
-    /// Maps a failed Result to a problem response. Sub-resource endpoints can fail two ways:
-    /// the product or image genuinely does not exist (404), or the request was rejected by
+    /// Maps a failed Result to a problem response. A read or sub-resource endpoint can fail two
+    /// ways: the product or image genuinely does not exist (404), or the request was rejected by
     /// ValidationBehavior, which surfaces as a "Validation.Failed" Result error rather than an
     /// exception (400). Mapping every error to one status gets one of those cases wrong.
+    ///
+    /// Used by GET /{id} and the four image/attribute sub-resource endpoints. POST/PUT still
+    /// hard-code 400 and DELETE 404 — they have the same latent issue, left alone here because
+    /// changing their codes would alter existing contract behaviour (e.g. Product.SkuConflict).
     /// </summary>
     private static IResult ProblemForError(Error error)
         => Results.Problem(
@@ -61,15 +65,16 @@ public static class ProductEndpoints
         {
             var result = await mediator.Send(new GetProductByIdQuery { ProductId = id });
 
+            // Discriminates rather than mapping every error to 404: a Guid.Empty id is rejected
+            // by ValidationBehavior as a "Validation.Failed" Result, which owes a 400. Mapping
+            // it to 404 reported a malformed request as a missing product.
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProblemForError);
         })
         .WithName("GetProductById")
         .Produces<ProductDetailsDto>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/products (admin only)

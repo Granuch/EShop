@@ -44,12 +44,13 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            NotFoundException => (
+            NotFoundException notFoundEx => (
                 HttpStatusCode.NotFound,
                 new ErrorResponse
                 {
                     Type = "NotFound",
                     Title = "Requested resource was not found.",
+                    Detail = notFoundEx.Message,
                     Status = (int)HttpStatusCode.NotFound,
                     TraceId = context.TraceIdentifier
                 }),
@@ -64,12 +65,17 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            DomainException => (
+            // Detail carries the domain's own message so a client can tell which rule fired
+            // without correlating TraceId against the server log. Safe to return: these strings
+            // are authored in our domain layer, unlike the DbUpdate* branches whose inner
+            // messages would leak schema and constraint names.
+            DomainException domainEx => (
                 HttpStatusCode.BadRequest,
                 new ErrorResponse
                 {
                     Type = "DomainError",
                     Title = "Business rule validation failed.",
+                    Detail = domainEx.Message,
                     Status = (int)HttpStatusCode.BadRequest,
                     TraceId = context.TraceIdentifier
                 }),

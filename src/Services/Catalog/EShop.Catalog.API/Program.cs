@@ -2,6 +2,7 @@ using System.Data;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Catalog.API.Endpoints;
@@ -308,6 +309,27 @@ try
         .AddCheck<CatalogLivenessHealthCheck>(
             "catalog-liveness",
             tags: ["live"]);
+
+    // Reject unknown JSON properties instead of silently dropping them. By default
+    // System.Text.Json ignores an unmapped member, so a typo'd or stale field name
+    // ("descriptionn", "isMainImage") is accepted with a 201 and the value is never stored —
+    // the caller has no way to notice. Disallow turns that into a JsonException, which minimal
+    // API model binding wraps in BadHttpRequestException; GlobalExceptionHandlerMiddleware has
+    // a branch mapping that to 400 with the offending property name in Detail.
+    builder.Services.ConfigureHttpJsonOptions(options =>
+    {
+        options.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+    });
+
+    // Without this, minimal API binding swallows the JsonException and writes a bare 400 with
+    // an EMPTY body — the caller learns the request was rejected but not which property caused
+    // it, which is the same opacity problem as the old DomainError responses. Throwing instead
+    // routes the failure through GlobalExceptionHandlerMiddleware's BadHttpRequestException
+    // branch, which returns problem+json naming the offending member.
+    builder.Services.Configure<RouteHandlerOptions>(options =>
+    {
+        options.ThrowOnBadRequest = true;
+    });
 
     // Add OpenAPI
     builder.Services.AddEndpointsApiExplorer();
