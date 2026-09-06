@@ -65,4 +65,22 @@ public class GetProductByIdTests : IntegrationTestBase
         // Minimal API route constraint {id:guid} will not match and return 404
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Test]
+    public async Task GetProductById_WithEmptyGuid_ShouldReturnBadRequest()
+    {
+        // Arrange — Guid.Empty satisfies the {id:guid} route constraint, so it reaches the
+        // handler and is rejected by ValidationBehavior as a "Validation.Failed" Result. The
+        // endpoint used to map every error to 404, reporting a malformed request as a missing
+        // product; it now discriminates via ProblemForError.
+
+        // Act
+        var response = await Client.GetAsync($"{ProductsEndpoint}/{Guid.Empty}");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem!.Title.Should().Be("Validation.Failed");
+    }
 }

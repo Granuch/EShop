@@ -77,8 +77,11 @@ public class ProductQueryService : IProductQueryService
         };
 
         // Select projection — only fetch columns needed for DTO (avoids over-fetching).
-        // Images are NOT included in the listing to eliminate the LEFT JOIN overhead
-        // on the ProductImages table (3.2M unnecessary index scans under load).
+        // MainImageUrl is a correlated subquery, not a join: EF translates it to a scalar
+        // subselect per row, bounded by page size (page size is capped at 100 by
+        // GetProductsQueryValidator). It relies on the composite
+        // IX_ProductImages_ProductId (ProductId, IsMain, DisplayOrder) INCLUDE (Url) index
+        // for an index-only scan — see catalog-images-variant-a-plan.md §2.
         var dtosQuery = query
             .Select(p => new ProductDto
             {
@@ -91,7 +94,12 @@ public class ProductQueryService : IProductQueryService
                 StockQuantity = p.StockQuantity,
                 Status = p.Status,
                 CategoryId = p.CategoryId,
-                MainImageUrl = null,
+                MainImageUrl = p.Images
+                    .OrderByDescending(i => i.IsMain)
+                    .ThenBy(i => i.DisplayOrder)
+                    .ThenBy(i => i.CreatedAt)
+                    .Select(i => i.Url)
+                    .FirstOrDefault(),
                 CreatedAt = p.CreatedAt
             });
 
@@ -135,7 +143,12 @@ public class ProductQueryService : IProductQueryService
                 StockQuantity = p.StockQuantity,
                 Status = p.Status,
                 CategoryId = p.CategoryId,
-                MainImageUrl = null,
+                MainImageUrl = p.Images
+                    .OrderByDescending(i => i.IsMain)
+                    .ThenBy(i => i.DisplayOrder)
+                    .ThenBy(i => i.CreatedAt)
+                    .Select(i => i.Url)
+                    .FirstOrDefault(),
                 CreatedAt = p.CreatedAt
             })
             .ToListAsync(cancellationToken);

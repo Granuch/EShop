@@ -9,6 +9,9 @@ namespace EShop.Catalog.Domain.Entities;
 /// </summary>
 public class Product : AggregateRoot<Guid>
 {
+    private const int MaxImages = 10;
+    private const int MaxAttributes = 50;
+
     public string Name { get; private set; } = string.Empty;
     public string? Description { get; private set; }
     public string Sku { get; private set; } = string.Empty;
@@ -30,7 +33,12 @@ public class Product : AggregateRoot<Guid>
 
     private Product() { }
     
-    public static Product Create(string name, string sku, decimal price, int stockQuantity, Guid categoryId)
+    /// <param name="description">
+    /// Optional. Trimmed; blank or whitespace-only input is stored as null so "absent" and
+    /// "empty string" are indistinguishable downstream. Optional with a default so the many
+    /// existing five-argument call sites keep compiling.
+    /// </param>
+    public static Product Create(string name, string sku, decimal price, int stockQuantity, Guid categoryId, string? description = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException("Product name is required.");
@@ -49,6 +57,7 @@ public class Product : AggregateRoot<Guid>
             Id = Guid.NewGuid(),
             CategoryId = categoryId,
             Name = name,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
             Sku = sku,
             Price = price,
             StockQuantity = stockQuantity,
@@ -140,7 +149,7 @@ public class Product : AggregateRoot<Guid>
         Status = ProductStatus.Discontinued;
     }
     
-    public void AddImage(string url, string? altText, int displayOrder)
+    public Guid AddImage(string url, string? altText, int displayOrder)
     {
         if (IsDeleted)
             throw new DomainException("Cannot add image to a deleted product.");
@@ -151,10 +160,15 @@ public class Product : AggregateRoot<Guid>
         if (displayOrder < 0)
             throw new DomainException("Display order cannot be negative.");
 
-        if (_images.Any(x => x.Url == url))
-            return;
-        
-        var newImage = new ProductImage(Id ,url, altText, displayOrder);
+        if (_images.Count >= MaxImages)
+            throw new DomainException($"A product cannot have more than {MaxImages} images.");
+
+        // Constructing normalizes and validates the URL, so the duplicate check below
+        // compares normalized values rather than raw input.
+        var newImage = new ProductImage(Id, url, altText, displayOrder);
+
+        if (_images.Any(x => string.Equals(x.Url, newImage.Url, StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("Product image URL already exists for this product.");
 
         if (_images.Count == 0)
         {
@@ -162,6 +176,8 @@ public class Product : AggregateRoot<Guid>
         }
 
         _images.Add(newImage);
+
+        return newImage.Id;
     }
 
     public void SetMainImage(Guid imageId)
@@ -179,6 +195,35 @@ public class Product : AggregateRoot<Guid>
         }
 
         targetImage.SetAsMain();
+    }
+
+    /// <summary>
+    /// Clears the current main image without electing a replacement, leaving the product
+    /// with zero mains (which the DB permits). Returns true when an image was actually
+    /// demoted.
+    /// </summary>
+    /// <remarks>
+    /// Exists so the application layer can persist the demotion *before* the promotion when
+    /// the main flag moves between two surviving rows. "At most one main" is backed by a
+    /// <b>non-deferrable</b> partial unique index (<c>ProductImages (ProductId) WHERE IsMain</c>),
+    /// and EF Core does not guarantee it emits the UNSET UPDATE before the SET one — when the
+    /// SET lands first, Postgres sees two IsMain rows mid-batch and aborts the whole command
+    /// with 23505. Splitting the two writes across separate SaveChanges calls is what keeps
+    /// that transient state from ever reaching the database. <see cref="RemoveImage"/> does not
+    /// need this: it deletes the outgoing main in the same batch, so no second IsMain row
+    /// survives to collide with the promotion.
+    /// </remarks>
+    public bool ClearMainImage()
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update main image for a deleted product.");
+
+        var currentMain = _images.FirstOrDefault(i => i.IsMain);
+        if (currentMain is null)
+            return false;
+
+        currentMain.UnsetAsMain();
+        return true;
     }
 
     public void RemoveImage(Guid imageId)
@@ -203,7 +248,7 @@ public class Product : AggregateRoot<Guid>
         }
     }
     
-    public void AddAttribute(string name, string value)
+    public Guid AddAttribute(string name, string value)
     {
         if (IsDeleted)
             throw new DomainException("Cannot add attribute to a deleted product.");
@@ -213,9 +258,20 @@ public class Product : AggregateRoot<Guid>
 
         if (string.IsNullOrWhiteSpace(value))
             throw new DomainException("Attribute value cannot be empty.");
-        
-        var  newAttribute = new ProductAttribute(Id , name, value);
+
+        if (_attributes.Count >= MaxAttributes)
+            throw new DomainException($"A product cannot have more than {MaxAttributes} attributes.");
+
+        // Constructing normalizes (trims) the name, so the duplicate check below compares
+        // normalized values rather than raw input — same shape as AddImage.
+        var newAttribute = new ProductAttribute(Id, name, value);
+
+        if (_attributes.Any(x => string.Equals(x.Name, newAttribute.Name, StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException($"Attribute '{newAttribute.Name}' already exists for this product.");
+
         _attributes.Add(newAttribute);
+
+        return newAttribute.Id;
     }
 }
 

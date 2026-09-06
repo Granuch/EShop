@@ -3,7 +3,10 @@ using EShop.Catalog.Domain.Entities;
 namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 
 /// <summary>
-/// DTO for product in list view
+/// DTO for a product in list results — used by <c>GetProductsQuery</c> and
+/// <c>GetProductByCategoryQuery</c>. The single-product detail view (<c>GetProductByIdQuery</c>)
+/// returns <see cref="Products.Queries.GetProductsById.ProductDetailsDto"/> instead, which adds
+/// the full image gallery and attribute set.
 /// </summary>
 public record ProductDto
 {

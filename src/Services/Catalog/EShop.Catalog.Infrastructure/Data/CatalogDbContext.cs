@@ -15,6 +15,7 @@ public class CatalogDbContext : BaseDbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<ProductImage> ProductImages => Set<ProductImage>();
+    public DbSet<ProductAttribute> ProductAttributes => Set<ProductAttribute>();
 
     public CatalogDbContext(DbContextOptions<CatalogDbContext> options) : base(options)
     {
@@ -142,6 +143,13 @@ public class CatalogDbContext : BaseDbContext
 
             entity.HasKey(pi => pi.Id);
 
+            // The aggregate assigns child ids (Product.AddImage returns the new Guid), so the
+            // key is NOT store-generated. Leaving it ValueGeneratedOnAdd makes EF treat an image
+            // added to an already-loaded product as an existing row — it issues an UPDATE that
+            // matches nothing and throws DbUpdateConcurrencyException.
+            entity.Property(pi => pi.Id)
+                .ValueGeneratedNever();
+
             entity.Property(pi => pi.Url)
                 .IsRequired()
                 .HasMaxLength(500);
@@ -149,7 +157,40 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(pi => pi.AltText)
                 .HasMaxLength(200);
 
-            entity.HasIndex(pi => pi.ProductId);
+            // Replaces the plain ProductId index the FK convention would otherwise add:
+            // same database name, widened to cover the "pick the main image" query
+            // (§2/§3 of the images plan) as an index-only scan.
+            entity.HasIndex(pi => new { pi.ProductId, pi.IsMain, pi.DisplayOrder })
+                .HasDatabaseName("IX_ProductImages_ProductId")
+                .IncludeProperties(pi => pi.Url);
+
+            // Backstop for the "exactly one main image" invariant the domain already
+            // guards (Product/ProductImage internal setters): a filtered unique index
+            // permits zero mains (legitimate when a product has no images) but makes two
+            // mains impossible even under a write path the aggregate cannot see.
+            entity.HasIndex(pi => pi.ProductId)
+                .HasDatabaseName("IX_ProductImages_ProductId_IsMain")
+                .IsUnique()
+                .HasFilter("\"IsMain\"");
+        });
+
+        modelBuilder.Entity<ProductAttribute>(entity =>
+        {
+            entity.ToTable("ProductAttributes");
+
+            entity.HasKey(pa => pa.Id);
+
+            // Domain-assigned key — see the note on ProductImage.Id above.
+            entity.Property(pa => pa.Id)
+                .ValueGeneratedNever();
+
+            entity.Property(pa => pa.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(pa => pa.Value)
+                .IsRequired()
+                .HasMaxLength(200);
         });
 
         base.OnModelCreating(modelBuilder);

@@ -390,28 +390,110 @@ public class ProductTests
     }
 
     [Test]
-    public void AddImage_DuplicateUrl_ShouldNotAddDuplicate()
+    public void AddImage_DuplicateUrl_ShouldThrowDomainException()
     {
         // Arrange
         var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
         product.AddImage("https://example.com/img.jpg", "Alt text", 0);
 
-        // Act
-        product.AddImage("https://example.com/img.jpg", "Alt text 2", 1);
-
-        // Assert
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://example.com/img.jpg", "Alt text 2", 1));
         Assert.That(product.Images, Has.Count.EqualTo(1));
     }
 
     [Test]
-    public void AddImage_WithUnsupportedFormat_ShouldThrowDomainException()
+    public void AddImage_DuplicateUrlDifferingOnlyByWhitespace_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+
+        // Act & Assert — the URL is normalized before the duplicate check
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("  https://example.com/img.jpg  ", "Alt text 2", 1));
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddImage_DuplicateUrlDifferingOnlyByCase_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://EXAMPLE.com/IMG.JPG", "Alt text 2", 1));
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddImage_ExtensionlessUrl_ShouldSucceed()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act — extensionless CDN links are valid; there is no extension allowlist
+        product.AddImage("https://cdn.example.com/img/abc123", "Alt text", 0);
+
+        // Assert
+        Assert.That(product.Images, Has.Count.EqualTo(1));
+        Assert.That(product.Images.Single().Url, Is.EqualTo("https://cdn.example.com/img/abc123"));
+    }
+
+    [Test]
+    public void AddImage_NonHttpScheme_ShouldThrowDomainException()
     {
         // Arrange
         var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
 
         // Act & Assert
         Assert.Throws<DomainException>(() =>
-            product.AddImage("https://example.com/manual.pdf", "Alt text", 0));
+            product.AddImage("ftp://example.com/img.jpg", "Alt text", 0));
+    }
+
+    [Test]
+    public void AddImage_WhenTenImagesExist_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        for (var i = 0; i < 10; i++)
+        {
+            product.AddImage($"https://example.com/img-{i}.jpg", "Alt text", i);
+        }
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() =>
+            product.AddImage("https://example.com/img-11.jpg", "Alt text", 10));
+        Assert.That(product.Images, Has.Count.EqualTo(10));
+    }
+
+    [Test]
+    public void AddImage_UrlLongerThan500Characters_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        var prefix = "https://example.com/";
+        var longUrl = prefix + new string('a', 501 - prefix.Length);
+
+        // Act & Assert
+        Assert.That(longUrl, Has.Length.EqualTo(501));
+        Assert.Throws<DomainException>(() => product.AddImage(longUrl, "Alt text", 0));
+    }
+
+    [Test]
+    public void AddImage_ShouldReturnIdOfAddedImage()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        var imageId = product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+
+        // Assert
+        Assert.That(imageId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(product.Images.Single().Id, Is.EqualTo(imageId));
     }
 
     [Test]
@@ -485,6 +567,48 @@ public class ProductTests
         Assert.Throws<DomainException>(() => product.RemoveImage(imageId));
     }
 
+    [Test]
+    public void ClearMainImage_WithAMainImage_ShouldDemoteItAndReturnTrue()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/first.jpg", "First", 0);
+        product.AddImage("https://example.com/second.jpg", "Second", 1);
+
+        // Act
+        var demoted = product.ClearMainImage();
+
+        // Assert
+        Assert.That(demoted, Is.True);
+        Assert.That(product.Images.Count(i => i.IsMain), Is.EqualTo(0),
+            "zero mains is a legal intermediate state — the filtered unique index permits it");
+        Assert.That(product.Images.Count, Is.EqualTo(2), "no image is removed");
+    }
+
+    [Test]
+    public void ClearMainImage_WithNoMainImage_ShouldReturnFalse()
+    {
+        // Arrange — every image removed, so nothing is main
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        var imageId = product.AddImage("https://example.com/only.jpg", "Only", 0);
+        product.RemoveImage(imageId);
+
+        // Act & Assert
+        Assert.That(product.ClearMainImage(), Is.False);
+    }
+
+    [Test]
+    public void ClearMainImage_OnDeletedProduct_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddImage("https://example.com/img.jpg", "Alt text", 0);
+        product.SoftDelete();
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.ClearMainImage());
+    }
+
     #endregion
 
     #region Attributes
@@ -502,6 +626,20 @@ public class ProductTests
         Assert.That(product.Attributes, Has.Count.EqualTo(1));
         Assert.That(product.Attributes.First().Name, Is.EqualTo("Color"));
         Assert.That(product.Attributes.First().Value, Is.EqualTo("Red"));
+    }
+
+    [Test]
+    public void AddAttribute_ShouldReturnIdOfAddedAttribute()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        var attributeId = product.AddAttribute("Color", "Red");
+
+        // Assert
+        Assert.That(attributeId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(product.Attributes.Single().Id, Is.EqualTo(attributeId));
     }
 
     [Test]
@@ -558,6 +696,111 @@ public class ProductTests
 
         // Act & Assert
         Assert.Throws<DomainException>(() => product.AddAttribute("Color", "Red"));
+    }
+
+    [Test]
+    public void AddAttribute_WithDuplicateName_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddAttribute("Color", "Red");
+
+        // Act & Assert — a second value for the same attribute name is a replace, not an add.
+        Assert.Throws<DomainException>(() => product.AddAttribute("Color", "Blue"));
+        Assert.That(product.Attributes, Has.Count.EqualTo(1));
+    }
+
+    [TestCase("color")]
+    [TestCase("COLOR")]
+    [TestCase("  Color  ")]
+    public void AddAttribute_WithDuplicateNameDifferingOnlyByCaseOrWhitespace_ShouldThrowDomainException(string duplicate)
+    {
+        // Arrange — the comparison runs on the normalized (trimmed) name, case-insensitively,
+        // matching CreateProductCommandValidator.HaveUniqueNames so both paths agree.
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.AddAttribute("Color", "Red");
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.AddAttribute(duplicate, "Blue"));
+        Assert.That(product.Attributes, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void AddAttribute_UpToFiftyAttributes_ShouldBeAllowed()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act
+        for (var i = 0; i < 50; i++)
+        {
+            product.AddAttribute($"Attribute-{i}", "value");
+        }
+
+        // Assert
+        Assert.That(product.Attributes, Has.Count.EqualTo(50));
+    }
+
+    [Test]
+    public void AddAttribute_BeyondFiftyAttributes_ShouldThrowDomainException()
+    {
+        // Arrange — the cap lives in the domain, so it guards the sub-resource endpoint too,
+        // not just the inline-create validator.
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        for (var i = 0; i < 50; i++)
+        {
+            product.AddAttribute($"Attribute-{i}", "value");
+        }
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.AddAttribute("OneTooMany", "value"));
+        Assert.That(product.Attributes, Has.Count.EqualTo(50));
+    }
+
+    #endregion
+
+    #region Description
+
+    [Test]
+    public void Create_WithDescription_ShouldPersistIt()
+    {
+        // Act
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId, "A useful description");
+
+        // Assert
+        Assert.That(product.Description, Is.EqualTo("A useful description"));
+    }
+
+    [Test]
+    public void Create_WithoutDescription_ShouldLeaveItNull()
+    {
+        // Act
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Assert
+        Assert.That(product.Description, Is.Null);
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase(null)]
+    public void Create_WithBlankDescription_ShouldStoreNull(string? description)
+    {
+        // Act — "absent" and "empty string" must not be distinguishable downstream.
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId, description);
+
+        // Assert
+        Assert.That(product.Description, Is.Null);
+    }
+
+    [Test]
+    public void Create_WithPaddedDescription_ShouldTrimIt()
+    {
+        // Act
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId, "  padded  ");
+
+        // Assert
+        Assert.That(product.Description, Is.EqualTo("padded"));
     }
 
     #endregion

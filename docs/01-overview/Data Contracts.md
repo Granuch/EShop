@@ -82,13 +82,28 @@ Base path: `/api/v1/products`, `/api/v1/categories`
 | StockQuantity | int | |
 | Status | enum `ProductStatus` | |
 | CategoryId | Guid | |
-| MainImageUrl | string? | Direct link to the main image (for list/catalog cards) |
+| MainImageUrl | string? | Direct link to the main image (for list/catalog cards). Picks the image flagged `IsMain`, falling back to lowest `DisplayOrder`, then oldest `CreatedAt`. `null` only when the product has no images at all |
 | CreatedAt | DateTime | |
 
-> Note: full product detail (all images, all attributes) is not included in the list
-> `ProductDto` — only `MainImageUrl`. If a dedicated product detail screen needs the
-> full gallery and attributes, check with backend — currently list and detail share the
-> same `ProductDto`.
+> Note: the list `ProductDto` carries no gallery or attribute arrays — only
+> `MainImageUrl`. A product detail screen gets both from `ProductDetailsDto` below.
+
+### ProductDetailsDto (response of `GET /api/v1/products/{id}`)
+
+Every field of `ProductDto` above, unchanged, plus two arrays:
+
+| Field | Type | Description |
+|---|---|---|
+| Images | ProductImageDto[] | Full gallery, ordered by `DisplayOrder`, then `CreatedAt` |
+| Attributes | ProductAttributeDto[] | All `Name`/`Value` pairs, unordered |
+
+`ProductImageDto`: `Id`, `Url`, `AltText`, `DisplayOrder`, `IsMain` —
+`IsMain` is exposed as a flag so the client decides how to surface the main image, rather
+than it being folded into the gallery ordering.
+`ProductAttributeDto`: `Id`, `Name`, `Value`.
+
+Both arrays are additive — every field previously returned by `GET /api/v1/products/{id}`
+is unchanged.
 
 ### ProductImage (entity)
 
@@ -96,10 +111,10 @@ Base path: `/api/v1/products`, `/api/v1/categories`
 |---|---|---|
 | Id | Guid | |
 | ProductId | Guid | |
-| Url | string | Absolute HTTP/HTTPS URL; allowed extensions: jpg/jpeg/png/webp/gif |
+| Url | string | Absolute HTTP/HTTPS URL, up to 500 characters. **No file-extension requirement** — extensionless CDN links (`https://cdn.example.com/img/abc123`) are valid, and nothing server-side checks that the URL actually points at an image; that is the admin client's responsibility |
 | AltText | string? | Up to 200 characters |
-| DisplayOrder | int | Sort order within the gallery |
-| IsMain | bool | Main image flag |
+| DisplayOrder | int | Sort order within the gallery (>= 0) |
+| IsMain | bool | Main image flag. At most one image per product is main; a product with no images has none. The first image added to a product becomes main automatically, and removing the main image promotes the next one in gallery order |
 
 ### ProductAttribute (entity) — for size/color selectors
 
@@ -120,6 +135,15 @@ Base path: `/api/v1/products`, `/api/v1/categories`
 | Price | decimal | yes (> 0) |
 | StockQuantity | int | yes (>= 0) |
 | CategoryId | Guid | yes |
+| Images | CreateProductImageRequest[]? | no — omit or send `null` for none; max 10, no duplicate URLs within the request (trimmed, case-insensitive) |
+| Attributes | CreateProductAttributeRequest[]? | no — omit or send `null` for none; max 50, no duplicate `Name` within the request |
+
+`CreateProductImageRequest`: `Url` (required, ≤500, absolute http/https),
+`AltText` (optional, ≤200), `DisplayOrder` (>= 0).
+`CreateProductAttributeRequest`: `Name` (required, ≤100), `Value` (required, ≤200).
+
+The whole create is one transaction — a rejected image or attribute rolls the product back,
+so partial products are never persisted. The first image in the array becomes the main image.
 
 ### UpdateProductCommand (`PUT /api/v1/products/{id}`, admin)
 
@@ -169,6 +193,31 @@ Base path: `/api/v1/products`, `/api/v1/categories`
 | SortBy | enum `ProductSortBy` | `Name` \| `Price` \| `CreatedAt` |
 | IsDescending | bool? | Sort direction |
 | Cursor | DateTime? | Keyset pagination cursor (instead of offset for deep pages) |
+
+### Image and attribute sub-resources (admin)
+
+Images can also be edited after creation. Attributes are **add-only** — there is
+deliberately no update or delete endpoint for them.
+
+| Endpoint | Request | Success | Errors |
+|---|---|---|---|
+| `POST /api/v1/products/{id}/images` | `{ Url, AltText?, DisplayOrder }` | 201 `{ id }` | 400 invalid/duplicate URL or 10-image cap reached; 404 unknown product |
+| `DELETE /api/v1/products/{id}/images/{imageId}` | — | 204 | 404 unknown product or image |
+| `PUT /api/v1/products/{id}/images/{imageId}/main` | — | 204 | 404 unknown product or image |
+| `POST /api/v1/products/{id}/attributes` | `{ Name, Value }` | 201 `{ id }` | 400 invalid name/value, duplicate name, or 50-attribute cap reached; 404 unknown product |
+
+The product id comes from the route — the request body never needs to repeat it.
+Attribute names are unique per product, compared trimmed and case-insensitively, and a
+product is capped at 50 attributes. Both rules hold across separate requests, not just
+within a single `POST /api/v1/products` payload — they are enforced by the `Product`
+aggregate, which is the only place that can see the attributes already persisted.
+Since attributes are add-only, re-sending an existing name is rejected rather than
+treated as an update.
+
+> **Caching caveat:** these writes invalidate the product-detail and by-category caches
+> immediately, but the paged `GET /api/v1/products` results cannot be invalidated (their
+> cache keys embed every filter/sort/page combination). An image change can therefore take
+> up to 5 minutes to appear in list responses, while `GET /{id}` reflects it at once.
 
 Other endpoints: `GET /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` (admin),
 `GET /api/v1/categories`, `GET /api/v1/categories/{id}`,

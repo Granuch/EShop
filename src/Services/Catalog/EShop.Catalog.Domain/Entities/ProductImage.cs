@@ -8,15 +8,7 @@ namespace EShop.Catalog.Domain.Entities;
 /// </summary>
 public class ProductImage : Entity<Guid>
 {
-    private static readonly HashSet<string> AllowedExtensions =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp",
-            ".gif"
-        };
+    private const int MaxUrlLength = 500;
 
     public Guid ProductId { get; private set; }
     public string Url { get; private set; } = string.Empty;
@@ -26,7 +18,7 @@ public class ProductImage : Entity<Guid>
 
     private ProductImage() { }
 
-    public ProductImage(Guid productId, string url, string? altText, int displayOrder)
+    internal ProductImage(Guid productId, string url, string? altText, int displayOrder)
     {
         if (productId == Guid.Empty)
             throw new DomainException("Product image requires a valid product id.");
@@ -46,16 +38,27 @@ public class ProductImage : Entity<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
-    public void SetAsMain()
+    internal void SetAsMain()
     {
         IsMain = true;
     }
 
-    public void UnsetAsMain()
+    internal void UnsetAsMain()
     {
         IsMain = false;
     }
 
+    /// <summary>
+    /// Enforces only: non-empty, absolute HTTP/HTTPS, and no longer than the
+    /// <see cref="MaxUrlLength"/> of the Url column.
+    /// </summary>
+    /// <remarks>
+    /// The file-extension allowlist that used to live here was removed deliberately, to admit
+    /// extensionless CDN links. The consequence is accepted, not overlooked: nothing in the domain
+    /// asserts the URL points at an actual image any more, so a mistyped link fails visually at
+    /// render time instead of at the API boundary. Validating that would require a network call
+    /// from the domain; the responsibility sits with the admin client instead.
+    /// </remarks>
     private static string NormalizeAndValidateUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
@@ -68,11 +71,8 @@ public class ProductImage : Entity<Guid>
             throw new DomainException("Product image URL must be an absolute HTTP/HTTPS URL.");
         }
 
-        var extension = Path.GetExtension(parsedUrl.AbsolutePath);
-        if (!AllowedExtensions.Contains(extension))
-        {
-            throw new DomainException("Product image format is not supported.");
-        }
+        if (normalizedUrl.Length > MaxUrlLength)
+            throw new DomainException($"Product image URL must be {MaxUrlLength} characters or fewer.");
 
         return normalizedUrl;
     }

@@ -14,6 +14,34 @@ public record CreateProductRequest
     public decimal Price { get; init; }
     public int StockQuantity { get; init; }
     public Guid CategoryId { get; init; }
+    public List<CreateProductImageRequestDto>? Images { get; init; }
+    public List<CreateProductAttributeRequestDto>? Attributes { get; init; }
+}
+
+public record CreateProductImageRequestDto
+{
+    public string Url { get; init; } = string.Empty;
+    public string? AltText { get; init; }
+    public int DisplayOrder { get; init; }
+}
+
+public record CreateProductAttributeRequestDto
+{
+    public string Name { get; init; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
+}
+
+public record AddProductImageRequest
+{
+    public string Url { get; init; } = string.Empty;
+    public string? AltText { get; init; }
+    public int DisplayOrder { get; init; }
+}
+
+public record AddProductAttributeRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
 }
 
 public record UpdateProductRequest
@@ -36,6 +64,43 @@ public record ProductResponse
     public Guid CategoryId { get; init; }
     public string? MainImageUrl { get; init; }
     public DateTime CreatedAt { get; init; }
+}
+
+/// <summary>
+/// Response shape of GET /api/v1/products/{id} — the list DTO's fields plus the image
+/// gallery and attribute set. Mirrors ProductDetailsDto on the API side.
+/// </summary>
+public record ProductDetailsResponse
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Sku { get; init; } = string.Empty;
+    public decimal Price { get; init; }
+    public decimal? DiscountPrice { get; init; }
+    public int StockQuantity { get; init; }
+    public ProductStatus Status { get; init; }
+    public Guid CategoryId { get; init; }
+    public string? MainImageUrl { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public List<ProductImageResponse> Images { get; init; } = [];
+    public List<ProductAttributeResponse> Attributes { get; init; } = [];
+}
+
+public record ProductImageResponse
+{
+    public Guid Id { get; init; }
+    public string Url { get; init; } = string.Empty;
+    public string? AltText { get; init; }
+    public int DisplayOrder { get; init; }
+    public bool IsMain { get; init; }
+}
+
+public record ProductAttributeResponse
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
 }
 
 public record CreateCategoryRequest

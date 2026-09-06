@@ -45,12 +45,16 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            DomainException =>
+            // Detail carries the domain's own message so a client can tell which rule fired
+            // without correlating TraceId against the server log. Safe to return: these strings
+            // are authored in our domain layer, not sourced from the database or framework.
+            DomainException domainEx =>
                 (HttpStatusCode.BadRequest,
                 new ErrorResponse
                 {
                     Type = "DomainError",
                     Title = "Business rule validation failed",
+                    Detail = domainEx.Message,
                     Status = StatusCodes.Status400BadRequest,
                     TraceId = context.TraceIdentifier
                 }),
@@ -101,6 +105,14 @@ public class GlobalExceptionHandlerMiddleware
     {
         public string Type { get; init; } = string.Empty;
         public string Title { get; init; } = string.Empty;
+
+        /// <summary>
+        /// The specific reason, when it is safe to disclose — currently the domain's own
+        /// message. Omitted from the payload when null (DefaultIgnoreCondition above), so
+        /// branches that deliberately stay opaque are unchanged on the wire.
+        /// </summary>
+        public string? Detail { get; init; }
+
         public int Status { get; init; }
         public string? TraceId { get; init; }
         public Dictionary<string, string[]>? Errors { get; init; }

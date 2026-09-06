@@ -1,6 +1,11 @@
 using MediatR;
+using EShop.BuildingBlocks.Application;
+using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
+using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
+using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
+using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
@@ -15,6 +20,24 @@ namespace EShop.Catalog.API.Endpoints;
 /// </summary>
 public static class ProductEndpoints
 {
+    /// <summary>
+    /// Maps a failed Result to a problem response. A read or sub-resource endpoint can fail two
+    /// ways: the product or image genuinely does not exist (404), or the request was rejected by
+    /// ValidationBehavior, which surfaces as a "Validation.Failed" Result error rather than an
+    /// exception (400). Mapping every error to one status gets one of those cases wrong.
+    ///
+    /// Used by GET /{id} and the four image/attribute sub-resource endpoints. POST/PUT still
+    /// hard-code 400 and DELETE 404 — they have the same latent issue, left alone here because
+    /// changing their codes would alter existing contract behaviour (e.g. Product.SkuConflict).
+    /// </summary>
+    private static IResult ProblemForError(Error error)
+        => Results.Problem(
+            detail: error.Message,
+            title: error.Code,
+            statusCode: error.Code.EndsWith(".NotFound", StringComparison.Ordinal)
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest);
+
     public static void MapProductEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/products")
@@ -42,15 +65,16 @@ public static class ProductEndpoints
         {
             var result = await mediator.Send(new GetProductByIdQuery { ProductId = id });
 
+            // Discriminates rather than mapping every error to 404: a Guid.Empty id is rejected
+            // by ValidationBehavior as a "Validation.Failed" Result, which owes a 400. Mapping
+            // it to 404 reported a malformed request as a missing product.
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProblemForError);
         })
         .WithName("GetProductById")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<ProductDetailsDto>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/products (admin only)
@@ -108,6 +132,74 @@ public static class ProductEndpoints
         .WithName("DeleteProduct")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/images (admin only)
+        group.MapPost("/{id:guid}/images", async (Guid id, AddProductImageCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                value => Results.Created($"/api/v1/products/{id}", new { id = value }),
+                ProblemForError);
+        })
+        .WithName("AddProductImage")
+        .RequireAuthorization("Admin")
+        .Produces<object>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // DELETE /api/v1/products/{id}/images/{imageId} (admin only)
+        group.MapDelete("/{id:guid}/images/{imageId:guid}", async (Guid id, Guid imageId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new RemoveProductImageCommand
+            {
+                ProductId = id,
+                ImageId = imageId
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("RemoveProductImage")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/images/{imageId}/main (admin only)
+        group.MapPut("/{id:guid}/images/{imageId:guid}/main", async (Guid id, Guid imageId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new SetMainProductImageCommand
+            {
+                ProductId = id,
+                ImageId = imageId
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("SetMainProductImage")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/attributes (admin only)
+        group.MapPost("/{id:guid}/attributes", async (Guid id, AddProductAttributeCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                value => Results.Created($"/api/v1/products/{id}", new { id = value }),
+                ProblemForError);
+        })
+        .WithName("AddProductAttribute")
+        .RequireAuthorization("Admin")
+        .Produces<object>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
     }
 }

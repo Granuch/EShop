@@ -33,6 +33,21 @@ public class GlobalExceptionHandlerMiddleware
         }
     }
 
+    /// <summary>
+    /// Describes a body-binding failure without echoing System.Text.Json's own message, which
+    /// embeds the target .NET type ("...could not be mapped to any .NET member contained in type
+    /// 'EShop.Catalog.Application.Products.Commands.CreateProduct.CreateProductCommand'") and so
+    /// leaks internal namespace and class structure to the caller. The JSON path carries the one
+    /// thing the client actually needs — which property was wrong — and nothing else.
+    /// </summary>
+    private static string DescribeBadRequest(BadHttpRequestException exception)
+    {
+        if (exception.InnerException is JsonException { Path.Length: > 0 } jsonEx)
+            return $"The request body contains an unknown or invalid property: '{jsonEx.Path}'.";
+
+        return "The request body is not valid JSON, or contains a property that does not exist on this endpoint.";
+    }
+
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
         var (statusCode, response) = exception switch
@@ -48,12 +63,13 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            NotFoundException => (
+            NotFoundException notFoundEx => (
                 HttpStatusCode.NotFound,
                 new ErrorResponse
                 {
                     Type = "NotFound",
                     Title = "Requested resource was not found.",
+                    Detail = notFoundEx.Message,
                     Status = (int)HttpStatusCode.NotFound,
                     TraceId = context.TraceIdentifier
                 }),
@@ -79,12 +95,34 @@ public class GlobalExceptionHandlerMiddleware
                     TraceId = context.TraceIdentifier
                 }),
 
-            DomainException => (
+            // Detail carries the domain's own message ("A product cannot have more than 10
+            // images.", "Attribute 'Color' already exists for this product.", ...). Without it
+            // every domain rejection is byte-identical over the wire and the only way to tell
+            // which rule fired is correlating TraceId against the server log. These strings are
+            // authored in our domain layer, so they are safe to return — unlike the DbUpdate*
+            // branches above, whose inner messages would leak schema and constraint names.
+            DomainException domainEx => (
                 HttpStatusCode.BadRequest,
                 new ErrorResponse
                 {
                     Type = "DomainError",
                     Title = "Business rule validation failed.",
+                    Detail = domainEx.Message,
+                    Status = (int)HttpStatusCode.BadRequest,
+                    TraceId = context.TraceIdentifier
+                }),
+
+            // Minimal APIs wrap a body-binding failure (malformed JSON, and — since
+            // UnmappedMemberHandling.Disallow — any unknown field) in BadHttpRequestException.
+            // Without this branch it falls through to the catch-all and a client's typo'd
+            // property name is reported as a 500.
+            BadHttpRequestException badRequestEx => (
+                HttpStatusCode.BadRequest,
+                new ErrorResponse
+                {
+                    Type = "MalformedRequest",
+                    Title = "The request body could not be read.",
+                    Detail = DescribeBadRequest(badRequestEx),
                     Status = (int)HttpStatusCode.BadRequest,
                     TraceId = context.TraceIdentifier
                 }),
