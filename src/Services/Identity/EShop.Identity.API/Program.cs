@@ -581,14 +581,14 @@ static bool EmailConfirmationTokenIsDelivered() =>
     app.MapControllers();
 
     // Map Prometheus metrics endpoints:
-    // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
+    // /metrics/prom â€” prometheus-net custom business metrics (identity_login_attempts_total, etc.)
     // In .NET 10, /metrics is auto-registered by the framework for OpenTelemetry metrics,
     // so custom prometheus-net metrics use a separate path to avoid being overridden.
     // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
     // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
     app.UseEShopMetricsAccess(app.Configuration, app.Environment);
     app.MapMetrics("/prometheus");
-    // /metrics/otel — OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
+    // /metrics/otel â€” OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
     app.UseEShopOpenTelemetryPrometheus();
 
     // Health check endpoints with detailed response
