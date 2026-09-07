@@ -14,11 +14,13 @@ namespace EShop.Identity.IntegrationTests.Security;
 [TestFixture]
 [Category("Integration")]
 [Category("Security")]
-[Explicit("In-memory TestServer does not currently enforce endpoint-specific ASP.NET rate limiter metadata deterministically.")]
 public class RateLimitingTests : IntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
     private const string RegisterEndpoint = "/api/v1/auth/register";
+
+    private const string ClientA = "203.0.113.10";
+    private const string ClientB = "203.0.113.11";
 
     protected override IdentityApiFactory CreateFactory()
     {
@@ -28,23 +30,16 @@ public class RateLimitingTests : IntegrationTestBase
     [Test]
     public async Task Login_ExceedingRateLimit_ShouldReturn429()
     {
-        // Arrange
-        var loginRequest = new LoginRequest
-        {
-            Email = TestUsers.Admin.Email,
-            Password = "WrongPassword@123"
-        };
-
         // Act - Make requests exceeding the test limit (2 per minute)
         var responses = new List<HttpResponseMessage>();
         for (var i = 0; i < 5; i++)
         {
-            responses.Add(await Client.PostAsJsonAsync(LoginEndpoint, loginRequest));
+            responses.Add(await PostLoginAsync(ClientA));
         }
 
         // Assert - At least some should be rate limited
         responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,
-            "because we exceeded the rate limit of 5 requests");
+            "because we exceeded the login rate limit for this client");
     }
 
     [Test]
@@ -54,20 +49,148 @@ public class RateLimitingTests : IntegrationTestBase
         var responses = new List<HttpResponseMessage>();
         for (var i = 0; i < 5; i++)
         {
-            var request = new RegisterRequest
-            {
-                Email = $"ratelimit{i}@test.com",
-                Password = "Test@123456",
-                FirstName = "Test",
-                LastName = "User"
-            };
-
-            responses.Add(await Client.PostAsJsonAsync(RegisterEndpoint, request));
+            responses.Add(await PostRegisterAsync(ClientA, $"ratelimit{i}@test.com"));
         }
 
         // Assert - At least some should be rate limited
         responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,
-            "because we exceeded the rate limit");
+            "because we exceeded the auth rate limit for this client");
+    }
+
+    /// <summary>
+    /// The "login" policy must be partitioned per client. An unpartitioned limiter is one
+    /// bucket shared by the whole service, so a single caller could lock every other user out
+    /// of logging in.
+    /// </summary>
+    [Test]
+    public async Task Login_ExhaustedByOneClient_ShouldNotRateLimitAnotherClient()
+    {
+        // Arrange - burn through ClientA's allowance
+        HttpResponseMessage? blocked = null;
+        for (var i = 0; i < 5; i++)
+        {
+            blocked = await PostLoginAsync(ClientA);
+        }
+
+        blocked!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
+            "because ClientA exhausted its own login bucket");
+
+        // Act - a different client's first request
+        var otherClientResponse = await PostLoginAsync(ClientB);
+
+        // Assert
+        otherClientResponse.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests,
+            "because each client IP must get its own login rate limit partition");
+    }
+
+    /// <summary>
+    /// Same for the controller-wide "auth" policy.
+    /// </summary>
+    [Test]
+    public async Task Auth_ExhaustedByOneClient_ShouldNotRateLimitAnotherClient()
+    {
+        // Arrange
+        HttpResponseMessage? blocked = null;
+        for (var i = 0; i < 5; i++)
+        {
+            blocked = await PostRegisterAsync(ClientA, $"authpartition{i}@test.com");
+        }
+
+        blocked!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+
+        // Act
+        var otherClientResponse = await PostRegisterAsync(ClientB, "authpartition-other@test.com");
+
+        // Assert
+        otherClientResponse.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests,
+            "because each client IP must get its own auth rate limit partition");
+    }
+
+    /// <summary>
+    /// Behind the gateway every request presents the same peer address, so partitioning is
+    /// only meaningful if forwarded headers are trusted and applied before the limiter runs.
+    /// </summary>
+    [Test]
+    public async Task Login_BehindTrustedProxy_ShouldPartitionByForwardedClientIp()
+    {
+        const string forwardedClientA = "198.51.100.10";
+        const string forwardedClientB = "198.51.100.11";
+
+        // Arrange - all requests arrive from the gateway; only X-Forwarded-For differs
+        HttpResponseMessage? blocked = null;
+        for (var i = 0; i < 5; i++)
+        {
+            blocked = await PostLoginAsync(RateLimitingApiFactory.TrustedProxyIp, forwardedClientA);
+        }
+
+        blocked!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
+            "because the forwarded client exhausted its allowance");
+
+        // Act
+        var otherClientResponse = await PostLoginAsync(
+            RateLimitingApiFactory.TrustedProxyIp, forwardedClientB);
+
+        // Assert - if X-Forwarded-For were ignored both would share the gateway's partition
+        otherClientResponse.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests,
+            "because the limiter must partition on the forwarded client IP, not the gateway IP");
+    }
+
+    /// <summary>
+    /// X-Forwarded-For from an untrusted peer must be ignored, otherwise a client could mint a
+    /// fresh rate limit bucket per request just by varying the header.
+    /// </summary>
+    [Test]
+    public async Task Login_ForwardedForFromUntrustedPeer_ShouldBeIgnored()
+    {
+        // Arrange & Act - same untrusted peer, a different spoofed client IP every request
+        var responses = new List<HttpResponseMessage>();
+        for (var i = 0; i < 5; i++)
+        {
+            responses.Add(await PostLoginAsync(ClientA, $"198.51.100.{100 + i}"));
+        }
+
+        // Assert
+        responses.Should().Contain(r => r.StatusCode == HttpStatusCode.TooManyRequests,
+            "because the peer is not a known proxy, so the spoofed header must not create new partitions");
+    }
+
+    private Task<HttpResponseMessage> PostLoginAsync(string remoteIp, string? forwardedFor = null)
+    {
+        var request = BuildRequest(LoginEndpoint, remoteIp, forwardedFor);
+        request.Content = JsonContent.Create(new LoginRequest
+        {
+            Email = TestUsers.Admin.Email,
+            Password = "WrongPassword@123"
+        });
+
+        return Client.SendAsync(request);
+    }
+
+    private Task<HttpResponseMessage> PostRegisterAsync(string remoteIp, string email)
+    {
+        var request = BuildRequest(RegisterEndpoint, remoteIp, forwardedFor: null);
+        request.Content = JsonContent.Create(new RegisterRequest
+        {
+            Email = email,
+            Password = "Test@123456",
+            FirstName = "Test",
+            LastName = "User"
+        });
+
+        return Client.SendAsync(request);
+    }
+
+    private static HttpRequestMessage BuildRequest(string endpoint, string remoteIp, string? forwardedFor)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Add(RateLimitingApiFactory.RemoteIpHeader, remoteIp);
+
+        if (forwardedFor is not null)
+        {
+            request.Headers.Add("X-Forwarded-For", forwardedFor);
+        }
+
+        return request;
     }
 }
 
