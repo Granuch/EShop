@@ -29,9 +29,13 @@ public static class UserManagementHelper
             Email = testEmail,
             FirstName = "Test",
             LastName = "User",
-            EmailConfirmed = emailConfirmed,
-            IsActive = isActive
+            EmailConfirmed = emailConfirmed
         };
+
+        if (!isActive)
+        {
+            user.Deactivate();
+        }
 
         var result = await userManager.CreateAsync(user, testPassword);
         if (!result.Succeeded)

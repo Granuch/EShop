@@ -65,9 +65,7 @@ public class UserRepository : IUserRepository
 
     public async Task DeleteAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
-        user.IsDeleted = true;
-        user.DeletedAt = DateTime.UtcNow;
-        user.IsActive = false;
+        user.SoftDelete();
         await UpdateAsync(user, cancellationToken);
     }
 

@@ -1,5 +1,7 @@
 using EShop.Identity.Application.Auth.Queries.GetUserByEmail;
 using EShop.Identity.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using EShop.Identity.Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
 using Moq;
 
@@ -35,22 +37,32 @@ public class GetUserByEmailQueryHandlerTests
         Assert.That(result.Error!.Code, Is.EqualTo("Auth.UserNotFound"));
     }
 
+    /// <summary>
+    /// This used to arrange a soft-deleted user and assert the handler rejected it. That check
+    /// has moved out of the handler: <c>IdentityDbContext</c> now applies a global query filter
+    /// (<c>!u.IsDeleted</c>) to <see cref="ApplicationUser"/>, so a soft-deleted user is never
+    /// returned by <c>UserManager</c> in the first place — six handlers checked this by hand and
+    /// five did not, which is precisely the inconsistency the filter removes.
+    ///
+    /// A mocked <c>UserManager</c> has no EF behind it, so it cannot exercise the filter and the
+    /// old arrangement no longer represents anything reachable. What is worth pinning at this
+    /// level is that the filter is actually configured, since deleting it would silently restore
+    /// the old behaviour everywhere at once.
+    /// </summary>
     [Test]
-    public async Task Handle_WithDeletedUser_ReturnsFailure()
+    public void SoftDeletedUsers_AreExcludedByAGlobalQueryFilter()
     {
-        // Arrange
-        var query = new GetUserByEmailQuery { Email = "deleted@test.com" };
-        var user = new ApplicationUser { Id = "1", Email = "deleted@test.com", IsDeleted = true };
-        
-        _userManagerMock.Setup(x => x.FindByEmailAsync(It.IsAny<string>()))
-            .ReturnsAsync(user);
+        var options = new DbContextOptionsBuilder<IdentityDbContext>()
+            .UseInMemoryDatabase($"filter-check-{Guid.NewGuid()}")
+            .Options;
 
-        // Act
-        var result = await _handler.Handle(query, CancellationToken.None);
+        using var context = new IdentityDbContext(options);
+        var filter = context.Model.FindEntityType(typeof(ApplicationUser))?.GetQueryFilter();
 
-        // Assert
-        Assert.That(result.IsFailure, Is.True);
-        Assert.That(result.Error!.Code, Is.EqualTo("Auth.UserNotFound"));
+        Assert.That(filter, Is.Not.Null,
+            "ApplicationUser must keep its soft-delete query filter; without it IsDeleted is "
+            + "advisory again and every handler has to re-check it by hand.");
+        Assert.That(filter!.ToString(), Does.Contain(nameof(ApplicationUser.IsDeleted)));
     }
 
     [Test]
@@ -66,8 +78,6 @@ public class GetUserByEmailQueryHandlerTests
             LastName = "Doe",
             EmailConfirmed = true,
             TwoFactorEnabled = false,
-            IsActive = true,
-            IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
         

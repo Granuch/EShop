@@ -21,7 +21,7 @@ public class GetProfileQueryHandler : IRequestHandler<GetProfileQuery, Result<Us
     {
         var user = await _userManager.FindByIdAsync(request.UserId);
 
-        if (user == null || user.IsDeleted)
+        if (user == null)
         {
             return Result<UserProfileResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }

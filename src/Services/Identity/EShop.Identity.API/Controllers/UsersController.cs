@@ -21,9 +21,9 @@ public class UsersController : ApiControllerBase
     [ProducesResponseType(typeof(UserContactResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<UserContactResponse>> GetContact(string userId)
+    public async Task<ActionResult<UserContactResponse>> GetContact(string userId, CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(new GetUserContactQuery { UserId = userId });
+        var result = await _mediator.Send(new GetUserContactQuery { UserId = userId }, cancellationToken);
 
         if (result.IsFailure)
         {

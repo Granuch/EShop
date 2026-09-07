@@ -15,7 +15,6 @@ public class ForgotPasswordCommandHandlerTests
     private Mock<UserManager<ApplicationUser>> _userManagerMock = null!;
     private Mock<IIntegrationEventOutbox> _outboxMock = null!;
     private Mock<ICurrentUserContext> _currentUserContextMock = null!;
-    private Mock<IUnitOfWork> _unitOfWorkMock = null!;
     private ForgotPasswordCommandHandler _handler = null!;
 
     [SetUp]
@@ -25,13 +24,11 @@ public class ForgotPasswordCommandHandlerTests
         _outboxMock = new Mock<IIntegrationEventOutbox>();
         _currentUserContextMock = new Mock<ICurrentUserContext>();
         _currentUserContextMock.Setup(x => x.CorrelationId).Returns("test-correlation-id");
-        _unitOfWorkMock = new Mock<IUnitOfWork>();
 
         _handler = new ForgotPasswordCommandHandler(
             _userManagerMock.Object,
             _outboxMock.Object,
             _currentUserContextMock.Object,
-            _unitOfWorkMock.Object,
             Mock.Of<ILogger<ForgotPasswordCommandHandler>>());
     }
 
@@ -46,7 +43,15 @@ public class ForgotPasswordCommandHandlerTests
 
         Assert.That(result.IsSuccess, Is.True);
         _outboxMock.Verify(x => x.Enqueue(It.IsAny<PasswordResetRequestedIntegrationEvent>(), It.IsAny<string?>()), Times.Never);
-        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        // The handler must not drive the unit of work at all now — TransactionBehavior owns it,
+        // and an inner commit would close the transaction the behavior still believes it holds
+        // (the BUG-07 defect). The dependency is gone from the constructor entirely; this asserts
+        // the shape so it cannot come back.
+        var takesUnitOfWork = typeof(ForgotPasswordCommandHandler)
+            .GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .Any(p => p.ParameterType == typeof(IUnitOfWork));
+        Assert.That(takesUnitOfWork, Is.False);
     }
 
     [Test]
@@ -55,9 +60,7 @@ public class ForgotPasswordCommandHandlerTests
         var user = new ApplicationUser
         {
             Id = "user-1",
-            Email = "user@test.com",
-            IsActive = true,
-            IsDeleted = false
+            Email = "user@test.com"
         };
 
         _userManagerMock
@@ -66,9 +69,6 @@ public class ForgotPasswordCommandHandlerTests
         _userManagerMock
             .Setup(x => x.GeneratePasswordResetTokenAsync(user))
             .ReturnsAsync("reset-token");
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
 
         var result = await _handler.Handle(new ForgotPasswordCommand { Email = "user@test.com" }, CancellationToken.None);
 
@@ -79,7 +79,8 @@ public class ForgotPasswordCommandHandlerTests
                 && e.ResetToken == "reset-token"
                 && e.CorrelationId == "test-correlation-id"),
             "test-correlation-id"), Times.Once);
-        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // No SaveChangesAsync assertion: persistence is TransactionBehavior's job now. What this
+        // handler owes is the outbox enqueue, asserted above.
     }
 
     private static Mock<UserManager<ApplicationUser>> MockUserManager()

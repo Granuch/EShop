@@ -11,6 +11,8 @@ namespace EShop.Identity.Infrastructure.Repositories;
 /// </summary>
 public class RefreshTokenRepository : IRefreshTokenRepository
 {
+    private const int MaxActiveTokensReturned = 100;
+
     private readonly IdentityDbContext _context;
 
     public RefreshTokenRepository(IdentityDbContext context)
@@ -27,15 +29,26 @@ public class RefreshTokenRepository : IRefreshTokenRepository
     {
         var tokenHash = RefreshTokenHasher.Hash(token);
 
+        // Tracked, and Include(User) stays: ValidateRefreshTokenAsync returns refreshToken.User
+        // to its caller, and RevokeTokenAsync mutates the entity it gets back from here. Both
+        // would break under AsNoTracking or without the graph.
         return await _context.RefreshTokens
             .Include(t => t.User)
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
     }
 
+    /// <summary>
+    /// Read-only listing, so no tracking, and bounded so a user with a pathological number of
+    /// live sessions cannot pull the whole set into memory. Note this currently has **no
+    /// callers** anywhere in src or tests — the hardening is defensive, for whoever wires it up.
+    /// </summary>
     public async Task<IEnumerable<RefreshTokenEntity>> GetActiveTokensByUserIdAsync(string userId, CancellationToken cancellationToken = default)
     {
         return await _context.RefreshTokens
+            .AsNoTracking()
             .Where(t => t.UserId == userId && t.RevokedAt == null && t.ExpiresAt > DateTime.UtcNow)
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(MaxActiveTokensReturned)
             .ToListAsync(cancellationToken);
     }
 

@@ -34,9 +34,9 @@ public class AuthController : ApiControllerBase
     [HttpPost("register")]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<RegisterResponse>> Register([FromBody] RegisterCommand command)
+    public async Task<ActionResult<RegisterResponse>> Register([FromBody] RegisterCommand command, CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -54,11 +54,11 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginCommand command)
+    public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginCommand command, CancellationToken cancellationToken)
     {
         // Add IP address to command
         var commandWithIp = command with { IpAddress = GetClientIpAddress() };
-        var result = await _mediator.Send(commandWithIp);
+        var result = await _mediator.Send(commandWithIp, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -80,10 +80,10 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<RefreshTokenResponse>> RefreshToken([FromBody] RefreshTokenCommand command)
+    public async Task<ActionResult<RefreshTokenResponse>> RefreshToken([FromBody] RefreshTokenCommand command, CancellationToken cancellationToken)
     {
         var commandWithIp = command with { IpAddress = GetClientIpAddress() };
-        var result = await _mediator.Send(commandWithIp);
+        var result = await _mediator.Send(commandWithIp, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -105,7 +105,7 @@ public class AuthController : ApiControllerBase
     [HttpPost("revoke-token")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult> RevokeToken([FromBody] RevokeTokenRequest request)
+    public async Task<ActionResult> RevokeToken([FromBody] RevokeTokenRequest request, CancellationToken cancellationToken)
     {
         var command = new RevokeTokenCommand
         {
@@ -113,7 +113,7 @@ public class AuthController : ApiControllerBase
             IpAddress = GetClientIpAddress()
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -129,9 +129,9 @@ public class AuthController : ApiControllerBase
     [HttpPost("confirm-email")]
     [ProducesResponseType(typeof(ConfirmEmailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ConfirmEmailResponse>> ConfirmEmail([FromBody] ConfirmEmailCommand command)
+    public async Task<ActionResult<ConfirmEmailResponse>> ConfirmEmail([FromBody] ConfirmEmailCommand command, CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -148,10 +148,10 @@ public class AuthController : ApiControllerBase
     [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ForgotPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken cancellationToken)
     {
         var command = new ForgotPasswordCommand { Email = request.Email };
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         // For validation errors, return BadRequest
         if (result.IsFailure && result.Error!.Code == "Validation.Failed")
@@ -170,7 +170,7 @@ public class AuthController : ApiControllerBase
     [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ResetPasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ResetPasswordRequest request)
+    public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken cancellationToken)
     {
         var command = new ResetPasswordCommand
         {
@@ -179,7 +179,7 @@ public class AuthController : ApiControllerBase
             NewPassword = request.NewPassword
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {

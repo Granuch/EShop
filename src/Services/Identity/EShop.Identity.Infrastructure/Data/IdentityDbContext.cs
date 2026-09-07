@@ -54,6 +54,17 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
 
             entity.HasIndex(u => u.GoogleId).IsUnique().HasFilter("\"GoogleId\" IS NOT NULL");
             entity.HasIndex(u => u.GitHubId).IsUnique().HasFilter("\"GitHubId\" IS NOT NULL");
+
+            // Soft delete is enforced here rather than re-checked by hand in every handler.
+            // Without it, `IsDeleted` was advisory: six handlers tested it and five did not, so
+            // whether a deleted account could act depended on which code path it reached.
+            // The filter applies to UserManager too, since UserStore queries this DbSet — so a
+            // soft-deleted user is simply not found, and handlers return their not-found answer.
+            // Note it hides *deleted* users only: a deactivated-but-not-deleted account is still
+            // found and still gets the explicit Auth.AccountDisabled response, which is why the
+            // handlers' `!user.IsActive` checks stay.
+            // Use IgnoreQueryFilters() for an admin/audit query that must see deleted rows.
+            entity.HasQueryFilter(u => !u.IsDeleted);
         });
 
         // Configure ApplicationRole entity

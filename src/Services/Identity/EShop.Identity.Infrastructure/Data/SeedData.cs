@@ -65,7 +65,6 @@ public static class SeedData
                 FirstName = "Admin",
                 LastName = "User",
                 EmailConfirmed = true,
-                IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
 

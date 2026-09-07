@@ -34,7 +34,7 @@ public class AccountController : ApiControllerBase
     [HttpGet("profile")]
     [ProducesResponseType(typeof(UserProfileResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<UserProfileResponse>> GetProfile()
+    public async Task<ActionResult<UserProfileResponse>> GetProfile(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
@@ -46,7 +46,7 @@ public class AccountController : ApiControllerBase
         }
 
         var query = new GetProfileQuery { UserId = userId };
-        var result = await _mediator.Send(query);
+        var result = await _mediator.Send(query, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -62,7 +62,7 @@ public class AccountController : ApiControllerBase
     [HttpPut("profile")]
     [ProducesResponseType(typeof(UpdateProfileResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<UpdateProfileResponse>> UpdateProfile([FromBody] UpdateProfileRequest request)
+    public async Task<ActionResult<UpdateProfileResponse>> UpdateProfile([FromBody] UpdateProfileRequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
@@ -81,7 +81,7 @@ public class AccountController : ApiControllerBase
             ProfilePictureUrl = request.ProfilePictureUrl
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -97,7 +97,7 @@ public class AccountController : ApiControllerBase
     [HttpPost("change-password")]
     [ProducesResponseType(typeof(ChangePasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ChangePasswordResponse>> ChangePassword([FromBody] ChangePasswordRequest request)
+    public async Task<ActionResult<ChangePasswordResponse>> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
@@ -115,7 +115,7 @@ public class AccountController : ApiControllerBase
             NewPassword = request.NewPassword
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -131,7 +131,7 @@ public class AccountController : ApiControllerBase
     [HttpPost("enable-2fa")]
     [ProducesResponseType(typeof(Enable2FAResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Enable2FAResponse>> Enable2FA()
+    public async Task<ActionResult<Enable2FAResponse>> Enable2FA(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
@@ -143,7 +143,7 @@ public class AccountController : ApiControllerBase
         }
 
         var command = new Enable2FACommand { UserId = userId };
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -159,7 +159,7 @@ public class AccountController : ApiControllerBase
     [HttpPost("verify-2fa")]
     [ProducesResponseType(typeof(Verify2FAResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Verify2FAResponse>> Verify2FA([FromBody] Verify2FARequest request)
+    public async Task<ActionResult<Verify2FAResponse>> Verify2FA([FromBody] Verify2FARequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
@@ -176,7 +176,7 @@ public class AccountController : ApiControllerBase
             Code = request.Code
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -192,7 +192,7 @@ public class AccountController : ApiControllerBase
     [HttpPost("disable-2fa")]
     [ProducesResponseType(typeof(Disable2FAResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Disable2FAResponse>> Disable2FA([FromBody] Disable2FARequest request)
+    public async Task<ActionResult<Disable2FAResponse>> Disable2FA([FromBody] Disable2FARequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
@@ -209,7 +209,7 @@ public class AccountController : ApiControllerBase
             Code = request.Code
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {

@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -12,6 +13,7 @@ namespace EShop.Identity.Application.Account.Commands.Disable2FA;
 public record Disable2FACommand : IRequest<Result<Disable2FAResponse>>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
+    [SensitiveData]
     public string Code { get; init; } = string.Empty;
 
     /// <summary>

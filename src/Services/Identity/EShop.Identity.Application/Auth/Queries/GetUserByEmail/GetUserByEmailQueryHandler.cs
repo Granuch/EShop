@@ -21,7 +21,7 @@ public class GetUserByEmailQueryHandler : IRequestHandler<GetUserByEmailQuery, R
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
 
-        if (user == null || user.IsDeleted)
+        if (user == null)
         {
             return Result<UserByEmailResponse>.Failure(new Error("Auth.UserNotFound", "User not found"));
         }

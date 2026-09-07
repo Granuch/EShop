@@ -40,7 +40,7 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.UserNotFound", "Invalid password reset request"));
         }
 
-        if (!user.IsActive || user.IsDeleted)
+        if (!user.IsActive)
         {
             _logger.LogWarning("Password reset attempt for disabled user. UserId={UserId}, IsActive={IsActive}, IsDeleted={IsDeleted}",
                 user.Id, user.IsActive, user.IsDeleted);

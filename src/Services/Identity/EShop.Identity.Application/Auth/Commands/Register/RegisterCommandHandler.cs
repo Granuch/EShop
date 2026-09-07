@@ -63,7 +63,8 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
             FirstName = request.FirstName,
             LastName = request.LastName,
             CreatedAt = DateTime.UtcNow,
-            IsActive = true,
+            // IsActive is not set here: it defaults to true and its setter is private now, so
+            // the active/deleted trio can only move together via SoftDelete/Deactivate/Activate.
             EmailConfirmed = false
         };
 

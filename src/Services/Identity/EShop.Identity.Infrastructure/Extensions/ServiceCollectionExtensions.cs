@@ -1,7 +1,9 @@
 using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
@@ -45,6 +47,12 @@ public static class ServiceCollectionExtensions
         // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
+
+        // CachingBehavior takes this as an optional constructor dependency, so leaving it
+        // unregistered was not an error — it bound to null and every runtime-discovered
+        // invalidation key silently became a no-op, in Identity only. Basket, Catalog and
+        // Ordering all register it.
+        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
 
         // Add DbContext
         if (useInMemoryDatabase)

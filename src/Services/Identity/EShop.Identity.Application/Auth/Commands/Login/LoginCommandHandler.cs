@@ -132,7 +132,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             canProceed = false;
             failureReason = "user_not_found";
         }
-        else if (!user.IsActive || user.IsDeleted)
+        else if (!user.IsActive)
         {
             canProceed = false;
             failureReason = "account_disabled";

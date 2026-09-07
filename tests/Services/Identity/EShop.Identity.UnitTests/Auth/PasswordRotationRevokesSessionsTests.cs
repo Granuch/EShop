@@ -41,9 +41,7 @@ public class PasswordRotationRevokesSessionsTests
         _user = new ApplicationUser
         {
             Id = UserId,
-            Email = "user@test.com",
-            IsActive = true,
-            IsDeleted = false
+            Email = "user@test.com"
         };
 
         _userManagerMock.Setup(x => x.FindByIdAsync(UserId)).ReturnsAsync(_user);

@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -13,6 +14,7 @@ namespace EShop.Identity.Application.Account.Commands.Verify2FA;
 public record Verify2FACommand : IRequest<Result<Verify2FAResponse>>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
+    [SensitiveData]
     public string Code { get; init; } = string.Empty;
 
     /// <summary>

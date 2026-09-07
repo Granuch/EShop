@@ -132,8 +132,7 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
                 Email = adminEmail,
                 FirstName = "Admin",
                 LastName = "Test",
-                EmailConfirmed = true,
-                IsActive = true
+                EmailConfirmed = true
             };
 
             await userManager.CreateAsync(adminUser, "Admin@123456");
@@ -150,8 +149,7 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
                 Email = userEmail,
                 FirstName = "Regular",
                 LastName = "User",
-                EmailConfirmed = true,
-                IsActive = true
+                EmailConfirmed = true
             };
 
             await userManager.CreateAsync(regularUser, "User@123456");
@@ -168,9 +166,9 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
                 Email = inactiveEmail,
                 FirstName = "Inactive",
                 LastName = "User",
-                EmailConfirmed = true,
-                IsActive = false
+                EmailConfirmed = true
             };
+            inactiveUser.Deactivate();
 
             await userManager.CreateAsync(inactiveUser, "Inactive@123456");
             await userManager.AddToRoleAsync(inactiveUser, "User");
@@ -186,8 +184,7 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
                 Email = unconfirmedEmail,
                 FirstName = "Unconfirmed",
                 LastName = "User",
-                EmailConfirmed = false,
-                IsActive = true
+                EmailConfirmed = false
             };
 
             await userManager.CreateAsync(unconfirmedUser, "Unconfirmed@123456");

@@ -59,7 +59,9 @@ public class RefreshTokenHashingTests
             settings,
             MockUserManager().Object,
             _repositoryMock.Object,
-            _unitOfWorkMock.Object);
+            _unitOfWorkMock.Object,
+            Mock.Of<ICachedUserRolesService>(),
+            Mock.Of<IRevokedTokenCache>());
     }
 
     [Test]

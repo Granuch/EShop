@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace EShop.Identity.API.Controllers;
 
@@ -14,6 +15,13 @@ namespace EShop.Identity.API.Controllers;
 [Authorize(Roles = "Admin")]
 public class RolesController : ApiControllerBase
 {
+    /// <summary>
+    /// Upper bound on rows returned by the two list endpoints. Neither had one, so both grew
+    /// without limit with the data. This is a cap, not paging — Stage 7's CQRS rewrite is where
+    /// real paging belongs; until then a bounded response beats an unbounded one.
+    /// </summary>
+    private const int MaxPageSize = 200;
+
     private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ICachedUserRolesService _cachedUserRoles;
@@ -36,14 +44,23 @@ public class RolesController : ApiControllerBase
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<RoleResponse>), StatusCodes.Status200OK)]
-    public ActionResult<IEnumerable<RoleResponse>> GetRoles()
+    public async Task<ActionResult<IEnumerable<RoleResponse>>> GetRoles(CancellationToken cancellationToken)
     {
-        var roles = _roleManager.Roles.Select(r => new RoleResponse
-        {
-            Id = r.Id,
-            Name = r.Name!,
-            Description = r.Description
-        });
+        // This used to return the IQueryable itself. Nothing had executed by the time the action
+        // returned, so the query ran inside the serializer while the response was being written:
+        // outside the action's exception handling, holding the DbContext open for the duration of
+        // the write, and blocking synchronously on each enumeration step. Materialise here.
+        var roles = await _roleManager.Roles
+            .AsNoTracking()
+            .OrderBy(r => r.Name)
+            .Take(MaxPageSize)
+            .Select(r => new RoleResponse
+            {
+                Id = r.Id,
+                Name = r.Name!,
+                Description = r.Description
+            })
+            .ToListAsync(cancellationToken);
 
         return Ok(roles);
     }
@@ -178,15 +195,21 @@ public class RolesController : ApiControllerBase
     [ProducesResponseType(typeof(IEnumerable<UserInRoleResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<UserInRoleResponse>>> GetUsersInRole(string roleName)
     {
+        // GetUsersInRoleAsync already materialises, but it is unbounded — every member of a role
+        // in one response. Capped for the same reason GetRoles is.
         var users = await _userManager.GetUsersInRoleAsync(roleName);
 
-        var response = users.Select(u => new UserInRoleResponse
-        {
-            Id = u.Id,
-            Email = u.Email!,
-            FirstName = u.FirstName,
-            LastName = u.LastName
-        });
+        var response = users
+            .OrderBy(u => u.Email)
+            .Take(MaxPageSize)
+            .Select(u => new UserInRoleResponse
+            {
+                Id = u.Id,
+                Email = u.Email!,
+                FirstName = u.FirstName,
+                LastName = u.LastName
+            })
+            .ToList();
 
         return Ok(response);
     }

@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Behaviors;
 
 namespace EShop.Identity.Application.Auth.Commands.ConfirmEmail;
@@ -10,6 +11,7 @@ namespace EShop.Identity.Application.Auth.Commands.ConfirmEmail;
 public record ConfirmEmailCommand : IRequest<Result<ConfirmEmailResponse>>, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
+    [SensitiveData]
     public string Token { get; init; } = string.Empty;
 }
 

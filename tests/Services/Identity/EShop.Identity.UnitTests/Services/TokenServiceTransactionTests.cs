@@ -45,7 +45,9 @@ public class TokenServiceTransactionTests
             settings,
             MockUserManager().Object,
             refreshRepo.Object,
-            unitOfWork.Object);
+            unitOfWork.Object,
+            Mock.Of<ICachedUserRolesService>(),
+            Mock.Of<IRevokedTokenCache>());
 
         var oldToken = new RefreshTokenEntity
         {

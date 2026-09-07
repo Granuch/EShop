@@ -39,7 +39,7 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
 
         // Same account-state policy as ResetPasswordCommandHandler. The two password-mutation
         // paths previously disagreed: reset refused disabled/deleted accounts, change did not.
-        if (!user.IsActive || user.IsDeleted)
+        if (!user.IsActive)
         {
             _logger.LogWarning("Password change attempt on a disabled account. UserId={UserId}", request.UserId);
             IdentityTelemetry.RecordPasswordChange(false);

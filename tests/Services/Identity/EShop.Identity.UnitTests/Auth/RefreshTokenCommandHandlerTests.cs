@@ -64,7 +64,8 @@ public class RefreshTokenCommandHandlerTests
     {
         // Arrange
         var command = new RefreshTokenCommand { RefreshToken = "valid-token" };
-        var user = new ApplicationUser { Id = "1", IsActive = false };
+        var user = new ApplicationUser { Id = "1" };
+        user.Deactivate();
         var token = new RefreshTokenEntity { TokenHash = RefreshTokenHasher.Hash("valid-token"), UserId = "1" };
 
         _tokenServiceMock.Setup(x => x.ValidateRefreshTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -83,7 +84,7 @@ public class RefreshTokenCommandHandlerTests
     {
         // Arrange
         var command = new RefreshTokenCommand { RefreshToken = "valid-token", IpAddress = "127.0.0.1" };
-        var user = new ApplicationUser { Id = "1", IsActive = true, IsDeleted = false, Email = "test@test.com" };
+        var user = new ApplicationUser { Id = "1", Email = "test@test.com" };
         var token = new RefreshTokenEntity { TokenHash = RefreshTokenHasher.Hash("valid-token"), UserId = "1" };
 
         _tokenServiceMock.Setup(x => x.ValidateRefreshTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))

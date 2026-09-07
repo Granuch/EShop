@@ -68,6 +68,15 @@ try
     // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
+    // Application BEFORE Infrastructure, and the order is load-bearing: MediatR runs pipeline
+    // behaviors in registration order, Application registers Transaction/Validation/Logging and
+    // Infrastructure registers Caching/CacheInvalidation. Registering Infrastructure first
+    // produced Caching -> CacheInvalidation -> Transaction -> Validation -> Logging -> handler,
+    // i.e. cache lookups outside the transaction and validation running after it had opened.
+    // This now matches Basket and Payment. (Catalog and Ordering still have the old call order —
+    // same latent defect, out of scope here.)
+    builder.Services.AddIdentityApplication();
+
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
     var suppressPendingModelChangesWarning = builder.Environment.IsDevelopment()
@@ -186,15 +195,32 @@ try
         Log.Warning("Using in-memory distributed cache for Testing environment");
         builder.Services.AddDistributedMemoryCache();
     }
-    else
+    else if (builder.Environment.IsDevelopment())
     {
-        // Redis connection string not found
-        Log.Warning("Redis connection string not configured. Using in-memory cache. NOT suitable for multi-instance!");
+        // Development keeps the in-memory fallback so the service runs without Redis locally.
+        // The brute-force counters are then single-process and non-atomic — fine for one
+        // developer, not fine anywhere else. See the throw below.
+        Log.Warning("Redis connection string not configured. Using in-memory cache. " +
+                    "Brute-force counters are non-atomic and single-process in this mode.");
         builder.Services.AddDistributedMemoryCache();
     }
-
-    // Add Application services (MediatR, FluentValidation, etc.)
-    builder.Services.AddIdentityApplication();
+    else
+    {
+        // Brute-force protection is the reason this is fatal rather than a warning.
+        // LoginAttemptTracker has two code paths: with IConnectionMultiplexer it uses Redis
+        // directly (atomic INCR, raw keys); without it, it falls back to IDistributedCache,
+        // where (a) the counter is a non-atomic read-modify-write, so concurrent failed logins
+        // undercount and the lockout does not fire under exactly the burst it exists to stop,
+        // and (b) the keys carry the "EShop_Identity_" InstanceName prefix, a different
+        // namespace from the Redis path — so an instance that silently fell back would see an
+        // empty counter set and start every attacker from zero.
+        // A silently-degrading lockout is worse than a startup failure, so outside
+        // Development and Testing this is a hard requirement.
+        throw new InvalidOperationException(
+            $"ConnectionStrings:Redis is required in {builder.Environment.EnvironmentName}. " +
+            "Brute-force protection depends on Redis for atomic counters; the in-memory " +
+            "fallback is single-process, non-atomic, and uses a different key namespace.");
+    }
 
     // Add MassTransit with RabbitMQ messaging
     builder.Services.AddIdentityMessaging(
@@ -524,17 +550,24 @@ static bool EmailConfirmationTokenIsDelivered() =>
         Log.Information("Scalar API documentation available at /scalar/v1");
     }
 
-    // Add Rate Limiting middleware
-    app.UseRateLimiter();
-
-    // Add CORS
-    app.UseCors("AllowFrontend");
-
+    // HTTPS redirection must run BEFORE the rate limiter and CORS. It sat after both, so a
+    // plain-HTTP request that was going to be redirected anyway still consumed a rate-limit
+    // permit and still had CORS headers computed for it — work done on a request that never
+    // reaches a handler, and a cheap way for an unauthenticated caller to spend another
+    // client's allowance. Note the redirect is conditional on ASPNETCORE_HTTPS_PORT/HTTPS_PORT,
+    // neither of which docker-compose sets, so **compose has no HTTPS redirect and no HSTS by
+    // design** — TLS is expected to terminate in front of the stack.
     var httpsPort = app.Configuration["ASPNETCORE_HTTPS_PORT"] ?? app.Configuration["HTTPS_PORT"];
     if (!string.IsNullOrWhiteSpace(httpsPort))
     {
         app.UseHttpsRedirection();
     }
+
+    // Add Rate Limiting middleware
+    app.UseRateLimiter();
+
+    // Add CORS
+    app.UseCors("AllowFrontend");
 
     // Add Prometheus HTTP metrics middleware (prometheus-net custom business metrics)
     app.UseHttpMetrics(options =>
