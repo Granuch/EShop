@@ -61,80 +61,9 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Identity.API"));
 
-    // Behind the YARP gateway every request arrives from the gateway's address, so without
-    // trusting X-Forwarded-For every IP-derived control (rate-limit partitions, brute-force
-    // tracking, LastLoginIp) collapses onto a single value. KnownProxies pins an individual
-    // proxy address; KnownNetworks is the option that works in Docker/Kubernetes, where the
-    // gateway's address is assigned from a bridge/pod CIDR and is not stable.
-    var forwardedProxies = builder.Configuration
-        .GetSection("ForwardedHeaders:KnownProxies")
-        .Get<string[]>() ?? [];
-    var forwardedNetworks = builder.Configuration
-        .GetSection("ForwardedHeaders:KnownNetworks")
-        .Get<string[]>() ?? [];
-
-    var knownProxies = new List<IPAddress>();
-    foreach (var proxy in forwardedProxies)
-    {
-        if (IPAddress.TryParse(proxy, out var ipAddress))
-        {
-            knownProxies.Add(ipAddress);
-        }
-        else
-        {
-            // Silently dropping these is how an unsubstituted deployment token such as
-            // "#{TRUSTED_PROXY_IP}#" disables forwarded headers without anyone noticing.
-            Log.Error("ForwardedHeaders:KnownProxies entry '{Entry}' is not a valid IP address and was ignored.", proxy);
-        }
-    }
-
-    // System.Net.IPNetwork, not the obsolete Microsoft.AspNetCore.HttpOverrides.IPNetwork.
-    var knownNetworks = new List<System.Net.IPNetwork>();
-    foreach (var network in forwardedNetworks)
-    {
-        if (System.Net.IPNetwork.TryParse(network, out var parsedNetwork))
-        {
-            knownNetworks.Add(parsedNetwork);
-        }
-        else
-        {
-            Log.Error("ForwardedHeaders:KnownNetworks entry '{Entry}' is not a valid CIDR range and was ignored.", network);
-        }
-    }
-
-    var forwardedHeadersEnabled = knownProxies.Count > 0 || knownNetworks.Count > 0;
-
-    if (forwardedHeadersEnabled)
-    {
-        builder.Services.Configure<ForwardedHeadersOptions>(options =>
-        {
-            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            options.ForwardLimit = 1;
-            options.KnownIPNetworks.Clear();
-            options.KnownProxies.Clear();
-
-            foreach (var proxy in knownProxies)
-            {
-                options.KnownProxies.Add(proxy);
-            }
-
-            foreach (var network in knownNetworks)
-            {
-                options.KnownIPNetworks.Add(network);
-            }
-        });
-
-        Log.Information(
-            "Forwarded headers enabled: {ProxyCount} known proxies, {NetworkCount} known networks.",
-            knownProxies.Count,
-            knownNetworks.Count);
-    }
-    else
-    {
-        Log.Warning(
-            "Forwarded headers are not configured with known proxies or networks. X-Forwarded-For will be ignored " +
-            "and every IP-derived control (rate limiting, brute-force protection) will see the proxy address.");
-    }
+    // Shared across every service — see EShopForwardedHeaders for why KnownNetworks matters
+    // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
+    var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
@@ -352,25 +281,9 @@ try
     var effectiveAuthRateLimit = enableRateLimiting ? authRateLimit : int.MaxValue;
     var effectiveLoginRateLimit = enableRateLimiting ? loginRateLimit : int.MaxValue;
 
-    // Every limiter below partitions on this. UseForwardedHeaders (configured above) runs before
-    // UseRateLimiter, so RemoteIpAddress is the real client whenever a trusted proxy is configured.
-    static string GetClientPartitionKey(HttpContext httpContext)
-    {
-        var remoteIp = httpContext.Connection.RemoteIpAddress;
-
-        if (remoteIp is null)
-        {
-            return "anonymous";
-        }
-
-        // ::ffff:203.0.113.7 and 203.0.113.7 are the same client - keep them in one partition.
-        if (remoteIp.IsIPv4MappedToIPv6)
-        {
-            remoteIp = remoteIp.MapToIPv4();
-        }
-
-        return remoteIp.ToString();
-    }
+    // Every limiter below partitions on EShopForwardedHeaders.GetClientPartitionKey.
+    // UseForwardedHeaders (configured above) runs before UseRateLimiter, so RemoteIpAddress is the
+    // real client whenever a trusted proxy is configured.
 
     // Add Rate Limiting (Testing uses permissive limits by default, can be hardened for dedicated tests)
     builder.Services.AddRateLimiter(options =>
@@ -380,7 +293,7 @@ try
         // Global rate limiter
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: GetClientPartitionKey(httpContext),
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     AutoReplenishment = true,
@@ -393,7 +306,7 @@ try
         // auth/login allowance for the whole service.
         options.AddPolicy<string>("auth", httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: GetClientPartitionKey(httpContext),
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     AutoReplenishment = true,
@@ -404,7 +317,7 @@ try
         // Login-specific limiter
         options.AddPolicy<string>("login", httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: GetClientPartitionKey(httpContext),
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     AutoReplenishment = true,

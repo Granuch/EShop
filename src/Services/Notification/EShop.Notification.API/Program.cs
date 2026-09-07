@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.Infrastructure.Extensions;
@@ -35,6 +36,10 @@ try
         .Enrich.WithMachineName()
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Notification.API"));
+
+    // Notification has almost no public HTTP surface, so this is for consistency rather than a
+    // live exposure — one implementation everywhere beats remembering which service is exempt.
+    var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
     builder.Services.AddNotificationApplication();
 
@@ -109,6 +114,8 @@ try
             }
         }
     }
+
+    app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
     app.UseEShopRequestLogging();
 

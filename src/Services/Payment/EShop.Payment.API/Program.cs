@@ -64,6 +64,10 @@ if (startupStripeSettings.SkipWebhookSignatureVerification
         "Stripe webhook signature verification is disabled in Sandbox by design for integration testing. Never enable this bypass outside Development/Sandbox/Testing.");
 }
 
+// Payment previously had no forwarded-headers handling at all, so behind the gateway every
+// request appeared to come from the gateway address. Shared helper — see EShopForwardedHeaders.
+var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
 builder.Services.AddPaymentApplication();
 builder.Services.AddPaymentInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 builder.Services.AddPaymentMessaging(
@@ -202,6 +206,9 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+// Before anything that reads the client address or scheme, including HTTPS redirection.
+app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
 var httpsPort = app.Configuration["ASPNETCORE_HTTPS_PORT"] ?? app.Configuration["HTTPS_PORT"];
 if (!string.IsNullOrWhiteSpace(httpsPort))

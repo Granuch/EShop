@@ -47,28 +47,9 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .Enrich.WithThreadId()
     .Enrich.WithProperty("Application", "EShop.Basket.API"));
 
-var forwardedProxies = builder.Configuration
-    .GetSection("ForwardedHeaders:KnownProxies")
-    .Get<string[]>() ?? [];
-
-if (forwardedProxies.Length > 0)
-{
-    builder.Services.Configure<ForwardedHeadersOptions>(options =>
-    {
-        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-        options.ForwardLimit = 1;
-        options.KnownIPNetworks.Clear();
-        options.KnownProxies.Clear();
-
-        foreach (var proxy in forwardedProxies)
-        {
-            if (IPAddress.TryParse(proxy, out var ipAddress))
-            {
-                options.KnownProxies.Add(ipAddress);
-            }
-        }
-    });
-}
+// Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
+// works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
+var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
 builder.Services.AddBasketApplication();
 builder.Services.AddBasketInfrastructure(builder.Configuration);
@@ -203,10 +184,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-if (forwardedProxies.Length > 0)
-{
-    app.UseForwardedHeaders();
-}
+app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
 app.UseEShopRequestLogging();
 

@@ -54,32 +54,10 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Ordering.API"));
 
-    var forwardedProxies = builder.Configuration
-        .GetSection("ForwardedHeaders:KnownProxies")
-        .Get<string[]>() ?? [];
-
-    if (forwardedProxies.Length > 0)
-    {
-        builder.Services.Configure<ForwardedHeadersOptions>(options =>
-        {
-            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            options.ForwardLimit = 1;
-            options.KnownNetworks.Clear();
-            options.KnownProxies.Clear();
-
-            foreach (var proxy in forwardedProxies)
-            {
-                if (IPAddress.TryParse(proxy, out var ipAddress))
-                {
-                    options.KnownProxies.Add(ipAddress);
-                }
-            }
-        });
-    }
-    else
-    {
-        Log.Warning("Forwarded headers are not configured with known proxies. X-Forwarded-For will be ignored.");
-    }
+    // Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
+    // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
+    // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
+    var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
@@ -334,10 +312,7 @@ var app = builder.Build();
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
 
-    if (forwardedProxies.Length > 0)
-    {
-        app.UseForwardedHeaders();
-    }
+    app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
 static bool IsPostgresStartupException(Exception exception)
 {
