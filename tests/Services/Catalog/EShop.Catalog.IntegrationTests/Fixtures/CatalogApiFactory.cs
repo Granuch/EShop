@@ -31,6 +31,16 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
+        // Catalog's tracked appsettings.json ships "SecretKey": "" and there is no
+        // appsettings.Testing.json, so nothing supplies a JWT key under the Testing environment
+        // and Program.cs throws while composing the app. The suite passed locally only because a
+        // developer shell exported JwtSettings__SecretKey; on a clean checkout (and in CI) all 91
+        // tests failed at SetUp. UseSetting rather than ConfigureAppConfiguration because the
+        // value is read in top-level statements, before ConfigureAppConfiguration sources apply.
+        builder.UseSetting("JwtSettings:SecretKey", "TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!");
+        builder.UseSetting("JwtSettings:Issuer", "EShop.Identity");
+        builder.UseSetting("JwtSettings:Audience", "EShop.Services");
+
         builder.ConfigureServices(services =>
         {
             // Remove existing DbContext and IUnitOfWork registrations

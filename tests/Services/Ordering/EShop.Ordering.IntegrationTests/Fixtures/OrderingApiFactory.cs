@@ -34,17 +34,15 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
-        builder.ConfigureAppConfiguration((_, configBuilder) =>
-        {
-            var jwtTestSettings = new Dictionary<string, string?>
-            {
-                ["JwtSettings:SecretKey"] = TestJwtSecretKey,
-                ["JwtSettings:Issuer"] = TestJwtIssuer,
-                ["JwtSettings:Audience"] = TestJwtAudience
-            };
-
-            configBuilder.AddInMemoryCollection(jwtTestSettings);
-        });
+        // UseSetting, not ConfigureAppConfiguration. Program.cs reads JwtSettings in its
+        // top-level statements while composing the app and throws if SecretKey is blank;
+        // ConfigureAppConfiguration sources are only applied when the host is finally built,
+        // which is after that read. This appeared to work locally only because a developer shell
+        // exported JwtSettings__SecretKey — on a clean checkout (and in CI) the guard fired and
+        // every test in this assembly failed at SetUp.
+        builder.UseSetting("JwtSettings:SecretKey", TestJwtSecretKey);
+        builder.UseSetting("JwtSettings:Issuer", TestJwtIssuer);
+        builder.UseSetting("JwtSettings:Audience", TestJwtAudience);
 
         builder.ConfigureServices(services =>
         {

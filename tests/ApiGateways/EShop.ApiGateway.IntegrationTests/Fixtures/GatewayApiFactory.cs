@@ -16,14 +16,20 @@ public sealed class GatewayApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
+        // JWT settings must go through UseSetting, not ConfigureAppConfiguration. Program.cs
+        // reads JwtSettings in its top-level statements while composing the app and throws if
+        // SecretKey is blank; sources added via ConfigureAppConfiguration are only applied when
+        // the host is finally built, which is after that read. It appeared to work locally only
+        // because a developer shell exported JwtSettings__SecretKey — on a clean checkout (and
+        // in CI) the guard fired and every test in this assembly failed at SetUp.
+        builder.UseSetting("JwtSettings:SecretKey", "TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!");
+        builder.UseSetting("JwtSettings:Issuer", "EShop.Identity");
+        builder.UseSetting("JwtSettings:Audience", "EShop.Services");
+
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["JwtSettings:SecretKey"] = "TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!",
-                ["JwtSettings:Issuer"] = "EShop.Identity",
-                ["JwtSettings:Audience"] = "EShop.Services",
-
                 ["Gateway:EnableAuditEmailNotifications"] = "true",
                 ["Gateway:EnableSimulationFailureEmailNotifications"] = "true",
                 ["Gateway:EnableRateLimitEmailNotifications"] = "true",
