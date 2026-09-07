@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Start docker stack (sandbox + monitoring)
         run: docker compose --profile sandbox --profile monitoring up -d --build
