@@ -36,7 +36,18 @@ public class UpdateProfileCommandHandler : IRequestHandler<UpdateProfileCommand,
 
         user.FirstName = request.FirstName;
         user.LastName = request.LastName;
-        user.ProfilePictureUrl = request.ProfilePictureUrl;
+
+        // Only assign when the client actually sent a value. System.Text.Json materialises an
+        // omitted optional property as null, so assigning unconditionally would silently clear a
+        // stored avatar on any partial update. FirstName/LastName are NotEmpty-guarded by the
+        // validator, so this is the only field with the hazard. To clear a picture deliberately,
+        // send an empty string rather than omitting the field.
+        if (request.ProfilePictureUrl is not null)
+        {
+            user.ProfilePictureUrl = string.IsNullOrWhiteSpace(request.ProfilePictureUrl)
+                ? null
+                : request.ProfilePictureUrl;
+        }
 
         var result = await _userManager.UpdateAsync(user);
         if (!result.Succeeded)

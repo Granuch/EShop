@@ -61,7 +61,7 @@ public class OrderRepository : IOrderRepository
         await _context.Orders.AddAsync(order, cancellationToken);
     }
 
-    public async Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
+    public Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
     {
         var trackedOrder = _context.Entry(order);
         if (trackedOrder.State == EntityState.Detached)
@@ -69,30 +69,12 @@ public class OrderRepository : IOrderRepository
             _context.Attach(order);
         }
 
+        // OrderItem.Id is mapped ValueGeneratedNever (see OrderingDbContext), so EF marks a
+        // newly added child under a loaded parent as Added on its own. No manual state fixup
+        // and no extra round-trip to fetch persisted item ids are needed here.
         _context.ChangeTracker.DetectChanges();
 
-        var persistedItemIds = await _context.OrderItems
-            .AsNoTracking()
-            .Where(i => i.OrderId == order.Id)
-            .Select(i => i.Id)
-            .ToHashSetAsync(cancellationToken);
-
-        // Ensure newly added items are marked as Added for insert.
-        foreach (var item in order.Items)
-        {
-            var itemEntry = _context.Entry(item);
-            if (itemEntry.State == EntityState.Detached)
-            {
-                _context.Attach(item);
-                itemEntry = _context.Entry(item);
-            }
-
-            if (!persistedItemIds.Contains(item.Id)
-                && (itemEntry.State == EntityState.Modified || itemEntry.State == EntityState.Unchanged))
-            {
-                itemEntry.State = EntityState.Added;
-            }
-        }
+        return Task.CompletedTask;
     }
 
     public IQueryable<Order> Query()

@@ -96,6 +96,14 @@ public class OrderingDbContext : BaseDbContext
 
             entity.HasKey(i => i.Id);
 
+            // The aggregate assigns child ids (OrderItem's constructor sets Id = Guid.NewGuid()),
+            // so the key is NOT store-generated. Leaving it ValueGeneratedOnAdd makes EF treat an
+            // item added to an already-loaded order as an existing row — it issues an UPDATE that
+            // matches nothing and throws DbUpdateConcurrencyException. Same reasoning as
+            // CatalogDbContext's ProductImage/ProductAttribute keys.
+            entity.Property(i => i.Id)
+                .ValueGeneratedNever();
+
             entity.Property(i => i.ProductId).IsRequired();
 
             entity.Property(i => i.ProductName)

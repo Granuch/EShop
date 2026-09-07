@@ -40,6 +40,15 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             return Result<ChangePasswordResponse>.Failure(new Error("Account.NotFound", "User not found"));
         }
 
+        // Same account-state policy as ResetPasswordCommandHandler. The two password-mutation
+        // paths previously disagreed: reset refused disabled/deleted accounts, change did not.
+        if (!user.IsActive || user.IsDeleted)
+        {
+            _logger.LogWarning("Password change attempt on a disabled account. UserId={UserId}", request.UserId);
+            IdentityTelemetry.RecordPasswordChange(false);
+            return Result<ChangePasswordResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
+        }
+
         // Change password (UserManager handles its own transaction)
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)

@@ -14,7 +14,6 @@ public class ConfirmEmailCommandHandlerTests
 {
     private Mock<UserManager<ApplicationUser>> _userManagerMock = null!;
     private Mock<IIntegrationEventOutbox> _outboxMock = null!;
-    private Mock<IUnitOfWork> _unitOfWorkMock = null!;
     private Mock<ICurrentUserContext> _currentUserContextMock = null!;
     private Mock<ILogger<ConfirmEmailCommandHandler>> _loggerMock = null!;
     private ConfirmEmailCommandHandler _handler = null!;
@@ -24,14 +23,12 @@ public class ConfirmEmailCommandHandlerTests
     {
         _userManagerMock = MockUserManager();
         _outboxMock = new Mock<IIntegrationEventOutbox>();
-        _unitOfWorkMock = new Mock<IUnitOfWork>();
         _currentUserContextMock = new Mock<ICurrentUserContext>();
         _currentUserContextMock.Setup(x => x.CorrelationId).Returns("test-correlation-id");
         _loggerMock = new Mock<ILogger<ConfirmEmailCommandHandler>>();
         _handler = new ConfirmEmailCommandHandler(
             _userManagerMock.Object,
             _outboxMock.Object,
-            _unitOfWorkMock.Object,
             _currentUserContextMock.Object,
             _loggerMock.Object);
     }
@@ -90,7 +87,11 @@ public class ConfirmEmailCommandHandlerTests
         // Assert
         Assert.That(result.IsFailure, Is.True);
         Assert.That(result.Error!.Code, Is.EqualTo("Auth.InvalidToken"));
-        _unitOfWorkMock.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+
+        // A rejected token must not publish the confirmation event.
+        _outboxMock.Verify(o => o.Enqueue(
+            It.IsAny<UserEmailConfirmedIntegrationEvent>(),
+            It.IsAny<string?>()), Times.Never);
     }
 
     [Test]
@@ -113,12 +114,27 @@ public class ConfirmEmailCommandHandlerTests
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value.Success, Is.True);
 
-        // Verify integration event was enqueued and transaction committed
+        // Verify the integration event was enqueued.
         _outboxMock.Verify(o => o.Enqueue(
             It.IsAny<UserEmailConfirmedIntegrationEvent>(),
             It.IsAny<string?>()), Times.Once);
-        _unitOfWorkMock.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _unitOfWorkMock.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public void Handler_DoesNotDriveTheUnitOfWork()
+    {
+        // ConfirmEmailCommand is ITransactionalCommand, so TransactionBehavior owns the
+        // transaction. This handler previously opened and committed its own inside the
+        // behavior's, which closed the transaction the behavior still believed it owned and left
+        // the behavior's commit/rollback operating on nothing. Taking no IUnitOfWork at all is
+        // what makes that structurally impossible, so pin the constructor shape.
+        var takesUnitOfWork = typeof(ConfirmEmailCommandHandler)
+            .GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .Any(p => p.ParameterType == typeof(IUnitOfWork));
+
+        Assert.That(takesUnitOfWork, Is.False,
+            "ConfirmEmailCommandHandler must not depend on IUnitOfWork; TransactionBehavior owns the transaction.");
     }
 
     private static Mock<UserManager<ApplicationUser>> MockUserManager()

@@ -671,6 +671,11 @@ static bool IsPostgresStartupException(Exception exception)
 catch (Exception ex)
 {
     Log.Fatal(ex, "Identity Service terminated unexpectedly");
+
+    // Rethrow so the process exits non-zero. Without this the host logs [FTL] and then reports
+    // success, so a config-guard rejection or an unreachable broker looks like a clean shutdown
+    // to anything checking exit status instead of parsing logs.
+    throw;
 }
 finally
 {
