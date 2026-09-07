@@ -28,9 +28,16 @@ public abstract class ApiControllerBase : ControllerBase
         => ProblemForError(error.Code, error.Message, statusCode);
 
     /// <summary>
-    /// For call sites that have no <see cref="Result"/> to unwrap. RolesController needs this:
-    /// it has no CQRS layer and calls RoleManager/UserManager inline, so its 13 failure sites are
-    /// hardcoded literals rather than a Result's Error.
+    /// For failures that never came from a <see cref="Result"/> and so have no
+    /// <see cref="Error"/> to unwrap — chiefly the pre-dispatch claims checks in
+    /// <c>AccountController</c>, <c>AuthController</c> and <c>UsersController</c>, which reject
+    /// a request before any command is built (e.g. a token with no subject claim).
+    ///
+    /// <para><c>RolesController</c> used to be the heaviest consumer: with no CQRS layer it
+    /// hand-wrote all thirteen of its failure sites here. Stage 7 moved it behind MediatR, so it
+    /// now uses the <see cref="Error"/> overload exclusively. Prefer that overload — reach for
+    /// this one only where there genuinely is no Result, or the error codes start drifting the
+    /// way Roles' did.</para>
     /// </summary>
     protected ActionResult ProblemForError(string errorCode, string message, int statusCode)
         => new ObjectResult(EShopProblem.Create(HttpContext, statusCode, detail: message, errorCode: errorCode))

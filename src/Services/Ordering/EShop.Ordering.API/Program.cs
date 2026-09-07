@@ -59,12 +59,17 @@ try
     // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
+    // Application BEFORE Infrastructure, and the order is load-bearing: MediatR runs pipeline
+    // behaviors in DI registration order. Application registers Transaction/Validation/Logging,
+    // Infrastructure registers Caching/CacheInvalidation. Registering Infrastructure first
+    // produced Caching -> CacheInvalidation -> Transaction -> Validation -> Logging -> handler,
+    // i.e. cache lookups outside the transaction and validation running after it had opened.
+    // Now matches Identity, Basket and Payment.
+    builder.Services.AddOrderingApplication();
+
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)
     var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
     builder.Services.AddOrderingInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
-
-    // Add Application services (MediatR, FluentValidation, Pipeline Behaviors)
-    builder.Services.AddOrderingApplication();
 
     // Add MassTransit with RabbitMQ messaging
     builder.Services.AddOrderingMessaging(
