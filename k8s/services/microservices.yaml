@@ -77,6 +77,17 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: internal-service-api-key-header
+        # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
+        # before the last attempt), which is far longer than a readiness initialDelay should
+        # cover. A startupProbe gives that its own budget: while it is pending Kubernetes
+        # suspends the readiness and liveness probes, so a slow first boot cannot be killed
+        # by the liveness probe before it has finished migrating.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -176,6 +187,17 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
+        # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
+        # before the last attempt), which is far longer than a readiness initialDelay should
+        # cover. A startupProbe gives that its own budget: while it is pending Kubernetes
+        # suspends the readiness and liveness probes, so a slow first boot cannot be killed
+        # by the liveness probe before it has finished migrating.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -183,6 +205,12 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
         resources:
           requests:
             memory: "128Mi"
@@ -264,6 +292,14 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
+        # Basket runs no migrations (Redis-only), so its startup budget is smaller than the
+        # other services'. It still gets a startupProbe so the probe set is uniform.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 5
+          failureThreshold: 24
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -271,6 +307,12 @@ spec:
           initialDelaySeconds: 20
           periodSeconds: 10
           failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
         resources:
           requests:
             memory: "128Mi"
@@ -357,6 +399,17 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
+        # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
+        # before the last attempt), which is far longer than a readiness initialDelay should
+        # cover. A startupProbe gives that its own budget: while it is pending Kubernetes
+        # suspends the readiness and liveness probes, so a slow first boot cannot be killed
+        # by the liveness probe before it has finished migrating.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -364,6 +417,12 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
         resources:
           requests:
             memory: "128Mi"
@@ -445,6 +504,17 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
+        # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
+        # before the last attempt), which is far longer than a readiness initialDelay should
+        # cover. A startupProbe gives that its own budget: while it is pending Kubernetes
+        # suspends the readiness and liveness probes, so a slow first boot cannot be killed
+        # by the liveness probe before it has finished migrating.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -452,6 +522,12 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
         resources:
           requests:
             memory: "128Mi"
@@ -528,6 +604,17 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: internal-service-api-key-header
+        # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
+        # before the last attempt), which is far longer than a readiness initialDelay should
+        # cover. A startupProbe gives that its own budget: while it is pending Kubernetes
+        # suspends the readiness and liveness probes, so a slow first boot cannot be killed
+        # by the liveness probe before it has finished migrating.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health/ready
@@ -535,6 +622,12 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
         resources:
           requests:
             memory: "128Mi"

@@ -124,18 +124,29 @@ try
         options.AddCustomLabel("service", _ => "notification");
     });
 
+    // Notification previously had no /health, and its liveness predicate fell back to
+    // `Tags.Count == 0` because nothing was tagged "live" — it matched no check and so always
+    // reported Healthy. NotificationLivenessHealthCheck now gives it something real to report.
+    app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
+    });
+
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("ready"),
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
-        Predicate = check => check.Tags.Contains("live") || check.Tags.Count == 0,
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        Predicate = check => check.Tags.Contains("live"),
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
+    // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+    // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+    app.UseEShopMetricsAccess(app.Configuration, app.Environment);
     app.MapMetrics("/prometheus");
     app.UseEShopOpenTelemetryPrometheus();
 

@@ -1,5 +1,6 @@
 using EShop.Payment.API.Endpoints;
 using EShop.Payment.API.Infrastructure.Configuration;
+using EShop.Payment.API.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Extensions;
@@ -156,6 +157,17 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Infrastructure calls AddHealthChecks() but registered no checks, so both health endpoints
+// evaluated an empty set. The readiness check must be skipped under the in-memory provider,
+// same as every other service's DB-backed check.
+var paymentHealthChecks = builder.Services.AddHealthChecks()
+    .AddCheck<PaymentLivenessHealthCheck>("payment-liveness", tags: ["live"]);
+
+if (!useInMemoryDb)
+{
+    paymentHealthChecks.AddCheck<PaymentReadinessHealthCheck>("payment-readiness", tags: ["db", "ready"]);
+}
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
@@ -231,20 +243,32 @@ app.UseAuthorization();
 app.MapPaymentEndpoints();
 
 // /prometheus — custom prometheus-net metrics
+// Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+// Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+app.UseEShopMetricsAccess(app.Configuration, app.Environment);
 app.MapMetrics("/prometheus");
 // /metrics — OpenTelemetry metrics endpoint
 app.UseEShopOpenTelemetryPrometheus();
 
+// Payment previously had no /health at all, a readiness predicate of `_ => true` (which ran
+// every check regardless of tag) and a liveness predicate of `_ => false` (which ran none and
+// so could never report anything but Healthy). All three endpoints now match the shape the
+// other six components use.
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
+});
+
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
-    Predicate = _ => true,
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
-    Predicate = _ => false,
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    Predicate = check => check.Tags.Contains("live"),
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapGet("/", () => Results.Ok(new

@@ -56,14 +56,15 @@ public class IdentityReadinessHealthCheck : IHealthCheck
         }
         catch (Exception ex)
         {
+            // The exception is logged and deliberately NOT attached to the result. Passing it as
+            // the `exception` argument or as data["error"] put the raw message — Npgsql host,
+            // database, username, or the Redis endpoint — into the anonymous /health/ready
+            // response body, i.e. handed out a map of the internal topology exactly when the
+            // service was failing. EShopHealthResponseWriter drops descriptions and data too,
+            // so this is belt and braces; keep both, since a future writer change should not be
+            // able to start leaking again.
             _logger.LogError(ex, "Identity readiness health check failed");
-            return HealthCheckResult.Unhealthy(
-                "Identity service is not ready",
-                ex,
-                new Dictionary<string, object>
-                {
-                    { "error", ex.Message }
-                });
+            return HealthCheckResult.Unhealthy("Identity service is not ready");
         }
     }
 }

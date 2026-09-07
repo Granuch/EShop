@@ -551,6 +551,9 @@ static bool EmailConfirmationTokenIsDelivered() =>
     // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
     // In .NET 10, /metrics is auto-registered by the framework for OpenTelemetry metrics,
     // so custom prometheus-net metrics use a separate path to avoid being overridden.
+    // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+    // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+    app.UseEShopMetricsAccess(app.Configuration, app.Environment);
     app.MapMetrics("/prometheus");
     // /metrics/otel — OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
     app.UseEShopOpenTelemetryPrometheus();
@@ -558,24 +561,19 @@ static bool EmailConfirmationTokenIsDelivered() =>
     // Health check endpoints with detailed response
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("ready"),
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("live"),
-        ResponseWriter = (context, report) =>
-        {
-            context.Response.ContentType = "application/json";
-            return context.Response.WriteAsync(
-                System.Text.Json.JsonSerializer.Serialize(new { status = report.Status.ToString() }));
-        }
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     // Root endpoint - API info and available endpoints

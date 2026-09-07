@@ -99,7 +99,8 @@ public static class ServiceCollectionExtensions
         services.AddHealthChecks()
             .AddCheck<OutboxHealthCheck>("outbox", tags: ["ready", "outbox"])
             .AddCheck<NotificationDbHealthCheck>("notification-db", tags: ["db", "ready"])
-            .AddCheck<SmtpHealthCheck>("smtp", tags: ["smtp", "ready"]);
+            .AddCheck<SmtpHealthCheck>("smtp", tags: ["smtp", "ready"])
+            .AddCheck<NotificationLivenessHealthCheck>("notification-liveness", tags: ["live"]);
 
         return services;
     }
