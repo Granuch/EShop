@@ -34,6 +34,13 @@ jobs:
         run: dotnet test EShop.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
       - name: Validate docker compose config
+        # This step checks that the compose file parses and interpolates, nothing more — it
+        # never starts a container. INTERNAL_SERVICE_API_KEY is declared with ${VAR:?...}
+        # rather than a ${VAR:-default} so a real bring-up cannot silently fall back to a
+        # well-known key, which means interpolation now needs *some* value here. The value
+        # below is not a secret and is not used to authenticate anything.
+        env:
+          INTERNAL_SERVICE_API_KEY: ci-compose-config-validation-only
         run: docker compose config > /tmp/docker-compose.resolved.yml
 
       - name: Upload test results

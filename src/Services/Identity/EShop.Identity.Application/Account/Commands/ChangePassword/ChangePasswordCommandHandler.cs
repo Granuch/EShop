@@ -16,18 +16,15 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ChangePasswordCommandHandler> _logger;
 
     public ChangePasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
-        IUnitOfWork unitOfWork,
         ILogger<ChangePasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
-        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -59,22 +56,17 @@ public class ChangePasswordCommandHandler : IRequestHandler<ChangePasswordComman
             return Result<ChangePasswordResponse>.Failure(new Error("Account.PasswordChangeFailed", errors));
         }
 
-        // Revoke all refresh tokens after password change (security measure)
-        // NOTE: This is done in a separate operation after password change succeeds
-        // If this fails, password is still changed (fail-safe approach)
-        try
-        {
-            await _refreshTokenRepository.RevokeAllUserTokensAsync(
-                user.Id,
-                "Password changed",
-                cancellationToken: cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to revoke tokens after password change. UserId={UserId}", request.UserId);
-            // Don't fail the operation - password was changed successfully
-        }
+        // Revoking every refresh token is part of the password change, not a follow-up to it:
+        // a change that reports success while the old sessions stay valid is an auth bypass.
+        // The command is ITransactionalCommand, so this write joins the behavior's ambient
+        // transaction and TransactionBehavior's CommitTransactionAsync is what persists it —
+        // there is deliberately no SaveChangesAsync and no try/catch here. If the revoke
+        // throws, the behavior rolls the password change back and the caller sees the failure
+        // instead of a 200.
+        await _refreshTokenRepository.RevokeAllUserTokensAsync(
+            user.Id,
+            "Password changed",
+            cancellationToken: cancellationToken);
 
         _logger.LogInformation("Password changed successfully. UserId={UserId}, Email={Email}", request.UserId, user.Email);
         IdentityTelemetry.RecordPasswordChange(true);

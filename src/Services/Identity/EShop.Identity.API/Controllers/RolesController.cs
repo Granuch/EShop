@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Infrastructure.Services;
 
 namespace EShop.Identity.API.Controllers;
 
@@ -15,15 +16,18 @@ public class RolesController : ApiControllerBase
 {
     private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly ICachedUserRolesService _cachedUserRoles;
     private readonly ILogger<RolesController> _logger;
 
     public RolesController(
         RoleManager<ApplicationRole> roleManager,
         UserManager<ApplicationUser> userManager,
+        ICachedUserRolesService cachedUserRoles,
         ILogger<RolesController> logger)
     {
         _roleManager = roleManager;
         _userManager = userManager;
+        _cachedUserRoles = cachedUserRoles;
         _logger = logger;
     }
 
@@ -193,7 +197,7 @@ public class RolesController : ApiControllerBase
     [HttpPost("{roleName}/users/{userId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> AddUserToRole(string roleName, string userId)
+    public async Task<ActionResult> AddUserToRole(string roleName, string userId, CancellationToken cancellationToken)
     {
         var user = await _userManager.FindByIdAsync(userId);
 
@@ -215,6 +219,13 @@ public class RolesController : ApiControllerBase
             return ProblemForError("Role.AddUserFailed", errors, StatusCodes.Status400BadRequest);
         }
 
+        // The roles cache has a 5-minute TTL and is read when minting a token, so without this
+        // the new role is invisible for up to 5 minutes after the grant.
+        // INTERIM: this controller has no CQRS layer, so it cannot use ICacheInvalidatingCommand
+        // like every other write in the service. Stage 7 (DEBT-01) moves these actions behind
+        // MediatR commands marked ICacheInvalidatingCommand — delete this call then.
+        await _cachedUserRoles.InvalidateRolesCacheAsync(userId, cancellationToken);
+
         _logger.LogInformation("User {UserId} added to role {RoleName}", userId, roleName);
 
         return NoContent();
@@ -226,13 +237,20 @@ public class RolesController : ApiControllerBase
     [HttpDelete("{roleName}/users/{userId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> RemoveUserFromRole(string roleName, string userId)
+    public async Task<ActionResult> RemoveUserFromRole(string roleName, string userId, CancellationToken cancellationToken)
     {
         var user = await _userManager.FindByIdAsync(userId);
 
         if (user == null)
         {
             return ProblemForError("User.NotFound", "User not found", StatusCodes.Status404NotFound);
+        }
+
+        // Same existence check AddUserToRole makes; without it a misspelled role name reports
+        // 400 "role does not exist" from RemoveFromRoleAsync rather than 404.
+        if (!await _roleManager.RoleExistsAsync(roleName))
+        {
+            return ProblemForError("Role.NotFound", "Role not found", StatusCodes.Status404NotFound);
         }
 
         var result = await _userManager.RemoveFromRoleAsync(user, roleName);
@@ -242,6 +260,11 @@ public class RolesController : ApiControllerBase
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
             return ProblemForError("Role.RemoveUserFailed", errors, StatusCodes.Status400BadRequest);
         }
+
+        // Revocation is the security-critical direction: without this the removed role stays
+        // in the cache for up to 5 minutes and a token minted in that window still carries it.
+        // INTERIM — see AddUserToRole; Stage 7 replaces this with ICacheInvalidatingCommand.
+        await _cachedUserRoles.InvalidateRolesCacheAsync(userId, cancellationToken);
 
         _logger.LogInformation("User {UserId} removed from role {RoleName}", userId, roleName);
 

@@ -228,7 +228,7 @@ services:
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
 
       # Internal service authorization
-      InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       InternalServiceAuth__HeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
       # JWT
@@ -314,7 +314,7 @@ services:
       # Internal identity resolver for email recipients
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
       # Email notifications via Mailpit in local profiles
@@ -774,7 +774,7 @@ services:
 
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
       OpenTelemetry__Enabled: "true"

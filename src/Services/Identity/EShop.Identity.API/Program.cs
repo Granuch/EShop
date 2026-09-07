@@ -9,8 +9,11 @@ using EShop.Identity.API.Infrastructure.HealthChecks;
 using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
 using EShop.Identity.API.Infrastructure.Security;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Messaging.Events;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -327,22 +330,17 @@ try
     });
 
     // Add CORS
+    // Validated here rather than inside AddPolicy: CORS builds its policies lazily on first
+    // use, so a throw in the lambda is a request-time 500 on a host that already reported
+    // healthy. The guard also rejects the placeholder origin shipped in the tracked
+    // appsettings.Production.json, which the old "is the array empty?" check accepted.
+    var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-            if (allowedOrigins.Length == 0 &&
-                !builder.Environment.IsDevelopment() &&
-                !builder.Environment.IsEnvironment("Testing"))
-            {
-                throw new InvalidOperationException(
-                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                    "Configure allowed origins before deploying to non-development environments.");
-            }
-
-            policy.WithOrigins(allowedOrigins)
+            policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
@@ -389,6 +387,27 @@ try
         .AddNotFound());
 
     var app = builder.Build();
+
+    // BUG-03 rail. Email confirmation is deliberately parked scaffolding: RegisterCommandHandler
+    // mints a confirmation token and immediately discards it — it is on neither RegisterResponse
+    // nor UserRegisteredIntegrationEvent — while the response still tells the caller to check
+    // their email. That is harmless only while SignIn.RequireConfirmedEmail is false. The first
+    // time it is turned on, every newly registered account is permanently unable to log in and
+    // there is no path to mint a token for it.
+    //
+    // This guard does not finish the feature; it makes the trap impossible to walk into
+    // silently. It disarms itself the moment the token is actually carried on the event, so
+    // whoever completes the feature does not have to know this check exists.
+    var identityOptions = app.Services.GetRequiredService<IOptions<IdentityOptions>>().Value;
+    if (identityOptions.SignIn.RequireConfirmedEmail && !EmailConfirmationTokenIsDelivered())
+    {
+        throw new InvalidOperationException(
+            "Identity:RequireConfirmedEmail is enabled but registration does not deliver the " +
+            "confirmation token: RegisterCommandHandler generates one and discards it, and " +
+            $"{nameof(UserRegisteredIntegrationEvent)} carries no token property, so no " +
+            "confirmation email can be sent and every new account would be permanently locked " +
+            "out. Wire the token into the integration event before enabling this.");
+    }
 
     // Apply database migrations automatically (Production/Development/Sandbox)
     // Skip for Testing environment (uses in-memory database)
@@ -469,6 +488,14 @@ static bool IsPostgresStartupException(Exception exception)
     return exception.InnerException is not null
         && IsPostgresStartupException(exception.InnerException);
 }
+
+// Reflection rather than a constant so the BUG-03 rail above disarms itself when the parked
+// email-confirmation feature is finished, instead of becoming a stale flag someone has to
+// remember to flip. Any property on the event whose name ends in "ConfirmationToken" counts.
+static bool EmailConfirmationTokenIsDelivered() =>
+    typeof(UserRegisteredIntegrationEvent)
+        .GetProperties()
+        .Any(p => p.Name.EndsWith("ConfirmationToken", StringComparison.OrdinalIgnoreCase));
 
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time

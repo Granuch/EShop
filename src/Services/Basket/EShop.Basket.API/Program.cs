@@ -5,6 +5,7 @@ using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Extensions;
 using EShop.Basket.Infrastructure.Caching;
 using EShop.Basket.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
@@ -115,22 +116,15 @@ builder.Services.AddAuthorization(options =>
 });
 builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
+// Validated here rather than inside AddPolicy: CORS builds its policies lazily on first use,
+// so a throw in the lambda is a request-time 500 on a host that already reported healthy.
+var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-        if (allowedOrigins.Length == 0 &&
-            !builder.Environment.IsDevelopment() &&
-            !builder.Environment.IsEnvironment("Testing"))
-        {
-            throw new InvalidOperationException(
-                $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                "Configure allowed origins before deploying to non-development environments.");
-        }
-
-        policy.WithOrigins(allowedOrigins)
+        policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();

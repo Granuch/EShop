@@ -17,18 +17,15 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ResetPasswordCommandHandler> _logger;
 
     public ResetPasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
-        IUnitOfWork unitOfWork,
         ILogger<ResetPasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
-        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -62,22 +59,17 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             return Result<ResetPasswordResponse>.Failure(new Error("Auth.ResetFailed", errors));
         }
 
-        // Revoke all refresh tokens after password reset (security measure)
-        // NOTE: This is done in a separate operation after password reset succeeds
-        // If this fails, password is still reset (fail-safe approach)
-        try
-        {
-            await _refreshTokenRepository.RevokeAllUserTokensAsync(
-                user.Id, 
-                "Password reset", 
-                cancellationToken: cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to revoke tokens after password reset. UserId={UserId}", user.Id);
-            // Don't fail the operation - password was reset successfully
-        }
+        // Revoking every refresh token is part of the reset, not a follow-up to it: a reset
+        // that reports success while the old sessions stay valid is an auth bypass, and here
+        // the reset is typically driven by a user who believes their account is compromised.
+        // The command is ITransactionalCommand, so this write joins the behavior's ambient
+        // transaction and TransactionBehavior's CommitTransactionAsync is what persists it —
+        // there is deliberately no SaveChangesAsync and no try/catch here. If the revoke
+        // throws, the behavior rolls the reset back and the caller sees the failure.
+        await _refreshTokenRepository.RevokeAllUserTokensAsync(
+            user.Id,
+            "Password reset",
+            cancellationToken: cancellationToken);
 
         _logger.LogInformation("Password reset successfully. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordPasswordReset(true);

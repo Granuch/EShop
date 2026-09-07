@@ -114,24 +114,52 @@ public sealed class OutboxMessage
     }
 
     /// <summary>
+    /// Payload written in place of a secret-bearing one once the message is terminal.
+    /// Deliberately valid JSON, so anything that does try to deserialize an already-processed
+    /// row gets an all-defaults instance rather than an exception.
+    /// </summary>
+    public const string RedactedPayload = """{"redacted":"sensitive payload cleared after dispatch"}""";
+
+    /// <summary>
     /// Marks the message as successfully processed.
     /// </summary>
-    public void MarkAsProcessed()
+    /// <param name="redactPayload">
+    /// When true, replaces the stored payload with <see cref="RedactedPayload"/>. Pass true for
+    /// events carrying a secret; the processor never re-reads a payload once ProcessedOnUtc is
+    /// set, so nothing downstream depends on it.
+    /// </param>
+    public void MarkAsProcessed(bool redactPayload = false)
     {
         ProcessedOnUtc = DateTime.UtcNow;
         LastError = null;
         Status = OutboxMessageStatus.Processed;
+
+        if (redactPayload)
+        {
+            Payload = RedactedPayload;
+        }
     }
 
     /// <summary>
     /// Marks the message as permanently failed (dead-lettered).
     /// The message will not be retried and requires manual investigation.
     /// </summary>
-    public void MarkAsDeadLettered(string error)
+    /// <param name="redactPayload">
+    /// When true, replaces the stored payload with <see cref="RedactedPayload"/>. A dead-lettered
+    /// message is never retried, so a secret in its payload is pure liability — the investigation
+    /// it invites has <see cref="Type"/>, <see cref="CorrelationId"/> and <see cref="LastError"/>
+    /// without it.
+    /// </param>
+    public void MarkAsDeadLettered(string error, bool redactPayload = false)
     {
         ProcessedOnUtc = DateTime.UtcNow;
         LastError = error?.Length > 4000 ? error[..4000] : error;
         Status = OutboxMessageStatus.DeadLettered;
+
+        if (redactPayload)
+        {
+            Payload = RedactedPayload;
+        }
     }
 
     /// <summary>
