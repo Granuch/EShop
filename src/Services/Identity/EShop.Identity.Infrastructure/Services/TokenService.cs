@@ -5,6 +5,7 @@ using System.Text;
 using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -92,18 +93,30 @@ public class TokenService : ITokenService
         return await GenerateRefreshTokenInternalAsync(userId, ipAddress, saveChanges: true, cancellationToken);
     }
 
-    private async Task<string> GenerateRefreshTokenInternalAsync(string userId, string ipAddress, bool saveChanges, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Mints a refresh token, returning the plaintext to hand to the client and the hash to
+    /// persist. This was duplicated verbatim in <see cref="RotateRefreshTokenAsync"/>, which is
+    /// exactly the shape that lets one of the two sites keep storing plaintext after the other
+    /// is fixed.
+    /// </summary>
+    private static (string Plaintext, string Hash) CreateRefreshToken()
     {
         var randomBytes = new byte[64];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
 
-        var tokenString = Convert.ToBase64String(randomBytes);
+        var plaintext = Convert.ToBase64String(randomBytes);
+        return (plaintext, RefreshTokenHasher.Hash(plaintext));
+    }
+
+    private async Task<string> GenerateRefreshTokenInternalAsync(string userId, string ipAddress, bool saveChanges, CancellationToken cancellationToken = default)
+    {
+        var (tokenString, tokenHash) = CreateRefreshToken();
 
         var refreshToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = tokenString,
+            TokenHash = tokenHash,
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationDays),
@@ -212,11 +225,7 @@ public class TokenService : ITokenService
     {
         var now = DateTime.UtcNow;
 
-        // Generate new token string
-        var randomBytes = new byte[64];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(randomBytes);
-        var newTokenString = Convert.ToBase64String(randomBytes);
+        var (newTokenString, newTokenHash) = CreateRefreshToken();
 
         // Only manage our own transaction if one isn't already active
         // (e.g., TransactionBehavior may have started one at the pipeline level)
@@ -228,11 +237,11 @@ public class TokenService : ITokenService
         try
         {
             // Step 1: Atomically revoke the old token (with race condition protection)
-            var affectedRows = await _refreshTokenRepository.RevokeTokenAtomicallyAsync(
-                oldToken.Token,
+            var affectedRows = await _refreshTokenRepository.RevokeTokenByHashAtomicallyAsync(
+                oldToken.TokenHash,
                 now,
                 ipAddress,
-                newTokenString,
+                newTokenHash,
                 "Rotated",
                 cancellationToken);
 
@@ -247,7 +256,7 @@ public class TokenService : ITokenService
             var newRefreshToken = new RefreshTokenEntity
             {
                 Id = Guid.NewGuid(),
-                Token = newTokenString,
+                TokenHash = newTokenHash,
                 UserId = oldToken.UserId,
                 CreatedAt = now,
                 ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenExpirationDays),

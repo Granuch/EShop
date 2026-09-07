@@ -1,4 +1,5 @@
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Services;
@@ -55,7 +56,7 @@ public class TokenCleanupServiceTests
         var oldExpiredToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "old-expired-token",
+            TokenHash = RefreshTokenHasher.Hash("old-expired-token"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-35),
             ExpiresAt = DateTime.UtcNow.AddDays(-31)
@@ -65,7 +66,7 @@ public class TokenCleanupServiceTests
         var recentExpiredToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "recent-expired-token",
+            TokenHash = RefreshTokenHasher.Hash("recent-expired-token"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-5),
             ExpiresAt = DateTime.UtcNow.AddDays(-1)
@@ -75,7 +76,7 @@ public class TokenCleanupServiceTests
         var activeToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "active-token",
+            TokenHash = RefreshTokenHasher.Hash("active-token"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-1),
             ExpiresAt = DateTime.UtcNow.AddDays(7)
@@ -92,9 +93,9 @@ public class TokenCleanupServiceTests
 
         var remainingTokens = await _context.RefreshTokens.ToListAsync();
         Assert.That(remainingTokens, Has.Count.EqualTo(2), "Should have 2 remaining tokens");
-        Assert.That(remainingTokens.Any(t => t.Token == "old-expired-token"), Is.False, "Old expired token should be deleted");
-        Assert.That(remainingTokens.Any(t => t.Token == "recent-expired-token"), Is.True, "Recent expired token should remain");
-        Assert.That(remainingTokens.Any(t => t.Token == "active-token"), Is.True, "Active token should remain");
+        Assert.That(remainingTokens.Any(t => t.TokenHash == RefreshTokenHasher.Hash("old-expired-token")), Is.False, "Old expired token should be deleted");
+        Assert.That(remainingTokens.Any(t => t.TokenHash == RefreshTokenHasher.Hash("recent-expired-token")), Is.True, "Recent expired token should remain");
+        Assert.That(remainingTokens.Any(t => t.TokenHash == RefreshTokenHasher.Hash("active-token")), Is.True, "Active token should remain");
     }
 
     [Test]
@@ -107,7 +108,7 @@ public class TokenCleanupServiceTests
         var oldRevokedToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "old-revoked-token",
+            TokenHash = RefreshTokenHasher.Hash("old-revoked-token"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-35),
             ExpiresAt = DateTime.UtcNow.AddDays(7), // Not yet expired
@@ -120,7 +121,7 @@ public class TokenCleanupServiceTests
         var recentRevokedToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "recent-revoked-token",
+            TokenHash = RefreshTokenHasher.Hash("recent-revoked-token"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-5),
             ExpiresAt = DateTime.UtcNow.AddDays(7),
@@ -140,8 +141,8 @@ public class TokenCleanupServiceTests
 
         var remainingTokens = await _context.RefreshTokens.ToListAsync();
         Assert.That(remainingTokens, Has.Count.EqualTo(1), "Should have 1 remaining token");
-        Assert.That(remainingTokens.Any(t => t.Token == "old-revoked-token"), Is.False, "Old revoked token should be deleted");
-        Assert.That(remainingTokens.Any(t => t.Token == "recent-revoked-token"), Is.True, "Recent revoked token should remain");
+        Assert.That(remainingTokens.Any(t => t.TokenHash == RefreshTokenHasher.Hash("old-revoked-token")), Is.False, "Old revoked token should be deleted");
+        Assert.That(remainingTokens.Any(t => t.TokenHash == RefreshTokenHasher.Hash("recent-revoked-token")), Is.True, "Recent revoked token should remain");
     }
 
     [Test]
@@ -173,7 +174,7 @@ public class TokenCleanupServiceTests
         var token8DaysOld = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "8-days-old",
+            TokenHash = RefreshTokenHasher.Hash("8-days-old"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-10),
             ExpiresAt = DateTime.UtcNow.AddDays(-8)
@@ -183,7 +184,7 @@ public class TokenCleanupServiceTests
         var token6DaysOld = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "6-days-old",
+            TokenHash = RefreshTokenHasher.Hash("6-days-old"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-8),
             ExpiresAt = DateTime.UtcNow.AddDays(-6)
@@ -200,7 +201,7 @@ public class TokenCleanupServiceTests
 
         var remainingTokens = await _context.RefreshTokens.ToListAsync();
         Assert.That(remainingTokens, Has.Count.EqualTo(1));
-        Assert.That(remainingTokens[0].Token, Is.EqualTo("6-days-old"));
+        Assert.That(remainingTokens[0].TokenHash, Is.EqualTo(RefreshTokenHasher.Hash("6-days-old")));
     }
 
     [Test]
@@ -212,7 +213,7 @@ public class TokenCleanupServiceTests
         var oldExpiredToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "old-expired",
+            TokenHash = RefreshTokenHasher.Hash("old-expired"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-35),
             ExpiresAt = DateTime.UtcNow.AddDays(-31)
@@ -221,7 +222,7 @@ public class TokenCleanupServiceTests
         var oldRevokedToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "old-revoked",
+            TokenHash = RefreshTokenHasher.Hash("old-revoked"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-35),
             ExpiresAt = DateTime.UtcNow.AddDays(7),
@@ -231,7 +232,7 @@ public class TokenCleanupServiceTests
         var recentToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = "recent",
+            TokenHash = RefreshTokenHasher.Hash("recent"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-1),
             ExpiresAt = DateTime.UtcNow.AddDays(7)
@@ -248,7 +249,7 @@ public class TokenCleanupServiceTests
 
         var remainingTokens = await _context.RefreshTokens.ToListAsync();
         Assert.That(remainingTokens, Has.Count.EqualTo(1));
-        Assert.That(remainingTokens[0].Token, Is.EqualTo("recent"));
+        Assert.That(remainingTokens[0].TokenHash, Is.EqualTo(RefreshTokenHasher.Hash("recent")));
     }
 
     [Test]
@@ -259,7 +260,7 @@ public class TokenCleanupServiceTests
         var oldTokens = Enumerable.Range(1, 5).Select(i => new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = $"old-token-{i}",
+            TokenHash = RefreshTokenHasher.Hash($"old-token-{i}"),
             UserId = userId,
             CreatedAt = DateTime.UtcNow.AddDays(-35),
             ExpiresAt = DateTime.UtcNow.AddDays(-31)

@@ -68,17 +68,21 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
         {
             entity.ToTable("refresh_tokens");
             entity.HasKey(t => t.Id);
-            entity.Property(t => t.Token).HasMaxLength(500).IsRequired();
+            // Fixed-width: the hash is always a 64-character lowercase hex SHA-256 digest, so
+            // char(64) is exact rather than a guess, and it keeps the unique index compact.
+            entity.Property(t => t.TokenHash)
+                .HasColumnType("char(64)")
+                .IsRequired();
             entity.Property(t => t.UserId).IsRequired();
             entity.Property(t => t.CreatedByIp).HasMaxLength(50);
             entity.Property(t => t.RevokedByIp).HasMaxLength(50);
-            entity.Property(t => t.ReplacedByToken).HasMaxLength(500);
+            entity.Property(t => t.ReplacedByTokenHash).HasColumnType("char(64)");
             entity.Property(t => t.RevokeReason).HasMaxLength(250);
 
             // Optimistic concurrency token for token rotation race condition protection
             entity.Property(t => t.Version).IsRowVersion();
 
-            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasIndex(t => t.TokenHash).IsUnique();
             entity.HasIndex(t => t.UserId);
             entity.HasIndex(t => new { t.UserId, t.ExpiresAt });
 

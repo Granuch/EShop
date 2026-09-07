@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,11 +18,18 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         _context = context;
     }
 
+    /// <summary>
+    /// Takes the plaintext token the client presented and hashes it here, so hashing lives at
+    /// exactly one boundary and no caller has to remember to do it. A caller that hashed first
+    /// and passed the digest would double-hash and silently never match.
+    /// </summary>
     public async Task<RefreshTokenEntity?> GetByTokenAsync(string token, CancellationToken cancellationToken = default)
     {
+        var tokenHash = RefreshTokenHasher.Hash(token);
+
         return await _context.RefreshTokens
             .Include(t => t.User)
-            .FirstOrDefaultAsync(t => t.Token == token, cancellationToken);
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
     }
 
     public async Task<IEnumerable<RefreshTokenEntity>> GetActiveTokensByUserIdAsync(string userId, CancellationToken cancellationToken = default)
@@ -74,25 +82,31 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         }
     }
 
-    public async Task<int> RevokeTokenAtomicallyAsync(
-        string token,
+    /// <summary>
+    /// Addressed by hash, unlike <see cref="GetByTokenAsync"/> — see the interface for why.
+    /// Note <c>replacedByTokenHash</c> is a hash for the same reason the token is: this column
+    /// used to store the *new* token in the clear on the old row, so the rotation chain leaked
+    /// successor tokens as well as the current one.
+    /// </summary>
+    public async Task<int> RevokeTokenByHashAtomicallyAsync(
+        string tokenHash,
         DateTime revokedAt,
         string? revokedByIp,
-        string? replacedByToken,
+        string? replacedByTokenHash,
         string revokeReason,
         CancellationToken cancellationToken = default)
     {
         if (_context.Database.IsInMemory())
         {
             var refreshToken = await _context.RefreshTokens
-                .FirstOrDefaultAsync(t => t.Token == token && t.RevokedAt == null && t.ExpiresAt > revokedAt, cancellationToken);
+                .FirstOrDefaultAsync(t => t.TokenHash == tokenHash && t.RevokedAt == null && t.ExpiresAt > revokedAt, cancellationToken);
 
             if (refreshToken == null)
                 return 0;
 
             refreshToken.RevokedAt = revokedAt;
             refreshToken.RevokedByIp = revokedByIp;
-            refreshToken.ReplacedByToken = replacedByToken;
+            refreshToken.ReplacedByTokenHash = replacedByTokenHash;
             refreshToken.RevokeReason = revokeReason;
 
             // Entity is already tracked by EF Core, changes will be saved by CommitTransaction
@@ -101,7 +115,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         else
         {
             var trackedEntity = _context.RefreshTokens.Local
-                .FirstOrDefault(t => t.Token == token);
+                .FirstOrDefault(t => t.TokenHash == tokenHash);
 
             if (trackedEntity != null)
             {
@@ -109,11 +123,11 @@ public class RefreshTokenRepository : IRefreshTokenRepository
             }
 
             return await _context.RefreshTokens
-                .Where(t => t.Token == token && t.RevokedAt == null && t.ExpiresAt > revokedAt)
+                .Where(t => t.TokenHash == tokenHash && t.RevokedAt == null && t.ExpiresAt > revokedAt)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(t => t.RevokedAt, revokedAt)
                     .SetProperty(t => t.RevokedByIp, revokedByIp)
-                    .SetProperty(t => t.ReplacedByToken, replacedByToken)
+                    .SetProperty(t => t.ReplacedByTokenHash, replacedByTokenHash)
                     .SetProperty(t => t.RevokeReason, revokeReason),
                     cancellationToken);
         }

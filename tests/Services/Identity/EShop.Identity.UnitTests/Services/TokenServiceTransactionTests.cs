@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Infrastructure.Services;
@@ -25,7 +26,7 @@ public class TokenServiceTransactionTests
 
         var refreshRepo = new Mock<IRefreshTokenRepository>();
         refreshRepo
-            .Setup(x => x.RevokeTokenAtomicallyAsync(
+            .Setup(x => x.RevokeTokenByHashAtomicallyAsync(
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<string?>(),
@@ -48,7 +49,7 @@ public class TokenServiceTransactionTests
 
         var oldToken = new RefreshTokenEntity
         {
-            Token = "old-token",
+            TokenHash = RefreshTokenHasher.Hash("old-token"),
             UserId = "user-1",
             ExpiresAt = DateTime.UtcNow.AddDays(1)
         };
