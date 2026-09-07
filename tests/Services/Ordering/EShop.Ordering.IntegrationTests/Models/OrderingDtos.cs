@@ -86,6 +86,10 @@ public record ProblemDetailsResponse
     public string? Title { get; init; }
     public string? Detail { get; init; }
     public int Status { get; init; }
+
+    /// <summary>The machine-readable discriminator; see the canonical error envelope.</summary>
+    public string? ErrorCode { get; init; }
+
     public string? TraceId { get; init; }
     public Dictionary<string, string[]>? Errors { get; init; }
 }

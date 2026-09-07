@@ -1,4 +1,5 @@
 using EShop.Catalog.Application.Categories.Commands.CreateCategory;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Catalog.Application.Categories.Commands.DeleteCategory;
 using EShop.Catalog.Application.Categories.Commands.UpdateCategory;
 using EShop.Catalog.Application.Categories.Queries.GetCategories;
@@ -27,10 +28,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("GetCategories")
         .Produces<object>(StatusCodes.Status200OK)
@@ -43,10 +41,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("GetCategoryById")
         .Produces<object>(StatusCodes.Status200OK)
@@ -59,10 +54,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("GetProductsByCategory")
         .Produces<object>(StatusCodes.Status200OK)
@@ -75,10 +67,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/categories/{value}", new { id = value }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CreateCategory")
         .RequireAuthorization("Admin")
@@ -89,19 +78,16 @@ public static class CategoryEndpoints
         group.MapPut("/{id:guid}", async (Guid id, UpdateCategoryCommand command, IMediator mediator) =>
         {
             if (id != command.Id)
-                return Results.Problem(
-                    detail: "Route ID does not match command ID.",
-                    title: "Validation.IdMismatch",
-                    statusCode: StatusCodes.Status400BadRequest);
+                return ProblemResults.For(
+                    "Validation.IdMismatch",
+                    "Route ID does not match command ID.",
+                    StatusCodes.Status400BadRequest);
 
             var result = await mediator.Send(command);
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("UpdateCategory")
         .RequireAuthorization("Admin")
@@ -115,10 +101,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("DeleteCategory")
         .RequireAuthorization("Admin")

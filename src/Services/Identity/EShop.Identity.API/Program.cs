@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Identity.Infrastructure.Extensions;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Application.Extensions;
@@ -468,6 +469,11 @@ try
     builder.Services.AddControllers();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
+
+    // Identity has never mapped the DbUpdate* exceptions - preserved as-is.
+    builder.Services.AddEShopProblemDetails(options => options
+        .AddCommon()
+        .AddNotFound());
 
     var app = builder.Build();
 

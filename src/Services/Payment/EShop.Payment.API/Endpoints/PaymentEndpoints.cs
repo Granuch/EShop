@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 using EShop.Payment.Application.Payments.Commands.CreatePayment;
@@ -30,10 +31,10 @@ public static class PaymentEndpoints
         {
             if (!stripeOptions.Value.Enabled)
             {
-                return Results.Problem(
-                    detail: "Stripe payments are not enabled.",
-                    title: "STRIPE_NOT_ENABLED",
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
+                return ProblemResults.For(
+                    "STRIPE_NOT_ENABLED",
+                    "Stripe payments are not enabled.",
+                    StatusCodes.Status503ServiceUnavailable);
             }
 
             if (!TryResolveUserContext(user, out var subjectId, out var authError))
@@ -61,10 +62,9 @@ public static class PaymentEndpoints
                     value.PaymentIntentId,
                     value.ClientSecret,
                     value.Status)),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: error.Code == "PAYMENT_ALREADY_EXISTS"
+                error => ProblemResults.For(
+                    error,
+                    error.Code == "PAYMENT_ALREADY_EXISTS"
                         ? StatusCodes.Status409Conflict
                         : StatusCodes.Status400BadRequest));
         })
@@ -103,10 +103,9 @@ public static class PaymentEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/payments/{value.Id}", ToResponse(value)),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: error.Code == "PAYMENT_ALREADY_EXISTS"
+                error => ProblemResults.For(
+                    error,
+                    error.Code == "PAYMENT_ALREADY_EXISTS"
                         ? StatusCodes.Status409Conflict
                         : StatusCodes.Status400BadRequest));
         })
@@ -132,10 +131,7 @@ public static class PaymentEndpoints
 
             if (result.IsFailure)
             {
-                return Results.Problem(
-                    detail: result.Error!.Message,
-                    title: result.Error.Code,
-                    statusCode: StatusCodes.Status404NotFound);
+                return ProblemResults.For(result.Error!, StatusCodes.Status404NotFound);
             }
 
             var payment = result.Value!;
@@ -163,10 +159,7 @@ public static class PaymentEndpoints
 
             return result.Match(
                 value => Results.Ok(value.Select(ToResponse).ToList()),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithTags("Payments")
         .WithName("GetPaymentsByUser")
@@ -188,10 +181,7 @@ public static class PaymentEndpoints
             var paymentResult = await mediator.Send(new GetPaymentByIdQuery(id), cancellationToken);
             if (paymentResult.IsFailure)
             {
-                return Results.Problem(
-                    detail: paymentResult.Error!.Message,
-                    title: paymentResult.Error.Code,
-                    statusCode: StatusCodes.Status404NotFound);
+                return ProblemResults.For(paymentResult.Error!, StatusCodes.Status404NotFound);
             }
 
             var payment = paymentResult.Value!;
@@ -206,10 +196,9 @@ public static class PaymentEndpoints
 
             return result.Match(
                 value => Results.Ok(ToResponse(value)),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: error.Code switch
+                error => ProblemResults.For(
+                    error,
+                    error.Code switch
                     {
                         "PAYMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
                         "PAYMENT_ALREADY_PROCESSED" => StatusCodes.Status409Conflict,
@@ -263,7 +252,10 @@ public static class PaymentEndpoints
                 if (!stripeSettings.SkipWebhookSignatureVerification
                     || !stripeSettings.AllowMissingSignatureHeaderInBypassMode)
                 {
-                    return Results.BadRequest(new { error = "Missing Stripe-Signature header." });
+                    return ProblemResults.For(
+                        "STRIPE_SIGNATURE_MISSING",
+                        "Missing Stripe-Signature header.",
+                        StatusCodes.Status400BadRequest);
                 }
 
                 signatureHeader = string.Empty;
@@ -281,7 +273,10 @@ public static class PaymentEndpoints
 
             if (string.IsNullOrWhiteSpace(payload))
             {
-                return Results.BadRequest(new { error = "Webhook payload is empty." });
+                return ProblemResults.For(
+                    "STRIPE_PAYLOAD_EMPTY",
+                    "Webhook payload is empty.",
+                    StatusCodes.Status400BadRequest);
             }
 
             try
@@ -302,15 +297,22 @@ public static class PaymentEndpoints
             }
             catch (Exception ex) when (IsStripeWebhookPayloadOrSignatureError(ex))
             {
-                return Results.BadRequest(new { error = ex.Message });
+                // Detail carries Stripe's own message. That is a third-party library string
+                // rather than one of ours, so it sits on the wrong side of the "our strings yes,
+                // framework strings no" rule - but it is pre-existing behaviour and useful to a
+                // webhook integrator, so it is preserved here rather than changed silently.
+                return ProblemResults.For(
+                    "STRIPE_WEBHOOK_INVALID",
+                    ex.Message,
+                    StatusCodes.Status400BadRequest);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Stripe webhook processing failed due to internal error.");
-                return Results.Problem(
-                    detail: "Failed to process Stripe webhook due to an internal error.",
-                    title: "STRIPE_WEBHOOK_PROCESSING_FAILED",
-                    statusCode: StatusCodes.Status500InternalServerError);
+                return ProblemResults.For(
+                    "STRIPE_WEBHOOK_PROCESSING_FAILED",
+                    "Failed to process Stripe webhook due to an internal error.",
+                    StatusCodes.Status500InternalServerError);
             }
         })
         .WithTags("Stripe Webhooks")
@@ -366,10 +368,10 @@ public static class PaymentEndpoints
 
         if (string.IsNullOrWhiteSpace(subjectId))
         {
-            error = Results.Problem(
-                detail: "User identifier not found in authentication claims.",
-                title: "Unauthorized",
-                statusCode: StatusCodes.Status401Unauthorized);
+            error = ProblemResults.For(
+                "Unauthorized",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
             return false;
         }
 

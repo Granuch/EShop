@@ -159,7 +159,7 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.Title.Should().Be("Product.NotFound");
+        problem!.ErrorCode.Should().Be("Product.NotFound");
     }
 
     [Test]
@@ -223,7 +223,7 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
         // Assert — a missing image is a 404, not the 400 a raw DomainException would produce
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.Title.Should().Be("ProductImage.NotFound");
+        problem!.ErrorCode.Should().Be("ProductImage.NotFound");
     }
 
     [Test]
@@ -288,7 +288,7 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.Title.Should().Be("ProductImage.NotFound");
+        problem!.ErrorCode.Should().Be("ProductImage.NotFound");
     }
 
     [Test]
@@ -330,7 +330,7 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.Title.Should().Be("Product.NotFound");
+        problem!.ErrorCode.Should().Be("Product.NotFound");
     }
 
     [Test]

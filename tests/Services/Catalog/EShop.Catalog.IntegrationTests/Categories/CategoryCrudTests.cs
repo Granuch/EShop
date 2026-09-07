@@ -277,7 +277,7 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Category.HasProducts");
+        problem!.ErrorCode.Should().Be("Category.HasProducts");
     }
 
     [Test]

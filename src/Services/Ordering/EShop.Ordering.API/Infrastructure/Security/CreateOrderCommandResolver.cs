@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 
 namespace EShop.Ordering.API.Infrastructure.Security;
@@ -23,20 +24,20 @@ public static class CreateOrderCommandResolver
         {
             if (string.IsNullOrWhiteSpace(subjectId))
             {
-                error = Results.Problem(
-                    detail: "User identifier not found in authentication claims.",
-                    title: "Unauthorized",
-                    statusCode: StatusCodes.Status401Unauthorized);
+                error = ProblemResults.For(
+                    "Unauthorized",
+                    "User identifier not found in authentication claims.",
+                    StatusCodes.Status401Unauthorized);
                 return false;
             }
 
             if (!string.IsNullOrWhiteSpace(command.UserId) &&
                 !string.Equals(command.UserId, subjectId, StringComparison.OrdinalIgnoreCase))
             {
-                error = Results.Problem(
-                    detail: "You are not allowed to create orders on behalf of other users.",
-                    title: "Forbidden",
-                    statusCode: StatusCodes.Status403Forbidden);
+                error = ProblemResults.For(
+                    "Forbidden",
+                    "You are not allowed to create orders on behalf of other users.",
+                    StatusCodes.Status403Forbidden);
                 return false;
             }
 
@@ -46,10 +47,10 @@ public static class CreateOrderCommandResolver
 
         if (string.IsNullOrWhiteSpace(command.UserId))
         {
-            error = Results.Problem(
-                detail: "UserId is required for admin order creation.",
-                title: "Validation.UserIdRequired",
-                statusCode: StatusCodes.Status400BadRequest);
+            error = ProblemResults.For(
+                "Validation.UserIdRequired",
+                "UserId is required for admin order creation.",
+                StatusCodes.Status400BadRequest);
             return false;
         }
 

@@ -17,7 +17,7 @@ namespace EShop.Identity.API.Controllers;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Authorize]
-public class AccountController : ControllerBase
+public class AccountController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<AccountController> _logger;
@@ -39,7 +39,10 @@ public class AccountController : ControllerBase
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var query = new GetProfileQuery { UserId = userId };
@@ -47,7 +50,7 @@ public class AccountController : ControllerBase
 
         if (result.IsFailure)
         {
-            return NotFound(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -64,7 +67,10 @@ public class AccountController : ControllerBase
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new UpdateProfileCommand
@@ -79,7 +85,7 @@ public class AccountController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -96,7 +102,10 @@ public class AccountController : ControllerBase
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new ChangePasswordCommand
@@ -110,7 +119,7 @@ public class AccountController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -127,7 +136,10 @@ public class AccountController : ControllerBase
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new Enable2FACommand { UserId = userId };
@@ -135,7 +147,7 @@ public class AccountController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -152,7 +164,10 @@ public class AccountController : ControllerBase
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new Verify2FACommand
@@ -165,7 +180,7 @@ public class AccountController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -182,7 +197,10 @@ public class AccountController : ControllerBase
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new Disable2FACommand
@@ -195,7 +213,7 @@ public class AccountController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);

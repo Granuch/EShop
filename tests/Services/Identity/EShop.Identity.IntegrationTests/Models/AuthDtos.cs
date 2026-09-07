@@ -132,8 +132,17 @@ public record Verify2FAResponse
     public string Message { get; init; } = string.Empty;
 }
 
-public record ErrorResponse
+/// <summary>
+/// The canonical RFC 7807 envelope. Replaces the old anonymous <c>{ error, message }</c> shape:
+/// the machine code is now <see cref="ErrorCode"/>, and the human message is <see cref="Detail"/>.
+/// </summary>
+public record ProblemDetailsResponse
 {
-    public string error { get; init; } = string.Empty;
-    public string message { get; init; } = string.Empty;
+    public string? Type { get; init; }
+    public string? Title { get; init; }
+    public string? Detail { get; init; }
+    public int Status { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? TraceId { get; init; }
+    public Dictionary<string, string[]>? Errors { get; init; }
 }

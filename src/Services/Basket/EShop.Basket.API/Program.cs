@@ -1,12 +1,12 @@
 using EShop.Basket.API.Endpoints;
 using EShop.Basket.API.Infrastructure.Configuration;
 using EShop.Basket.API.Infrastructure.HealthChecks;
-using EShop.Basket.API.Infrastructure.Middleware;
 using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Extensions;
 using EShop.Basket.Infrastructure.Caching;
 using EShop.Basket.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -180,6 +180,10 @@ builder.Services.AddHealthChecks()
 // Add OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+
+// Basket has never had a NotFoundException branch - its 404s come from the endpoints'
+// ProblemFromError helper, not from exceptions. AddNotFound() is deliberately not registered.
+builder.Services.AddEShopProblemDetails(options => options.AddCommon());
 
 var app = builder.Build();
 

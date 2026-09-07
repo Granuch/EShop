@@ -8,6 +8,7 @@ using EShop.Ordering.Application.Orders.Queries.GetOrderById;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 using EShop.Ordering.API.Infrastructure.Security;
+using EShop.BuildingBlocks.Infrastructure.Http;
 
 namespace EShop.Ordering.API.Endpoints;
 
@@ -35,10 +36,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/orders/{value}", new { id = value }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CreateOrder")
         .RequireAuthorization()
@@ -52,10 +50,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("GetOrderById")
         .RequireAuthorization("OrderOwnerOrAdmin")
@@ -69,10 +64,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("GetOrders")
         .RequireAuthorization("Admin")
@@ -87,10 +79,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithTags("Orders")
         .WithName("GetOrdersByUser")
@@ -102,19 +91,16 @@ public static class OrderEndpoints
         group.MapPost("/{id:guid}/items", async (Guid id, AddOrderItemCommand command, IMediator mediator) =>
         {
             if (id != command.OrderId)
-                return Results.Problem(
-                    detail: "Route ID does not match command ID.",
-                    title: "Validation.IdMismatch",
-                    statusCode: StatusCodes.Status400BadRequest);
+                return ProblemResults.For(
+                    "Validation.IdMismatch",
+                    "Route ID does not match command ID.",
+                    StatusCodes.Status400BadRequest);
 
             var result = await mediator.Send(command);
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("AddOrderItem")
         .RequireAuthorization("OrderOwnerOrAdmin")
@@ -128,10 +114,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("RemoveOrderItem")
         .RequireAuthorization("OrderOwnerOrAdmin")
@@ -145,10 +128,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CancelOrder")
         .RequireAuthorization("OrderOwnerOrAdmin")
@@ -162,10 +142,9 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: error.Code switch
+                error => ProblemResults.For(
+                    error,
+                    error.Code switch
                     {
                         "Order.NotFound" => StatusCodes.Status404NotFound,
                         "Order.NotPaidYet" => StatusCodes.Status409Conflict,

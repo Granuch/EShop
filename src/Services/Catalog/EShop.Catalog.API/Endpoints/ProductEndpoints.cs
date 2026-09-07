@@ -1,4 +1,5 @@
 using MediatR;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Application;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
@@ -31,10 +32,9 @@ public static class ProductEndpoints
     /// changing their codes would alter existing contract behaviour (e.g. Product.SkuConflict).
     /// </summary>
     private static IResult ProblemForError(Error error)
-        => Results.Problem(
-            detail: error.Message,
-            title: error.Code,
-            statusCode: error.Code.EndsWith(".NotFound", StringComparison.Ordinal)
+        => ProblemResults.For(
+            error,
+            error.Code.EndsWith(".NotFound", StringComparison.Ordinal)
                 ? StatusCodes.Status404NotFound
                 : StatusCodes.Status400BadRequest);
 
@@ -50,10 +50,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("GetProducts")
         .RequireRateLimiting("search")
@@ -84,10 +81,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/products/{value}", new { id = value }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CreateProduct")
         .RequireAuthorization("Admin")
@@ -98,19 +92,16 @@ public static class ProductEndpoints
         group.MapPut("/{id:guid}", async (Guid id, UpdateProductCommand command, IMediator mediator) =>
         {
             if (id != command.ProductId)
-                return Results.Problem(
-                    detail: "Route ID does not match command ID.",
-                    title: "Validation.IdMismatch",
-                    statusCode: StatusCodes.Status400BadRequest);
+                return ProblemResults.For(
+                    "Validation.IdMismatch",
+                    "Route ID does not match command ID.",
+                    StatusCodes.Status400BadRequest);
 
             var result = await mediator.Send(command);
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("UpdateProduct")
         .RequireAuthorization("Admin")
@@ -124,10 +115,7 @@ public static class ProductEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("DeleteProduct")
         .RequireAuthorization("Admin")

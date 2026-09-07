@@ -172,9 +172,10 @@ public class SecurityTests : IntegrationTestBase
         // Trigger a problem details response (non-existent product)
         var response = await Client.GetAsync($"{ProductsEndpoint}/{Guid.NewGuid()}");
 
-        // The middleware returns application/problem+json
+        // Both the Result-failure path and the exception path emit the canonical RFC 7807
+        // envelope, so this is now exact rather than "either shape will do".
         var contentType = response.Content.Headers.ContentType?.MediaType;
-        contentType.Should().BeOneOf("application/problem+json", "application/json");
+        contentType.Should().Be("application/problem+json");
     }
 
     #endregion

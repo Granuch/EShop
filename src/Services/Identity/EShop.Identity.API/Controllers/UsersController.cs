@@ -7,7 +7,7 @@ namespace EShop.Identity.API.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
-public class UsersController : ControllerBase
+public class UsersController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -29,10 +29,10 @@ public class UsersController : ControllerBase
         {
             if (result.Error?.Code == "Validation.Failed")
             {
-                return BadRequest(new { error = result.Error.Code, message = result.Error.Message });
+                return ProblemForError(result.Error.Code, result.Error.Message, StatusCodes.Status400BadRequest);
             }
 
-            return NotFound(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);

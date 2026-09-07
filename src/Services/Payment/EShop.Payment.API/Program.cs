@@ -1,6 +1,6 @@
 using EShop.Payment.API.Endpoints;
 using EShop.Payment.API.Infrastructure.Configuration;
-using EShop.Payment.API.Infrastructure.Middleware;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
@@ -154,6 +154,12 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+
+// Payment maps any DbUpdateException to 409 (no duplicate-key sniff), unlike Catalog/Ordering.
+builder.Services.AddEShopProblemDetails(options => options
+    .AddCommon()
+    .AddNotFound()
+    .AddEfPersistenceConflict());
 
 var app = builder.Build();
 

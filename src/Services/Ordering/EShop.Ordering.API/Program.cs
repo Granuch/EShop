@@ -4,7 +4,7 @@ using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
-using EShop.Ordering.API.Infrastructure.Middleware;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Ordering.API.Infrastructure.Security;
 using EShop.Ordering.Application.Extensions;
 using EShop.Ordering.Infrastructure.Data;
@@ -283,7 +283,15 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
-    var app = builder.Build();
+    // AddEfConcurrency must precede AddEfDuplicateKey: DbUpdateConcurrencyException derives
+// from DbUpdateException, so the broader mapper would otherwise swallow it.
+builder.Services.AddEShopProblemDetails(options => options
+    .AddCommon()
+    .AddNotFound()
+    .AddEfConcurrency()
+    .AddEfDuplicateKey());
+
+var app = builder.Build();
 
     // Apply database migrations automatically
     if (!useInMemoryDb)

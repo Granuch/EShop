@@ -151,6 +151,13 @@ public record ProblemDetailsResponse
     public string? Title { get; init; }
     public string? Detail { get; init; }
     public int Status { get; init; }
+
+    /// <summary>
+    /// The machine-readable discriminator. Previously these assertions read <see cref="Title"/>,
+    /// which under RFC 7807 is a human-readable summary of the status, not an error code.
+    /// </summary>
+    public string? ErrorCode { get; init; }
+
     public string? TraceId { get; init; }
     public Dictionary<string, string[]>? Errors { get; init; }
 }

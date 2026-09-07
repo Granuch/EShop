@@ -17,7 +17,7 @@ namespace EShop.Identity.API.Controllers;
 [ApiController]
 [Route("api/v1/[controller]")]
 [EnableRateLimiting("auth")]
-public class AuthController : ControllerBase
+public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<AuthController> _logger;
@@ -40,7 +40,7 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -64,10 +64,10 @@ public class AuthController : ControllerBase
         {
             if (result.Error?.Code == "Validation.Failed")
             {
-                return BadRequest(new { error = result.Error.Code, message = result.Error.Message });
+                return ProblemForError(result.Error.Code, result.Error.Message, StatusCodes.Status400BadRequest);
             }
 
-            return Unauthorized(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status401Unauthorized);
         }
 
         return Ok(result.Value);
@@ -90,10 +90,10 @@ public class AuthController : ControllerBase
             // Validation errors return BadRequest
             if (result.Error!.Code == "Validation.Failed")
             {
-                return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+                return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
             }
 
-            return Unauthorized(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status401Unauthorized);
         }
 
         return Ok(result.Value);
@@ -117,7 +117,7 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return NoContent();
@@ -135,7 +135,7 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -156,7 +156,7 @@ public class AuthController : ControllerBase
         // For validation errors, return BadRequest
         if (result.IsFailure && result.Error!.Code == "Validation.Failed")
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         // For all other cases (including user not found), return success to prevent email enumeration
@@ -183,7 +183,7 @@ public class AuthController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);

@@ -52,7 +52,7 @@ public class GetProductByIdTests : IntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Product.NotFound");
+        problem!.ErrorCode.Should().Be("Product.NotFound");
     }
 
     [Test]
@@ -81,6 +81,6 @@ public class GetProductByIdTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.Title.Should().Be("Validation.Failed");
+        problem!.ErrorCode.Should().Be("Validation.Failed");
     }
 }

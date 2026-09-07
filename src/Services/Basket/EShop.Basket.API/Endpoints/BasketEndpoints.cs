@@ -6,6 +6,7 @@ using EShop.Basket.Application.Commands.RemoveBasketItem;
 using EShop.Basket.Application.Commands.UpdateBasketItemQuantity;
 using EShop.Basket.Application.Queries.GetBasket;
 using EShop.Basket.API.Infrastructure.Security;
+using EShop.BuildingBlocks.Infrastructure.Http;
 
 namespace EShop.Basket.API.Endpoints;
 
@@ -28,10 +29,7 @@ public static class BasketEndpoints
                 basket => basket is null
                     ? Results.NotFound()
                     : Results.Ok(basket),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("GetBasket")
         .Produces<BasketDto>(StatusCodes.Status200OK)
@@ -51,10 +49,7 @@ public static class BasketEndpoints
 
             return result.Match(
                 _ => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("AddItemToBasket")
         .Produces(StatusCodes.Status204NoContent)
@@ -110,10 +105,7 @@ public static class BasketEndpoints
 
             return result.Match(
                 _ => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("ClearBasket")
         .Produces(StatusCodes.Status204NoContent)
@@ -133,10 +125,7 @@ public static class BasketEndpoints
 
             return result.Match(
                 checkoutId => Results.Ok(new { checkoutId }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CheckoutBasket")
         .Produces<object>(StatusCodes.Status200OK)
@@ -149,10 +138,7 @@ public static class BasketEndpoints
             ? StatusCodes.Status404NotFound
             : StatusCodes.Status400BadRequest;
 
-        return Results.Problem(
-            detail: errorMessage,
-            title: errorCode,
-            statusCode: statusCode);
+        return ProblemResults.For(errorCode, errorMessage, statusCode);
     }
 }
 

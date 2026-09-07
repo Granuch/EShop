@@ -8,7 +8,7 @@ using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Catalog.API.Endpoints;
 using EShop.Catalog.API.Infrastructure.Configuration;
 using EShop.Catalog.API.Infrastructure.HealthChecks;
-using EShop.Catalog.API.Infrastructure.Middleware;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Catalog.Application.Extensions;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Infrastructure.Caching;
@@ -335,7 +335,17 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
-    var app = builder.Build();
+    // Catalog has the widest branch set. AddEfConcurrency must precede AddEfDuplicateKey
+// (DbUpdateConcurrencyException derives from DbUpdateException). AddMalformedJsonBody
+// pairs with ThrowOnBadRequest + UnmappedMemberHandling.Disallow configured above.
+builder.Services.AddEShopProblemDetails(options => options
+    .AddCommon()
+    .AddNotFound()
+    .AddEfConcurrency()
+    .AddEfDuplicateKey()
+    .AddMalformedJsonBody());
+
+var app = builder.Build();
 
     // Apply database migrations automatically
     if (!useInMemoryDb)

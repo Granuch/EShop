@@ -7,6 +7,7 @@ using EShop.ApiGateway.Middleware;
 using EShop.ApiGateway.Notifications;
 using EShop.ApiGateway.Simulation;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -206,6 +207,11 @@ builder.Services.AddHealthChecks()
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+
+// Fallback-only: the gateway proxies rather than executing domain logic, so it has never
+// mapped ValidationException/DomainException/UnauthorizedAccessException itself. Registering
+// AddCommon() here would silently reclassify a proxied UnauthorizedAccessException from 500.
+builder.Services.AddEShopProblemDetails();
 
 var app = builder.Build();
 

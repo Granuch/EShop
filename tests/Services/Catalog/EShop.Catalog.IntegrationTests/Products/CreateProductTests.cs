@@ -74,7 +74,7 @@ public class CreateProductTests : AuthenticatedIntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Product.SkuConflict");
+        problem!.ErrorCode.Should().Be("Product.SkuConflict");
     }
 
     [Test]
@@ -98,7 +98,7 @@ public class CreateProductTests : AuthenticatedIntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Category.NotFound");
+        problem!.ErrorCode.Should().Be("Category.NotFound");
     }
 
     [Test]

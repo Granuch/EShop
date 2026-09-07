@@ -11,7 +11,7 @@ namespace EShop.Identity.API.Controllers;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Authorize(Roles = "Admin")]
-public class RolesController : ControllerBase
+public class RolesController : ApiControllerBase
 {
     private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly UserManager<ApplicationUser> _userManager;
@@ -56,7 +56,7 @@ public class RolesController : ControllerBase
 
         if (role == null)
         {
-            return NotFound(new { error = "Role.NotFound", message = "Role not found" });
+            return ProblemForError("Role.NotFound", "Role not found", StatusCodes.Status404NotFound);
         }
 
         return Ok(new RoleResponse
@@ -77,7 +77,7 @@ public class RolesController : ControllerBase
     {
         if (await _roleManager.RoleExistsAsync(request.Name))
         {
-            return BadRequest(new { error = "Role.Exists", message = "Role already exists" });
+            return ProblemForError("Role.Exists", "Role already exists", StatusCodes.Status400BadRequest);
         }
 
         var role = new ApplicationRole
@@ -91,7 +91,7 @@ public class RolesController : ControllerBase
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            return BadRequest(new { error = "Role.CreateFailed", message = errors });
+            return ProblemForError("Role.CreateFailed", errors, StatusCodes.Status400BadRequest);
         }
 
         _logger.LogInformation("Role created: {RoleName}", role.Name);
@@ -116,7 +116,7 @@ public class RolesController : ControllerBase
 
         if (role == null)
         {
-            return NotFound(new { error = "Role.NotFound", message = "Role not found" });
+            return ProblemForError("Role.NotFound", "Role not found", StatusCodes.Status404NotFound);
         }
 
         role.Description = request.Description;
@@ -126,7 +126,7 @@ public class RolesController : ControllerBase
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            return BadRequest(new { error = "Role.UpdateFailed", message = errors });
+            return ProblemForError("Role.UpdateFailed", errors, StatusCodes.Status400BadRequest);
         }
 
         return NoContent();
@@ -145,13 +145,13 @@ public class RolesController : ControllerBase
 
         if (role == null)
         {
-            return NotFound(new { error = "Role.NotFound", message = "Role not found" });
+            return ProblemForError("Role.NotFound", "Role not found", StatusCodes.Status404NotFound);
         }
 
         // Prevent deletion of system roles
         if (role.Name == "Admin" || role.Name == "User")
         {
-            return BadRequest(new { error = "Role.CannotDelete", message = "Cannot delete system roles" });
+            return ProblemForError("Role.CannotDelete", "Cannot delete system roles", StatusCodes.Status400BadRequest);
         }
 
         var result = await _roleManager.DeleteAsync(role);
@@ -159,7 +159,7 @@ public class RolesController : ControllerBase
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            return BadRequest(new { error = "Role.DeleteFailed", message = errors });
+            return ProblemForError("Role.DeleteFailed", errors, StatusCodes.Status400BadRequest);
         }
 
         _logger.LogInformation("Role deleted: {RoleName}", role.Name);
@@ -199,12 +199,12 @@ public class RolesController : ControllerBase
 
         if (user == null)
         {
-            return NotFound(new { error = "User.NotFound", message = "User not found" });
+            return ProblemForError("User.NotFound", "User not found", StatusCodes.Status404NotFound);
         }
 
         if (!await _roleManager.RoleExistsAsync(roleName))
         {
-            return NotFound(new { error = "Role.NotFound", message = "Role not found" });
+            return ProblemForError("Role.NotFound", "Role not found", StatusCodes.Status404NotFound);
         }
 
         var result = await _userManager.AddToRoleAsync(user, roleName);
@@ -212,7 +212,7 @@ public class RolesController : ControllerBase
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            return BadRequest(new { error = "Role.AddUserFailed", message = errors });
+            return ProblemForError("Role.AddUserFailed", errors, StatusCodes.Status400BadRequest);
         }
 
         _logger.LogInformation("User {UserId} added to role {RoleName}", userId, roleName);
@@ -232,7 +232,7 @@ public class RolesController : ControllerBase
 
         if (user == null)
         {
-            return NotFound(new { error = "User.NotFound", message = "User not found" });
+            return ProblemForError("User.NotFound", "User not found", StatusCodes.Status404NotFound);
         }
 
         var result = await _userManager.RemoveFromRoleAsync(user, roleName);
@@ -240,7 +240,7 @@ public class RolesController : ControllerBase
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            return BadRequest(new { error = "Role.RemoveUserFailed", message = errors });
+            return ProblemForError("Role.RemoveUserFailed", errors, StatusCodes.Status400BadRequest);
         }
 
         _logger.LogInformation("User {UserId} removed from role {RoleName}", userId, roleName);
