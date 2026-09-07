@@ -48,6 +48,7 @@
   </Folder>
   <Folder Name="/tests/" />
   <Folder Name="/tests/ApiGateways/">
+    <Project Path="tests/ApiGateways/EShop.ApiGateway.IntegrationTests/EShop.ApiGateway.IntegrationTests.csproj" />
     <Project Path="tests/ApiGateways/EShop.ApiGateway.UnitTests/EShop.ApiGateway.UnitTests.csproj" />
   </Folder>
   <Folder Name="/tests/Services/" />
