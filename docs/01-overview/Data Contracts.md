@@ -58,7 +58,7 @@ Base path: `/api/v1/products`, `/api/v1/categories`
 |---|---|---|---|
 | Id | Guid | — | Product identifier |
 | Name | string | yes | Product name |
-| Description | string? | no | Description |
+| Description | string? | no | Description. **Write-once and uncapped** — see the note below the table |
 | Sku | string | yes | SKU |
 | Price | decimal | yes | Price (> 0) |
 | DiscountPrice | decimal? | no | Discounted price |
@@ -68,6 +68,19 @@ Base path: `/api/v1/products`, `/api/v1/categories`
 | Images | ProductImage[] | — | Image gallery |
 | Attributes | ProductAttribute[] | — | `Name`/`Value` pairs (size, color, etc.) |
 | IsDeleted | bool | — | Soft delete flag |
+
+**`Description` is write-once and has no length limit.** Both are deliberate gaps recorded here
+rather than fixed (DEBT-17), because closing either would change the published contract:
+
+- **No update path.** `Description` is set only by `Product.Create` and has a private setter;
+  `UpdateProductCommand` carries only `Price` and `StockQuantity`, and `Product` exposes no method
+  that changes it. Once a product exists its description cannot be edited or cleared. Adding one
+  is a contract change, not a bug fix.
+- **No maximum length.** The column is unbounded `text` and no validator rule caps it, so a client
+  may send an arbitrarily large value. Introducing a cap would start rejecting requests this
+  document currently says are valid.
+- Values are normalised on creation: trimmed, with blank or whitespace-only stored as `null`, so
+  "absent" and "empty string" are indistinguishable in every response.
 
 ### ProductDto (response of `GET /api/v1/products`, list view)
 

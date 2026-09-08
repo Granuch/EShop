@@ -140,7 +140,8 @@ public class ProfileQueryHandlerTests
             .Handle(new GetUserContactQuery { UserId = UserId }, CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
-        Assert.That(result.Value.UserId, Is.EqualTo(UserId));
+        Assert.That(result.Value.Id, Is.EqualTo(UserId),
+            "DEBT-18: the key is Id, matching UserProfileResponse and the login response's UserDto");
         Assert.That(result.Value.Email, Is.EqualTo("user@test.com"));
         AssertCarriesNoSecrets(result.Value);
     }

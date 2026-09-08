@@ -25,7 +25,7 @@ public sealed class GetUserContactQueryHandler : IRequestHandler<GetUserContactQ
 
         return Result<UserContactResponse>.Success(new UserContactResponse
         {
-            UserId = user.Id,
+            Id = user.Id,
             Email = user.Email,
             FirstName = user.FirstName,
             LastName = user.LastName
