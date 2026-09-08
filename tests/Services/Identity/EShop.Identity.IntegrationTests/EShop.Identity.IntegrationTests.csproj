@@ -34,8 +34,4 @@
     <ProjectReference Include="..\..\..\..\src\Services\Identity\EShop.Identity.Domain\EShop.Identity.Domain.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Caching\" />
-  </ItemGroup>
-
 </Project>

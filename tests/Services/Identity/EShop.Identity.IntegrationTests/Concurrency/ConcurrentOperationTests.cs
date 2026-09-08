@@ -92,12 +92,15 @@ public class ConcurrentLoginTests : IntegrationTestBase
 
             var responses = await Task.WhenAll(tasks);
 
-            // Assert - Only one should succeed, others should fail due to concurrency
-                var successCount = responses.Count(r => r.StatusCode == HttpStatusCode.OK);
-                var failureCount = responses.Count(r => r.StatusCode != HttpStatusCode.OK);
+            // Assert - all five requests submit the same original CurrentPassword, so exactly
+            // one can win: whichever commits first invalidates that password for the rest, and
+            // ASP.NET Identity's ConcurrencyStamp check turns any true write race into a failure
+            // rather than a second silent success. The old >=1/>=1 pair passed even if 4 of the
+            // 5 succeeded, which is not "only one should succeed" — the comment above and the
+            // assertion disagreed, and only the comment was in the right.
+            var successCount = responses.Count(r => r.StatusCode == HttpStatusCode.OK);
 
-                successCount.Should().BeGreaterThanOrEqualTo(1, "at least one password change should succeed");
-                failureCount.Should().BeGreaterThanOrEqualTo(1, "some concurrent attempts should fail");
+            successCount.Should().Be(1, "the first commit invalidates the shared CurrentPassword for every other request");
         }
         finally
         {

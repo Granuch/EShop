@@ -69,15 +69,17 @@ public class MetricsTests : IntegrationTestBase
     }
 
     [Test]
-    public async Task MetricsEndpoint_ShouldReturnPrometheusFormat()
+    public async Task MetricsEndpoint_ShouldDocumentIdentityLoginMetric()
     {
-        // Act
+        // The old assertion checked for a bare "# HELP"/"# TYPE" anywhere in the payload, which
+        // is prometheus-net's own exposition framing — true for any metric prometheus-net emits,
+        // including ones this service never registered, so it could not catch our own metric
+        // registration breaking. Pin the HELP/TYPE lines to the metric this service actually owns.
         var metrics = await MetricsHelper.GetPrometheusMetricsAsync(Client);
 
-        // Assert
         metrics.Should().NotBeNullOrEmpty();
-        metrics.Should().Contain("# HELP");
-        metrics.Should().Contain("# TYPE");
+        metrics.Should().MatchRegex(@"# HELP identity_login_attempts_total\b");
+        metrics.Should().MatchRegex(@"# TYPE identity_login_attempts_total\b");
     }
 
     [Test]
@@ -100,12 +102,16 @@ public class MetricsTests : IntegrationTestBase
     }
 
     [Test]
-    public async Task Metrics_ShouldContainStandardDotNetMetrics()
+    public async Task Metrics_ShouldContainDotNetRuntimeMetrics()
     {
-        // Act
+        // The old assertion checked for the substring "dotnet" anywhere in the payload, which
+        // matches on prometheus-net's own DotNetStats naming regardless of what this service
+        // wired up itself, and would also match on unrelated text. Assert a concrete, always
+        // -present runtime series instead, so a dropped runtime-metrics registration actually
+        // fails this rather than passing by coincidence.
         var metrics = await MetricsHelper.GetPrometheusMetricsAsync(Client);
 
-        // Assert - Check for standard .NET metrics
-        metrics.Should().Contain("dotnet", "should contain standard .NET runtime metrics");
+        MetricsHelper.MetricExists(metrics, "dotnet_collection_count_total").Should().BeTrue(
+            "prometheus-net's DotNetStats should publish GC collection counts");
     }
 }

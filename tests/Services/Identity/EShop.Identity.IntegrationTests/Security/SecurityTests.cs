@@ -202,15 +202,10 @@ public class RateLimitingTests : IntegrationTestBase
 [Category("Security")]
 public class SecurityHeadersTests : IntegrationTestBase
 {
-    [Test]
-    public async Task Response_ShouldNotExposeServerInfo()
-    {
-        // Act
-        var response = await Client.GetAsync("/health");
-
-        // Assert - Should not expose server version info
-        response.Headers.Should().NotContain(h => h.Key.Equals("Server", StringComparison.OrdinalIgnoreCase) && h.Value.Any(v => v.Contains("Kestrel")));
-    }
+    // Response_ShouldNotExposeServerInfo was removed here (TEST-05): TestServer never emits a
+    // `Server` header at all, so the assertion passed vacuously regardless of what the real
+    // Kestrel-hosted service does. It belongs in a real-Kestrel test, not a WebApplicationFactory
+    // one — none exists in this repo today, so this is a deletion, not a rewrite.
 
     [Test]
     public async Task ApiEndpoints_ShouldReturnJsonContentType()
@@ -290,9 +285,18 @@ public class InputValidationTests : IntegrationTestBase
 
         // Act
         var response = await Client.PostAsJsonAsync(LoginEndpoint, request);
+        var body = await response.Content.ReadAsStringAsync();
 
-        // Assert - Should return validation error or unauthorized, not data leak
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Unauthorized);
+        // Assert - FluentValidation's EmailAddress() rule accepts this string (it only requires
+        // an "@" and no leading/trailing whitespace, not a strict RFC 5322 grammar), so the
+        // request reaches LoginCommandHandler and is rejected as ordinary invalid credentials.
+        // Pinning both outcomes here (as the old BeOneOf(BadRequest, Unauthorized) did) meant
+        // the test could never fail; a regression that let the string reach the database
+        // undetected would still satisfy it. This asserts the actual current behaviour and
+        // that nothing from the attempted injection leaks back to the client.
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        body.Should().NotContain(TestUsers.Admin.Email, "the response must not echo back account data");
+        body.Should().NotContain("DROP TABLE").And.NotContain("SELECT");
     }
 
     [Test]
@@ -347,7 +351,7 @@ public class InputValidationTests : IntegrationTestBase
     }
 
     [Test]
-    public async Task Register_WithSpecialUnicodeCharacters_ShouldHandleGracefully()
+    public async Task Register_WithSpecialUnicodeCharacters_ShouldReturnBadRequest()
     {
         // Arrange
         var request = new RegisterRequest
@@ -361,7 +365,12 @@ public class InputValidationTests : IntegrationTestBase
         // Act
         var response = await Client.PostAsJsonAsync(RegisterEndpoint, request);
 
-        // Assert - Should either accept or reject gracefully (depends on validation rules)
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.BadRequest);
+        // Assert - RegisterCommandValidator's name rule is `^[a-zA-Z\s'-]+$`, which is
+        // ASCII-only, so an accented name is deterministically rejected. The old
+        // BeOneOf(OK, BadRequest) accepted either outcome and could not have caught the
+        // validator becoming stricter or looser. This pins the actual current contract;
+        // if EShop ever intends to accept accented names, this test — not the assertion
+        // shape — is what should change.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }
