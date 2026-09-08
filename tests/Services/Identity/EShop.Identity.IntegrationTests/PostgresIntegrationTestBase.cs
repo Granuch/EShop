@@ -16,8 +16,9 @@ namespace EShop.Identity.IntegrationTests;
 ///
 /// <para>
 /// Everything else belongs on <see cref="IntegrationTestBase"/>. A Postgres fixture pays for a
-/// database plus the full migration chain per test method, so moving a fixture here that does not
-/// need it is a pure runtime cost.
+/// cloned database per test method — not the migration chain, which the template database applies
+/// once per run — so moving a fixture here that does not need it costs a <c>CREATE DATABASE</c>
+/// rather than the ~1.7 s it once did.
 /// </para>
 /// </summary>
 [Category("Postgres")]
