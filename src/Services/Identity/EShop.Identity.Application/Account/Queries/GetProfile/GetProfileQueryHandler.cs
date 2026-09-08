@@ -28,7 +28,12 @@ public class GetProfileQueryHandler : IRequestHandler<GetProfileQuery, Result<Us
 
         if (!user.IsActive)
         {
-            return Result<UserProfileResponse>.Failure(new Error("Account.Disabled", "Account is disabled"));
+            // Auth.AccountDisabled, not Account.Disabled: ChangePassword, ResetPassword and
+            // RefreshToken all answer the former for this exact state, and a client cannot be
+            // expected to know that reading a profile names the condition differently from
+            // changing a password. The HTTP status is unaffected — the controller passes 404
+            // explicitly for every error from this query.
+            return Result<UserProfileResponse>.Failure(new Error("Auth.AccountDisabled", "Account is disabled"));
         }
 
         var roles = await _userManager.GetRolesAsync(user);

@@ -349,7 +349,7 @@ public class InputValidationTests : IntegrationTestBase
     }
 
     [Test]
-    public async Task Register_WithSpecialUnicodeCharacters_ShouldReturnBadRequest()
+    public async Task Register_WithNonAsciiName_Succeeds()
     {
         // Arrange
         var request = new RegisterRequest
@@ -363,12 +363,32 @@ public class InputValidationTests : IntegrationTestBase
         // Act
         var response = await Client.PostAsJsonAsync(RegisterEndpoint, request);
 
-        // Assert - RegisterCommandValidator's name rule is `^[a-zA-Z\s'-]+$`, which is
-        // ASCII-only, so an accented name is deterministically rejected. The old
-        // BeOneOf(OK, BadRequest) accepted either outcome and could not have caught the
-        // validator becoming stricter or looser. This pins the actual current contract;
-        // if EShop ever intends to accept accented names, this test — not the assertion
-        // shape — is what should change.
+        // Assert - the name rule is PersonNameRules.Pattern, which admits any Unicode letter.
+        // It was `^[a-zA-Z\s'-]+$` until that was fixed, and this test asserted the rejection;
+        // the comment then said that if EShop ever intended to accept accented names, this test
+        // was what should change. It has. Registration is end to end here, so this also proves
+        // the name survives the varchar(50) columns, which count characters rather than bytes.
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// The other half: widening to Unicode letters must not admit invisible formatting characters.
+    /// A right-to-left override reverses how the remainder of a name renders wherever it is shown,
+    /// which is a display-spoofing primitive rather than a name.
+    /// </summary>
+    [Test]
+    public async Task Register_WithABidiOverrideInTheName_ShouldReturnBadRequest()
+    {
+        var request = new RegisterRequest
+        {
+            Email = $"bidi_{Guid.NewGuid()}@test.com",
+            Password = "Test@123456",
+            FirstName = "Ab‮cd",
+            LastName = "Normal"
+        };
+
+        var response = await Client.PostAsJsonAsync(RegisterEndpoint, request);
+
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }

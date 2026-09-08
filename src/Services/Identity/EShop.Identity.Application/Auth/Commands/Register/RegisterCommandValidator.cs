@@ -1,3 +1,4 @@
+using EShop.Identity.Application.Validation;
 using FluentValidation;
 
 namespace EShop.Identity.Application.Auth.Commands.Register;
@@ -23,14 +24,18 @@ public class RegisterCommandValidator : AbstractValidator<RegisterCommand>
             .Matches("[0-9]").WithMessage("Password must contain at least one digit")
             .Matches("[^a-zA-Z0-9]").WithMessage("Password must contain at least one special character");
 
+        // Name rules come from PersonNameRules so this validator and UpdateProfileCommandValidator
+        // cannot drift — they used to hold four separate copies of the same regex.
         RuleFor(x => x.FirstName)
             .NotEmpty().WithMessage("First name is required")
-            .MaximumLength(50).WithMessage("First name must not exceed 50 characters")
-            .Matches("^[a-zA-Z\\s'-]+$").WithMessage("First name can only contain letters, spaces, hyphens, and apostrophes");
+            .MaximumLength(PersonNameRules.MaxLength)
+                .WithMessage($"First name must not exceed {PersonNameRules.MaxLength} characters")
+            .Matches(PersonNameRules.Pattern).WithMessage($"First name {PersonNameRules.Message}");
 
         RuleFor(x => x.LastName)
             .NotEmpty().WithMessage("Last name is required")
-            .MaximumLength(50).WithMessage("Last name must not exceed 50 characters")
-            .Matches("^[a-zA-Z\\s'-]+$").WithMessage("Last name can only contain letters, spaces, hyphens, and apostrophes");
+            .MaximumLength(PersonNameRules.MaxLength)
+                .WithMessage($"Last name must not exceed {PersonNameRules.MaxLength} characters")
+            .Matches(PersonNameRules.Pattern).WithMessage($"Last name {PersonNameRules.Message}");
     }
 }

@@ -91,12 +91,13 @@ public class ProfileQueryHandlerTests
     }
 
     /// <summary>
-    /// Note the code is <c>Account.Disabled</c> here while the password handlers answer
-    /// <c>Auth.AccountDisabled</c> for the same state. That inconsistency is pinned rather than
-    /// fixed: both are published contract, and aligning them is a client-visible change.
+    /// The code must match what the password and refresh handlers answer for the same state.
+    /// This query used to return <c>Account.Disabled</c> while those three returned
+    /// <c>Auth.AccountDisabled</c>, so a client had to special-case one endpoint to recognise a
+    /// condition that is identical everywhere else.
     /// </summary>
     [Test]
-    public async Task GetProfile_ForADeactivatedAccount_IsRefused()
+    public async Task GetProfile_ForADeactivatedAccount_IsRefusedWithTheSameCodeAsEverywhereElse()
     {
         var user = ActiveUser();
         user.Deactivate();
@@ -107,7 +108,8 @@ public class ProfileQueryHandlerTests
             .Handle(new GetProfileQuery { UserId = UserId }, CancellationToken.None);
 
         Assert.That(result.IsFailure, Is.True);
-        Assert.That(result.Error!.Code, Is.EqualTo("Account.Disabled"));
+        Assert.That(result.Error!.Code, Is.EqualTo("Auth.AccountDisabled"),
+            "must match ChangePassword, ResetPassword and RefreshToken for the same account state");
     }
 
     [Test]
