@@ -180,9 +180,6 @@ try
             options.ConfigurationOptions.ConnectRetry = 3;
             options.ConfigurationOptions.KeepAlive = 60;
             options.ConfigurationOptions.ReconnectRetryPolicy = new StackExchange.Redis.LinearRetry(5000);
-
-            // Enable command logging for troubleshooting (disable in production if not needed)
-            // options.ConfigurationOptions.ClientName = $"EShop_Identity_{Environment.MachineName}";
         });
 
         builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ =>
