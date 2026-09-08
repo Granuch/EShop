@@ -23,11 +23,6 @@ public interface ITokenService
     Task<string> GenerateRefreshTokenAsync(string userId, string ipAddress, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Validates the given access token
-    /// </summary>
-    Task<bool> ValidateTokenAsync(string token, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Revokes the given refresh token
     /// </summary>
     Task RevokeTokenAsync(string token, string ipAddress, CancellationToken cancellationToken = default);

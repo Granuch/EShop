@@ -18,21 +18,6 @@ public interface IUserRepository
     Task<ApplicationUser?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
     
     /// <summary>
-    /// Gets a user by OAuth provider ID
-    /// </summary>
-    Task<ApplicationUser?> GetByOAuthProviderAsync(string provider, string providerId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Creates a new user with password
-    /// </summary>
-    Task<ApplicationUser> CreateAsync(ApplicationUser user, string password, CancellationToken cancellationToken = default);
-    
-    /// <summary>
-    /// Updates an existing user
-    /// </summary>
-    Task UpdateAsync(ApplicationUser user, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Records successful-login bookkeeping (<c>LastLoginAt</c>/<c>LastLoginIp</c>) as a single
     /// server-side UPDATE that carries <b>no</b> concurrency token and leaves nothing in the
     /// change tracker.
@@ -65,11 +50,6 @@ public interface IUserRepository
     /// Soft deletes a user
     /// </summary>
     Task DeleteAsync(ApplicationUser user, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Adds a user to a role
-    /// </summary>
-    Task AddToRoleAsync(ApplicationUser user, string role, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all roles for a user

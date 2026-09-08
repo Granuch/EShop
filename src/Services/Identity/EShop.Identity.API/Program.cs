@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using System.Net;
@@ -293,7 +294,23 @@ try
             ValidIssuer = jwtSettings.Issuer,
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+
+            // API-12. Pin the algorithm and require a signature. Without ValidAlgorithms the
+            // handler accepts any algorithm the key can satisfy, which is the family of confusion
+            // attacks this setting exists to close; RequireSignedTokens makes an unsigned token an
+            // explicit rejection rather than something that depends on other settings lining up.
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+            RequireSignedTokens = true,
+
+            // MapInboundClaims (default true) is load-bearing here and was previously implicit:
+            // TokenService writes JwtRegisteredClaimNames.Sub, GetCurrentUserId() reads
+            // ClaimTypes.NameIdentifier, and the pair only agree because the default inbound
+            // mapper rewrites sub -> nameidentifier. Stating the claim types makes the dependency
+            // visible instead of accidental — turning MapInboundClaims off without also setting
+            // these would silently break every GetCurrentUserId() call.
+            NameClaimType = ClaimTypes.NameIdentifier,
+            RoleClaimType = ClaimTypes.Role
         };
     });
 
@@ -490,7 +507,10 @@ try
                     maxMigrationAttempts,
                     migrationDelay);
 
-                await Task.Delay(migrationDelay);
+                // API-13. Honour shutdown: without a token this loop can hold a failing boot
+                // open for up to 40s (8 attempts x linear backoff) after Ctrl+C or a
+                // container stop, which reads as a hung process rather than a failed one.
+                await Task.Delay(migrationDelay, app.Lifetime.ApplicationStopping);
                 migrationDelay += TimeSpan.FromSeconds(5);
             }
             catch (Exception ex)
@@ -512,25 +532,6 @@ try
     {
         app.UseForwardedHeaders();
     }
-
-static bool IsPostgresStartupException(Exception exception)
-{
-    if (exception is PostgresException { SqlState: "57P03" })
-    {
-        return true;
-    }
-
-    return exception.InnerException is not null
-        && IsPostgresStartupException(exception.InnerException);
-}
-
-// Reflection rather than a constant so the BUG-03 rail above disarms itself when the parked
-// email-confirmation feature is finished, instead of becoming a stale flag someone has to
-// remember to flip. Any property on the event whose name ends in "ConfirmationToken" counts.
-static bool EmailConfirmationTokenIsDelivered() =>
-    typeof(UserRegisteredIntegrationEvent)
-        .GetProperties()
-        .Any(p => p.Name.EndsWith("ConfirmationToken", StringComparison.OrdinalIgnoreCase));
 
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time
@@ -636,8 +637,10 @@ static bool EmailConfirmationTokenIsDelivered() =>
             {
                 register = "POST /api/v1/auth/register",
                 login = "POST /api/v1/auth/login",
-                refresh = "POST /api/v1/auth/refresh",
-                logout = "POST /api/v1/auth/logout"
+                // API-9. These advertised /auth/refresh and /auth/logout, neither of which
+                // exists — AuthController maps refresh-token and revoke-token.
+                refresh = "POST /api/v1/auth/refresh-token",
+                revoke = "POST /api/v1/auth/revoke-token"
             }
         }
     }))
@@ -661,3 +664,27 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+// API-10. These local functions used to sit between two app.Use* calls, which broke the
+// pipeline's top-to-bottom reading order — the one place in this file where order is the
+// meaning. Top-level local functions are in scope for the whole file regardless of where they
+// are declared, so the end is the right home.
+
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
+}
+
+// Reflection rather than a constant so the BUG-03 rail disarms itself when the parked
+// email-confirmation feature is finished, instead of becoming a stale flag someone has to
+// remember to flip. Any property on the event whose name ends in "ConfirmationToken" counts.
+static bool EmailConfirmationTokenIsDelivered() =>
+    typeof(UserRegisteredIntegrationEvent)
+        .GetProperties()
+        .Any(p => p.Name.EndsWith("ConfirmationToken", StringComparison.OrdinalIgnoreCase));

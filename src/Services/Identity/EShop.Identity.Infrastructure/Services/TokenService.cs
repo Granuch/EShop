@@ -135,33 +135,6 @@ public class TokenService : ITokenService
         return tokenString;
     }
 
-    public Task<bool> ValidateTokenAsync(string token, CancellationToken cancellationToken = default)
-    {
-        var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.UTF8.GetBytes(_jwtSettings.SecretKey);
-
-        try
-        {
-            tokenHandler.ValidateToken(token, new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = true,
-                ValidIssuer = _jwtSettings.Issuer,
-                ValidateAudience = true,
-                ValidAudience = _jwtSettings.Audience,
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.Zero
-            }, out _);
-
-            return Task.FromResult(true);
-        }
-        catch
-        {
-            return Task.FromResult(false);
-        }
-    }
-
     public async Task RevokeTokenAsync(string token, string ipAddress, CancellationToken cancellationToken = default)
     {
         var refreshToken = await _refreshTokenRepository.GetByTokenAsync(token, cancellationToken);

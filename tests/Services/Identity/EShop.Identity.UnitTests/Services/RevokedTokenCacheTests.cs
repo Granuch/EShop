@@ -148,23 +148,6 @@ public class RevokedTokenCacheTests
     }
 
     [Test]
-    public async Task RemoveFromRevokedCacheAsync_RemovesCacheEntry()
-    {
-        // Arrange
-        var token = "token-to-remove";
-
-        // Act
-        await _cache.RemoveFromRevokedCacheAsync(token);
-
-        // Assert
-        _cacheMock.Verify(
-            x => x.RemoveAsync(
-                It.Is<string>(k => k.StartsWith("revoked_token:")),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
-    [Test]
     public async Task AddRevokedTokenAsync_WithEmptyToken_DoesNothing()
     {
         // Act

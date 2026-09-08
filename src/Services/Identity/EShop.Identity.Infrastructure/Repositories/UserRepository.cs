@@ -32,37 +32,6 @@ public class UserRepository : IUserRepository
         return await _userManager.FindByEmailAsync(email);
     }
 
-    public async Task<ApplicationUser?> GetByOAuthProviderAsync(string provider, string providerId, CancellationToken cancellationToken = default)
-    {
-        return provider.ToLower() switch
-        {
-            "google" => await _userManager.Users.FirstOrDefaultAsync(u => u.GoogleId == providerId, cancellationToken),
-            "github" => await _userManager.Users.FirstOrDefaultAsync(u => u.GitHubId == providerId, cancellationToken),
-            _ => null
-        };
-    }
-
-    public async Task<ApplicationUser> CreateAsync(ApplicationUser user, string password, CancellationToken cancellationToken = default)
-    {
-        var result = await _userManager.CreateAsync(user, password);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to create user: {errors}");
-        }
-        return user;
-    }
-
-    public async Task UpdateAsync(ApplicationUser user, CancellationToken cancellationToken = default)
-    {
-        var result = await _userManager.UpdateAsync(user);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to update user: {errors}");
-        }
-    }
-
     /// <summary>
     /// See <see cref="IUserRepository.UpdateLastLoginAsync"/> for why this deliberately does not
     /// go through <c>UserManager.UpdateAsync</c>.
@@ -91,19 +60,25 @@ public class UserRepository : IUserRepository
                 cancellationToken);
     }
 
+    /// <summary>
+    /// The only coherent way to retire an account: <see cref="ApplicationUser.SoftDelete"/> moves
+    /// IsActive/IsDeleted/DeletedAt together, and the global query filter then hides the row from
+    /// every query including UserManager's.
+    ///
+    /// <para>
+    /// The persist step is inlined rather than delegated to a repository <c>UpdateAsync</c>, which
+    /// was deleted as unreferenced — this was its only caller.
+    /// </para>
+    /// </summary>
     public async Task DeleteAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
         user.SoftDelete();
-        await UpdateAsync(user, cancellationToken);
-    }
 
-    public async Task AddToRoleAsync(ApplicationUser user, string role, CancellationToken cancellationToken = default)
-    {
-        var result = await _userManager.AddToRoleAsync(user, role);
+        var result = await _userManager.UpdateAsync(user);
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to add role: {errors}");
+            throw new InvalidOperationException($"Failed to soft delete user: {errors}");
         }
     }
 

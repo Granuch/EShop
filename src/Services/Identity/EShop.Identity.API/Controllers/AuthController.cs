@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using MediatR;
@@ -17,6 +18,11 @@ namespace EShop.Identity.API.Controllers;
 [ApiController]
 [Route("api/v1/[controller]")]
 [EnableRateLimiting("auth")]
+// API-8. Anonymous access here is deliberate and now stated. It used to be anonymous purely by
+// the absence of an attribute, which is fine only while no fallback policy exists — adding
+// RequireAuthenticatedUser() as a fallback later would have silently locked out login and
+// registration, i.e. locked every user out of the whole platform.
+[AllowAnonymous]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
