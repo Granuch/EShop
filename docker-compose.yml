@@ -681,17 +681,30 @@ services:
   # ============================================
   # Stripe CLI Listener (Sandbox webhook bridge)
   # ============================================
+  # OPS-03. Two fixes here.
+  #
+  # (1) The tag was `stripe/stripe-cli:v1`, which no longer exists on Docker Hub. Because Compose
+  #     resolves images for the whole profile before starting anything, that one missing tag
+  #     aborted the entire `--profile sandbox` bring-up with `failed to resolve reference ... not
+  #     found` — nothing started, and the error named only the listener. It is pinned to a real
+  #     release below, and moved to its own `stripe` profile so a future tag problem can only take
+  #     down the webhook bridge rather than the whole stack. Start it with
+  #     `docker compose --profile sandbox --profile stripe up -d`.
+  #
+  # (2) The API key was passed as a command argument, so it was readable to anyone who could run
+  #     `docker inspect` or `ps` on the host, and it landed in shell history. The Stripe CLI reads
+  #     STRIPE_API_KEY from the environment, so it goes there instead.
   stripe-listener:
-    image: stripe/stripe-cli:v1
+    image: stripe/stripe-cli:v1.19.4
     container_name: eshop-stripe-listener
     restart: unless-stopped
     depends_on:
       payment-api:
         condition: service_healthy
+    environment:
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-}
     command:
       - listen
-      - --api-key
-      - ${STRIPE_SECRET_KEY:-}
       - --forward-to
       - http://payment-api:8080/webhooks/stripe
       - --events
@@ -699,7 +712,7 @@ services:
     networks:
       - eshop-network
     profiles:
-      - sandbox
+      - stripe
 
   # ============================================
   # PostgreSQL Database for Notification

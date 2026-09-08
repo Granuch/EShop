@@ -49,8 +49,6 @@ public static class IdentityTelemetry
     public static void RecordAccountLocked(string reason) => _metrics?.RecordAccountLocked(reason);
     public static void RecordIpBlocked(string reason) => _metrics?.RecordIpBlocked(reason);
     public static void RecordDistributedAttackDetected() => _metrics?.RecordDistributedAttackDetected();
-    public static void UpdateActiveAccountLocks(int count) => _metrics?.UpdateActiveAccountLocks(count);
-    public static void UpdateActiveIpBlocks(int count) => _metrics?.UpdateActiveIpBlocks(count);
 }
 
 /// <summary>
@@ -86,6 +84,4 @@ public interface IIdentityMetrics
     void RecordAccountLocked(string reason);
     void RecordIpBlocked(string reason);
     void RecordDistributedAttackDetected();
-    void UpdateActiveAccountLocks(int count);
-    void UpdateActiveIpBlocks(int count);
 }

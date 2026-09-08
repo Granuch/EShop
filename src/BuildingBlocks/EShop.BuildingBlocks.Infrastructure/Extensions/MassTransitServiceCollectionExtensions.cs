@@ -56,13 +56,17 @@ public static class MassTransitServiceCollectionExtensions
             return services;
         }
 
-        // R23: Warn if SSL is not enabled in non-development environments
+        // R23: Warn if SSL is not enabled in non-development environments.
+        //
+        // This used to go to System.Diagnostics.Debug.WriteLine, which is compiled out entirely in
+        // Release — so the one warning that mattered could never fire in the only environments it
+        // was written for. It goes to the logger now. Still a warning rather than a throw, to
+        // allow gradual TLS migration.
         if (!isDevelopment && !settings.UseSsl)
         {
-            // Log at startup — do not throw to allow gradual TLS migration
-            System.Diagnostics.Debug.WriteLine(
-                "[SECURITY WARNING] RabbitMQ UseSsl is disabled in a non-Development environment. " +
-                "Enable TLS in production to prevent credential interception.");
+            Serilog.Log.Warning(
+                "[SECURITY] RabbitMQ UseSsl is disabled in a non-Development environment. "
+                + "Enable TLS in production to prevent credential interception.");
         }
 
         services.AddMassTransit(bus =>

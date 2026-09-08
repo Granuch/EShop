@@ -69,14 +69,6 @@ public class IdentityMetrics : IIdentityMetrics
             LabelNames = ["event_type", "reason"]
         });
 
-    private static readonly Gauge AccountLocksActive = Prometheus.Metrics.CreateGauge(
-        "identity_account_locks_active",
-        "Number of currently locked accounts");
-
-    private static readonly Gauge IpBlocksActive = Prometheus.Metrics.CreateGauge(
-        "identity_ip_blocks_active",
-        "Number of currently blocked IP addresses");
-
     private static readonly Counter DistributedAttacksDetected = Prometheus.Metrics.CreateCounter(
         "identity_distributed_attacks_detected_total",
         "Total number of distributed attack patterns detected");
@@ -174,10 +166,4 @@ public class IdentityMetrics : IIdentityMetrics
 
     public void RecordDistributedAttackDetected() =>
         DistributedAttacksDetected.Inc();
-
-    public void UpdateActiveAccountLocks(int count) =>
-        AccountLocksActive.Set(count);
-
-    public void UpdateActiveIpBlocks(int count) =>
-        IpBlocksActive.Set(count);
 }
