@@ -41,15 +41,21 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     private readonly IDistributedCache _cache;
     private readonly ILogger<CachingBehavior<TRequest, TResponse>> _logger;
     private readonly CachingBehaviorOptions _options;
+    private readonly ICacheKeyVersionProvider? _versionProvider;
 
     public CachingBehavior(
         IDistributedCache cache,
         ILogger<CachingBehavior<TRequest, TResponse>> logger,
-        IOptions<CachingBehaviorOptions>? options = null)
+        IOptions<CachingBehaviorOptions>? options = null,
+        ICacheKeyVersionProvider? versionProvider = null)
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? new CachingBehaviorOptions();
+
+        // Optional so a service that caches nothing versioned needs no extra registration; a
+        // query marked IVersionedCacheKey in a host without one simply keys as it did before.
+        _versionProvider = versionProvider;
     }
 
     public async Task<TResponse> Handle(
@@ -63,7 +69,7 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
             return await next();
         }
 
-        var cacheKey = BuildCacheKey(cacheableQuery);
+        var cacheKey = await BuildCacheKeyAsync(cacheableQuery, cancellationToken);
         var requestName = typeof(TRequest).Name;
 
         // Check if TResponse is Result<T>
@@ -182,9 +188,22 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
         return response;
     }
 
-    private string BuildCacheKey(ICacheableQuery query)
+    /// <summary>
+    /// Composes the stored key. The optional family segment (DEBT-16) is what makes a query family
+    /// whose keys cannot be enumerated still invalidatable — see <see cref="IVersionedCacheKey"/>.
+    /// A query that does not implement it, or a host with no
+    /// <see cref="ICacheKeyVersionProvider"/> registered, keys exactly as before.
+    /// </summary>
+    private async Task<string> BuildCacheKeyAsync(ICacheableQuery query, CancellationToken cancellationToken)
     {
         var baseKey = query.CacheKey;
+
+        if (query is IVersionedCacheKey versioned && _versionProvider is not null)
+        {
+            var familyVersion = await _versionProvider.GetVersionAsync(
+                versioned.CacheKeyFamily, cancellationToken);
+            baseKey = $"{versioned.CacheKeyFamily}@{familyVersion}:{baseKey}";
+        }
 
         if (_options.UseVersioning)
         {

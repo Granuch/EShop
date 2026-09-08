@@ -17,7 +17,7 @@ namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 /// Non-nullable value types use nullable wrappers so that [AsParameters] binding
 /// treats them as optional query string parameters. Defaults are applied in the handler.
 /// </summary>
-public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery
+public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey
 {
     public int? PageNumber { get; init; }
     public int? PageSize { get; init; }
@@ -45,6 +45,21 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
         $"products:list:cat={CategoryId}:s={SearchTerm}:min={MinPrice}:max={MaxPrice}" +
         $":sort={EffectiveSortBy}:desc={EffectiveIsDescending}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
         $":cur={Cursor?.Ticks}";
+
+    /// <summary>
+    /// DEBT-16. The key above embeds ten filter/sort/page parameters, so the set of live keys is
+    /// unbounded and no write can name them for exact-key invalidation — list results used to stay
+    /// stale for the full 5-minute TTL after any product change, a fact that had been copy-pasted
+    /// as a comment into four command handlers instead of being fixed.
+    ///
+    /// <para>
+    /// Declaring the family makes <c>CachingBehavior</c> fold the family's current version into
+    /// every key it writes, so a product write bumps one counter and the whole family becomes
+    /// unreachable at once. Note the version is resolved per request, so this costs one extra
+    /// cache read on the list path.
+    /// </para>
+    /// </summary>
+    public string CacheKeyFamily => ProductCacheFamilies.ProductList;
 
     public TimeSpan? CacheDuration => TimeSpan.FromMinutes(5);
     public TimeSpan? SlidingExpiration => null;

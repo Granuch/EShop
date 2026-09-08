@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Application.Abstractions;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
 
@@ -42,10 +43,14 @@ public class AddProductAttributeCommandHandler : IRequestHandler<AddProductAttri
 
         // Invalidate category product-list cache (not covered by ICacheInvalidatingCommand
         // because the command doesn't know the CategoryId at construction time).
-        // The products:list:* family cannot be invalidated at all — ICacheInvalidatingCommand
-        // supports exact keys only and those keys embed every filter/sort/page parameter, so
-        // list results reflect this change only after the 5-minute TTL expires.
         await _cacheInvalidator.InvalidateAsync($"products:category:{product.CategoryId}", cancellationToken);
+
+        // DEBT-16. The products:list:* keys embed every filter/sort/page parameter, so
+        // they cannot be named for exact-key invalidation. Bumping the family version
+        // makes all of them unreachable in one operation instead of leaving list results
+        // stale for the full 5-minute TTL.
+        await _cacheInvalidator.InvalidateFamilyAsync(
+            ProductCacheFamilies.ProductList, cancellationToken);
 
         return Result<Guid>.Success(attributeId);
     }

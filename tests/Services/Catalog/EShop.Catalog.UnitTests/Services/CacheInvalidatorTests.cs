@@ -13,6 +13,7 @@ public class CacheInvalidatorTests
 {
     private Mock<IDistributedCache> _cacheMock = null!;
     private Mock<ILogger<CacheInvalidator>> _loggerMock = null!;
+    private Mock<ICacheKeyVersionProvider> _versionProviderMock = null!;
     private CacheInvalidator _invalidator = null!;
 
     [SetUp]
@@ -29,9 +30,12 @@ public class CacheInvalidatorTests
             DefaultDuration = TimeSpan.FromMinutes(5)
         });
 
+        _versionProviderMock = new Mock<ICacheKeyVersionProvider>();
+
         _invalidator = new CacheInvalidator(
             _cacheMock.Object,
             _loggerMock.Object,
+            _versionProviderMock.Object,
             options);
     }
 
@@ -69,7 +73,8 @@ public class CacheInvalidatorTests
         // Arrange — no options provided
         var invalidator = new CacheInvalidator(
             _cacheMock.Object,
-            _loggerMock.Object);
+            _loggerMock.Object,
+            _versionProviderMock.Object);
 
         // Act
         await invalidator.InvalidateAsync("test-key", CancellationToken.None);

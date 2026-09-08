@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Application.Abstractions;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,13 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         // Invalidate category product-list cache (not covered by ICacheInvalidatingCommand
         // because the command doesn't know the CategoryId at construction time)
         await _cacheInvalidator.InvalidateAsync($"products:category:{product.CategoryId}", cancellationToken);
+
+        // DEBT-16. The products:list:* keys embed every filter/sort/page parameter, so
+        // they cannot be named for exact-key invalidation. Bumping the family version
+        // makes all of them unreachable in one operation instead of leaving list results
+        // stale for the full 5-minute TTL.
+        await _cacheInvalidator.InvalidateFamilyAsync(
+            ProductCacheFamilies.ProductList, cancellationToken);
 
         return Result.Success();
     }

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Telemetry;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -16,15 +17,18 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
     private readonly IProductRepository _productRepository;
     private readonly ICategoryRepository _categoryRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICacheInvalidator _cacheInvalidator;
 
     public CreateProductCommandHandler(
         IProductRepository productRepository,
         ICategoryRepository categoryRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICacheInvalidator cacheInvalidator)
     {
         _productRepository = productRepository;
         _categoryRepository = categoryRepository;
         _unitOfWork = unitOfWork;
+        _cacheInvalidator = cacheInvalidator;
     }
 
     public async Task<Result<Guid>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
@@ -64,6 +68,14 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
         await _productRepository.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // This handler invalidated nothing before DEBT-16, which was the most visible instance of
+        // the stale-list problem: a newly created product did not appear in any cached list for up
+        // to five minutes, so the POST looked like it had silently failed.
+        await _cacheInvalidator.InvalidateAsync(
+            $"products:category:{product.CategoryId}", cancellationToken);
+        await _cacheInvalidator.InvalidateFamilyAsync(
+            ProductCacheFamilies.ProductList, cancellationToken);
 
         activity?.SetTag("product.id", product.Id.ToString());
 

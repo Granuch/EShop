@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
+using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,6 +14,7 @@ public class CreateProductCommandHandlerTests
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<ICategoryRepository> _categoryRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
+    private Mock<ICacheInvalidator> _cacheInvalidatorMock = null!;
     private CreateProductCommandHandler _handler = null!;
 
     [SetUp]
@@ -21,10 +23,12 @@ public class CreateProductCommandHandlerTests
         _productRepositoryMock = new Mock<IProductRepository>();
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
+        _cacheInvalidatorMock = new Mock<ICacheInvalidator>();
         _handler = new CreateProductCommandHandler(
             _productRepositoryMock.Object,
             _categoryRepositoryMock.Object,
-            _unitOfWorkMock.Object);
+            _unitOfWorkMock.Object,
+            _cacheInvalidatorMock.Object);
     }
 
     [Test]

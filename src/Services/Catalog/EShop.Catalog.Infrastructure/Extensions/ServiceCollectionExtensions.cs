@@ -66,6 +66,12 @@ public static class ServiceCollectionExtensions
         // Add cache invalidation abstraction
         services.AddScoped<ICacheInvalidator, CacheInvalidator>();
 
+        // DEBT-16. Backs IVersionedCacheKey, which is how the products:list family is invalidated:
+        // its keys embed every filter/sort/page parameter, so they cannot be enumerated and cannot
+        // be deleted by exact key. Without this registration CachingBehavior silently falls back to
+        // unversioned keys and list results go stale for their full TTL again.
+        services.AddScoped<ICacheKeyVersionProvider, DistributedCacheKeyVersionProvider>();
+
         // Register IUnitOfWork (implemented by CatalogDbContext via BaseDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<CatalogDbContext>());
 

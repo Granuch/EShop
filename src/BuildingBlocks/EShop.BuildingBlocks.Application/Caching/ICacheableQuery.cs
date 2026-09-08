@@ -49,6 +49,51 @@ public abstract class CacheableQuery : ICacheableQuery
 }
 
 /// <summary>
+/// DEBT-16. Marks a cacheable query whose keys <b>cannot</b> be invalidated by exact key.
+///
+/// <para>
+/// <see cref="ICacheInvalidatingCommand"/> only removes keys it can name, and a list query's key
+/// embeds every filter, sort and page parameter — so the set of live keys is unbounded and a write
+/// cannot enumerate them. Catalog's <c>products:list:*</c> family was the case that forced this:
+/// after any product write, list results stayed stale for the full 5-minute TTL, a fact that had
+/// been copy-pasted as a comment into four command handlers rather than fixed.
+/// </para>
+///
+/// <para>
+/// The fix is indirection. <see cref="CachingBehavior"/> folds the family's current version into
+/// every key it writes, so bumping that one counter makes the entire family unreachable in a
+/// single operation, whatever the parameters were. Old entries are not deleted — they simply
+/// stop being addressed and expire on their own TTL, which is the point: no SCAN, no key
+/// enumeration, O(1).
+/// </para>
+/// </summary>
+public interface IVersionedCacheKey
+{
+    /// <summary>
+    /// The family this query's results belong to, e.g. <c>products:list</c>. Every query sharing a
+    /// family is invalidated together, so keep it as narrow as the writes that must evict it.
+    /// </summary>
+    string CacheKeyFamily { get; }
+}
+
+/// <summary>
+/// Reads and bumps the per-family cache version behind <see cref="IVersionedCacheKey"/>.
+///
+/// <para>
+/// The version is itself stored in the distributed cache. A lost version (eviction, restart,
+/// cold Redis) is safe by construction: it restarts from a fresh value, which addresses a new
+/// key space and therefore reads as a miss rather than as stale data.
+/// </para>
+/// </summary>
+public interface ICacheKeyVersionProvider
+{
+    Task<string> GetVersionAsync(string family, CancellationToken cancellationToken = default);
+
+    /// <summary>Makes every key currently in <paramref name="family"/> unreachable.</summary>
+    Task BumpVersionAsync(string family, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Interface for commands that can invalidate cache entries.
 /// Use this on commands that modify data that is cached.
 /// </summary>
