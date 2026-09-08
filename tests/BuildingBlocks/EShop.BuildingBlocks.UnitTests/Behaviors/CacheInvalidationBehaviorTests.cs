@@ -1,7 +1,6 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
-using FluentAssertions;
 using MediatR;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -120,6 +119,6 @@ public class CacheInvalidationBehaviorTests
             _ => Task.FromResult(Result<string>.Success("ok")),
             CancellationToken.None);
 
-        response.IsSuccess.Should().BeTrue();
+        Assert.That(response.IsSuccess, Is.True);
     }
 }

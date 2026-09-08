@@ -1,6 +1,5 @@
 using System.Text.Json;
 using EShop.BuildingBlocks.Infrastructure.Http;
-using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -21,10 +20,10 @@ public class EShopProblemTests
     {
         var problem = EShopProblem.Create(ContextWith("trace-1"), 404, "not found", "Product.NotFound");
 
-        problem.Status.Should().Be(404);
-        problem.Detail.Should().Be("not found");
-        problem.Extensions[EShopProblem.ErrorCodeKey].Should().Be("Product.NotFound");
-        problem.Extensions[EShopProblem.TraceIdKey].Should().Be("trace-1");
+        Assert.That(problem.Status, Is.EqualTo(404));
+        Assert.That(problem.Detail, Is.EqualTo("not found"));
+        Assert.That(problem.Extensions[EShopProblem.ErrorCodeKey], Is.EqualTo("Product.NotFound"));
+        Assert.That(problem.Extensions[EShopProblem.TraceIdKey], Is.EqualTo("trace-1"));
     }
 
     /// <summary>
@@ -38,8 +37,8 @@ public class EShopProblemTests
     {
         var problem = EShopProblem.Create(ContextWith("trace-2"), 400, "bad", "Validation.Failed");
 
-        problem.Type.Should().BeNull();
-        problem.Title.Should().BeNull();
+        Assert.That(problem.Type, Is.Null);
+        Assert.That(problem.Title, Is.Null);
     }
 
     [Test]
@@ -47,8 +46,8 @@ public class EShopProblemTests
     {
         var problem = EShopProblem.Create(ContextWith("trace-3"), 500);
 
-        problem.Extensions.Should().NotContainKey(EShopProblem.ErrorCodeKey);
-        problem.Extensions[EShopProblem.TraceIdKey].Should().Be("trace-3");
+        Assert.That(problem.Extensions, Does.Not.ContainKey(EShopProblem.ErrorCodeKey));
+        Assert.That(problem.Extensions[EShopProblem.TraceIdKey], Is.EqualTo("trace-3"));
     }
 
     /// <summary>
@@ -65,8 +64,8 @@ public class EShopProblemTests
 
         var problem = EShopProblem.Create(ContextWith("trace-4"), 400, "invalid", "Validation.Failed", errors);
 
-        problem.Extensions.Should().ContainKey(EShopProblem.ErrorsKey);
-        problem.Extensions[EShopProblem.ErrorsKey].Should().BeSameAs(errors);
+        Assert.That(problem.Extensions, Does.ContainKey(EShopProblem.ErrorsKey));
+        Assert.That(problem.Extensions[EShopProblem.ErrorsKey], Is.SameAs(errors));
     }
 
     [Test]
@@ -75,7 +74,7 @@ public class EShopProblemTests
         var problem = EShopProblem.Create(
             ContextWith("trace-5"), 400, "invalid", "Validation.Failed", new Dictionary<string, string[]>());
 
-        problem.Extensions.Should().NotContainKey(EShopProblem.ErrorsKey);
+        Assert.That(problem.Extensions, Does.Not.ContainKey(EShopProblem.ErrorsKey));
     }
 
     /// <summary>
@@ -86,9 +85,9 @@ public class EShopProblemTests
     [Test]
     public void ExtensionKeysAreSerializedVerbatim_SoTheConstantsMustAlreadyBeCamelCase()
     {
-        EShopProblem.ErrorCodeKey.Should().Be("errorCode");
-        EShopProblem.TraceIdKey.Should().Be("traceId");
-        EShopProblem.ErrorsKey.Should().Be("errors");
+        Assert.That(EShopProblem.ErrorCodeKey, Is.EqualTo("errorCode"));
+        Assert.That(EShopProblem.TraceIdKey, Is.EqualTo("traceId"));
+        Assert.That(EShopProblem.ErrorsKey, Is.EqualTo("errors"));
 
         var problem = EShopProblem.Create(ContextWith("trace-6"), 409, "conflict", "Order.Conflict");
 
@@ -97,8 +96,8 @@ public class EShopProblemTests
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
         using var document = JsonDocument.Parse(json);
-        document.RootElement.TryGetProperty("errorCode", out var errorCode).Should().BeTrue();
-        errorCode.GetString().Should().Be("Order.Conflict");
-        document.RootElement.TryGetProperty("traceId", out _).Should().BeTrue();
+        Assert.That(document.RootElement.TryGetProperty("errorCode", out var errorCode), Is.True);
+        Assert.That(errorCode.GetString(), Is.EqualTo("Order.Conflict"));
+        Assert.That(document.RootElement.TryGetProperty("traceId", out _), Is.True);
     }
 }

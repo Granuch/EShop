@@ -3,7 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Moq;
 
-namespace EShop.Identity.UnitTests.Infrastructure;
+namespace EShop.BuildingBlocks.UnitTests.Configuration;
 
 /// <summary>
 /// SEC-08 (CORS half). The old guard asked only "is Cors:AllowedOrigins empty?", and the

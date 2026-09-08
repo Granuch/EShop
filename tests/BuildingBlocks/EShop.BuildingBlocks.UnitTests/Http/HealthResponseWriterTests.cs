@@ -4,7 +4,7 @@ using EShop.BuildingBlocks.Infrastructure.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace EShop.Identity.UnitTests.Infrastructure;
+namespace EShop.BuildingBlocks.UnitTests.Http;
 
 /// <summary>
 /// SEC-07. All three health endpoints are anonymous in every component, and they used

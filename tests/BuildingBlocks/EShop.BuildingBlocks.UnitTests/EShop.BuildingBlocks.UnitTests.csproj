@@ -8,8 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      No FluentAssertions here on purpose: all seven other unit-test projects assert with plain
+      NUnit constraints and reserve FluentAssertions for the integration suites. Matching that
+      keeps one assertion idiom per test tier.
+    -->
     <PackageReference Include="coverlet.collector" Version="8.0.0" />
-    <PackageReference Include="FluentAssertions" Version="8.3.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="NUnit" Version="4.5.1" />

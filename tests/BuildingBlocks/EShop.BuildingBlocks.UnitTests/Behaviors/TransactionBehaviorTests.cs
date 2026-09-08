@@ -1,7 +1,6 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Domain;
-using FluentAssertions;
 using MediatR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -55,7 +54,7 @@ public class TransactionBehaviorTests
             _ => Task.FromResult(Result<string>.Failure(new Error("Some.Failure", "business rule rejected it"))),
             CancellationToken.None);
 
-        response.IsSuccess.Should().BeFalse();
+        Assert.That(response.IsSuccess, Is.False);
         _unitOfWork.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once,
             "a Result failure is not an exception, so the behavior commits — this is the documented trap");
         _unitOfWork.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -84,12 +83,12 @@ public class TransactionBehaviorTests
     {
         var behavior = BehaviorFor<TransactionalCommand>();
 
-        var act = async () => await behavior.Handle(
-            new TransactionalCommand(),
-            _ => throw new InvalidOperationException("handler blew up"),
-            CancellationToken.None);
-
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("handler blew up");
+        Assert.That(
+            async () => await behavior.Handle(
+                new TransactionalCommand(),
+                _ => throw new InvalidOperationException("handler blew up"),
+                CancellationToken.None),
+            Throws.InstanceOf<InvalidOperationException>().With.Message.EqualTo("handler blew up"));
 
         _unitOfWork.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWork.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);

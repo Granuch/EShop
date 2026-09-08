@@ -3,7 +3,7 @@ using EShop.BuildingBlocks.Application.Exceptions;
 using EShop.BuildingBlocks.Domain;
 using FluentValidation.Results;
 
-namespace EShop.Identity.UnitTests.BuildingBlocks;
+namespace EShop.BuildingBlocks.UnitTests;
 
 [TestFixture]
 public class ResultTests

@@ -9,7 +9,7 @@ using Moq;
 using System.Text.Json;
 using System.Reflection;
 
-namespace EShop.Identity.UnitTests.Services;
+namespace EShop.BuildingBlocks.UnitTests.Caching;
 
 [TestFixture]
 public class CachingBehaviorTests

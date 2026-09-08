@@ -1,6 +1,5 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
-using FluentAssertions;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -54,11 +53,11 @@ public class ValidationBehaviorTests
             },
             CancellationToken.None);
 
-        response.IsSuccess.Should().BeFalse();
-        response.Error!.Code.Should().Be(ValidationFailedCode,
+        Assert.That(response.IsSuccess, Is.False);
+        Assert.That(response.Error!.Code, Is.EqualTo(ValidationFailedCode),
             "endpoints discriminate on this exact code to choose 400 over their default status");
-        response.Error.Message.Should().Contain("Email is required");
-        handlerRan.Should().BeFalse("the handler must not run once validation has failed");
+        Assert.That(response.Error.Message, Does.Contain("Email is required"));
+        Assert.That(handlerRan, Is.False, "the handler must not run once validation has failed");
     }
 
     [Test]
@@ -73,8 +72,8 @@ public class ValidationBehaviorTests
             _ => Task.FromResult(Result<string>.Success("ok")),
             CancellationToken.None);
 
-        response.IsSuccess.Should().BeTrue();
-        response.Value.Should().Be("ok");
+        Assert.That(response.IsSuccess, Is.True);
+        Assert.That(response.Value, Is.EqualTo("ok"));
     }
 
     [Test]
@@ -89,7 +88,7 @@ public class ValidationBehaviorTests
             _ => Task.FromResult(Result<string>.Success("ok")),
             CancellationToken.None);
 
-        response.IsSuccess.Should().BeTrue("an unvalidated command is passed straight through");
+        Assert.That(response.IsSuccess, Is.True, "an unvalidated command is passed straight through");
     }
 
     /// <summary>
@@ -105,11 +104,11 @@ public class ValidationBehaviorTests
             [new PlainResponseValidator()],
             NullLogger<ValidationBehavior<PlainResponseCommand, string>>.Instance);
 
-        var act = async () => await behavior.Handle(
-            new PlainResponseCommand(string.Empty),
-            _ => Task.FromResult("ok"),
-            CancellationToken.None);
-
-        await act.Should().ThrowAsync<EShop.BuildingBlocks.Application.Exceptions.ValidationException>();
+        Assert.That(
+            async () => await behavior.Handle(
+                new PlainResponseCommand(string.Empty),
+                _ => Task.FromResult("ok"),
+                CancellationToken.None),
+            Throws.InstanceOf<EShop.BuildingBlocks.Application.Exceptions.ValidationException>());
     }
 }

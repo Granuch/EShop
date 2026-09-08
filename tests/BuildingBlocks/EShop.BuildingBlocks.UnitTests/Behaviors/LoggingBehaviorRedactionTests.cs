@@ -1,7 +1,6 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Domain;
-using FluentAssertions;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -87,10 +86,10 @@ public class LoggingBehaviorRedactionTests
         var messages = await RunAsync(new CommandWithNamedSecrets());
         var all = string.Join("\n", messages);
 
-        all.Should().NotContain("hunter2-password");
-        all.Should().NotContain("hunter2-token");
-        all.Should().Contain(Redacted);
-        all.Should().Contain("user@test.com", "non-secret fields must still be logged");
+        Assert.That(all, Does.Not.Contain("hunter2-password"));
+        Assert.That(all, Does.Not.Contain("hunter2-token"));
+        Assert.That(all, Does.Contain(Redacted));
+        Assert.That(all, Does.Contain("user@test.com"), "non-secret fields must still be logged");
     }
 
     [Test]
@@ -99,8 +98,8 @@ public class LoggingBehaviorRedactionTests
         var messages = await RunAsync(new CommandWithAttributedSecret());
         var all = string.Join("\n", messages);
 
-        all.Should().NotContain("hunter2-attributed");
-        all.Should().Contain(Redacted);
+        Assert.That(all, Does.Not.Contain("hunter2-attributed"));
+        Assert.That(all, Does.Contain(Redacted));
     }
 
     /// <summary>
@@ -116,7 +115,7 @@ public class LoggingBehaviorRedactionTests
         var messages = await RunAsync(new CommandWithUnlistedSecret());
         var all = string.Join("\n", messages);
 
-        all.Should().Contain("hunter2-unlisted",
+        Assert.That(all, Does.Contain("hunter2-unlisted"),
             "redaction is by attribute or hardcoded name only — this is why new secret properties need [SensitiveData]");
     }
 }
