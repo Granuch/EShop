@@ -88,11 +88,14 @@ public class ChangePasswordAccountStateTests
     }
 
     /// <summary>
-    /// A soft-deleted user sets IsActive false as well, so it takes the same path even where the
-    /// DbContext's global <c>!IsDeleted</c> filter has not already hidden the row.
+    /// Defence in depth, not a reachable production state: the DbContext's global
+    /// <c>!IsDeleted</c> filter means a real <c>UserManager</c> never returns a soft-deleted user,
+    /// so the real answer there is <c>Account.NotFound</c>. What this pins is that
+    /// <see cref="ApplicationUser.SoftDelete"/> also clears <c>IsActive</c>, so the disabled guard
+    /// still catches such a user if it ever arrives by a path that bypasses the filter.
     /// </summary>
     [Test]
-    public async Task Handle_OnASoftDeletedAccount_IsRefused()
+    public async Task Handle_OnASoftDeletedAccount_StillHitsTheDisabledGuard()
     {
         var user = new ApplicationUser { Id = "user-1", Email = "user@test.com" };
         user.SoftDelete();
