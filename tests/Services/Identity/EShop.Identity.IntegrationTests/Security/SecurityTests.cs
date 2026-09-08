@@ -25,6 +25,14 @@ public class RateLimitingTests : IntegrationTestBase
     protected override async Task<IdentityApiFactory> CreateFactoryAsync()
         => await RateLimitingApiFactory.CreateAsync();
 
+    /// <summary>
+    /// PERF-02 opt-out. The rate limiter's buckets live in the host, so a fixture-scoped host
+    /// would let each test start with allowance the previous one had already spent — every
+    /// assertion here counts requests, so that turns the whole fixture order-dependent. This is
+    /// the case the shared-host default deliberately does not cover.
+    /// </summary>
+    protected override bool UseFixtureScopedHost => false;
+
     [Test]
     public async Task Login_ExceedingRateLimit_ShouldReturn429()
     {

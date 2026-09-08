@@ -30,12 +30,64 @@ public abstract class IntegrationTestBase : IDisposable
     protected HttpClient Client { get; set; } = null!;
     protected IServiceScope? ServiceScope { get; private set; }
 
+    /// <summary>
+    /// PERF-02. Whether the host and its database are built once per fixture (default) or once per
+    /// test method.
+    ///
+    /// <para>
+    /// Per-fixture is right for almost everything: a host costs a `CREATE DATABASE … TEMPLATE`
+    /// plus a host build plus a seed check, and paying that 169 times rather than ~25 was roughly
+    /// a third of this suite's runtime. It also fixes a leak — NUnit reuses one fixture instance
+    /// across its test methods, so a `[SetUp]` that reassigned the factory dropped every previous
+    /// one undisposed, and since disposal is what returns the database and its Npgsql pool, those
+    /// were held for the rest of the run (measured on <c>ProfileTests</c>: 13 created, 5 released).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Override to false when a test needs host state that its neighbours cannot have touched.</b>
+    /// In practice that means rate limiting — the limiter's buckets live in the host, so a shared
+    /// host lets one test spend another's allowance and the fixture becomes order-dependent.
+    /// Sharing the <i>database</i> is the other half of this trade: tests in a fixture now see each
+    /// other's rows, so create per-test data under a unique key rather than mutating the seeded
+    /// users.
+    /// </para>
+    /// </summary>
+    protected virtual bool UseFixtureScopedHost => true;
+
+    [OneTimeSetUp]
+    public async Task OneTimeSetUpAsync()
+    {
+        if (UseFixtureScopedHost)
+        {
+            await BuildHostAsync();
+        }
+    }
+
     [SetUp]
     public virtual async Task SetUpAsync()
+    {
+        if (!UseFixtureScopedHost)
+        {
+            await BuildHostAsync();
+        }
+    }
+
+    private async Task BuildHostAsync()
     {
         Factory = await CreateFactoryAsync();
         Client = Factory.CreateClient();
         await Factory.InitializeDatabaseAsync();
+    }
+
+    private void DisposeHost()
+    {
+        Client?.Dispose();
+        Client = null!;
+
+        // Disposing the factory is what calls PostgresTestServer.ReleaseDatabase, so skipping it
+        // leaks the database and its connection pool for the rest of the run.
+        Factory?.Dispose();
+        Factory = null!;
     }
 
     /// <summary>
@@ -50,7 +102,23 @@ public abstract class IntegrationTestBase : IDisposable
     public virtual async Task TearDownAsync()
     {
         ServiceScope?.Dispose();
+        ServiceScope = null;
+
+        if (!UseFixtureScopedHost)
+        {
+            DisposeHost();
+        }
+
         await Task.CompletedTask;
+    }
+
+    [OneTimeTearDown]
+    public void OneTimeTearDown()
+    {
+        if (UseFixtureScopedHost)
+        {
+            DisposeHost();
+        }
     }
 
     protected IServiceScope CreateScope()
@@ -79,6 +147,10 @@ public abstract class IntegrationTestBase : IDisposable
         await UserManagementHelper.DeleteTestUserAsync(scope.ServiceProvider, userId);
     }
 
+    /// <summary>
+    /// Safety net only — <see cref="OneTimeTearDown"/> and <see cref="TearDownAsync"/> already
+    /// release the host on both paths, and both null the fields so this cannot double-dispose.
+    /// </summary>
     public void Dispose()
     {
         ServiceScope?.Dispose();

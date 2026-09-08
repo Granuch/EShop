@@ -7,7 +7,8 @@ namespace EShop.Identity.IntegrationTests.Fixtures;
 
 /// <summary>
 /// TEST-01. Owns the single PostgreSQL container shared by every test in this assembly, and hands
-/// out a fresh database per test.
+/// out a fresh database per caller — which since PERF-02 means one per <i>fixture</i>, not one per
+/// test method. See <c>IntegrationTestBase.UseFixtureScopedHost</c>.
 ///
 /// <para>
 /// <b>Why the suite is on Postgres at all.</b> Until Stage 8 every integration test ran on EF
@@ -33,12 +34,14 @@ namespace EShop.Identity.IntegrationTests.Fixtures;
 /// </para>
 ///
 /// <para>
-/// (2) <b>The connection-pool cap.</b> Every test gets a distinct connection string, and Npgsql
+/// (2) <b>The connection-pool cap.</b> Every database gets a distinct connection string, and Npgsql
 /// keeps a separate pool per connection string. With the default pool size, 154 tests exhausted
 /// the server: <c>53300: sorry, too many clients already</c>, which surfaces as a pile of
 /// unrelated-looking SetUp failures. Hence the small <c>Maximum Pool Size</c> here, the raised
 /// <c>max_connections</c> on the server, and <see cref="ReleaseDatabase"/>, which factories call on
-/// dispose so a finished test's pool does not sit on connections for the rest of the run.
+/// dispose so a finished fixture's pool does not sit on connections for the rest of the run.
+/// PERF-02 reduced the pressure a great deal — the full suite now creates about 30 databases
+/// rather than one per test — but it did not remove it, so keep all three.
 /// </para>
 ///
 /// <para>

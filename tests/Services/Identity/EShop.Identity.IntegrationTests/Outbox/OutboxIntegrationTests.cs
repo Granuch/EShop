@@ -39,17 +39,39 @@ public class OutboxIntegrationTests : IntegrationTestBase
         return await db.OutboxMessages.AsNoTracking().ToListAsync();
     }
 
+    /// <summary>
+    /// Returns only the rows <paramref name="action"/> itself added.
+    ///
+    /// <para>
+    /// These tests used to read the whole table and assert <c>ContainSingle</c>, which silently
+    /// depended on starting from an empty outbox — true only while every test got its own database.
+    /// Under the fixture-scoped host (PERF-02) the fixture shares one database, so the previous
+    /// test's row was still there and the assertions became order-dependent. Diffing is the better
+    /// assertion regardless: what each test actually means is "this request wrote a row", not "the
+    /// table contains one row".
+    /// </para>
+    /// </summary>
+    private async Task<List<OutboxMessage>> RowsAddedByAsync(Func<Task> action)
+    {
+        var before = (await ReadOutboxAsync()).Select(m => m.Id).ToHashSet();
+        await action();
+        return (await ReadOutboxAsync()).Where(m => !before.Contains(m.Id)).ToList();
+    }
+
+    private Task<List<OutboxMessage>> RowsAddedByForgotPasswordAsync(string email)
+        => RowsAddedByAsync(() => Client.PostAsJsonAsync(ForgotPasswordEndpoint, new { Email = email }));
+
     [Test]
     public async Task ForgotPassword_WritesAnOutboxRow_RatherThanPublishingDirectly()
     {
-        var response = await Client.PostAsJsonAsync(
-            ForgotPasswordEndpoint, new { Email = TestUsers.RegularUser.Email });
+        HttpResponseMessage? response = null;
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var added = await RowsAddedByAsync(async () =>
+            response = await Client.PostAsJsonAsync(
+                ForgotPasswordEndpoint, new { Email = TestUsers.RegularUser.Email }));
 
-        var messages = await ReadOutboxAsync();
-
-        messages.Should().ContainSingle(m => m.Type == PasswordResetEventType,
+        response!.StatusCode.Should().Be(HttpStatusCode.OK);
+        added.Should().ContainSingle(m => m.Type == PasswordResetEventType,
             "the handler enqueues through IIntegrationEventOutbox and TransactionBehavior's commit persists it");
     }
 
@@ -61,9 +83,8 @@ public class OutboxIntegrationTests : IntegrationTestBase
     [Test]
     public async Task TheOutboxRowStartsPendingSoTheProcessorWillPickItUp()
     {
-        await Client.PostAsJsonAsync(ForgotPasswordEndpoint, new { Email = TestUsers.RegularUser.Email });
-
-        var message = (await ReadOutboxAsync()).Single(m => m.Type == PasswordResetEventType);
+        var message = (await RowsAddedByForgotPasswordAsync(TestUsers.RegularUser.Email))
+            .Single(m => m.Type == PasswordResetEventType);
 
         message.Status.Should().Be(OutboxMessageStatus.Pending);
         message.ProcessedOnUtc.Should().BeNull();
@@ -80,9 +101,8 @@ public class OutboxIntegrationTests : IntegrationTestBase
     [Test]
     public async Task APendingRowStillCarriesItsPayload_WhichIsWhyRedactionHappensOnDispatch()
     {
-        await Client.PostAsJsonAsync(ForgotPasswordEndpoint, new { Email = TestUsers.RegularUser.Email });
-
-        var message = (await ReadOutboxAsync()).Single(m => m.Type == PasswordResetEventType);
+        var message = (await RowsAddedByForgotPasswordAsync(TestUsers.RegularUser.Email))
+            .Single(m => m.Type == PasswordResetEventType);
 
         message.Payload.Should().NotBe(OutboxMessage.RedactedPayload);
         message.Payload.Should().Contain("resetToken",
@@ -97,14 +117,14 @@ public class OutboxIntegrationTests : IntegrationTestBase
     [Test]
     public async Task ForgotPasswordForAnUnknownEmail_WritesNoOutboxRow()
     {
-        var response = await Client.PostAsJsonAsync(
-            ForgotPasswordEndpoint, new { Email = $"nobody-{Guid.NewGuid():N}@test.com" });
+        HttpResponseMessage? response = null;
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, "the response must not reveal whether the address exists");
+        var added = await RowsAddedByAsync(async () =>
+            response = await Client.PostAsJsonAsync(
+                ForgotPasswordEndpoint, new { Email = $"nobody-{Guid.NewGuid():N}@test.com" }));
 
-        var messages = await ReadOutboxAsync();
-
-        messages.Should().NotContain(m => m.Type == PasswordResetEventType);
+        response!.StatusCode.Should().Be(HttpStatusCode.OK, "the response must not reveal whether the address exists");
+        added.Should().BeEmpty("an outbox row for an unknown address is itself an oracle that the address exists");
     }
 
     /// <summary>
@@ -116,9 +136,8 @@ public class OutboxIntegrationTests : IntegrationTestBase
     {
         var before = DateTime.UtcNow.AddSeconds(-5);
 
-        await Client.PostAsJsonAsync(ForgotPasswordEndpoint, new { Email = TestUsers.RegularUser.Email });
-
-        var message = (await ReadOutboxAsync()).Single(m => m.Type == PasswordResetEventType);
+        var message = (await RowsAddedByForgotPasswordAsync(TestUsers.RegularUser.Email))
+            .Single(m => m.Type == PasswordResetEventType);
 
         message.Id.Should().NotBe(Guid.Empty);
         message.OccurredOnUtc.Should().BeAfter(before);
