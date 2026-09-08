@@ -18,6 +18,29 @@ public static class ProblemErrorCodes
     public const string MalformedRequest = "MalformedRequest";
 
     /// <summary>
+    /// Gateway proxy guards. The value keeps its dotted prefix on purpose: these two were already
+    /// on the wire as <c>{ "error": "Request.PayloadTooLarge" }</c> from the four
+    /// <c>*ProxyGuardMiddleware</c> classes, and the migration to problem+json moves the envelope
+    /// without changing what the discriminator means — same rule as the codes above.
+    /// </summary>
+    public const string PayloadTooLarge = "Request.PayloadTooLarge";
+
+    /// <summary>
+    /// The 502-to-503 rewrite in the proxy guards, which previously produced no body at all.
+    /// New value, so it follows the dotted convention of its neighbour rather than the older
+    /// unprefixed style.
+    /// </summary>
+    public const string UpstreamUnavailable = "Gateway.UpstreamUnavailable";
+
+    /// <summary>
+    /// A failure the gateway's traffic simulator injected rather than one that actually happened.
+    /// Distinct on purpose: the simulated response has to be shaped like a real one for the
+    /// simulation to be worth anything, so the error code is the only thing left that can tell an
+    /// investigator the failure was synthetic.
+    /// </summary>
+    public const string SimulatedFailure = "Gateway.SimulatedFailure";
+
+    /// <summary>
     /// The catch-all. Ordering and Payment previously emitted "InternalError" while Identity,
     /// Catalog, Basket and the gateway emitted "InternalServerError"; unification picks the
     /// latter. Nothing in the repo consumes this value.

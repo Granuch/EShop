@@ -11,8 +11,11 @@ public class SimulationResponseFactoryTests
     public async Task WriteAsync_UsesForcedFailureMode_WhenConfigured()
     {
         var factory = new SimulationResponseFactory();
-        var context = new DefaultHttpContext();
-        context.Response.Body = new MemoryStream();
+
+        // DEBT-02: the failure path now writes the shared RFC 7807 envelope, which goes through
+        // Results.Problem and resolves services from the context — a bare DefaultHttpContext has
+        // no RequestServices and fails with "Value cannot be null. (Parameter 'provider')".
+        var context = Middleware.ProxyGuardAssertions.CreateContext("/api/v1/orders");
 
         var profile = new SimulationProfile(
             RouteId: "orders",
@@ -28,6 +31,10 @@ public class SimulationResponseFactoryTests
         await factory.WriteAsync(context, profile, CancellationToken.None);
 
         Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status503ServiceUnavailable));
+
+        // A simulated failure must be shaped like a real one, or a client exercising its error
+        // handling against the simulator is handling a body it will never actually receive.
+        await Middleware.ProxyGuardAssertions.AssertProblemBodyAsync(context, "Gateway.SimulatedFailure");
     }
 
     [Test]

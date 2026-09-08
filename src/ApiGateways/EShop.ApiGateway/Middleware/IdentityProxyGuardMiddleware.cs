@@ -1,4 +1,5 @@
 using EShop.ApiGateway.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using Microsoft.Extensions.Options;
 
 namespace EShop.ApiGateway.Middleware;
@@ -31,12 +32,11 @@ public sealed class IdentityProxyGuardMiddleware
 
         if (IsPayloadTooLarge(context.Request.ContentLength))
         {
-            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "Request.PayloadTooLarge",
-                message = "Request payload exceeds allowed size for identity endpoints."
-            });
+            await EShopProblem.WriteAsync(context, EShopProblem.Create(
+                context,
+                StatusCodes.Status413PayloadTooLarge,
+                detail: "Request payload exceeds allowed size for identity endpoints.",
+                errorCode: ProblemErrorCodes.PayloadTooLarge));
             return;
         }
 
@@ -44,8 +44,15 @@ public sealed class IdentityProxyGuardMiddleware
 
         if (!context.Response.HasStarted && context.Response.StatusCode == StatusCodes.Status502BadGateway)
         {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            // Set Retry-After before writing: EShopProblem.WriteAsync goes through
+            // Results.Problem, which starts the response and takes the status from the
+            // ProblemDetails, so any header added afterwards would be dropped.
             context.Response.Headers["Retry-After"] = Math.Max(1, _options.UpstreamUnavailableRetryAfterSeconds).ToString();
+            await EShopProblem.WriteAsync(context, EShopProblem.Create(
+                context,
+                StatusCodes.Status503ServiceUnavailable,
+                detail: "The identity service is temporarily unavailable. Please retry.",
+                errorCode: ProblemErrorCodes.UpstreamUnavailable));
         }
     }
 
