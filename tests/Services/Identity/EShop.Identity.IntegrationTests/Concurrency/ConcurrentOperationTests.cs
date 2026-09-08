@@ -7,15 +7,34 @@ using FluentAssertions;
 namespace EShop.Identity.IntegrationTests.Concurrency;
 
 /// <summary>
-/// Integration tests for concurrent operations
+/// Integration tests for concurrent operations.
+///
+/// Runs on real PostgreSQL. Two of these race concurrent password changes and concurrent refresh
+/// attempts against each other, and the whole point of both is what happens when two writers
+/// collide — which needs real transaction isolation and a real concurrency token. InMemory has
+/// neither, so on that provider these tests were asserting against a race that could not occur.
 /// </summary>
 [TestFixture]
 [Category("Integration")]
 [Category("Concurrency")]
-public class ConcurrentLoginTests : IntegrationTestBase
+public class ConcurrentLoginTests : PostgresIntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
 
+    /// <summary>
+    /// Regression test for a defect this fixture found the moment it moved to real PostgreSQL:
+    /// nine of these ten logins used to return <b>500</b>.
+    ///
+    /// Login records LastLoginAt/LastLoginIp. That used to go through
+    /// <c>UserManager.UpdateAsync</c>, which puts ASP.NET Identity's <c>ConcurrencyStamp</c> in the
+    /// WHERE clause, so concurrent logins by one user raced. The handler already treated the
+    /// resulting failed <c>IdentityResult</c> as non-critical — but the losing entity stayed
+    /// tracked as <c>Modified</c>, so <c>TransactionBehavior</c>'s commit re-issued the doomed
+    /// UPDATE and the <c>DbUpdateConcurrencyException</c> escaped as a 500. It now goes through
+    /// <c>IUserRepository.UpdateLastLoginAsync</c>, one UPDATE with no concurrency token and
+    /// nothing tracked. EF InMemory has no concurrency tokens, which is why this passed for years
+    /// on the old provider while being broken in production.
+    /// </summary>
     [Test]
     public async Task ConcurrentLogins_SameUser_ShouldAllSucceed()
     {

@@ -22,10 +22,8 @@ public class RateLimitingTests : IntegrationTestBase
     private const string ClientA = "203.0.113.10";
     private const string ClientB = "203.0.113.11";
 
-    protected override IdentityApiFactory CreateFactory()
-    {
-        return new RateLimitingApiFactory();
-    }
+    protected override async Task<IdentityApiFactory> CreateFactoryAsync()
+        => await RateLimitingApiFactory.CreateAsync();
 
     [Test]
     public async Task Login_ExceedingRateLimit_ShouldReturn429()

@@ -78,9 +78,18 @@ try
     builder.Services.AddIdentityApplication();
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
-    var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+    // Testing defaults to the InMemory provider, but a test host can opt into a real relational
+    // database with Testing:UseRelationalDatabase=true. That switch exists because the provider
+    // choice used to be hardcoded to the environment name, which made every relational-only code
+    // path — ExecuteUpdateAsync/ExecuteDeleteAsync, column limits, concurrency tokens —
+    // unreachable from any test, and left RefreshTokenRepository and TokenCleanupService carrying
+    // IsInMemory() forks so that production and tests ran different queries. Deliver it with
+    // builder.UseSetting (host configuration): ConfigureAppConfiguration lands after this read.
+    var useInMemoryDb = builder.Environment.IsEnvironment("Testing")
+        && !builder.Configuration.GetValue<bool>("Testing:UseRelationalDatabase");
     var suppressPendingModelChangesWarning = builder.Environment.IsDevelopment()
-        || builder.Environment.IsEnvironment("Sandbox");
+        || builder.Environment.IsEnvironment("Sandbox")
+        || builder.Environment.IsEnvironment("Testing");
 
     builder.Services.AddIdentityInfrastructure(
         builder.Configuration,

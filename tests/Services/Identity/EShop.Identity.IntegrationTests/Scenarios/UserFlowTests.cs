@@ -7,11 +7,14 @@ using FluentAssertions;
 namespace EShop.Identity.IntegrationTests.Scenarios;
 
 /// <summary>
-/// End-to-end integration tests covering complete user flows
-/// Uses seeded test users to avoid email confirmation issues
+/// End-to-end integration tests covering complete user flows.
+/// Uses seeded test users to avoid email confirmation issues.
+///
+/// Runs on real PostgreSQL because these flows chain login, refresh and password change, and both
+/// of the latter go through <c>RefreshTokenRepository</c>'s server-side UPDATEs.
 /// </summary>
 [TestFixture]
-public class UserFlowTests : IntegrationTestBase
+public class UserFlowTests : PostgresIntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
     private const string RefreshEndpoint = "/api/v1/auth/refresh-token";

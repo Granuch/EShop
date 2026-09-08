@@ -11,7 +11,7 @@ namespace EShop.Identity.IntegrationTests.Infrastructure;
 /// Enables rate limiting in Testing environment, configures a trusted proxy so
 /// X-Forwarded-For is honoured, and lets each test choose the client IP it presents.
 /// </summary>
-public class RateLimitingApiFactory : IdentityApiFactory
+public class RateLimitingApiFactory : PostgresIdentityApiFactory
 {
     /// <summary>
     /// Request header standing in for the TCP peer address. TestServer has no socket, so
@@ -26,6 +26,21 @@ public class RateLimitingApiFactory : IdentityApiFactory
 
     public const int LoginPermitLimit = 2;
     public const int AuthPermitLimit = 2;
+
+    private RateLimitingApiFactory(string connectionString) : base(connectionString)
+    {
+    }
+
+    /// <summary>
+    /// Derives from the Postgres factory rather than the InMemory one because a successful login
+    /// writes last-login bookkeeping through <c>ExecuteUpdateAsync</c>, which InMemory cannot run.
+    /// </summary>
+    public static async Task<RateLimitingApiFactory> CreateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var connectionString = await PostgresTestServer.CreateDatabaseAsync(cancellationToken);
+        return new RateLimitingApiFactory(connectionString);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

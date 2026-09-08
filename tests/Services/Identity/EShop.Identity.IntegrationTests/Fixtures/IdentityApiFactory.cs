@@ -21,14 +21,10 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName;
     private bool _databaseSeeded = false;
-    private readonly bool _useSharedDatabase;
 
-    public IdentityApiFactory(bool useSharedDatabase = false)
+    public IdentityApiFactory()
     {
-        _useSharedDatabase = useSharedDatabase;
-        _databaseName = useSharedDatabase 
-            ? "SharedIdentityTestDb" 
-            : $"IdentityTestDb_{Guid.NewGuid()}";
+        _databaseName = $"IdentityTestDb_{Guid.NewGuid()}";
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -49,11 +45,13 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
             }
 
-            // Add InMemory database with fixed name per factory instance
-            services.AddDbContext<IdentityDbContext>(options =>
-            {
-                options.UseInMemoryDatabase(_databaseName);
-            });
+            // The provider is registered exactly once, by this one call. It must NOT be
+            // "register InMemory here, then remove and re-add Npgsql in a subclass": EF registers
+            // provider services beyond DbContextOptions<T>, so a second AddDbContext with a
+            // different provider fails with "Only a single database provider can be registered in
+            // a service provider" no matter which descriptors you strip first. Overriding the
+            // registration is the supported shape — see PostgresIdentityApiFactory.
+            ConfigureDatabase(services);
 
             // Re-register IUnitOfWork with the new DbContext
             services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
@@ -63,6 +61,18 @@ public class IdentityApiFactory : WebApplicationFactory<Program>
 
             // Allow derived classes to configure additional services
             ConfigureTestServices(services);
+        });
+    }
+
+    /// <summary>
+    /// Registers the EF provider. Override to run a fixture against something other than
+    /// InMemory; do not add a second provider alongside this one.
+    /// </summary>
+    protected virtual void ConfigureDatabase(IServiceCollection services)
+    {
+        services.AddDbContext<IdentityDbContext>(options =>
+        {
+            options.UseInMemoryDatabase(_databaseName);
         });
     }
 

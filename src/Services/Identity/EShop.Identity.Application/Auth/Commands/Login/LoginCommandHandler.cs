@@ -20,6 +20,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly ITokenService _tokenService;
     private readonly ILoginAttemptTracker _loginAttemptTracker;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<LoginCommandHandler> _logger;
 
     public LoginCommandHandler(
@@ -27,12 +28,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         SignInManager<ApplicationUser> signInManager,
         ITokenService tokenService,
         ILoginAttemptTracker loginAttemptTracker,
+        IUserRepository userRepository,
         ILogger<LoginCommandHandler> logger)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _tokenService = tokenService;
         _loginAttemptTracker = loginAttemptTracker;
+        _userRepository = userRepository;
         _logger = logger;
     }
 
@@ -214,15 +217,17 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         var accessToken = await _tokenService.GenerateAccessTokenAsync(user, cancellationToken);
         var refreshToken = await _tokenService.GenerateRefreshTokenAsync(user.Id, request.IpAddress ?? "unknown", cancellationToken);
 
-        // Update last login info - non-critical, UserManager handles concurrency internally
-        user.LastLoginAt = DateTime.UtcNow;
-        user.LastLoginIp = request.IpAddress;
-        var updateResult = await _userManager.UpdateAsync(user);
-        if (!updateResult.Succeeded)
-        {
-            // ConcurrencyStamp conflict from concurrent login - non-critical
-            _logger.LogDebug("Concurrent login detected, skipping LastLoginAt update for UserId={UserId}", user!.Id);
-        }
+        // Update last login info. This goes through the repository's ExecuteUpdate path rather
+        // than UserManager.UpdateAsync, and the difference is load-bearing: UpdateAsync puts
+        // ASP.NET Identity's ConcurrencyStamp in the WHERE clause, so simultaneous logins by one
+        // user raced. The loser got a failed IdentityResult, which the old code here logged and
+        // shrugged off as "non-critical" — but the entity stayed tracked as Modified with a stale
+        // stamp, so TransactionBehavior's commit re-issued the same doomed UPDATE and the
+        // DbUpdateConcurrencyException escaped this handler as a 500. Ten concurrent logins
+        // produced one success and nine 500s. Last-login is telemetry, so last-writer-wins is
+        // correct and losing the race must never fail authentication.
+        await _userRepository.UpdateLastLoginAsync(
+            user.Id, DateTime.UtcNow, request.IpAddress, cancellationToken);
 
         // Clear failed attempt tracking on successful login
         await _loginAttemptTracker.RecordSuccessfulLoginAsync(request.Email, cancellationToken);

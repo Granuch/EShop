@@ -63,6 +63,34 @@ public class UserRepository : IUserRepository
         }
     }
 
+    /// <summary>
+    /// See <see cref="IUserRepository.UpdateLastLoginAsync"/> for why this deliberately does not
+    /// go through <c>UserManager.UpdateAsync</c>.
+    ///
+    /// <c>ExecuteUpdateAsync</c> emits one UPDATE with no <c>ConcurrencyStamp</c> predicate, so
+    /// concurrent logins cannot conflict, and it touches no tracked entity, so there is nothing
+    /// left for <c>TransactionBehavior</c>'s commit to retry. It still participates in the ambient
+    /// transaction the behavior opened.
+    ///
+    /// Note the query must ignore the soft-delete filter's counterpart explicitly? No — the global
+    /// filter on <c>!IsDeleted</c> applies here and that is correct: a deleted account should not
+    /// get login bookkeeping. A row that matches nothing simply updates 0 rows and, unlike the old
+    /// path, that is silent rather than fatal.
+    /// </summary>
+    public async Task UpdateLastLoginAsync(
+        string userId,
+        DateTime lastLoginAt,
+        string? lastLoginIp,
+        CancellationToken cancellationToken = default)
+    {
+        await _dbContext.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(u => u.LastLoginAt, lastLoginAt)
+                .SetProperty(u => u.LastLoginIp, lastLoginIp),
+                cancellationToken);
+    }
+
     public async Task DeleteAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
         user.SoftDelete();
