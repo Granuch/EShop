@@ -34,6 +34,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
             pageNumber,
             pageSize,
             request.Cursor,
+            request.EffectiveIncludeUnpublished,
             cancellationToken);
 
         var pagedResult = PagedResult<ProductDto>.Create(dtos, pageNumber, pageSize, totalCount);

@@ -3,9 +3,18 @@ using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
 
-namespace EShop.Catalog.Application.Products.Commands.DeleteProduct;
+namespace EShop.Catalog.Application.Products.Commands.PublishProduct;
 
-public record DeleteProductCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+/// <summary>
+/// Makes a draft product publicly visible (D1 / H5a).
+///
+/// <para>
+/// Publishing changes which products appear in every public read path, so it must invalidate the
+/// same keys a price or stock change does — the product's own detail entry, its category list, and
+/// the whole <c>products:list</c> family.
+/// </para>
+/// </summary>
+public record PublishProductCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public Guid ProductId { get; init; }
 

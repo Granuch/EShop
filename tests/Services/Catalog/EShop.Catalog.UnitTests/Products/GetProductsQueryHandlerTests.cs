@@ -1,4 +1,4 @@
-using EShop.Catalog.Application.Abstractions;
+﻿using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using Moq;
 
@@ -33,6 +33,7 @@ public class GetProductsQueryHandlerTests
                 null, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((dtos, 2));
 
@@ -64,6 +65,7 @@ public class GetProductsQueryHandlerTests
                 categoryId, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -77,6 +79,7 @@ public class GetProductsQueryHandlerTests
                 categoryId, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -97,6 +100,7 @@ public class GetProductsQueryHandlerTests
                 null, "laptop", null, null,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -110,6 +114,7 @@ public class GetProductsQueryHandlerTests
                 null, "laptop", null, null,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -125,6 +130,7 @@ public class GetProductsQueryHandlerTests
                 null, null, null, null,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -154,6 +160,7 @@ public class GetProductsQueryHandlerTests
                 null, null, 10m, 100m,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<ProductDto>(), 0));
 
@@ -166,6 +173,7 @@ public class GetProductsQueryHandlerTests
                 null, null, 10m, 100m,
                 ProductSortBy.Name, false, 1, 10,
                 null,
+                false,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

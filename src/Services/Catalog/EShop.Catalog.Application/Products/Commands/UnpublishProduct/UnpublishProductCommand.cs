@@ -3,9 +3,17 @@ using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
 
-namespace EShop.Catalog.Application.Products.Commands.DeleteProduct;
+namespace EShop.Catalog.Application.Products.Commands.UnpublishProduct;
 
-public record DeleteProductCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+/// <summary>
+/// Withdraws a published product from the public catalog, returning it to Draft (D1 / H5a).
+///
+/// <para>
+/// The invalidation matters more here than on publish: leaving a stale cache entry after an
+/// unpublish keeps serving a product the operator has just withdrawn.
+/// </para>
+/// </summary>
+public record UnpublishProductCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
 {
     public Guid ProductId { get; init; }
 
@@ -15,8 +23,5 @@ public record DeleteProductCommand : IRequest<Result>, ICacheInvalidatingCommand
     public IEnumerable<string> CacheKeysToInvalidate =>
         ProductCacheKeys.AllDetailVariants(ProductId);
 
-    // DEBT-16. products:list:* keys embed every filter/sort/page parameter and cannot be named,
-    // so the family version is bumped instead. The handler still adds products:category:{id} to
-    // ICacheInvalidationContext, because the command does not know the CategoryId.
     public IEnumerable<string> CacheFamiliesToInvalidate => [ProductCacheFamilies.ProductList];
 }

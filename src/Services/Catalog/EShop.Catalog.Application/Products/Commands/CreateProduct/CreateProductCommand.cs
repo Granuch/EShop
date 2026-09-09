@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
@@ -33,7 +33,7 @@ public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingC
 
     public IEnumerable<string> CacheKeysToInvalidate =>
     [
-        $"products:category:{CategoryId}"
+        ProductCacheKeys.Category(CategoryId)
     ];
 
     // DEBT-16. The products:list:* keys embed every filter/sort/page parameter, so they cannot be

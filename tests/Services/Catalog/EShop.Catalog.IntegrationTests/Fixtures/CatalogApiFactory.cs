@@ -164,6 +164,13 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
             var product3 = EShop.Catalog.Domain.Entities.Product.Create(
                 "T-Shirt Basic", "CLTH-TS-001", 19.99m, 500, clothing.Id);
 
+            // D1 / H5a. Product.Create yields Draft, and the public read paths now return published
+            // products only — an unpublished seed would make the seeded catalog invisible to every
+            // anonymous test, which is exactly the bug this stage fixed rather than a test to keep.
+            product1.Publish();
+            product2.Publish();
+            product3.Publish();
+
             await db.Products.AddRangeAsync(product1, product2, product3);
             await db.SaveChangesAsync();
         }

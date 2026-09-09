@@ -12,6 +12,11 @@ public interface IProductQueryService
     /// <summary>
     /// Gets a filtered, sorted, and paginated list of product DTOs.
     /// </summary>
+    /// <param name="includeUnpublished">
+    /// D1 / H5a. False for public callers, which restricts the result to
+    /// <c>ProductStatus.Active</c>. Set from the caller's role at the endpoint — never from a bound
+    /// request property, or a client could ask for the unpublished catalog.
+    /// </param>
     Task<(List<ProductDto> Items, int TotalCount)> GetFilteredProductsAsync(
         Guid? categoryId,
         string? searchTerm,
@@ -22,6 +27,7 @@ public interface IProductQueryService
         int pageNumber,
         int pageSize,
         DateTime? cursor = null,
+        bool includeUnpublished = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>

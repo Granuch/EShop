@@ -1,4 +1,4 @@
-using EShop.BuildingBlocks.Application;
+﻿using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -14,10 +14,11 @@ public record SetMainProductImageCommand : IRequest<Result>, ICacheInvalidatingC
     public Guid ProductId { get; init; }
     public Guid ImageId { get; init; }
 
+    // Both detail variants: the public one and the admin one that includes drafts. Evicting
+    // only the first leaves the other serving stale data for its full TTL, with nothing to
+    // show for it. See ProductCacheKeys.
     public IEnumerable<string> CacheKeysToInvalidate =>
-    [
-        $"product:{ProductId}"
-    ];
+        ProductCacheKeys.AllDetailVariants(ProductId);
 
     // DEBT-16. products:list:* keys embed every filter/sort/page parameter and cannot be named,
     // so the family version is bumped instead. The handler still adds products:category:{id} to

@@ -28,16 +28,32 @@ public static class CatalogDataHelper
         return category.Id;
     }
 
+    /// <summary>
+    /// Creates a product and, by default, <b>publishes</b> it.
+    ///
+    /// <para>
+    /// D1 / H5a: <c>Product.Create</c> yields <c>ProductStatus.Draft</c>, and the public read paths
+    /// now return published products only. A test that seeds a draft and then asserts it appears in
+    /// an anonymous list is asserting the bug, so publishing is the useful default — pass
+    /// <paramref name="publish"/> = false when the draft state is the point of the test.
+    /// </para>
+    /// </summary>
     public static async Task<Guid> CreateProductAsync(
         IServiceProvider services,
         string name,
         string sku,
         decimal price,
         int stockQuantity,
-        Guid categoryId)
+        Guid categoryId,
+        bool publish = true)
     {
         var db = services.GetRequiredService<CatalogDbContext>();
         var product = Product.Create(name, sku, price, stockQuantity, categoryId);
+        if (publish)
+        {
+            product.Publish();
+        }
+
         await db.Products.AddAsync(product);
         await db.SaveChangesAsync();
         return product.Id;
@@ -70,6 +86,8 @@ public static class CatalogDataHelper
                 10m + i,
                 i * 10,
                 categoryId);
+            // Published, like CreateProductAsync — bulk rows exist to be found by list queries.
+            product.Publish();
             await db.Products.AddAsync(product);
             ids.Add(product.Id);
         }

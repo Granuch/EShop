@@ -1,9 +1,11 @@
-using MediatR;
+﻿using MediatR;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Application;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
+using EShop.Catalog.Application.Products.Commands.PublishProduct;
+using EShop.Catalog.Application.Products.Commands.UnpublishProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
 using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
 using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
@@ -38,15 +40,31 @@ public static class ProductEndpoints
                 ? StatusCodes.Status404NotFound
                 : StatusCodes.Status400BadRequest);
 
+    /// <summary>
+    /// D1 / H5a. Whether this caller may see unpublished (Draft) products — admins only.
+    ///
+    /// <para>
+    /// This is the single place the decision is made, and it is made from the authenticated
+    /// principal rather than from anything the client can send. The read endpoints are anonymous,
+    /// so an unauthenticated request simply yields false; <c>RequireRole("Admin")</c> is the same
+    /// check the write endpoints' authorization policy performs.
+    /// </para>
+    /// </summary>
+    private static bool CanSeeUnpublished(HttpContext http) => http.User.IsInRole("Admin");
+
     public static void MapProductEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/products")
             .WithTags("Products");
 
         // GET /api/v1/products (with pagination, filtering, search)
-        group.MapGet("/", async ([AsParameters] GetProductsQuery query, IMediator mediator) =>
+        group.MapGet("/", async ([AsParameters] GetProductsQuery query, HttpContext http, IMediator mediator) =>
         {
-            var result = await mediator.Send(query);
+            // D1 / H5a. The visibility flag is set HERE, from the caller's role, and overwrites
+            // whatever was bound. GetProductsQuery is an [AsParameters] record, so every public
+            // property is a query-string parameter — without this line `?IncludeUnpublished=true`
+            // would hand any anonymous caller the unpublished catalog.
+            var result = await mediator.Send(query with { IncludeUnpublished = CanSeeUnpublished(http) });
 
             return result.Match(
                 value => Results.Ok(value),
@@ -58,9 +76,13 @@ public static class ProductEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/products/{id}
-        group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) =>
+        group.MapGet("/{id:guid}", async (Guid id, HttpContext http, IMediator mediator) =>
         {
-            var result = await mediator.Send(new GetProductByIdQuery { ProductId = id });
+            var result = await mediator.Send(new GetProductByIdQuery
+            {
+                ProductId = id,
+                IncludeUnpublished = CanSeeUnpublished(http)
+            });
 
             // Discriminates rather than mapping every error to 404: a Guid.Empty id is rejected
             // by ValidationBehavior as a "Validation.Failed" Result, which owes a 400. Mapping
@@ -120,6 +142,41 @@ public static class ProductEndpoints
         .WithName("DeleteProduct")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/publish (admin only)
+        // D1 / H5a. Until this existed, Product.Publish() had no production caller, so every
+        // product was permanently Draft — and because nothing filtered on Status, the public
+        // catalog served nothing but drafts. Both halves had to land together: an endpoint without
+        // the read filter changes nothing visible, and the filter without an endpoint hides the
+        // entire catalog.
+        group.MapPost("/{id:guid}/publish", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new PublishProductCommand { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("PublishProduct")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/unpublish (admin only)
+        group.MapPost("/{id:guid}/unpublish", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new UnpublishProductCommand { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("UnpublishProduct")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/products/{id}/images (admin only)

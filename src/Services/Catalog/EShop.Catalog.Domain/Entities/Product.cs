@@ -128,6 +128,11 @@ public class Product : AggregateRoot<Guid>
         }
     }
     
+    /// <summary>
+    /// Makes the product publicly visible. Until Stage 4 this had no production caller, so every
+    /// product was permanently <see cref="ProductStatus.Draft"/> and the public catalog served
+    /// nothing but drafts — the enum existed and was unit-tested, which is what made it look done.
+    /// </summary>
     public void Publish()
     {
         if (IsDeleted)
@@ -137,6 +142,28 @@ public class Product : AggregateRoot<Guid>
             throw new DomainException("Cannot publish a non-draft product.");
 
         Status = ProductStatus.Active;
+    }
+
+    /// <summary>
+    /// Withdraws a published product from the public catalog, returning it to
+    /// <see cref="ProductStatus.Draft"/>.
+    ///
+    /// <para>
+    /// Deliberately not reachable from <see cref="ProductStatus.Discontinued"/>: that state is set
+    /// only by <see cref="SoftDelete"/>, and a soft-deleted product is already hidden by the
+    /// <c>!p.IsDeleted</c> global query filter. Allowing Discontinued → Draft would resurrect a
+    /// deleted product through a side door.
+    /// </para>
+    /// </summary>
+    public void Unpublish()
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot unpublish a deleted product.");
+
+        if (Status != ProductStatus.Active)
+            throw new DomainException("Cannot unpublish a product that is not active.");
+
+        Status = ProductStatus.Draft;
     }
 
     public void SoftDelete()

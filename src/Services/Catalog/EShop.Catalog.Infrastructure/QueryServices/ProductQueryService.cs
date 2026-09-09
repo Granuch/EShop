@@ -1,4 +1,5 @@
-using EShop.Catalog.Application.Abstractions;
+﻿using EShop.Catalog.Application.Abstractions;
+using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -28,9 +29,18 @@ public class ProductQueryService : IProductQueryService
         int pageNumber,
         int pageSize,
         DateTime? cursor = null,
+        bool includeUnpublished = false,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Products.AsNoTracking();
+
+        // D1 / H5a. Public callers see published products only. Applied before the count as well as
+        // the page, so TotalCount/TotalPages describe what the caller can actually reach — filtering
+        // after the count would report pages that come back empty.
+        if (!includeUnpublished)
+        {
+            query = query.Where(p => p.Status == ProductStatus.Active);
+        }
 
         // Filtering
         if (categoryId.HasValue)
@@ -127,9 +137,11 @@ public class ProductQueryService : IProductQueryService
         int maxResults = 200,
         CancellationToken cancellationToken = default)
     {
+        // Published only, for every caller including admins — see GetProductByCategoryQuery.CacheKey
+        // for why this endpoint deliberately does not vary by role.
         return await _context.Products
             .AsNoTracking()
-            .Where(p => p.CategoryId == categoryId)
+            .Where(p => p.CategoryId == categoryId && p.Status == ProductStatus.Active)
             .OrderBy(p => p.Name)
             .Take(maxResults)
             .Select(p => new ProductDto

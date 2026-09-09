@@ -34,17 +34,42 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     /// </summary>
     public DateTime? Cursor { get; init; }
 
+    /// <summary>
+    /// D1 / H5a. Whether unpublished (Draft) products are included. **Set server-side by the
+    /// endpoint from the caller's role — never trust the bound value.**
+    ///
+    /// <para>
+    /// This record is bound with <c>[AsParameters]</c>, so every public property is a query-string
+    /// parameter and a client could otherwise simply pass <c>?IncludeUnpublished=true</c> to read
+    /// the unpublished catalog. <c>ProductEndpoints</c> overwrites it with
+    /// <c>query with { IncludeUnpublished = user.IsInRole("Admin") }</c> after binding, which is
+    /// what makes that impossible. Any new read path must do the same.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// <b>Nullable on purpose, like every other property here.</b> `[AsParameters]` treats a
+    /// non-nullable value type as a <i>required</i> query-string parameter, so declaring this
+    /// `bool` made every request that omitted it fail binding — and the resulting 400 says
+    /// "The request body is not valid JSON", which is doubly misleading on a GET with no body.
+    /// </remarks>
+    public bool? IncludeUnpublished { get; init; }
+
     // Convenience accessors with defaults applied
+    /// <summary>Absent means "public caller": published products only.</summary>
+    public bool EffectiveIncludeUnpublished => IncludeUnpublished ?? false;
     public int EffectivePageNumber => PageNumber ?? 1;
     public int EffectivePageSize => PageSize ?? 10;
     public ProductSortBy EffectiveSortBy => SortBy ?? ProductSortBy.Name;
     public bool EffectiveIsDescending => IsDescending ?? false;
 
     // ICacheableQuery implementation
+    // IncludeUnpublished is part of the key and must stay that way: an admin's list contains draft
+    // products, and without it in the key that response would be cached and then served to
+    // anonymous callers — leaking the unpublished catalog through the cache rather than the API.
     public string CacheKey =>
         $"products:list:cat={CategoryId}:s={SearchTerm}:min={MinPrice}:max={MaxPrice}" +
         $":sort={EffectiveSortBy}:desc={EffectiveIsDescending}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
-        $":cur={Cursor?.Ticks}";
+        $":cur={Cursor?.Ticks}:unpub={EffectiveIncludeUnpublished}";
 
     /// <summary>
     /// DEBT-16. The key above embeds ten filter/sort/page parameters, so the set of live keys is

@@ -302,6 +302,52 @@ public class ProductTests
 
     #endregion
 
+    #region Unpublish
+
+    [Test]
+    public void Unpublish_ActiveProduct_ShouldReturnToDraft()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.Publish();
+
+        // Act
+        product.Unpublish();
+
+        // Assert
+        Assert.That(product.Status, Is.EqualTo(ProductStatus.Draft));
+    }
+
+    [Test]
+    public void Unpublish_DraftProduct_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        // Act & Assert — the handler short-circuits this case so a retry is a no-op, but the
+        // domain itself still rejects it: Draft -> Draft is not a transition.
+        Assert.Throws<DomainException>(() => product.Unpublish());
+    }
+
+    /// <summary>
+    /// Discontinued is set only by SoftDelete, and a soft-deleted product is already hidden by the
+    /// global query filter. Allowing Discontinued -> Draft would resurrect a deleted product
+    /// through a side door, so both guards must reject it.
+    /// </summary>
+    [Test]
+    public void Unpublish_DeletedProduct_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.Publish();
+        product.SoftDelete();
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.Unpublish());
+    }
+
+    #endregion
+
     #region SoftDelete
 
     [Test]
