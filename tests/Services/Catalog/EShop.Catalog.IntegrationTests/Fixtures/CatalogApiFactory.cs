@@ -11,7 +11,16 @@ namespace EShop.Catalog.IntegrationTests.Fixtures;
 
 /// <summary>
 /// Custom WebApplicationFactory for Catalog Integration tests.
-/// Uses In-Memory database for testing.
+///
+/// <para>
+/// This base uses the EF InMemory provider. Prefer
+/// <see cref="PostgresCatalogApiFactory"/> — <see cref="IntegrationTestBase"/> uses it by default —
+/// because InMemory cannot execute the provider-specific paths this service actually ships
+/// (<c>EF.Functions.ILike</c>, unique/GIN indexes, the partial unique index on
+/// <c>ProductImages</c>, decimal precision, column length caps). This class remains as the shared
+/// host/JWT/seed configuration both providers build on, and for the rare fixture that genuinely
+/// does not touch the database.
+/// </para>
 /// </summary>
 public class CatalogApiFactory : WebApplicationFactory<Program>
 {
@@ -55,11 +64,7 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
             }
 
-            // Add InMemory database with fixed name per factory instance
-            services.AddDbContext<CatalogDbContext>(options =>
-            {
-                options.UseInMemoryDatabase(_databaseName);
-            });
+            ConfigureDatabase(services);
 
             // Re-register IUnitOfWork with the new DbContext
             services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<CatalogDbContext>());
@@ -73,11 +78,36 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>
+    /// Registers the DbContext. Overridden by <see cref="PostgresCatalogApiFactory"/> to swap the
+    /// provider; both this and the override register exactly one, so the container never ends up
+    /// with two (which throws <i>"Only a single database provider can be registered in a service
+    /// provider"</i>).
+    /// </summary>
+    protected virtual void ConfigureDatabase(IServiceCollection services)
+    {
+        // InMemory database with a fixed name per factory instance.
+        services.AddDbContext<CatalogDbContext>(options =>
+        {
+            options.UseInMemoryDatabase(_databaseName);
+        });
+    }
+
+    /// <summary>
     /// Override this method in derived factories to add test-specific service configurations.
     /// </summary>
     protected virtual void ConfigureTestServices(IServiceCollection services)
     {
         // Default implementation does nothing
+    }
+
+    /// <summary>
+    /// Creates the schema. InMemory has no migrations, so it needs <c>EnsureCreated</c>; the
+    /// relational factory overrides this to a no-op because its database is cloned from an
+    /// already-migrated template and <c>Program.cs</c> runs <c>MigrateAsync</c> at startup anyway.
+    /// </summary>
+    protected virtual async Task EnsureSchemaAsync(CatalogDbContext db)
+    {
+        await db.Database.EnsureCreatedAsync();
     }
 
     public async Task InitializeDatabaseAsync()
@@ -89,7 +119,7 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
         var db = scopedServices.GetRequiredService<CatalogDbContext>();
         var logger = scopedServices.GetRequiredService<ILogger<CatalogApiFactory>>();
 
-        await db.Database.EnsureCreatedAsync();
+        await EnsureSchemaAsync(db);
 
         try
         {
@@ -98,7 +128,12 @@ public class CatalogApiFactory : WebApplicationFactory<Program>
         }
         catch (Exception ex)
         {
+            // M16. This used to log and return, leaving _databaseSeeded false and the tests to run
+            // against an unseeded database — so a broken seed surfaced later as a pile of
+            // unrelated-looking assertion failures instead of at setup. Log for the detail, then
+            // rethrow so the failure is attributed where it happened.
             logger.LogError(ex, "An error occurred seeding the database with test data. Error: {Message}", ex.Message);
+            throw;
         }
     }
 

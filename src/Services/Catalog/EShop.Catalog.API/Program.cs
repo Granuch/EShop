@@ -76,7 +76,16 @@ try
     builder.Services.AddCatalogApplication();
 
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)
-    var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+    // Testing defaults to the InMemory provider, but a test host can opt into a real relational
+    // database with Testing:UseRelationalDatabase=true. Same switch, and same reason, as Identity:
+    // this service ships production paths that only a relational provider can execute —
+    // EF.Functions.ILike in ProductQueryService, the unique/GIN indexes on Products, the partial
+    // unique index behind SetMainProductImageCommandHandler's two-save demotion, decimal(18,2)
+    // precision and the column length caps. On InMemory none of them is reachable from a test.
+    // Deliver the flag with UseSetting: this line runs while the app is being composed, so a
+    // ConfigureAppConfiguration source arrives too late and the default silently wins.
+    var useInMemoryDb = builder.Environment.IsEnvironment("Testing")
+        && !builder.Configuration.GetValue<bool>("Testing:UseRelationalDatabase");
     builder.Services.AddCatalogInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 
     // Add MassTransit with RabbitMQ messaging
