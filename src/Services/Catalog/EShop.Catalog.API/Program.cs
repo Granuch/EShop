@@ -333,13 +333,17 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
-    // Catalog has the widest branch set. AddEfConcurrency must precede AddEfDuplicateKey
-// (DbUpdateConcurrencyException derives from DbUpdateException). AddMalformedJsonBody
-// pairs with ThrowOnBadRequest + UnmappedMemberHandling.Disallow configured above.
+    // Catalog has the widest branch set, and the order is load-bearing throughout: mappers are
+// first-match-wins. AddEfConcurrency must precede AddEfDuplicateKey (DbUpdateConcurrencyException
+// derives from DbUpdateException), and AddProductSkuConflict must precede it too, since
+// AddEfDuplicateKey matches every unique violation and would report a lost SKU race as a generic
+// DuplicateResource. AddMalformedJsonBody pairs with ThrowOnBadRequest +
+// UnmappedMemberHandling.Disallow configured above.
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()
     .AddNotFound()
     .AddEfConcurrency()
+    .AddProductSkuConflict()
     .AddEfDuplicateKey()
     .AddMalformedJsonBody());
 

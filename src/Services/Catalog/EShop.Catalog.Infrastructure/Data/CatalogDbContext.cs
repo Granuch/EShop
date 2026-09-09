@@ -69,12 +69,31 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(p => p.UpdatedAt);
             entity.Property(p => p.UpdatedBy).HasMaxLength(100);
 
-            entity.HasIndex(p => p.Sku).IsUnique();
-            entity.HasIndex(p => p.Name);
+            // The B-tree indexes MUST be declared with an explicit name. An unnamed
+            // HasIndex(p => p.Sku) and the trigram HasIndex(p => p.Sku) below are the SAME index
+            // builder — EF keys indexes by property set, not by database name — so the later call
+            // silently reconfigured this one into a non-unique GIN index. There was no warning and
+            // no duplicate-index error: for five migrations `Products.Sku` simply had no unique
+            // constraint at all, and `Name` had no B-tree, while a comment here claimed otherwise.
+            // Naming them makes them distinct index builders, which is what lets both survive.
+            //
+            // The Sku index is deliberately PARTIAL. `GetBySkuAsync` runs under the
+            // `!p.IsDeleted` global query filter below, so a soft-deleted product's SKU is already
+            // invisible to the application's duplicate check; a total unique index would let the
+            // database reject a SKU the application had just told the caller was free. Filtering
+            // on the same predicate makes the two agree, and makes a soft-deleted product's SKU
+            // reusable, which is the intended behaviour.
+            entity.HasIndex(p => p.Sku, "IX_Products_Sku")
+                .IsUnique()
+                .HasFilter("NOT \"IsDeleted\"");
+            entity.HasIndex(p => p.Name, "IX_Products_Name");
             entity.HasIndex(p => p.CategoryId);
             entity.HasIndex(p => p.CreatedAt);
 
-            // Trigram indexes for ILIKE search performance (requires pg_trgm extension)
+            // Trigram indexes for ILIKE search performance (requires pg_trgm extension).
+            // These stay non-unique: Postgres cannot build a unique GIN index at all, which is why
+            // migration 20260217000731_UpdateProductModel2 exists — the fix taken there was to drop
+            // the uniqueness rather than to split the indexes, and that is what lost the constraint.
             entity.HasIndex(p => p.Name)
                 .HasDatabaseName("IX_Products_Name_Trgm")
                 .HasMethod("gin")
@@ -83,7 +102,6 @@ public class CatalogDbContext : BaseDbContext
                 .HasDatabaseName("IX_Products_Sku_Trgm")
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops")
-                // Trigram index must stay non-unique; SKU uniqueness is enforced by the dedicated B-tree index above.
                 .IsUnique(false);
 
             entity.HasMany(p => p.Images)

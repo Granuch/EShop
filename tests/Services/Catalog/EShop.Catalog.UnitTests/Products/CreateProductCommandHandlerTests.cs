@@ -1,4 +1,4 @@
-using EShop.BuildingBlocks.Domain;
+﻿using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
@@ -46,8 +46,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -94,8 +94,8 @@ public class CreateProductCommandHandlerTests
         Product? addedProduct = null;
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -141,8 +141,8 @@ public class CreateProductCommandHandlerTests
         Product? addedProduct = null;
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -185,8 +185,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -213,8 +213,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Product.Create("Existing", "SKU-001", 19.99m, 50, categoryId));
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -240,8 +240,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
