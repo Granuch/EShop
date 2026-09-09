@@ -143,9 +143,12 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // Partition on GetClientPartitionKey, not on RemoteIpAddress directly: the helper normalises
+    // IPv4-mapped IPv6, so ::ffff:1.2.3.4 and 1.2.3.4 share one bucket instead of a dual-stack
+    // client silently getting two allowances. Basket had the same mismatch Catalog did.
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 AutoReplenishment = true,

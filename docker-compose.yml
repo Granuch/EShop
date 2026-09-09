@@ -211,6 +211,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # Database
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -302,6 +314,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # JWT
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
       JwtSettings__Issuer: ${JWT_ISSUER}
@@ -372,6 +396,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
 
@@ -438,6 +474,18 @@ services:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
+
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
 
       # Database
       ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -536,6 +584,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # Database
       ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
 
@@ -628,6 +688,18 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
+
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
 
       ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -762,6 +834,18 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
+
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
 
       ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 

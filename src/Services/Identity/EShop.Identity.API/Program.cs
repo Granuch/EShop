@@ -551,10 +551,9 @@ try
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
 
-    if (forwardedHeadersEnabled)
-    {
-        app.UseForwardedHeaders();
-    }
+    // Same thing the other six components call — Identity hand-rolled the equivalent, which is
+    // functionally identical but means a change to the shared helper silently skips this service.
+    app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time

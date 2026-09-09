@@ -251,28 +251,41 @@ try
         });
     });
 
-    // Add Rate Limiting (permissive in Testing to avoid throttling integration tests)
+    // Add Rate Limiting (permissive in Testing to avoid throttling integration tests).
+    // Limits are read from configuration so a test host can make them assertable, matching
+    // Identity's RateLimiting:* keys — without that the limiters are unreachable from any test and
+    // the partition key, which is the part that actually matters, is unverifiable.
+    var rateLimitingEnabled = !builder.Environment.IsEnvironment("Testing")
+        || builder.Configuration.GetValue<bool>("RateLimiting:EnableInTesting");
+    var globalPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+    var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Global:WindowSeconds") ?? 60;
+    var searchPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Search:PermitLimit")
+        ?? (rateLimitingEnabled ? 30 : int.MaxValue);
+    var searchWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Search:WindowSeconds") ?? 60;
+
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-        if (!builder.Environment.IsEnvironment("Testing"))
+        if (rateLimitingEnabled)
         {
-            // Global rate limiter — 100 requests per minute per IP
+            // Global rate limiter — 100 requests per minute per client.
+            // Partition on GetClientPartitionKey, not on RemoteIpAddress directly: the helper
+            // normalises IPv4-mapped IPv6, so ::ffff:1.2.3.4 and 1.2.3.4 share one bucket instead
+            // of a dual-stack client silently getting two allowances. The "search" policy below
+            // already used it; this line did not, so the two only matched in shape.
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                 RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                    partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         AutoReplenishment = true,
-                        PermitLimit = 100,
-                        Window = TimeSpan.FromMinutes(1)
+                        PermitLimit = globalPermitLimit,
+                        Window = TimeSpan.FromSeconds(globalWindowSeconds)
                     }));
         }
 
-        // Named rate limiter for search queries
-        // In Testing, use permissive limits; in production, 30 per minute
-        var searchPermitLimit = builder.Environment.IsEnvironment("Testing") ? int.MaxValue : 30;
+        // Named rate limiter for search queries — 30 per minute in production.
         // AddFixedWindowLimiter(name, ...) builds ONE bucket shared by every caller — it has no
         // partition key — so a single client could exhaust the search allowance for the whole
         // service and lock everyone else out. AddPolicy<string> with an explicit partition key is
@@ -284,7 +297,7 @@ try
                 {
                     AutoReplenishment = true,
                     PermitLimit = searchPermitLimit,
-                    Window = TimeSpan.FromMinutes(1)
+                    Window = TimeSpan.FromSeconds(searchWindowSeconds)
                 }));
     });
 
