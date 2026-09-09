@@ -3,8 +3,10 @@ using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Application;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
+using EShop.Catalog.Application.Products.Commands.ClearProductDiscount;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Commands.PublishProduct;
+using EShop.Catalog.Application.Products.Commands.SetProductDiscount;
 using EShop.Catalog.Application.Products.Commands.UnpublishProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
 using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
@@ -177,6 +179,44 @@ public static class ProductEndpoints
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/discount (admin only)
+        // H5b / D3. Until this existed, DiscountPrice had no mutator anywhere, so it was
+        // permanently null — while still being projected into both DTOs and priced against by
+        // Basket (`DiscountPrice ?? Price`), a dead branch in another bounded context.
+        //
+        // A sub-resource with its own PUT/DELETE rather than a field on UpdateProductCommand: the
+        // update command carries Price and StockQuantity as required values, so folding an optional
+        // discount in would need "omitted means leave it, null means clear it" — the ambiguity the
+        // root guide records as BUG-09. Two verbs make the intent explicit in the request line.
+        group.MapPut("/{id:guid}/discount", async (Guid id, SetProductDiscountCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("SetProductDiscount")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // DELETE /api/v1/products/{id}/discount (admin only)
+        group.MapDelete("/{id:guid}/discount", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new ClearProductDiscountCommand { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("ClearProductDiscount")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/products/{id}/images (admin only)

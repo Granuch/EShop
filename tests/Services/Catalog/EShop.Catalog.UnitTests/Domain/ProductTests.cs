@@ -173,6 +173,158 @@ public class ProductTests
         Assert.Throws<DomainException>(() => product.UpdatePrice(-5m));
     }
 
+    /// <summary>
+    /// H5b. The alternative — silently dropping the discount — is the shape the repo already
+    /// carries as BUG-09, and leaving it would make EffectivePrice exceed Price, i.e. Basket
+    /// charging more than the catalog displays.
+    /// </summary>
+    [Test]
+    public void UpdatePrice_AtOrBelowAnActiveDiscount_ShouldThrowRatherThanDropTheDiscount()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.SetDiscountPrice(80m);
+
+        Assert.Throws<DomainException>(() => product.UpdatePrice(80m));
+        Assert.Throws<DomainException>(() => product.UpdatePrice(70m));
+        Assert.That(product.DiscountPrice, Is.EqualTo(80m), "the rejected call must not mutate anything");
+        Assert.That(product.Price, Is.EqualTo(100m));
+    }
+
+    /// <summary>
+    /// A discount is always strictly below the price, so it survives any accepted list-price change
+    /// and keeps winning — nothing customer-facing moved, so there is nothing for Basket to reprice.
+    /// </summary>
+    [Test]
+    public void UpdatePrice_WhileDiscounted_ShouldNotRaiseEventBecauseTheEffectivePriceIsUnchanged()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.SetDiscountPrice(80m);
+        product.ClearDomainEvents();
+
+        product.UpdatePrice(120m);
+
+        Assert.That(product.Price, Is.EqualTo(120m));
+        Assert.That(product.EffectivePrice, Is.EqualTo(80m));
+        Assert.That(product.DomainEvents, Has.Count.EqualTo(0));
+    }
+
+    #endregion
+
+    #region DiscountPrice
+
+    [Test]
+    public void EffectivePrice_WithNoDiscount_ShouldBeTheListPrice()
+    {
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+
+        Assert.That(product.DiscountPrice, Is.Null);
+        Assert.That(product.EffectivePrice, Is.EqualTo(29.99m));
+    }
+
+    [Test]
+    public void SetDiscountPrice_BelowTheListPrice_ShouldApplyAndRaiseAPriceChange()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.ClearDomainEvents();
+
+        product.SetDiscountPrice(79.99m);
+
+        Assert.That(product.DiscountPrice, Is.EqualTo(79.99m));
+        Assert.That(product.EffectivePrice, Is.EqualTo(79.99m));
+
+        // The event carries EFFECTIVE prices. Basket's consumer assigns NewPrice straight onto a
+        // basket item priced from the effective price at add time, so publishing the list price
+        // here would leave discounted baskets at full price.
+        Assert.That(product.DomainEvents, Has.Count.EqualTo(1));
+        var domainEvent = product.DomainEvents[0] as ProductPriceChangedEvent;
+        Assert.That(domainEvent, Is.Not.Null);
+        Assert.That(domainEvent!.OldPrice, Is.EqualTo(100m));
+        Assert.That(domainEvent.NewPrice, Is.EqualTo(79.99m));
+        Assert.That(domainEvent.ProductId, Is.EqualTo(product.Id));
+    }
+
+    [Test]
+    public void SetDiscountPrice_AtOrAboveTheListPrice_ShouldThrowDomainException()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+
+        Assert.Throws<DomainException>(() => product.SetDiscountPrice(100m));
+        Assert.Throws<DomainException>(() => product.SetDiscountPrice(120m));
+        Assert.That(product.DiscountPrice, Is.Null);
+    }
+
+    [Test]
+    public void SetDiscountPrice_AtOrBelowZero_ShouldThrowDomainException()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+
+        Assert.Throws<DomainException>(() => product.SetDiscountPrice(0m));
+        Assert.Throws<DomainException>(() => product.SetDiscountPrice(-1m));
+    }
+
+    [Test]
+    public void SetDiscountPrice_OnADeletedProduct_ShouldThrowDomainException()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.SoftDelete();
+
+        Assert.Throws<DomainException>(() => product.SetDiscountPrice(80m));
+    }
+
+    [Test]
+    public void SetDiscountPrice_ToTheSameValue_ShouldNotRaiseEvent()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.SetDiscountPrice(80m);
+        product.ClearDomainEvents();
+
+        product.SetDiscountPrice(80m);
+
+        Assert.That(product.DomainEvents, Has.Count.EqualTo(0));
+    }
+
+    [Test]
+    public void ClearDiscountPrice_ShouldRestoreTheListPriceAndRaiseAPriceChange()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.SetDiscountPrice(80m);
+        product.ClearDomainEvents();
+
+        product.ClearDiscountPrice();
+
+        Assert.That(product.DiscountPrice, Is.Null);
+        Assert.That(product.EffectivePrice, Is.EqualTo(100m));
+        Assert.That(product.DomainEvents, Has.Count.EqualTo(1));
+        var domainEvent = product.DomainEvents[0] as ProductPriceChangedEvent;
+        Assert.That(domainEvent!.OldPrice, Is.EqualTo(80m), "a promotion ending is a price rise for the customer");
+        Assert.That(domainEvent.NewPrice, Is.EqualTo(100m));
+    }
+
+    /// <summary>
+    /// Idempotent so a retried DELETE does not fail: there is no discount to remove either way.
+    /// </summary>
+    [Test]
+    public void ClearDiscountPrice_WithNoDiscount_ShouldBeANoOp()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.ClearDomainEvents();
+
+        product.ClearDiscountPrice();
+
+        Assert.That(product.DiscountPrice, Is.Null);
+        Assert.That(product.DomainEvents, Has.Count.EqualTo(0));
+    }
+
+    [Test]
+    public void ClearDiscountPrice_OnADeletedProduct_ShouldThrowDomainException()
+    {
+        var product = Product.Create("Test", "SKU-001", 100m, 10, _validCategoryId);
+        product.SetDiscountPrice(80m);
+        product.SoftDelete();
+
+        Assert.Throws<DomainException>(() => product.ClearDiscountPrice());
+    }
+
     #endregion
 
     #region UpdateStock

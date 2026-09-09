@@ -51,6 +51,15 @@ public record UpdateProductRequest
     public int StockQuantity { get; init; }
 }
 
+/// <summary>
+/// Body of PUT /api/v1/products/{id}/discount. The route owns the product id, so the body carries
+/// only the price — the endpoint overwrites ProductId after binding.
+/// </summary>
+public record SetProductDiscountRequest
+{
+    public decimal DiscountPrice { get; init; }
+}
+
 public record ProductResponse
 {
     public Guid Id { get; init; }
