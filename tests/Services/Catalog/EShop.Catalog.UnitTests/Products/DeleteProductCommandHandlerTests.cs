@@ -1,5 +1,5 @@
-using EShop.BuildingBlocks.Domain;
-using EShop.Catalog.Application.Abstractions;
+﻿using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,7 +13,7 @@ public class DeleteProductCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidator> _cacheInvalidatorMock = null!;
+    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private Mock<ILogger<DeleteProductCommandHandler>> _loggerMock = null!;
     private DeleteProductCommandHandler _handler = null!;
 
@@ -22,12 +22,12 @@ public class DeleteProductCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidatorMock = new Mock<ICacheInvalidator>();
+        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _loggerMock = new Mock<ILogger<DeleteProductCommandHandler>>();
         _handler = new DeleteProductCommandHandler(
             _productRepositoryMock.Object,
             _unitOfWorkMock.Object,
-            _cacheInvalidatorMock.Object,
+            _cacheInvalidationContextMock.Object,
             _loggerMock.Object);
     }
 
@@ -99,10 +99,8 @@ public class DeleteProductCommandHandlerTests
         await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        _cacheInvalidatorMock.Verify(
-            x => x.InvalidateAsync(
-                $"products:category:{categoryId}",
-                It.IsAny<CancellationToken>()),
+        _cacheInvalidationContextMock.Verify(
+            x => x.AddKey($"products:category:{categoryId}"),
             Times.Once);
     }
 }

@@ -1,5 +1,5 @@
-using EShop.BuildingBlocks.Domain;
-using EShop.Catalog.Application.Abstractions;
+﻿using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,7 +13,7 @@ public class UpdateProductCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidator> _cacheInvalidatorMock = null!;
+    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private Mock<ILogger<UpdateProductCommandHandler>> _loggerMock = null!;
     private UpdateProductCommandHandler _handler = null!;
 
@@ -22,12 +22,12 @@ public class UpdateProductCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidatorMock = new Mock<ICacheInvalidator>();
+        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _loggerMock = new Mock<ILogger<UpdateProductCommandHandler>>();
         _handler = new UpdateProductCommandHandler(
             _productRepositoryMock.Object,
             _unitOfWorkMock.Object,
-            _cacheInvalidatorMock.Object,
+            _cacheInvalidationContextMock.Object,
             _loggerMock.Object);
     }
 
@@ -61,8 +61,8 @@ public class UpdateProductCommandHandlerTests
         Assert.That(result.IsSuccess, Is.True);
         _productRepositoryMock.Verify(x => x.UpdateAsync(product, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _cacheInvalidatorMock.Verify(
-            x => x.InvalidateAsync($"products:category:{categoryId}", It.IsAny<CancellationToken>()), Times.Once);
+        _cacheInvalidationContextMock.Verify(
+            x => x.AddKey($"products:category:{categoryId}"), Times.Once);
     }
 
     [Test]
@@ -116,10 +116,8 @@ public class UpdateProductCommandHandlerTests
         await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        _cacheInvalidatorMock.Verify(
-            x => x.InvalidateAsync(
-                It.Is<string>(key => key.Contains(categoryId.ToString())),
-                It.IsAny<CancellationToken>()),
+        _cacheInvalidationContextMock.Verify(
+            x => x.AddKey(It.Is<string>(key => key.Contains(categoryId.ToString()))),
             Times.Once);
     }
 }

@@ -67,12 +67,19 @@ try
     // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
-    // Application BEFORE Infrastructure, and the order is load-bearing: MediatR runs pipeline
-    // behaviors in DI registration order. Application registers Transaction/Validation/Logging,
-    // Infrastructure registers Caching/CacheInvalidation. Registering Infrastructure first
-    // produced Caching -> CacheInvalidation -> Transaction -> Validation -> Logging -> handler,
-    // i.e. cache lookups outside the transaction and validation running after it had opened.
-    // Now matches Identity, Basket and Payment.
+    // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
+    // behaviors in DI registration order (first registered = outermost), so these three calls are
+    // what sets the pipeline:
+    //   CacheInvalidation -> Transaction -> Validation -> Logging -> Caching -> handler
+    // CacheInvalidationBehavior has to be outermost because it invalidates AFTER the handler
+    // returns: registered inside TransactionBehavior it evicted keys and bumped DEBT-16 family
+    // versions before the write committed, so a concurrent read could repopulate the cache with
+    // pre-commit data under the new version and keep serving it for the full TTL.
+    // Application before Infrastructure is the older, separate fix: Infrastructure first produced
+    // Caching -> ... -> Transaction -> Validation, i.e. validation running after the transaction
+    // had already opened. Both orderings are silent if broken — nothing fails, and neither is
+    // visible without reading all three extension methods.
+    builder.Services.AddEShopCacheInvalidation();
     builder.Services.AddCatalogApplication();
 
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)

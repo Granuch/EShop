@@ -17,18 +17,15 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
     private readonly IProductRepository _productRepository;
     private readonly ICategoryRepository _categoryRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidator _cacheInvalidator;
 
     public CreateProductCommandHandler(
         IProductRepository productRepository,
         ICategoryRepository categoryRepository,
-        IUnitOfWork unitOfWork,
-        ICacheInvalidator cacheInvalidator)
+        IUnitOfWork unitOfWork)
     {
         _productRepository = productRepository;
         _categoryRepository = categoryRepository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidator = cacheInvalidator;
     }
 
     public async Task<Result<Guid>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
@@ -72,13 +69,14 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         await _productRepository.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // This handler invalidated nothing before DEBT-16, which was the most visible instance of
-        // the stale-list problem: a newly created product did not appear in any cached list for up
-        // to five minutes, so the POST looked like it had silently failed.
-        await _cacheInvalidator.InvalidateAsync(
-            $"products:category:{product.CategoryId}", cancellationToken);
-        await _cacheInvalidator.InvalidateFamilyAsync(
-            ProductCacheFamilies.ProductList, cancellationToken);
+        // No invalidation code here on purpose. CreateProductCommand knows its own CategoryId, so
+        // it declares both the exact key and the products:list family, and CacheInvalidationBehavior
+        // drains them after the transaction commits. This handler used to do the same work a second
+        // time through ICacheInvalidator while the command already declared the category key — two
+        // mechanisms for one effect, and the hand-rolled half ran pre-commit.
+        // (It invalidated nothing at all before DEBT-16, which was the most visible instance of the
+        // stale-list problem: a newly created product did not appear in any cached list for up to
+        // five minutes, so the POST looked like it had silently failed.)
 
         activity?.SetTag("product.id", product.Id.ToString());
 

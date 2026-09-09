@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Caching;
 using MediatR;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -33,17 +34,23 @@ public class CacheInvalidationBehaviorTests
         : IRequest<Result<string>>, ICacheInvalidatingCommand
     {
         public IEnumerable<string> CacheKeysToInvalidate => Keys;
+
+        public IEnumerable<string> CacheFamiliesToInvalidate { get; init; } = [];
     }
 
     [SetUp]
     public void SetUp() => _cache = new Mock<IDistributedCache>();
 
     private CacheInvalidationBehavior<InvalidatingCommand, Result<string>> Behavior(
-        CachingBehaviorOptions options)
+        CachingBehaviorOptions options,
+        ICacheInvalidationContext? context = null,
+        ICacheKeyVersionProvider? versionProvider = null)
         => new(
             _cache.Object,
             NullLogger<CacheInvalidationBehavior<InvalidatingCommand, Result<string>>>.Instance,
-            Options.Create(options));
+            Options.Create(options),
+            context,
+            versionProvider);
 
     /// <summary>
     /// The key a command declares is <b>not</b> the key that gets removed: the behavior rewrites it
@@ -101,6 +108,131 @@ public class CacheInvalidationBehaviorTests
             CancellationToken.None);
 
         _cache.Verify(c => c.RemoveAsync("eshop:v1:profile:abc", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// C2. The behavior invalidates <b>after</b> the handler returns, which is what makes its
+    /// registration position load-bearing: outside <c>TransactionBehavior</c> that means after the
+    /// commit, inside it means before. Registered inside — as all four services did until Stage 2 —
+    /// a concurrent read landing between the eviction and the commit repopulates the cache with
+    /// pre-commit data for the full TTL.
+    ///
+    /// <para>
+    /// This pins the ordering the shared <c>AddEShopCacheInvalidation()</c> registration relies on:
+    /// nothing is evicted until the handler has completed.
+    /// </para>
+    /// </summary>
+    [Test]
+    public async Task DoesNotInvalidateUntilTheHandlerHasReturned()
+    {
+        var behavior = Behavior(new CachingBehaviorOptions { KeyPrefix = "eshop:", Version = "v1" });
+        var evictedBeforeHandlerReturned = false;
+
+        await behavior.Handle(
+            new InvalidatingCommand(["product:abc"]),
+            _ =>
+            {
+                _cache.Verify(
+                    c => c.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+                    Times.Never);
+                evictedBeforeHandlerReturned = false;
+                return Task.FromResult(Result<string>.Success("ok"));
+            },
+            CancellationToken.None);
+
+        Assert.That(evictedBeforeHandlerReturned, Is.False);
+        _cache.Verify(c => c.RemoveAsync("eshop:v1:product:abc", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// C2's other half. A handler that <i>throws</i> never commits, so it must not invalidate
+    /// either — the exception propagates through this behavior untouched and eviction is skipped.
+    /// Contrast <see cref="InvalidatesEvenWhenTheHandlerReturnsFailure"/>: a <c>Result</c> failure
+    /// still commits (TransactionBehavior's documented behaviour) and therefore still evicts.
+    /// </summary>
+    [Test]
+    public void SkipsInvalidationEntirelyWhenTheHandlerThrows()
+    {
+        var behavior = Behavior(new CachingBehaviorOptions { KeyPrefix = "eshop:", Version = "v1" });
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await behavior.Handle(
+            new InvalidatingCommand(["product:abc"]),
+            _ => throw new InvalidOperationException("handler blew up"),
+            CancellationToken.None));
+
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "nothing committed, so nothing may be evicted");
+    }
+
+    /// <summary>
+    /// Stage 2 added family support so Catalog's DEBT-16 invalidation could stop bypassing this
+    /// behavior. A declared family is bumped through <see cref="ICacheKeyVersionProvider"/>, not
+    /// removed — the keys stop being addressed and lapse on their own TTL.
+    /// </summary>
+    [Test]
+    public async Task BumpsDeclaredCacheFamilies()
+    {
+        var versionProvider = new Mock<ICacheKeyVersionProvider>();
+        var behavior = Behavior(
+            new CachingBehaviorOptions { KeyPrefix = "eshop:", Version = "v1" },
+            versionProvider: versionProvider.Object);
+
+        await behavior.Handle(
+            new InvalidatingCommand([]) { CacheFamiliesToInvalidate = ["products:list"] },
+            _ => Task.FromResult(Result<string>.Success("ok")),
+            CancellationToken.None);
+
+        versionProvider.Verify(p => p.BumpVersionAsync("products:list", It.IsAny<CancellationToken>()), Times.Once);
+        _cache.Verify(c => c.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "a family bump deletes nothing — that is the point of the indirection");
+    }
+
+    /// <summary>
+    /// Families added from the handler are drained too, which is how a key that depends on loaded
+    /// domain data reaches this behavior at all.
+    /// </summary>
+    [Test]
+    public async Task DrainsKeysAndFamiliesAddedThroughTheContext()
+    {
+        var context = new CacheInvalidationContext();
+        var versionProvider = new Mock<ICacheKeyVersionProvider>();
+        var behavior = Behavior(
+            new CachingBehaviorOptions { KeyPrefix = "eshop:", Version = "v1" },
+            context,
+            versionProvider.Object);
+
+        await behavior.Handle(
+            new InvalidatingCommand([]),
+            _ =>
+            {
+                context.AddKey("products:category:42");
+                context.AddFamily("products:list");
+                return Task.FromResult(Result<string>.Success("ok"));
+            },
+            CancellationToken.None);
+
+        _cache.Verify(c => c.RemoveAsync("eshop:v1:products:category:42", It.IsAny<CancellationToken>()), Times.Once);
+        versionProvider.Verify(p => p.BumpVersionAsync("products:list", It.IsAny<CancellationToken>()), Times.Once);
+        Assert.That(context.GetKeys(), Is.Empty, "the context is scoped and must be drained");
+        Assert.That(context.GetFamilies(), Is.Empty);
+    }
+
+    /// <summary>
+    /// A family declared by a service that registered no <see cref="ICacheKeyVersionProvider"/> is
+    /// a no-op plus a warning — the same silent-failure posture as a wildcard key, and worth
+    /// pinning for the same reason. Only Catalog registers a provider today.
+    /// </summary>
+    [Test]
+    public async Task SilentlySkipsFamiliesWhenNoVersionProviderIsRegistered()
+    {
+        var behavior = Behavior(new CachingBehaviorOptions { KeyPrefix = "eshop:", Version = "v1" });
+
+        var response = await behavior.Handle(
+            new InvalidatingCommand([]) { CacheFamiliesToInvalidate = ["products:list"] },
+            _ => Task.FromResult(Result<string>.Success("ok")),
+            CancellationToken.None);
+
+        Assert.That(response.IsSuccess, Is.True);
     }
 
     /// <summary>

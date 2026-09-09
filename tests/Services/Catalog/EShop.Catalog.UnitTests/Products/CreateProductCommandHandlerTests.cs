@@ -1,6 +1,6 @@
 ﻿using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
-using EShop.Catalog.Application.Abstractions;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -14,7 +14,6 @@ public class CreateProductCommandHandlerTests
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<ICategoryRepository> _categoryRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidator> _cacheInvalidatorMock = null!;
     private CreateProductCommandHandler _handler = null!;
 
     [SetUp]
@@ -23,12 +22,28 @@ public class CreateProductCommandHandlerTests
         _productRepositoryMock = new Mock<IProductRepository>();
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidatorMock = new Mock<ICacheInvalidator>();
+        // No cache collaborator: this command knows its own CategoryId, so it declares both the
+        // exact key and the products:list family, and CacheInvalidationBehavior drains them after
+        // the transaction commits. See DeclaresItsOwnInvalidation below.
         _handler = new CreateProductCommandHandler(
             _productRepositoryMock.Object,
             _categoryRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _cacheInvalidatorMock.Object);
+            _unitOfWorkMock.Object);
+    }
+
+    /// <summary>
+    /// The handler no longer invalidates anything itself, so without this the declarations are
+    /// unguarded: deleting either one would leave every test here green while a created product
+    /// stayed invisible in cached lists for the full TTL — the exact DEBT-16 symptom.
+    /// </summary>
+    [Test]
+    public void DeclaresItsOwnInvalidation()
+    {
+        var categoryId = Guid.NewGuid();
+        var command = new CreateProductCommand { CategoryId = categoryId };
+
+        Assert.That(command.CacheKeysToInvalidate, Does.Contain($"products:category:{categoryId}"));
+        Assert.That(command.CacheFamiliesToInvalidate, Does.Contain(ProductCacheFamilies.ProductList));
     }
 
     [Test]

@@ -105,17 +105,46 @@ public interface ICacheInvalidatingCommand
     /// is not supported by IDistributedCache.
     /// </summary>
     IEnumerable<string> CacheKeysToInvalidate { get; }
+
+    /// <summary>
+    /// Versioned key families to bump when this command executes — see
+    /// <see cref="IVersionedCacheKey"/>. Use this for any result set whose keys embed parameters
+    /// and therefore cannot be named, which is the case <see cref="CacheKeysToInvalidate"/>
+    /// structurally cannot express.
+    ///
+    /// <para>
+    /// Its absence is why two invalidation styles used to coexist: with no way to say "bump a
+    /// family", Catalog's handlers bypassed <c>CacheInvalidationBehavior</c> entirely and called a
+    /// service-local <c>ICacheInvalidator</c>, while Ordering's used the shared context. Defaulted
+    /// to empty so the many commands that only name exact keys need no change.
+    /// </para>
+    ///
+    /// <para>
+    /// Bumping requires an <see cref="ICacheKeyVersionProvider"/> registration; without one the
+    /// behavior logs a warning and does nothing, the same failure posture as a wildcard key.
+    /// </para>
+    /// </summary>
+    IEnumerable<string> CacheFamiliesToInvalidate => [];
 }
 
 /// <summary>
 /// Scoped context for dynamic cache invalidation metadata produced during command handling.
-/// Use when invalidation keys are known only after loading domain data.
+/// Use when invalidation keys are known only after loading domain data — a product's
+/// <c>CategoryId</c>, say, which the command does not carry.
 /// </summary>
 public interface ICacheInvalidationContext
 {
     void AddKey(string key);
     void AddKeys(IEnumerable<string> keys);
     IReadOnlyCollection<string> GetKeys();
+
+    /// <summary>Queues a versioned key family for bumping. See
+    /// <see cref="ICacheInvalidatingCommand.CacheFamiliesToInvalidate"/>.</summary>
+    void AddFamily(string family);
+    void AddFamilies(IEnumerable<string> families);
+    IReadOnlyCollection<string> GetFamilies();
+
+    /// <summary>Clears both keys and families.</summary>
     void Clear();
 }
 

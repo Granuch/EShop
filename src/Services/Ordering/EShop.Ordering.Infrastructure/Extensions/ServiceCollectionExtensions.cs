@@ -39,10 +39,14 @@ public static class ServiceCollectionExtensions
         services.Configure<PaymentSuccessConsumer.PaymentSuccessProcessingOptions>(
             configuration.GetSection(PaymentSuccessConsumer.PaymentSuccessProcessingOptions.SectionName));
 
-        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
+        // CachingBehavior only — it must be in Infrastructure for the IDistributedCache wiring, and
+        // its position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior deliberately does NOT belong here: registering it after
+        // AddOrderingApplication puts it inside TransactionBehavior, so the keys AddOrderItem,
+        // CancelOrder, RemoveOrderItem and ShipOrder add to ICacheInvalidationContext would be
+        // drained before the write commits. It is registered by AddEShopCacheInvalidation() in
+        // Program.cs instead — see that method for why.
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 
         // Add DbContext
         if (useInMemoryDatabase)

@@ -1,5 +1,5 @@
-using EShop.BuildingBlocks.Domain;
-using EShop.Catalog.Application.Abstractions;
+﻿using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -12,7 +12,7 @@ public class RemoveProductImageCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidator> _cacheInvalidatorMock = null!;
+    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private RemoveProductImageCommandHandler _handler = null!;
 
     [SetUp]
@@ -20,11 +20,11 @@ public class RemoveProductImageCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidatorMock = new Mock<ICacheInvalidator>();
+        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _handler = new RemoveProductImageCommandHandler(
             _productRepositoryMock.Object,
             _unitOfWorkMock.Object,
-            _cacheInvalidatorMock.Object);
+            _cacheInvalidationContextMock.Object);
     }
 
     [Test]
@@ -52,8 +52,8 @@ public class RemoveProductImageCommandHandlerTests
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(product.Images, Is.Empty);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _cacheInvalidatorMock.Verify(
-            x => x.InvalidateAsync($"products:category:{categoryId}", It.IsAny<CancellationToken>()), Times.Once);
+        _cacheInvalidationContextMock.Verify(
+            x => x.AddKey($"products:category:{categoryId}"), Times.Once);
     }
 
     [Test]

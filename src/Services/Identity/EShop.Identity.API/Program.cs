@@ -69,13 +69,19 @@ try
     // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
-    // Application BEFORE Infrastructure, and the order is load-bearing: MediatR runs pipeline
-    // behaviors in registration order, Application registers Transaction/Validation/Logging and
-    // Infrastructure registers Caching/CacheInvalidation. Registering Infrastructure first
-    // produced Caching -> CacheInvalidation -> Transaction -> Validation -> Logging -> handler,
-    // i.e. cache lookups outside the transaction and validation running after it had opened.
-    // This now matches Basket and Payment. (Catalog and Ordering still have the old call order —
-    // same latent defect, out of scope here.)
+    // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
+    // behaviors in DI registration order (first registered = outermost), so these three calls are
+    // what sets the pipeline:
+    //   CacheInvalidation -> Transaction -> Validation -> Logging -> Caching -> handler
+    // CacheInvalidationBehavior has to be outermost because it invalidates AFTER the handler
+    // returns: registered inside TransactionBehavior it drained keys before the write committed,
+    // so a concurrent read could repopulate the cache with pre-commit data for the full TTL.
+    // Application before Infrastructure is the older, separate fix: Infrastructure first produced
+    // Caching -> ... -> Transaction -> Validation, i.e. validation running after the transaction
+    // had already opened. All four services carrying these behaviors now agree — Basket, Catalog,
+    // Identity and Ordering; Payment has no caching behaviors at all. Both orderings are silent if
+    // broken — nothing fails, and neither is visible without reading all three extension methods.
+    builder.Services.AddEShopCacheInvalidation();
     builder.Services.AddIdentityApplication();
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)

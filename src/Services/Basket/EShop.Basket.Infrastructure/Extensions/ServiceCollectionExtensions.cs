@@ -58,9 +58,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICheckoutIdempotencyStore, RedisCheckoutIdempotencyStore>();
         services.AddSingleton<RedisMessageIdempotencyStore>();
 
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
+        // CachingBehavior only — it needs the IDistributedCache wiring configured here, and its
+        // position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior deliberately does NOT belong here: registering it after
+        // AddBasketApplication puts it inside TransactionBehavior, so it would invalidate before
+        // the write commits. It is registered by AddEShopCacheInvalidation() in Program.cs — see
+        // that method for why.
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 
         return services;
     }

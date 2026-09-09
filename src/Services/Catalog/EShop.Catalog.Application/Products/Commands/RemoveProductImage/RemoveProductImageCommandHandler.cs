@@ -1,4 +1,5 @@
-using EShop.BuildingBlocks.Application;
+﻿using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products;
@@ -11,16 +12,16 @@ public class RemoveProductImageCommandHandler : IRequestHandler<RemoveProductIma
 {
     private readonly IProductRepository _productRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidator _cacheInvalidator;
+    private readonly ICacheInvalidationContext _cacheInvalidationContext;
 
     public RemoveProductImageCommandHandler(
         IProductRepository productRepository,
         IUnitOfWork unitOfWork,
-        ICacheInvalidator cacheInvalidator)
+        ICacheInvalidationContext cacheInvalidationContext)
     {
         _productRepository = productRepository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidator = cacheInvalidator;
+        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(RemoveProductImageCommand request, CancellationToken cancellationToken)
@@ -40,16 +41,11 @@ public class RemoveProductImageCommandHandler : IRequestHandler<RemoveProductIma
         await _productRepository.UpdateAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // Invalidate category product-list cache (not covered by ICacheInvalidatingCommand
-        // because the command doesn't know the CategoryId at construction time).
-        await _cacheInvalidator.InvalidateAsync($"products:category:{product.CategoryId}", cancellationToken);
-
-        // DEBT-16. The products:list:* keys embed every filter/sort/page parameter, so
-        // they cannot be named for exact-key invalidation. Bumping the family version
-        // makes all of them unreachable in one operation instead of leaving list results
-        // stale for the full 5-minute TTL.
-        await _cacheInvalidator.InvalidateFamilyAsync(
-            ProductCacheFamilies.ProductList, cancellationToken);
+        // products:category:{id} goes through ICacheInvalidationContext rather than the
+        // command's CacheKeysToInvalidate because the command carries only ProductId — the
+        // CategoryId is only known once the product is loaded. CacheInvalidationBehavior
+        // drains both, after TransactionBehavior has committed.
+        _cacheInvalidationContext.AddKey($"products:category:{product.CategoryId}");
 
         return Result.Success();
     }

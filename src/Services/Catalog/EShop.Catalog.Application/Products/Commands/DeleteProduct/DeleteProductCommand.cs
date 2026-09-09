@@ -13,4 +13,9 @@ public record DeleteProductCommand : IRequest<Result>, ICacheInvalidatingCommand
     [
         $"product:{ProductId}"
     ];
+
+    // DEBT-16. products:list:* keys embed every filter/sort/page parameter and cannot be named,
+    // so the family version is bumped instead. The handler still adds products:category:{id} to
+    // ICacheInvalidationContext, because the command does not know the CategoryId.
+    public IEnumerable<string> CacheFamiliesToInvalidate => [ProductCacheFamilies.ProductList];
 }

@@ -52,6 +52,14 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
 var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
+// CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline behaviors
+// in DI registration order (first registered = outermost), so these three calls are what sets the
+// pipeline: CacheInvalidation -> Transaction -> Validation -> Logging -> Caching -> handler.
+// CacheInvalidationBehavior has to be outermost because it invalidates AFTER the handler returns:
+// registered inside TransactionBehavior it drained keys before the write committed, so a
+// concurrent read could repopulate the cache with pre-commit data for the full TTL. Silent if
+// broken — nothing fails, and it is invisible without reading all three extension methods.
+builder.Services.AddEShopCacheInvalidation();
 builder.Services.AddBasketApplication();
 builder.Services.AddBasketInfrastructure(builder.Configuration);
 builder.Services.AddBasketMessaging(

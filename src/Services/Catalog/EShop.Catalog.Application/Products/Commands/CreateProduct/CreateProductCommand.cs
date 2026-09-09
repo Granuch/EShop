@@ -35,4 +35,10 @@ public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingC
     [
         $"products:category:{CategoryId}"
     ];
+
+    // DEBT-16. The products:list:* keys embed every filter/sort/page parameter, so they cannot be
+    // named for exact-key invalidation; bumping the family version makes all of them unreachable
+    // in one operation. Declared here rather than called from the handler so it is drained by
+    // CacheInvalidationBehavior — i.e. after the transaction commits.
+    public IEnumerable<string> CacheFamiliesToInvalidate => [ProductCacheFamilies.ProductList];
 }

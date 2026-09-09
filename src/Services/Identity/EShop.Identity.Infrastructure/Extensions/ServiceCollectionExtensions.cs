@@ -44,15 +44,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
-        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
+        // CachingBehavior only — it must be in Infrastructure for the IDistributedCache wiring, and
+        // its position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior and ICacheInvalidationContext moved to
+        // AddEShopCacheInvalidation() in Program.cs: registered here, after AddIdentityApplication,
+        // the behavior sat inside TransactionBehavior and drained keys before the write committed.
+        // (Note ICacheInvalidationContext was once missing here entirely — it is an optional
+        // constructor dependency, so it bound to null and every runtime-discovered invalidation key
+        // silently became a no-op. The shared registration removes that failure mode for good.)
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
-
-        // CachingBehavior takes this as an optional constructor dependency, so leaving it
-        // unregistered was not an error — it bound to null and every runtime-discovered
-        // invalidation key silently became a no-op, in Identity only. Basket, Catalog and
-        // Ordering all register it.
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
 
         // Add DbContext
         if (useInMemoryDatabase)

@@ -38,10 +38,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
-        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
+        // CachingBehavior only — it must be in Infrastructure for the IDistributedCache wiring, and
+        // its position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior deliberately does NOT belong here: registering it after
+        // AddCatalogApplication puts it inside TransactionBehavior, so it would evict and bump
+        // family versions before the write commits. It is registered by AddEShopCacheInvalidation()
+        // in Program.cs instead — see that method for why.
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 
         // Add DbContext
         if (useInMemoryDatabase)
@@ -62,9 +65,6 @@ public static class ServiceCollectionExtensions
 
         // Add query services (keeps EF Core query composition in Infrastructure)
         services.AddScoped<IProductQueryService, ProductQueryService>();
-
-        // Add cache invalidation abstraction
-        services.AddScoped<ICacheInvalidator, CacheInvalidator>();
 
         // DEBT-16. Backs IVersionedCacheKey, which is how the products:list family is invalidated:
         // its keys embed every filter/sort/page parameter, so they cannot be enumerated and cannot

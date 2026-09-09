@@ -303,9 +303,32 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
 /// <summary>
 /// MediatR pipeline behavior that invalidates cache entries when commands execute.
 /// Works in conjunction with CachingBehavior.
-/// 
-/// Usage: Implement ICacheInvalidatingCommand on your command and specify
-/// which cache keys should be invalidated.
+///
+/// <para>
+/// Usage: implement <see cref="ICacheInvalidatingCommand"/> on your command and declare the exact
+/// keys and/or the versioned key families it must evict, or add them to
+/// <see cref="ICacheInvalidationContext"/> from the handler when they are only known after loading
+/// domain data.
+/// </para>
+///
+/// <para>
+/// <b>This behavior must be registered OUTSIDE <c>TransactionBehavior</c>, and that is the whole
+/// point of <c>AddEShopCacheInvalidation()</c>.</b> It invalidates after <c>await next()</c>
+/// returns, so when it sits inside the transaction it evicts — and bumps family versions — while
+/// the write is still uncommitted and invisible to everyone else. A concurrent read landing in
+/// that window repopulates the cache with pre-commit data, under the *new* family version, where
+/// it survives the full TTL. That is strictly worse than not invalidating at all, because the
+/// bump that was supposed to fix staleness is what makes the stale entry addressable. Registering
+/// this behavior before <c>Add&lt;Service&gt;Application()</c> puts it outside, so it runs after
+/// the commit.
+/// </para>
+///
+/// <para>
+/// Two consequences of being outside, both intended: a handler that <i>throws</i> skips
+/// invalidation entirely (correct — nothing committed), while a handler returning a
+/// <c>Result</c> failure still commits, per <c>TransactionBehavior</c>'s documented behaviour, and
+/// therefore still invalidates (also correct).
+/// </para>
 /// </summary>
 public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
@@ -314,17 +337,22 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
     private readonly ILogger<CacheInvalidationBehavior<TRequest, TResponse>> _logger;
     private readonly CachingBehaviorOptions _options;
     private readonly ICacheInvalidationContext? _cacheInvalidationContext;
+    private readonly ICacheKeyVersionProvider? _versionProvider;
 
     public CacheInvalidationBehavior(
         IDistributedCache cache,
         ILogger<CacheInvalidationBehavior<TRequest, TResponse>> logger,
         IOptions<CachingBehaviorOptions>? options = null,
-        ICacheInvalidationContext? cacheInvalidationContext = null)
+        ICacheInvalidationContext? cacheInvalidationContext = null,
+        ICacheKeyVersionProvider? versionProvider = null)
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? new CachingBehaviorOptions();
         _cacheInvalidationContext = cacheInvalidationContext;
+        // Optional: only services using IVersionedCacheKey register a provider. Declaring a family
+        // without one is a no-op plus a warning, matching how a wildcard key behaves.
+        _versionProvider = versionProvider;
     }
 
     public async Task<TResponse> Handle(
@@ -349,11 +377,20 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
             keysToInvalidate.UnionWith(invalidatingCommand.CacheKeysToInvalidate);
         }
 
+        var familiesToInvalidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (invalidatingCommand.CacheFamiliesToInvalidate is not null)
+        {
+            familiesToInvalidate.UnionWith(invalidatingCommand.CacheFamiliesToInvalidate);
+        }
+
         if (_cacheInvalidationContext is not null)
         {
             keysToInvalidate.UnionWith(_cacheInvalidationContext.GetKeys());
+            familiesToInvalidate.UnionWith(_cacheInvalidationContext.GetFamilies());
             _cacheInvalidationContext.Clear();
         }
+
+        await InvalidateFamiliesAsync(familiesToInvalidate, requestName, cancellationToken);
 
         if (keysToInvalidate.Count == 0)
         {
@@ -395,5 +432,49 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// Bumps each declared family's version, making every key currently in it unreachable in one
+    /// operation. Nothing is deleted — entries lapse on their own TTL — so a bump is not observable
+    /// as absent keys; check the version entry instead.
+    /// </summary>
+    private async Task InvalidateFamiliesAsync(
+        HashSet<string> families,
+        string requestName,
+        CancellationToken cancellationToken)
+    {
+        if (families.Count == 0)
+        {
+            return;
+        }
+
+        if (_versionProvider is null)
+        {
+            _logger.LogWarning(
+                "Cache families {Families} requested by {RequestName} but no ICacheKeyVersionProvider "
+                + "is registered — nothing was invalidated. Register one in the service's "
+                + "Infrastructure extension.",
+                string.Join(", ", families), requestName);
+            return;
+        }
+
+        foreach (var family in families)
+        {
+            try
+            {
+                await _versionProvider.BumpVersionAsync(family, cancellationToken);
+                _logger.LogDebug(
+                    "Invalidated cache family {Family} after {RequestName}", family, requestName);
+            }
+            catch (Exception ex)
+            {
+                // Same posture as an exact key below: a cache failure must not fail a write that
+                // has already committed. The cost is a stale family for up to its TTL.
+                _logger.LogWarning(ex,
+                    "Failed to invalidate cache family {Family} after {RequestName}",
+                    family, requestName);
+            }
+        }
     }
 }
