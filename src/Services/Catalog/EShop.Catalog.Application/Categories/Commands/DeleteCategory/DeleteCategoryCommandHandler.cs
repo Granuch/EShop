@@ -30,8 +30,9 @@ public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryComman
         if (category.ChildCategories.Count > 0)
             return Result.Failure(new Error("Category.HasChildren", "Cannot delete a category that has child categories. Remove children first."));
 
-        var products = await _productRepository.GetByCategoryAsync(request.Id, cancellationToken);
-        if (products.Any())
+        // M17. An existence question, asked as one: this used to materialise up to 200 full
+        // products and call .Any() on the list.
+        if (await _productRepository.AnyInCategoryAsync(request.Id, cancellationToken))
             return Result.Failure(new Error("Category.HasProducts", "Cannot delete a category that has products. Reassign or delete products first."));
 
         await _categoryRepository.DeleteAsync(category, cancellationToken);

@@ -22,9 +22,9 @@ public class CreateProductCommandHandlerTests
         _productRepositoryMock = new Mock<IProductRepository>();
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        // No cache collaborator: this command knows its own CategoryId, so it declares both the
-        // exact key and the products:list family, and CacheInvalidationBehavior drains them after
-        // the transaction commits. See DeclaresItsOwnInvalidation below.
+        // No cache collaborator: the command declares the products:list family — which since
+        // Stage 6 also covers the paged per-category lists — and CacheInvalidationBehavior drains
+        // it after the transaction commits. See DeclaresItsOwnInvalidation below.
         _handler = new CreateProductCommandHandler(
             _productRepositoryMock.Object,
             _categoryRepositoryMock.Object,
@@ -42,7 +42,9 @@ public class CreateProductCommandHandlerTests
         var categoryId = Guid.NewGuid();
         var command = new CreateProductCommand { CategoryId = categoryId };
 
-        Assert.That(command.CacheKeysToInvalidate, Does.Contain($"products:category:{categoryId}"));
+        // No exact keys: an exact key for the category list would name an entry nobody writes
+        // now that it is paged — evicting it would remove nothing and log success.
+        Assert.That(command.CacheKeysToInvalidate, Is.Empty);
         Assert.That(command.CacheFamiliesToInvalidate, Does.Contain(ProductCacheFamilies.ProductList));
     }
 

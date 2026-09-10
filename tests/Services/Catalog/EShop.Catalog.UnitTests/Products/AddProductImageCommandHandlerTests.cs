@@ -1,6 +1,6 @@
 ﻿using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
-using EShop.BuildingBlocks.Application.Caching;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,7 +13,6 @@ public class AddProductImageCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private AddProductImageCommandHandler _handler = null!;
 
     [SetUp]
@@ -21,11 +20,9 @@ public class AddProductImageCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _handler = new AddProductImageCommandHandler(
             _productRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _cacheInvalidationContextMock.Object);
+            _unitOfWorkMock.Object);
     }
 
     [Test]
@@ -112,33 +109,16 @@ public class AddProductImageCommandHandlerTests
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// A new main image changes MainImageUrl in every list, the per-category pages included —
+    /// covered by the products:list family since Stage 6, not by an exact key from the handler.
+    /// </summary>
     [Test]
-    public async Task Handle_ShouldInvalidateCategoryCacheKey()
+    public void DeclaresItsOwnInvalidation()
     {
-        // Arrange
-        var categoryId = Guid.NewGuid();
-        var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, categoryId);
+        var command = new AddProductImageCommand { ProductId = Guid.NewGuid() };
 
-        var command = new AddProductImageCommand
-        {
-            ProductId = product.Id,
-            Url = "https://example.com/img.jpg",
-            DisplayOrder = 0
-        };
-
-        _productRepositoryMock
-            .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(product);
-
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
-
-        // Act
-        await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        _cacheInvalidationContextMock.Verify(
-            x => x.AddKey($"products:category:{categoryId}"), Times.Once);
+        Assert.That(command.CacheKeysToInvalidate, Is.EquivalentTo(ProductCacheKeys.AllDetailVariants(command.ProductId)));
+        Assert.That(command.CacheFamiliesToInvalidate, Does.Contain(ProductCacheFamilies.ProductList));
     }
 }

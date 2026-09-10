@@ -34,9 +34,8 @@ public static class ProductCacheKeys
         DetailIncludingUnpublished(productId)
     ];
 
-    /// <summary>
-    /// Product list for one category. Single-variant on purpose — see
-    /// <c>GetProductByCategoryQuery.CacheKey</c> for why that endpoint does not vary by role.
-    /// </summary>
-    public static string Category(Guid categoryId) => $"products:category:{categoryId}";
+    // There is deliberately no per-category key here any more. Since Stage 6 the category product
+    // list is paged, so its keys embed page parameters and live in ProductCacheFamilies.ProductList
+    // like every other list. An exact key for it would name an entry nobody writes: evicting it
+    // removes nothing and logs success.
 }

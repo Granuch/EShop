@@ -29,10 +29,19 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     public bool? IsDescending { get; init; }
 
     /// <summary>
-    /// Optional cursor for keyset pagination (CreatedAt value of the last item on the previous page).
-    /// When provided, uses cursor-based pagination instead of OFFSET — constant performance regardless of page depth.
+    /// H4. <b>Not supported here — any value is rejected with 400.</b> Keyset paging lives at
+    /// <c>GET /api/v1/products/newest</c> (<c>GetNewestProductsQuery</c>).
+    ///
+    /// <para>
+    /// The property survives only so that a client still sending <c>?Cursor=</c> is told so. Before
+    /// Stage 6 this endpoint honoured a cursor for <c>CreatedAt</c>-descending sorts alone and
+    /// silently ignored it for every other combination, answering 200 with offset page 1 — a client
+    /// paging by cursor re-read the first page forever. Deleting the property would have recreated
+    /// exactly that: an unknown query parameter is ignored, not rejected. A <c>string</c> so that
+    /// whatever an old client sends binds and reaches the validator's explanation.
+    /// </para>
     /// </summary>
-    public DateTime? Cursor { get; init; }
+    public string? Cursor { get; init; }
 
     /// <summary>
     /// D1 / H5a. Whether unpublished (Draft) products are included. **Set server-side by the
@@ -69,7 +78,7 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     public string CacheKey =>
         $"products:list:cat={CategoryId}:s={SearchTerm}:min={MinPrice}:max={MaxPrice}" +
         $":sort={EffectiveSortBy}:desc={EffectiveIsDescending}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
-        $":cur={Cursor?.Ticks}:unpub={EffectiveIncludeUnpublished}";
+        $":unpub={EffectiveIncludeUnpublished}";
 
     /// <summary>
     /// DEBT-16. The key above embeds ten filter/sort/page parameters, so the set of live keys is

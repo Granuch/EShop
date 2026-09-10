@@ -27,7 +27,7 @@ public record SetProductDiscountCommand : IRequest<Result>, ICacheInvalidatingCo
         ProductCacheKeys.AllDetailVariants(ProductId);
 
     // DEBT-16. products:list:* keys embed every filter/sort/page parameter and cannot be named,
-    // so the family version is bumped instead. The handler still adds products:category:{id} to
-    // ICacheInvalidationContext, because the command does not know the CategoryId.
+    // so the family version is bumped instead. That one bump also covers the per-category product
+    // pages (GET /categories/{id}/products), which joined this family in Stage 6.
     public IEnumerable<string> CacheFamiliesToInvalidate => [ProductCacheFamilies.ProductList];
 }

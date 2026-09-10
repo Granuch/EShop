@@ -1,5 +1,5 @@
-﻿using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Application.Caching;
+using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,7 +13,6 @@ public class UpdateProductCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private Mock<ILogger<UpdateProductCommandHandler>> _loggerMock = null!;
     private UpdateProductCommandHandler _handler = null!;
 
@@ -22,12 +21,10 @@ public class UpdateProductCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _loggerMock = new Mock<ILogger<UpdateProductCommandHandler>>();
         _handler = new UpdateProductCommandHandler(
             _productRepositoryMock.Object,
             _unitOfWorkMock.Object,
-            _cacheInvalidationContextMock.Object,
             _loggerMock.Object);
     }
 
@@ -61,8 +58,6 @@ public class UpdateProductCommandHandlerTests
         Assert.That(result.IsSuccess, Is.True);
         _productRepositoryMock.Verify(x => x.UpdateAsync(product, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _cacheInvalidationContextMock.Verify(
-            x => x.AddKey($"products:category:{categoryId}"), Times.Once);
     }
 
     [Test]
@@ -90,34 +85,17 @@ public class UpdateProductCommandHandlerTests
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// The handler has no cache collaborator any more, so these declarations are the whole of its
+    /// invalidation. The category product pages used to be evicted by an exact key from the handler;
+    /// since Stage 6 they are paged, live in the products:list family, and are covered by it.
+    /// </summary>
     [Test]
-    public async Task Handle_ShouldInvalidateCategoryCacheKey()
+    public void DeclaresItsOwnInvalidation()
     {
-        // Arrange
-        var categoryId = Guid.NewGuid();
-        var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, categoryId);
+        var command = new UpdateProductCommand { ProductId = Guid.NewGuid() };
 
-        var command = new UpdateProductCommand
-        {
-            ProductId = product.Id,
-            Price = 39.99m,
-            StockQuantity = 50
-        };
-
-        _productRepositoryMock
-            .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(product);
-
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
-
-        // Act
-        await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        _cacheInvalidationContextMock.Verify(
-            x => x.AddKey(It.Is<string>(key => key.Contains(categoryId.ToString()))),
-            Times.Once);
+        Assert.That(command.CacheKeysToInvalidate, Is.EquivalentTo(ProductCacheKeys.AllDetailVariants(command.ProductId)));
+        Assert.That(command.CacheFamiliesToInvalidate, Does.Contain(ProductCacheFamilies.ProductList));
     }
 }

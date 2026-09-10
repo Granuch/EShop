@@ -4,7 +4,9 @@ using EShop.Catalog.Application.Categories.Commands.DeleteCategory;
 using EShop.Catalog.Application.Categories.Commands.UpdateCategory;
 using EShop.Catalog.Application.Categories.Queries.GetCategories;
 using EShop.Catalog.Application.Categories.Queries.GetCategoryById;
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Catalog.Application.Products.Queries.GetProductByCategory;
+using EShop.Catalog.Application.Products.Queries.GetProducts;
 using MediatR;
 
 namespace EShop.Catalog.API.Endpoints;
@@ -47,17 +49,26 @@ public static class CategoryEndpoints
         .Produces<object>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // GET /api/v1/categories/{id}/products
-        group.MapGet("/{id:guid}/products", async (Guid id, IMediator mediator) =>
+        // GET /api/v1/categories/{id}/products — paged like GET /api/v1/products (D5).
+        // The paging parameters are nullable so they stay optional query-string parameters.
+        group.MapGet("/{id:guid}/products", async (Guid id, int? pageNumber, int? pageSize, IMediator mediator) =>
         {
-            var result = await mediator.Send(new GetProductByCategoryQuery { CategoryId = id });
+            var result = await mediator.Send(new GetProductByCategoryQuery
+            {
+                CategoryId = id,
+                PageNumber = pageNumber,
+                PageSize = pageSize
+            });
 
+            // Discriminates: an out-of-range page size is a Validation.Failed Result and owes a
+            // 400. The blanket 404 mapping this replaced would have reported it as a missing category.
             return result.Match(
                 value => Results.Ok(value),
-                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
+                ProductEndpoints.ProblemForError);
         })
         .WithName("GetProductsByCategory")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<PagedResult<ProductDto>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/categories (admin only)

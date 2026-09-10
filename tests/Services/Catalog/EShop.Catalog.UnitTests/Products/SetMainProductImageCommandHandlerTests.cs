@@ -1,5 +1,4 @@
 ﻿using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Application.Caching;
 using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -12,7 +11,6 @@ public class SetMainProductImageCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private SetMainProductImageCommandHandler _handler = null!;
 
     [SetUp]
@@ -20,11 +18,9 @@ public class SetMainProductImageCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _handler = new SetMainProductImageCommandHandler(
             _productRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _cacheInvalidationContextMock.Object);
+            _unitOfWorkMock.Object);
     }
 
     [Test]
@@ -57,8 +53,6 @@ public class SetMainProductImageCommandHandlerTests
         // Two saves, not one: the demotion is flushed before the promotion so the DB never
         // holds two IsMain rows at once (non-deferrable partial unique index → 23505/409).
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
-        _cacheInvalidationContextMock.Verify(
-            x => x.AddKey($"products:category:{categoryId}"), Times.Once);
     }
 
     [Test]

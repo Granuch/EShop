@@ -1,5 +1,4 @@
-﻿using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products;
@@ -12,16 +11,13 @@ public class AddProductAttributeCommandHandler : IRequestHandler<AddProductAttri
 {
     private readonly IProductRepository _productRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidationContext _cacheInvalidationContext;
 
     public AddProductAttributeCommandHandler(
         IProductRepository productRepository,
-        IUnitOfWork unitOfWork,
-        ICacheInvalidationContext cacheInvalidationContext)
+        IUnitOfWork unitOfWork)
     {
         _productRepository = productRepository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result<Guid>> Handle(AddProductAttributeCommand request, CancellationToken cancellationToken)
@@ -41,12 +37,6 @@ public class AddProductAttributeCommandHandler : IRequestHandler<AddProductAttri
 
         await _productRepository.UpdateAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // products:category:{id} goes through ICacheInvalidationContext rather than the
-        // command's CacheKeysToInvalidate because the command carries only ProductId — the
-        // CategoryId is only known once the product is loaded. CacheInvalidationBehavior
-        // drains both, after TransactionBehavior has committed.
-        _cacheInvalidationContext.AddKey($"products:category:{product.CategoryId}");
 
         return Result<Guid>.Success(attributeId);
     }

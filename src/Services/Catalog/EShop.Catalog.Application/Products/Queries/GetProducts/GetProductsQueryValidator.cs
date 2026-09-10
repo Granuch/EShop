@@ -13,6 +13,11 @@ public class GetProductsQueryValidator : AbstractValidator<GetProductsQuery>
             .GreaterThanOrEqualTo(1).WithMessage("Page size must be at least 1")
             .LessThanOrEqualTo(100).WithMessage("Page size must not exceed 100");
 
+        // H4. Rejected, not ignored — see GetProductsQuery.Cursor.
+        RuleFor(x => x.Cursor)
+            .Empty()
+            .WithMessage("Cursor paging is served by GET /api/v1/products/newest. This endpoint pages by PageNumber.");
+
         RuleFor(x => x.MinPrice)
             .GreaterThanOrEqualTo(0).When(x => x.MinPrice.HasValue)
             .WithMessage("Minimum price cannot be negative");

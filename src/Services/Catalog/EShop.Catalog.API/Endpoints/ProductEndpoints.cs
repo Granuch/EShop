@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
 using EShop.Catalog.Application.Products.Commands.ClearProductDiscount;
@@ -12,6 +13,7 @@ using EShop.Catalog.Application.Products.Commands.DeleteProduct;
 using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
 using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
+using EShop.Catalog.Application.Products.Queries.GetNewestProducts;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
 using Microsoft.AspNetCore.RateLimiting;
@@ -31,11 +33,12 @@ public static class ProductEndpoints
     /// ValidationBehavior, which surfaces as a "Validation.Failed" Result error rather than an
     /// exception (400). Mapping every error to one status gets one of those cases wrong.
     ///
-    /// Used by GET /{id} and the four image/attribute sub-resource endpoints. POST/PUT still
-    /// hard-code 400 and DELETE 404 — they have the same latent issue, left alone here because
-    /// changing their codes would alter existing contract behaviour (e.g. Product.SkuConflict).
+    /// Used by GET /{id}, the image/attribute/publish/discount sub-resource endpoints, and
+    /// CategoryEndpoints' GET /{id}/products (hence internal). POST/PUT still hard-code 400 and
+    /// DELETE 404 — they have the same latent issue, left alone here because changing their codes
+    /// would alter existing contract behaviour (e.g. Product.SkuConflict).
     /// </summary>
-    private static IResult ProblemForError(Error error)
+    internal static IResult ProblemForError(Error error)
         => ProblemResults.For(
             error,
             error.Code.EndsWith(".NotFound", StringComparison.Ordinal)
@@ -75,6 +78,23 @@ public static class ProductEndpoints
         .WithName("GetProducts")
         .RequireRateLimiting("search")
         .Produces<object>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // GET /api/v1/products/newest (keyset pagination, newest first — H4)
+        group.MapGet("/newest", async ([AsParameters] GetNewestProductsQuery query, HttpContext http, IMediator mediator) =>
+        {
+            // D1 / H5a. Same overwrite as GET / above, for the same reason: this is an
+            // [AsParameters] record, so IncludeUnpublished is otherwise a client-settable
+            // query-string parameter.
+            var result = await mediator.Send(query with { IncludeUnpublished = CanSeeUnpublished(http) });
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+        })
+        .WithName("GetNewestProducts")
+        .RequireRateLimiting("search")
+        .Produces<CursorPagedResult<ProductDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/products/{id}

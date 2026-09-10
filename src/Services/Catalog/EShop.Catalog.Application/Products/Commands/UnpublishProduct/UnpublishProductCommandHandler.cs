@@ -1,5 +1,4 @@
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -11,16 +10,13 @@ public class UnpublishProductCommandHandler : IRequestHandler<UnpublishProductCo
 {
     private readonly IProductRepository _productRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidationContext _cacheInvalidationContext;
 
     public UnpublishProductCommandHandler(
         IProductRepository productRepository,
-        IUnitOfWork unitOfWork,
-        ICacheInvalidationContext cacheInvalidationContext)
+        IUnitOfWork unitOfWork)
     {
         _productRepository = productRepository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(UnpublishProductCommand request, CancellationToken cancellationToken)
@@ -39,8 +35,6 @@ public class UnpublishProductCommandHandler : IRequestHandler<UnpublishProductCo
 
         await _productRepository.UpdateAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        _cacheInvalidationContext.AddKey($"products:category:{product.CategoryId}");
 
         return Result.Success();
     }

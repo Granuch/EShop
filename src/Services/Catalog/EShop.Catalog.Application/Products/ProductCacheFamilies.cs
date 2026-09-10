@@ -14,8 +14,11 @@ namespace EShop.Catalog.Application.Products;
 public static class ProductCacheFamilies
 {
     /// <summary>
-    /// Every <c>products:list:*</c> result. Bumped by any write that can change which products
-    /// appear in a list, their order, or the fields the list projects.
+    /// Every product LIST result — <c>GET /products</c> (<c>products:list:*</c>),
+    /// <c>GET /products/newest</c> (<c>products:newest:*</c>) and
+    /// <c>GET /categories/{id}/products</c> (<c>products:category:*</c>). Bumped by any write that
+    /// can change which products appear in a list, their order, or the fields the list projects.
+    /// A new list read belongs here too: the family, not the key prefix, is what gets it evicted.
     /// </summary>
     public const string ProductList = "products:list";
 }

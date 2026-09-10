@@ -1,5 +1,5 @@
-﻿using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Application.Caching;
+using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,7 +13,6 @@ public class DeleteProductCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
     private Mock<ILogger<DeleteProductCommandHandler>> _loggerMock = null!;
     private DeleteProductCommandHandler _handler = null!;
 
@@ -22,12 +21,10 @@ public class DeleteProductCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
         _loggerMock = new Mock<ILogger<DeleteProductCommandHandler>>();
         _handler = new DeleteProductCommandHandler(
             _productRepositoryMock.Object,
             _unitOfWorkMock.Object,
-            _cacheInvalidationContextMock.Object,
             _loggerMock.Object);
     }
 
@@ -79,28 +76,16 @@ public class DeleteProductCommandHandlerTests
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// A deleted product must leave every list, the per-category pages included — which since
+    /// Stage 6 is the family's job rather than an exact key the handler adds.
+    /// </summary>
     [Test]
-    public async Task Handle_ShouldInvalidateCategoryCacheAfterDelete()
+    public void DeclaresItsOwnInvalidation()
     {
-        // Arrange
-        var categoryId = Guid.NewGuid();
-        var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, categoryId);
-        var command = new DeleteProductCommand { ProductId = product.Id };
+        var command = new DeleteProductCommand { ProductId = Guid.NewGuid() };
 
-        _productRepositoryMock
-            .Setup(x => x.GetByIdAsync(product.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(product);
-
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
-
-        // Act
-        await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        _cacheInvalidationContextMock.Verify(
-            x => x.AddKey($"products:category:{categoryId}"),
-            Times.Once);
+        Assert.That(command.CacheKeysToInvalidate, Is.EquivalentTo(ProductCacheKeys.AllDetailVariants(command.ProductId)));
+        Assert.That(command.CacheFamiliesToInvalidate, Does.Contain(ProductCacheFamilies.ProductList));
     }
 }

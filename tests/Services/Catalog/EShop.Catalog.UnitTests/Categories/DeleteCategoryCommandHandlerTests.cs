@@ -38,8 +38,8 @@ public class DeleteCategoryCommandHandlerTests
             .ReturnsAsync(category);
 
         _productRepositoryMock
-            .Setup(x => x.GetByCategoryAsync(category.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Enumerable.Empty<Product>());
+            .Setup(x => x.AnyInCategoryAsync(category.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _unitOfWorkMock
             .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
@@ -104,14 +104,9 @@ public class DeleteCategoryCommandHandlerTests
             .Setup(x => x.GetById(category.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(category);
 
-        var products = new[]
-        {
-            Product.Create("Product 1", "SKU-001", 29.99m, 10, category.Id)
-        };
-
         _productRepositoryMock
-            .Setup(x => x.GetByCategoryAsync(category.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(products);
+            .Setup(x => x.AnyInCategoryAsync(category.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);

@@ -88,7 +88,12 @@ public class CatalogDbContext : BaseDbContext
                 .HasFilter("NOT \"IsDeleted\"");
             entity.HasIndex(p => p.Name, "IX_Products_Name");
             entity.HasIndex(p => p.CategoryId);
-            entity.HasIndex(p => p.CreatedAt);
+
+            // H4. The keyset index for GET /products/newest. (CreatedAt, Id) is exactly the row
+            // value the cursor compares against, so a page is one backward range scan from the
+            // cursor at any depth. It replaces the single-column IX_Products_CreatedAt, every use
+            // of which this one also serves as its leftmost prefix.
+            entity.HasIndex(p => new { p.CreatedAt, p.Id }, "IX_Products_CreatedAt_Id");
 
             // Trigram indexes for ILIKE search performance (requires pg_trgm extension).
             // These stay non-unique: Postgres cannot build a unique GIN index at all, which is why

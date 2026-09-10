@@ -24,17 +24,19 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
         var pageNumber = request.EffectivePageNumber;
         var pageSize = request.EffectivePageSize;
 
-        var (dtos, totalCount) = await _productQueryService.GetFilteredProductsAsync(
+        var filter = new ProductListFilter(
             request.CategoryId,
             request.SearchTerm,
             request.MinPrice,
             request.MaxPrice,
+            request.EffectiveIncludeUnpublished);
+
+        var (dtos, totalCount) = await _productQueryService.GetFilteredProductsAsync(
+            filter,
             request.EffectiveSortBy,
             request.EffectiveIsDescending,
             pageNumber,
             pageSize,
-            request.Cursor,
-            request.EffectiveIncludeUnpublished,
             cancellationToken);
 
         var pagedResult = PagedResult<ProductDto>.Create(dtos, pageNumber, pageSize, totalCount);

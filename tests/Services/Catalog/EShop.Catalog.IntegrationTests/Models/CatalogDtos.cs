@@ -154,6 +154,16 @@ public record PagedResponse<T>
     public bool HasNextPage { get; init; }
 }
 
+public record CursorPagedResponse<T>
+{
+    public IEnumerable<T> Items { get; init; } = Enumerable.Empty<T>();
+    public int PageSize { get; init; }
+    public string? NextCursor { get; init; }
+    public string? PreviousCursor { get; init; }
+    public bool HasNextPage { get; init; }
+    public bool HasPreviousPage { get; init; }
+}
+
 public record ProblemDetailsResponse
 {
     public string? Type { get; init; }

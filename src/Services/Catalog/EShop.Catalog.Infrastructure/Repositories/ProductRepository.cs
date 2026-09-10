@@ -45,14 +45,11 @@ public class ProductRepository : IProductRepository
             .AnyAsync(p => p.Sku == sku, cancellationToken);
     }
 
-    public async Task<IEnumerable<Product>> GetByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
+    public async Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
     {
         return await _context.Products
-            .Where(c => c.CategoryId == categoryId)
-            .OrderBy(p => p.Name)
-            .Take(200)
             .AsNoTracking()
-            .ToListAsync(cancellationToken);
+            .AnyAsync(p => p.CategoryId == categoryId, cancellationToken);
     }
 
     public async Task AddAsync(Product product, CancellationToken cancellationToken = default)
