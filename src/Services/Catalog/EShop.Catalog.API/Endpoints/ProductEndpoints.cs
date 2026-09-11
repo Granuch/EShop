@@ -77,7 +77,7 @@ public static class ProductEndpoints
         })
         .WithName("GetProducts")
         .RequireRateLimiting("search")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<PagedResult<ProductDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/products/newest (keyset pagination, newest first — H4)
@@ -124,12 +124,12 @@ public static class ProductEndpoints
             var result = await mediator.Send(command);
 
             return result.Match(
-                value => Results.Created($"/api/v1/products/{value}", new { id = value }),
+                value => Results.Created($"/api/v1/products/{value}", new CreatedResourceResponse(value)),
                 error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CreateProduct")
         .RequireAuthorization("Admin")
-        .Produces<object>(StatusCodes.Status201Created)
+        .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // PUT /api/v1/products/{id} (admin only)
@@ -246,12 +246,12 @@ public static class ProductEndpoints
             var result = await mediator.Send(command with { ProductId = id });
 
             return result.Match(
-                value => Results.Created($"/api/v1/products/{id}", new { id = value }),
+                value => Results.Created($"/api/v1/products/{id}", new CreatedResourceResponse(value)),
                 ProblemForError);
         })
         .WithName("AddProductImage")
         .RequireAuthorization("Admin")
-        .Produces<object>(StatusCodes.Status201Created)
+        .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -298,12 +298,12 @@ public static class ProductEndpoints
             var result = await mediator.Send(command with { ProductId = id });
 
             return result.Match(
-                value => Results.Created($"/api/v1/products/{id}", new { id = value }),
+                value => Results.Created($"/api/v1/products/{id}", new CreatedResourceResponse(value)),
                 ProblemForError);
         })
         .WithName("AddProductAttribute")
         .RequireAuthorization("Admin")
-        .Produces<object>(StatusCodes.Status201Created)
+        .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
     }

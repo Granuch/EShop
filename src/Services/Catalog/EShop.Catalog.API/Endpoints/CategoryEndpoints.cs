@@ -1,3 +1,4 @@
+using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Application.Categories.Commands.CreateCategory;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Catalog.Application.Categories.Commands.DeleteCategory;
@@ -33,7 +34,7 @@ public static class CategoryEndpoints
                 error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("GetCategories")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<List<CategoryDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/categories/{id}
@@ -46,7 +47,7 @@ public static class CategoryEndpoints
                 error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("GetCategoryById")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<CategoryDto>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // GET /api/v1/categories/{id}/products — paged like GET /api/v1/products (D5).
@@ -77,12 +78,12 @@ public static class CategoryEndpoints
             var result = await mediator.Send(command);
 
             return result.Match(
-                value => Results.Created($"/api/v1/categories/{value}", new { id = value }),
+                value => Results.Created($"/api/v1/categories/{value}", new CreatedResourceResponse(value)),
                 error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CreateCategory")
         .RequireAuthorization("Admin")
-        .Produces<object>(StatusCodes.Status201Created)
+        .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // PUT /api/v1/categories/{id} (admin only)

@@ -26,6 +26,19 @@ public class ProductListQueryValidatorTests
         Assert.That(new GetProductsQueryValidator().Validate(new GetProductsQuery()).IsValid, Is.True);
     }
 
+    /// <summary>
+    /// L24. The rules run against EffectivePageNumber/EffectivePageSize, and used to report the error
+    /// under those names — properties no client sends.
+    /// </summary>
+    [Test]
+    public void GetProducts_ReportsPagingErrors_UnderTheParameterNamesTheClientSent()
+    {
+        var result = new GetProductsQueryValidator().Validate(new GetProductsQuery { PageNumber = 0, PageSize = 500 });
+
+        Assert.That(result.Errors.Select(e => e.PropertyName),
+            Is.EquivalentTo(new[] { nameof(GetProductsQuery.PageNumber), nameof(GetProductsQuery.PageSize) }));
+    }
+
     #endregion
 
     #region GetNewestProductsQuery
