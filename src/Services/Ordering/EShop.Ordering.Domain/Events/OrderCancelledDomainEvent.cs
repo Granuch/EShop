@@ -7,8 +7,9 @@ namespace EShop.Ordering.Domain.Events;
 /// </summary>
 public record OrderCancelledDomainEvent : IDomainEvent
 {
-    public Guid EventId { get; } = Guid.NewGuid();
-    public DateTime OccurredOn { get; } = DateTime.UtcNow;
+    // init so they survive the outbox round trip — see OrderCreatedDomainEvent.
+    public Guid EventId { get; init; } = Guid.NewGuid();
+    public DateTime OccurredOn { get; init; } = DateTime.UtcNow;
 
     public Guid OrderId { get; init; }
     public string UserId { get; init; } = string.Empty;

@@ -64,7 +64,14 @@ public class Order : AggregateRoot<Guid>
         {
             OrderId = order.Id,
             UserId = order.UserId,
-            TotalAmount = order.TotalPrice
+            TotalAmount = order.TotalPrice,
+            Items = order._items.Select(i => new OrderCreatedLine
+            {
+                ProductId = i.ProductId,
+                ProductName = i.ProductName,
+                UnitPrice = i.UnitPrice,
+                Quantity = i.Quantity
+            }).ToList()
         });
 
         return order;

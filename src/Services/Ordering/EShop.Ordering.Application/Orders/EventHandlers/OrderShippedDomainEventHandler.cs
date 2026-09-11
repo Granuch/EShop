@@ -37,6 +37,8 @@ public class OrderShippedDomainEventHandler : INotificationHandler<OrderShippedD
         {
             OrderId = notification.OrderId,
             UserId = notification.UserId,
+            // The ship time only because OccurredOn now survives the outbox round trip (audit L3);
+            // before, it was re-stamped on deserialization and this was the processor's clock.
             ShippedAt = notification.OccurredOn,
             CorrelationId = _currentUserContext.CorrelationId
         }, _currentUserContext.CorrelationId);

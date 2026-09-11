@@ -7,8 +7,10 @@ namespace EShop.Ordering.Domain.Events;
 /// </summary>
 public record OrderShippedDomainEvent : IDomainEvent
 {
-    public Guid EventId { get; } = Guid.NewGuid();
-    public DateTime OccurredOn { get; } = DateTime.UtcNow;
+    // init so they survive the outbox round trip — see OrderCreatedDomainEvent. OccurredOn is what
+    // OrderShippedEvent.ShippedAt is taken from, so it was the ship time only before serialization.
+    public Guid EventId { get; init; } = Guid.NewGuid();
+    public DateTime OccurredOn { get; init; } = DateTime.UtcNow;
 
     public Guid OrderId { get; init; }
     public string UserId { get; init; } = string.Empty;

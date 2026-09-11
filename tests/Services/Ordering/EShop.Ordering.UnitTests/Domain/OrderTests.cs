@@ -51,6 +51,18 @@ public class OrderTests
         Assert.That(domainEvent.TotalAmount, Is.EqualTo(45.50m));
     }
 
+    /// <summary>Audit M5: the lines travel with the event, so OrderCreatedEvent.Items can carry them.</summary>
+    [Test]
+    public void Create_OrderCreatedEvent_CarriesEveryLine()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+
+        var lines = ((OrderCreatedDomainEvent)order.DomainEvents[0]).Items;
+
+        Assert.That(lines.Select(l => (l.ProductId, l.ProductName, l.UnitPrice, l.Quantity)),
+            Is.EqualTo(_validItems.Select(i => (i.ProductId, i.ProductName, i.UnitPrice, i.Quantity))));
+    }
+
     [Test]
     public void Create_WithEmptyUserId_ShouldThrowDomainException()
     {

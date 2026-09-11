@@ -53,6 +53,39 @@ public class OrderCreatedDomainEventHandlerTests
                 e.TotalAmount == 45.50m),
             It.IsAny<string>()), Times.Once);
     }
+
+    /// <summary>
+    /// Audit M5: Items was never filled, so Notification's ItemCount was always 0. And the event is
+    /// dated when the order was placed, not when the outbox processor got round to this handler.
+    /// </summary>
+    [Test]
+    public async Task Handle_CarriesTheLinesAndTheOrderTime()
+    {
+        var placedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var productId = Guid.NewGuid();
+        var notification = new OrderCreatedDomainEvent
+        {
+            OccurredOn = placedAt,
+            OrderId = Guid.NewGuid(),
+            UserId = "user-1",
+            TotalAmount = 21.00m,
+            Items = [new OrderCreatedLine { ProductId = productId, ProductName = "Widget", UnitPrice = 10.50m, Quantity = 2 }]
+        };
+
+        OrderCreatedEvent? enqueued = null;
+        _outboxMock
+            .Setup(x => x.Enqueue(It.IsAny<OrderCreatedEvent>(), It.IsAny<string>()))
+            .Callback<object, string>((e, _) => enqueued = (OrderCreatedEvent)e);
+
+        await _handler.Handle(notification, CancellationToken.None);
+
+        Assert.That(enqueued, Is.Not.Null);
+        Assert.That(enqueued!.OccurredOn, Is.EqualTo(placedAt));
+        Assert.That(enqueued.Items, Has.Count.EqualTo(1));
+        var item = enqueued.Items[0];
+        Assert.That((item.ProductId, item.ProductName, item.Price, item.Quantity, item.SubTotal),
+            Is.EqualTo((productId, "Widget", 10.50m, 2, 21.00m)));
+    }
 }
 
 [TestFixture]
