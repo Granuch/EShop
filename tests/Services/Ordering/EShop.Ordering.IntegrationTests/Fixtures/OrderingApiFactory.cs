@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
@@ -89,6 +90,25 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
 
             ConfigureTestServices(services);
         });
+    }
+
+    /// <summary>
+    /// Scope validation on, as <c>WebApplicationBuilder</c> does only in Development. The test host
+    /// runs as "Testing", where it is off by default, so a Singleton holding a scoped service was
+    /// resolved from the root provider here exactly as in Sandbox and Production — and every test
+    /// stayed green while <c>OrderOwnerOrAdminHandler</c> shared one <c>OrderingDbContext</c> across
+    /// all requests (Ordering audit H1). With this, any captive dependency fails host build, and so
+    /// fails every test in the assembly.
+    /// </summary>
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        builder.UseDefaultServiceProvider(options =>
+        {
+            options.ValidateScopes = true;
+            options.ValidateOnBuild = true;
+        });
+
+        return base.CreateHost(builder);
     }
 
     protected virtual void ConfigureTestServices(IServiceCollection services)

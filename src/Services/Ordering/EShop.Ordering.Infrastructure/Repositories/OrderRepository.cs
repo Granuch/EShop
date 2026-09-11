@@ -31,6 +31,15 @@ public class OrderRepository : IOrderRepository
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
+    public Task<string?> GetOwnerIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return _context.Orders
+            .AsNoTracking()
+            .Where(o => o.Id == id)
+            .Select(o => o.UserId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<Order>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
     {
         // Legacy read method retained for backward compatibility.

@@ -216,7 +216,10 @@ try
             policy.Requirements.Add(new SameUserOrAdminRequirement()));
     });
 
-    builder.Services.AddSingleton<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
+    // Scoped, not Singleton: the owner check reads the database through the scoped IOrderRepository.
+    // As a Singleton it captured one root-scoped OrderingDbContext shared by every request (audit H1);
+    // outside Development nothing validates scopes, so that failed only under concurrent load.
+    builder.Services.AddScoped<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
     builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
     // Add CORS

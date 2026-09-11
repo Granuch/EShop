@@ -9,6 +9,9 @@ public interface IOrderRepository
 {
     Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Order?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>The owning user's id, or <c>null</c> when the order does not exist. Reads one column.</summary>
+    Task<string?> GetOwnerIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IEnumerable<Order>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Order>> GetByStatusAsync(OrderStatus status, CancellationToken cancellationToken = default);
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
