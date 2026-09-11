@@ -106,7 +106,14 @@ public class CircuitBreakingDistributedCacheTests
         _inner.Setup(c => c.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns(pending.Task);
 
         var probe = _cache.GetAsync(Key);
-        Assert.That(await _cache.GetAsync(Key), Is.Null, "a second caller must not become a second probe");
+
+        // Checked before awaiting, never by awaiting: a skipped call completes at once, while a
+        // second probe would wait on the same never-completing Redis call — so awaiting it directly
+        // turns this regression into a hung test run instead of a red test (which is what the first
+        // falsification of this test did).
+        var other = _cache.GetAsync(Key);
+        Assert.That(other.IsCompleted, Is.True, "a second caller must be skipped, not become a second probe");
+        Assert.That(await other, Is.Null);
 
         pending.SetResult([7]);
         Assert.That(await probe, Is.EqualTo(new byte[] { 7 }));
