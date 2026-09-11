@@ -1,6 +1,6 @@
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Ordering.Application.Orders.Commands.CreateOrder;
+using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
 using MediatR;
@@ -45,7 +45,9 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
             )
             : ParseAddress(message.ShippingAddress);
 
-        var command = new CreateOrderCommand
+        // CreateCheckedOutOrderCommand, not CreateOrderCommand: Basket priced these lines from Catalog
+        // on the server, and they are what the customer saw. The HTTP path reprices from Catalog.
+        var command = new CreateCheckedOutOrderCommand
         {
             UserId = message.UserId,
             Street = addressParts.Street,
@@ -53,11 +55,11 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
             State = addressParts.State,
             ZipCode = addressParts.ZipCode,
             Country = addressParts.Country,
-            Items = message.Items.Select(i => new CreateOrderItemDto
+            Items = message.Items.Select(i => new CheckedOutOrderItem
             {
                 ProductId = i.ProductId,
                 ProductName = i.ProductName,
-                Price = i.Price,
+                UnitPrice = i.Price,
                 Quantity = i.Quantity
             }).ToList()
         };

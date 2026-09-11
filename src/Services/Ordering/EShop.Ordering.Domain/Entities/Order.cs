@@ -40,6 +40,11 @@ public class Order : AggregateRoot<Guid>
         if (itemList.Count == 0)
             throw new DomainException("Order must have at least one item.");
 
+        // AddItem already refused a second line for the same product; Create did not, so the same
+        // invariant held or not depending on how the order was built.
+        if (itemList.Select(i => i.ProductId).Distinct().Count() != itemList.Count)
+            throw new DomainException("Each product may appear only once in an order.");
+
         var order = new Order
         {
             Id = Guid.NewGuid(),

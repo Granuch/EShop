@@ -105,9 +105,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             "POST /api/v1/orders/{id:guid}/items" => new AddOrderItemRequest
             {
                 OrderId = order.Id,
-                ProductId = Guid.NewGuid(),
-                ProductName = "Forbidden Item",
-                UnitPrice = 1m,
+                ProductId = Factory.Catalog.Add("Forbidden Item", 1m),
                 Quantity = 1
             },
             "POST /api/v1/orders/{id:guid}/cancel" => new CancelOrderRequest { Reason = "not mine" },
@@ -170,7 +168,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             State = "CA",
             ZipCode = "90210",
             Country = "US",
-            Items = [new() { ProductId = Guid.NewGuid(), ProductName = "Widget", Price = 10m, Quantity = 1 }]
+            Items = [new() { ProductId = Factory.Catalog.Add("Widget", 10m), Quantity = 1 }]
         };
 
         var response = await Client.PostAsJsonAsync("/api/v1/orders", request);

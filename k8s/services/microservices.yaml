@@ -399,6 +399,10 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
+        # Orders created over HTTP are priced from Catalog, never from the request. Validated at
+        # startup: without it the pod fails to boot rather than failing every order.
+        - name: CatalogService__BaseUrl
+          value: "http://catalog-api:8080/"
         # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
         # before the last attempt), which is far longer than a readiness initialDelay should
         # cover. A startupProbe gives that its own budget: while it is pending Kubernetes

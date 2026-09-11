@@ -630,6 +630,10 @@ services:
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
+
+      # Catalog: orders created over HTTP are priced from it, never from the request body.
+      # Validated at startup, so a missing value stops ordering-api from booting.
+      CatalogService__BaseUrl: http://catalog-api:8080/
     volumes:
       - ordering-logs:/app/logs
     networks:

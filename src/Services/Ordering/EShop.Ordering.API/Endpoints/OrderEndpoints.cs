@@ -37,12 +37,13 @@ public static class OrderEndpoints
 
             return result.Match(
                 value => Results.Created($"/api/v1/orders/{value}", new { id = value }),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemForError(error));
         })
         .WithName("CreateOrder")
         .RequireAuthorization()
         .Produces<object>(StatusCodes.Status201Created)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         // GET /api/v1/orders/{id}
         group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) =>
@@ -109,7 +110,8 @@ public static class OrderEndpoints
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         // DELETE /api/v1/orders/{id}/items/{itemId}
         group.MapDelete("/{id:guid}/items/{itemId:guid}", async (Guid id, Guid itemId, IMediator mediator) =>
@@ -162,10 +164,11 @@ public static class OrderEndpoints
 
     /// <summary>
     /// One mapping from a handler's <see cref="Error"/> to a status, for every endpoint that addresses
-    /// an existing order. Every code ending in <c>.NotFound</c> is a 404; a state conflict (the order is
-    /// past the point where the request applies) is a 409; anything else — including
-    /// <c>Validation.Failed</c> — is a 400. Before this, each endpoint hard-coded one status, so a
-    /// missing order came back as 400 from cancel and the item endpoints, and a validation failure as
+    /// an order. Every code ending in <c>.NotFound</c> is a 404; a state conflict (the order is past the
+    /// point where the request applies) is a 409; Catalog being unreachable is a 503, since the request
+    /// may be perfectly valid; anything else — including <c>Validation.Failed</c> and
+    /// <c>Order.ProductUnavailable</c> — is a 400. Before this, each endpoint hard-coded one status, so
+    /// a missing order came back as 400 from cancel and the item endpoints, and a validation failure as
     /// 404 from GET.
     /// </summary>
     internal static IResult ProblemForError(Error error) => ProblemResults.For(error, StatusFor(error.Code));
@@ -174,6 +177,7 @@ public static class OrderEndpoints
     {
         _ when errorCode.EndsWith(".NotFound", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
         "Order.NotPaidYet" or "Order.NotModifiable" or "Order.NotCancellable" => StatusCodes.Status409Conflict,
+        "Catalog.Unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest
     };
 }

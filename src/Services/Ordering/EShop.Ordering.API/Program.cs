@@ -443,9 +443,15 @@ static bool IsPostgresStartupException(Exception exception)
 
     app.Run();
 }
-catch (Exception ex)
+catch (Exception ex) when (ex is not HostAbortedException)
 {
+    // Log, then rethrow. This used to swallow the exception, so a service that failed to start
+    // (a bad migration, an invalid CatalogService:BaseUrl) exited with code 0 and its reason
+    // existed only in the log — and a test host saw an ObjectDisposedException instead of the
+    // cause. HostAbortedException is excluded because EF design-time tooling uses it to stop the
+    // host on purpose.
     Log.Fatal(ex, "Application terminated unexpectedly");
+    throw;
 }
 finally
 {

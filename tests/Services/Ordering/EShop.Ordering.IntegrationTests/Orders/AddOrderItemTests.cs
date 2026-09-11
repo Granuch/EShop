@@ -51,7 +51,7 @@ public class AddOrderItemTests : AuthenticatedIntegrationTestBase
             Country = "US",
             Items =
             [
-                new() { ProductId = Guid.NewGuid(), ProductName = "Original Item", Price = 10.00m, Quantity = 1 }
+                new() { ProductId = Factory.Catalog.Add("Original Item", 10.00m), Quantity = 1 }
             ]
         };
 
@@ -62,14 +62,53 @@ public class AddOrderItemTests : AuthenticatedIntegrationTestBase
         return Guid.Parse(location[(location.LastIndexOf('/') + 1)..]);
     }
 
-    private object NewItem(Guid orderId, string name = "Added Item", decimal price = 5.00m, int quantity = 2) => new
+    /// <summary>Registers the product in the fake Catalog, then references it by id only.</summary>
+    private AddOrderItemRequest NewItem(Guid orderId, string name = "Added Item", decimal price = 5.00m, int quantity = 2) => new()
     {
         OrderId = orderId,
-        ProductId = Guid.NewGuid(),
-        ProductName = name,
-        UnitPrice = price,
+        ProductId = Factory.Catalog.Add(name, price),
         Quantity = quantity
     };
+
+    /// <summary>
+    /// Audit C1 for this endpoint: the owner used to be able to add any product to their own pending
+    /// order at any price, 0 included. The old fields are still sent and must be ignored.
+    /// </summary>
+    [Test]
+    public async Task AddItem_PricesTheLineFromCatalog_IgnoringClientSuppliedNameAndPrice()
+    {
+        var orderId = await CreateOrderAsync();
+        var productId = Factory.Catalog.Add("Real Price", 12.50m);
+
+        var response = await Client.PostAsJsonAsync($"{OrdersEndpoint}/{orderId}/items", new
+        {
+            OrderId = orderId,
+            ProductId = productId,
+            Quantity = 2,
+            ProductName = "Tampered",
+            UnitPrice = 0m
+        });
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent, await response.Content.ReadAsStringAsync());
+
+        var order = await Client.GetFromJsonAsync<OrderResponse>($"{OrdersEndpoint}/{orderId}");
+        var line = order!.Items.Single(i => i.ProductId == productId);
+        line.ProductName.Should().Be("Real Price");
+        line.UnitPrice.Should().Be(12.50m);
+        order.TotalPrice.Should().Be(35.00m, "10.00 original + 2 x 12.50 from Catalog");
+    }
+
+    [Test]
+    public async Task AddItem_WithAProductCatalogDoesNotKnow_ReturnsBadRequest()
+    {
+        var orderId = await CreateOrderAsync();
+
+        var response = await Client.PostAsJsonAsync($"{OrdersEndpoint}/{orderId}/items",
+            new AddOrderItemRequest { OrderId = orderId, ProductId = Guid.NewGuid(), Quantity = 1 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!
+            .ErrorCode.Should().Be("Order.ProductUnavailable");
+    }
 
     /// <summary>
     /// The core regression: adding an item to an order that already exists must succeed rather

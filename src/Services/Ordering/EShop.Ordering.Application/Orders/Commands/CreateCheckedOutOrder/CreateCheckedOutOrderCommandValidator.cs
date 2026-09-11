@@ -1,25 +1,27 @@
 using FluentValidation;
 
-namespace EShop.Ordering.Application.Orders.Commands.CreateOrder;
+namespace EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 
-/// <summary>
-/// Validator for CreateOrderCommand
-/// </summary>
-public class CreateOrderCommandValidator : AbstractValidator<CreateOrderCommand>
+public class CreateCheckedOutOrderCommandValidator : AbstractValidator<CreateCheckedOutOrderCommand>
 {
-    public CreateOrderCommandValidator()
+    public CreateCheckedOutOrderCommandValidator()
     {
         RuleFor(x => x.UserId)
             .NotEmpty().WithMessage("User ID is required");
 
         RuleFor(x => x.Items)
-            .NotEmpty().WithMessage("Order must have at least one item")
-            .Must(HaveDistinctProducts).WithMessage("Each product may appear only once; combine the quantities instead");
+            .NotEmpty().WithMessage("Order must have at least one item");
 
         RuleForEach(x => x.Items).ChildRules(item =>
         {
             item.RuleFor(i => i.ProductId)
                 .NotEmpty().WithMessage("Product ID is required");
+
+            item.RuleFor(i => i.ProductName)
+                .NotEmpty().WithMessage("Product name is required");
+
+            item.RuleFor(i => i.UnitPrice)
+                .GreaterThanOrEqualTo(0).WithMessage("Price cannot be negative");
 
             item.RuleFor(i => i.Quantity)
                 .GreaterThan(0).WithMessage("Quantity must be greater than 0");
@@ -34,7 +36,4 @@ public class CreateOrderCommandValidator : AbstractValidator<CreateOrderCommand>
         RuleFor(x => x.Country)
             .NotEmpty().WithMessage("Country is required");
     }
-
-    private static bool HaveDistinctProducts(List<CreateOrderItemDto>? items)
-        => items is null || items.Select(i => i.ProductId).Distinct().Count() == items.Count;
 }

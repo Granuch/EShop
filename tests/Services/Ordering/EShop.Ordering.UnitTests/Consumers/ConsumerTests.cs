@@ -1,7 +1,7 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Ordering.Application.Orders.Commands.CreateOrder;
+using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Domain.ValueObjects;
@@ -610,7 +610,7 @@ public class BasketCheckedOutConsumerTests
 
         var orderId = Guid.NewGuid();
         _mediatorMock
-            .Setup(x => x.Send(It.IsAny<CreateOrderCommand>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.Send(It.IsAny<CreateCheckedOutOrderCommand>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<Guid>.Success(orderId));
 
         var context = CreateConsumeContext(message);
@@ -620,7 +620,7 @@ public class BasketCheckedOutConsumerTests
 
         // Assert
         _mediatorMock.Verify(x => x.Send(
-            It.Is<CreateOrderCommand>(cmd =>
+            It.Is<CreateCheckedOutOrderCommand>(cmd =>
                 cmd.UserId == "user-1" &&
                 cmd.Street == "123 Main St" &&
                 cmd.City == "Springfield" &&
@@ -648,7 +648,7 @@ public class BasketCheckedOutConsumerTests
         };
 
         _mediatorMock
-            .Setup(x => x.Send(It.IsAny<CreateOrderCommand>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.Send(It.IsAny<CreateCheckedOutOrderCommand>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<Guid>.Success(Guid.NewGuid()));
 
         var context = CreateConsumeContext(message);
@@ -658,7 +658,7 @@ public class BasketCheckedOutConsumerTests
 
         // Assert
         _mediatorMock.Verify(x => x.Send(
-            It.Is<CreateOrderCommand>(cmd =>
+            It.Is<CreateCheckedOutOrderCommand>(cmd =>
                 cmd.Street == "456 Oak Ave" &&
                 cmd.City == "Portland" &&
                 cmd.State == "Unknown" &&

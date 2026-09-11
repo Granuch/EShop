@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Infrastructure.Data;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -7,6 +8,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
@@ -26,6 +28,9 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
     private readonly string _databaseName;
     private bool _databaseSeeded;
 
+    /// <summary>The products this host can price orders from. See <see cref="FakeProductCatalog"/>.</summary>
+    public FakeProductCatalog Catalog { get; } = new();
+
     public OrderingApiFactory()
     {
         _databaseName = $"OrderingTestDb_{Guid.NewGuid()}";
@@ -44,6 +49,9 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("JwtSettings:SecretKey", TestJwtSecretKey);
         builder.UseSetting("JwtSettings:Issuer", TestJwtIssuer);
         builder.UseSetting("JwtSettings:Audience", TestJwtAudience);
+
+        // Satisfies CatalogServiceOptions' startup validation; the reader itself is replaced below.
+        builder.UseSetting("CatalogService:BaseUrl", "http://catalog.test/");
 
         builder.ConfigureServices(services =>
         {
@@ -70,6 +78,10 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
 
             // Re-register DbContext base type for OutboxProcessorService
             services.AddScoped<DbContext>(provider => provider.GetRequiredService<OrderingDbContext>());
+
+            // Catalog is an HTTP dependency; tests price from an in-process double instead.
+            services.RemoveAll<IProductCatalogReader>();
+            services.AddSingleton<IProductCatalogReader>(Catalog);
 
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
             {
