@@ -271,7 +271,16 @@ public class OutboxProcessorService : BackgroundService
                 }
                 else if (deserialized is IDomainEvent domainEvent)
                 {
-                    await mediator.Publish(domainEvent, cancellationToken);
+                    // M7. The handlers run in this background scope, which has no HttpContext, so
+                    // ICurrentUserContext used to mint a fresh correlation id here and every
+                    // integration event they enqueued lost the originating request's id — while
+                    // this row still held it. Make it ambient for exactly this one dispatch: the
+                    // whole batch shares one DI scope, so anything coarser than per-message would
+                    // leak one message's id into the next.
+                    using (AmbientCorrelation.Begin(message.CorrelationId))
+                    {
+                        await mediator.Publish(domainEvent, cancellationToken);
+                    }
 
                     _logger.LogDebug(
                         "Published domain event {MessageId} of type {Type} via MediatR",

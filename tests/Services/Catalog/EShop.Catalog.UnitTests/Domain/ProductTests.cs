@@ -344,8 +344,13 @@ public class ProductTests
         Assert.That(product.DomainEvents, Has.Count.EqualTo(0));
     }
 
+    /// <summary>
+    /// M6 (Stage 7). Reaching zero used to raise <c>ProductOutOfStockEvent</c>, which had no handler
+    /// in Catalog and no consumer in any service, so it was deleted rather than left writing outbox
+    /// rows for nobody.
+    /// </summary>
     [Test]
-    public void UpdateStock_ToZero_ShouldRaiseOutOfStockEvent()
+    public void UpdateStock_ToZero_SetsTheStockAndRaisesNoEvent()
     {
         // Arrange
         var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
@@ -356,40 +361,20 @@ public class ProductTests
 
         // Assert
         Assert.That(product.StockQuantity, Is.EqualTo(0));
-        Assert.That(product.DomainEvents, Has.Count.EqualTo(1));
-        Assert.That(product.DomainEvents[0], Is.TypeOf<ProductOutOfStockEvent>());
-        var evt = (ProductOutOfStockEvent)product.DomainEvents[0];
-        Assert.That(evt.ProductId, Is.EqualTo(product.Id));
+        Assert.That(product.DomainEvents, Is.Empty);
     }
 
     [Test]
-    public void UpdateStock_FromZeroToPositive_ShouldRaiseBackInStockEvent()
+    public void UpdateStock_FromZeroToPositive_SetsTheStock()
     {
         // Arrange
         var product = Product.Create("Test", "SKU-001", 29.99m, 0, _validCategoryId);
-        product.ClearDomainEvents();
 
         // Act
         product.UpdateStock(10);
 
         // Assert
         Assert.That(product.StockQuantity, Is.EqualTo(10));
-        Assert.That(product.DomainEvents, Has.Count.EqualTo(1));
-        Assert.That(product.DomainEvents[0], Is.TypeOf<ProductBackInStockEvent>());
-    }
-
-    [Test]
-    public void UpdateStock_WithSameQuantity_ShouldNotRaiseEvent()
-    {
-        // Arrange
-        var product = Product.Create("Test", "SKU-001", 29.99m, 50, _validCategoryId);
-        product.ClearDomainEvents();
-
-        // Act
-        product.UpdateStock(50);
-
-        // Assert
-        Assert.That(product.DomainEvents, Has.Count.EqualTo(0));
     }
 
     [Test]

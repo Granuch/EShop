@@ -10,7 +10,6 @@ using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Domain.Interfaces;
 using EShop.Catalog.Infrastructure.Caching;
-using EShop.Catalog.Infrastructure.Consumers;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.Infrastructure.QueryServices;
 using EShop.Catalog.Infrastructure.Repositories;
@@ -118,14 +117,10 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        services.AddMessaging<CatalogDbContext>(
-            configuration,
-            isDevelopment,
-            bus =>
-            {
-                // Register consumers from this assembly
-                bus.AddConsumer<UserRegisteredConsumer>();
-            });
+        // No consumers (D6, Catalog audit Stage 7). UserRegisteredConsumer was a log-and-return stub:
+        // Catalog holds no user-scoped data, yet IdempotentConsumer still wrote a processed_messages
+        // row for every registration. The bus itself stays — Catalog publishes through the outbox.
+        services.AddMessaging<CatalogDbContext>(configuration, isDevelopment);
 
         return services;
     }

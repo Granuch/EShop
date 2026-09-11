@@ -11,7 +11,6 @@ using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
-using EShop.Identity.Infrastructure.Consumers;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
@@ -169,14 +168,11 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        services.AddMessaging<IdentityDbContext>(
-            configuration,
-            isDevelopment,
-            bus =>
-            {
-                // Register consumers from this assembly
-                bus.AddConsumer<ProductCreatedConsumer>();
-            });
+        // No consumers (D6, Catalog audit Stage 7). ProductCreatedConsumer was a log-and-return stub,
+        // the copy-paste twin of Catalog's deleted UserRegisteredConsumer, and it still cost a
+        // processed_messages write per product created. The bus itself stays — Identity publishes
+        // UserRegistered and PasswordResetRequested through the outbox.
+        services.AddMessaging<IdentityDbContext>(configuration, isDevelopment);
 
         return services;
     }

@@ -200,6 +200,14 @@ public class Product : AggregateRoot<Guid>
     }
 
 
+    /// <summary>
+    /// Sets the stock level. Deliberately raises no event. The out-of-stock / back-in-stock domain
+    /// events this used to raise had no handler in Catalog and no consumer anywhere — nothing outside
+    /// Catalog reads stock — so each transition wrote an outbox row that was dispatched to nobody.
+    /// They were deleted in Catalog audit Stage 7 (M6) rather than wired to integration events,
+    /// because an integration event with no consumer is the same dead weight D6 removed. A domain
+    /// event is cheap to re-add once something actually needs to hear about stock.
+    /// </summary>
     public void UpdateStock(int quantity)
     {
         if (IsDeleted)
@@ -208,26 +216,7 @@ public class Product : AggregateRoot<Guid>
         if (quantity < 0)
             throw new DomainException("Stock quantity cannot be negative.");
 
-        if (quantity == StockQuantity)
-            return;
-
-        var previousQuantity = StockQuantity;
         StockQuantity = quantity;
-
-        if (quantity == 0 && previousQuantity > 0)
-        {
-            AddDomainEvent(new ProductOutOfStockEvent
-            {
-                ProductId = Id,
-            });
-        }
-        else if (previousQuantity == 0 && quantity > 0)
-        {
-            AddDomainEvent(new ProductBackInStockEvent
-            {
-                ProductId = Id,
-            });
-        }
     }
     
     /// <summary>

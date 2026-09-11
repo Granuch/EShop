@@ -14,6 +14,8 @@
       keeps one assertion idiom per test tier.
     -->
     <PackageReference Include="coverlet.collector" Version="8.0.0" />
+    <!-- IdempotentConsumer's in-memory claim path, so a consumer can be driven end to end. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="NUnit" Version="4.5.1" />

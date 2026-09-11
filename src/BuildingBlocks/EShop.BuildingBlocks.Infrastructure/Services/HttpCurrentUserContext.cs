@@ -88,5 +88,11 @@ public sealed class HttpCurrentUserContext : ICurrentUserContext
         }
     }
 
-    public string CorrelationId => _correlationId;
+    /// <summary>
+    /// The ambient id when one is set (<see cref="AmbientCorrelation"/>), otherwise the request's
+    /// <c>X-Correlation-ID</c> header, otherwise an id minted for this scope. The ambient value only
+    /// exists outside HTTP — the outbox processor and consumers set it — which is exactly where the
+    /// minted fallback used to stand in for an id that was already known.
+    /// </summary>
+    public string CorrelationId => AmbientCorrelation.Current ?? _correlationId;
 }
