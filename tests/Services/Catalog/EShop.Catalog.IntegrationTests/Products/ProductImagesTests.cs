@@ -11,9 +11,9 @@ namespace EShop.Catalog.IntegrationTests.Products;
 /// Integration tests for product images and attributes: inline creation, the image
 /// sub-resource endpoints, and the MainImageUrl that list and detail responses expose.
 ///
-/// Caveat: these run on EF InMemory (see CatalogApiFactory), so the filtered unique index
-/// guarding "at most one main image" at the database level is not exercised here — the
-/// single-main assertions below verify the domain guard only.
+/// These run on real PostgreSQL (Stage 0), so the filtered unique index guarding "at most one main
+/// image" is enforced here too — this comment used to say the suite ran on EF InMemory and that the
+/// index was not exercised, which stopped being true when IntegrationTestBase switched factories.
 /// </summary>
 [TestFixture]
 [Category("Integration")]
@@ -136,6 +136,10 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Location names the aggregate that owns the image, by decision (Catalog audit Stage 10):
+        // an image is reached only through its product, and the detail it points at lists it by id.
+        response.Headers.Location!.ToString().Should().EndWith($"{ProductsEndpoint}/{productId}");
         var created = await response.Content.ReadFromJsonAsync<CreatedResponse>();
         created!.Id.Should().NotBe(Guid.Empty);
 
@@ -307,6 +311,8 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
+        response.Headers.Location!.ToString().Should().EndWith($"{ProductsEndpoint}/{productId}",
+            "an attribute is reached through its product (Catalog audit Stage 10)");
         var created = await response.Content.ReadFromJsonAsync<CreatedResponse>();
 
         var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{productId}"))
@@ -537,5 +543,39 @@ public class ProductImagesTests : AuthenticatedIntegrationTestBase
         var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{created!.Id}"))
             .Content.ReadFromJsonAsync<ProductDetailsResponse>();
         detail!.Description.Should().BeNull();
+    }
+
+    /// <summary>
+    /// L23 (Catalog audit Stage 10). The column is varchar(1000) and the validator caps at 1000, so
+    /// the boundary must round-trip on real Postgres and one more character must be a 400 from the
+    /// validator — never a 500 from the database.
+    /// </summary>
+    [TestCase(1000, HttpStatusCode.Created)]
+    [TestCase(1001, HttpStatusCode.BadRequest)]
+    public async Task CreateProduct_DescriptionLength_IsCappedAt1000(int length, HttpStatusCode expected)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+        var description = new string('d', length);
+
+        var response = await Client.PostAsJsonAsync(ProductsEndpoint, new CreateProductRequest
+        {
+            Name = "Long Description Product",
+            Description = description,
+            Sku = CatalogDataHelper.GenerateUniqueSku("LDS"),
+            Price = 19.99m,
+            StockQuantity = 5,
+            CategoryId = categoryId
+        });
+
+        response.StatusCode.Should().Be(expected, await response.Content.ReadAsStringAsync());
+
+        if (expected == HttpStatusCode.Created)
+        {
+            var created = await response.Content.ReadFromJsonAsync<CreatedResponse>();
+            var detail = await (await Client.GetAsync($"{ProductsEndpoint}/{created!.Id}"))
+                .Content.ReadFromJsonAsync<ProductDetailsResponse>();
+            detail!.Description.Should().Be(description);
+        }
     }
 }

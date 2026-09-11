@@ -36,11 +36,13 @@ public class ProductQueryService : IProductQueryService
         // Id is the tiebreaker on every sort. Name, Price and CreatedAt all repeat, and without a
         // unique final key Postgres may order tied rows differently on each execution — so OFFSET
         // paging could repeat one row on two pages and never show another.
+        //
+        // The Price sort orders by the EFFECTIVE price (DiscountPrice ?? Price) — see ApplyFilter.
         query = sortBy switch
         {
             ProductSortBy.Price => isDescending
-                ? query.OrderByDescending(p => p.Price).ThenBy(p => p.Id)
-                : query.OrderBy(p => p.Price).ThenBy(p => p.Id),
+                ? query.OrderByDescending(p => p.DiscountPrice ?? p.Price).ThenBy(p => p.Id)
+                : query.OrderBy(p => p.DiscountPrice ?? p.Price).ThenBy(p => p.Id),
             ProductSortBy.CreatedAt => isDescending
                 ? query.OrderByDescending(p => p.CreatedAt).ThenBy(p => p.Id)
                 : query.OrderBy(p => p.CreatedAt).ThenBy(p => p.Id),
@@ -121,16 +123,23 @@ public class ProductQueryService : IProductQueryService
                 EF.Functions.ILike(p.Sku, term, "\\"));
         }
 
+        // Price filters (and the Price sort above) use the EFFECTIVE price, DiscountPrice ?? Price —
+        // decided in Catalog audit Stage 10. Since D3 / Stage 5 that is the price the customer pays:
+        // Basket charges it, and ProductPriceChangedIntegrationEvent carries it. Filtering on the
+        // list price hid a product discounted from 100 to 79.99 from a MaxPrice=80 shopper, and
+        // showed it to a MinPrice=90 one who could not buy it at that price. Written inline rather
+        // than through Product.EffectivePrice because that property is unmapped (get-only, no
+        // backing field), so EF cannot translate it; the inline coalesce becomes SQL COALESCE.
         if (filter.MinPrice.HasValue)
         {
             var minPrice = filter.MinPrice.Value;
-            query = query.Where(p => p.Price >= minPrice);
+            query = query.Where(p => (p.DiscountPrice ?? p.Price) >= minPrice);
         }
 
         if (filter.MaxPrice.HasValue)
         {
             var maxPrice = filter.MaxPrice.Value;
-            query = query.Where(p => p.Price <= maxPrice);
+            query = query.Where(p => (p.DiscountPrice ?? p.Price) <= maxPrice);
         }
 
         return query;

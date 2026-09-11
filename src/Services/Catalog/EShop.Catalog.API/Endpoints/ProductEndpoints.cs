@@ -245,6 +245,10 @@ public static class ProductEndpoints
             // The route owns the product id, so the body never has to repeat it.
             var result = await mediator.Send(command with { ProductId = id });
 
+            // Location is the owning product, deliberately (Catalog audit Stage 10, L25): images and
+            // attributes are children of the Product aggregate, reached only through it, and its
+            // detail response lists this child under the id in the body. A per-child GET would add a
+            // second read path with its own cache key and visibility rule for no new information.
             return result.Match(
                 value => Results.Created($"/api/v1/products/{id}", new CreatedResourceResponse(value)),
                 ProblemForError);
@@ -297,6 +301,10 @@ public static class ProductEndpoints
             // The route owns the product id, so the body never has to repeat it.
             var result = await mediator.Send(command with { ProductId = id });
 
+            // Location is the owning product, deliberately (Catalog audit Stage 10, L25): images and
+            // attributes are children of the Product aggregate, reached only through it, and its
+            // detail response lists this child under the id in the body. A per-child GET would add a
+            // second read path with its own cache key and visibility rule for no new information.
             return result.Match(
                 value => Results.Created($"/api/v1/products/{id}", new CreatedResourceResponse(value)),
                 ProblemForError);

@@ -74,7 +74,8 @@ public class GetProductsTests : IntegrationTestBase
 
         var result = await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>();
         result.Should().NotBeNull();
-        result!.Items.Should().OnlyContain(p => p.Price >= 10 && p.Price <= 30);
+        // Effective price, not list price (Catalog audit Stage 10): the filter compares DiscountPrice ?? Price.
+        result!.Items.Should().OnlyContain(p => (p.DiscountPrice ?? p.Price) >= 10 && (p.DiscountPrice ?? p.Price) <= 30);
     }
 
     [Test]
@@ -107,7 +108,8 @@ public class GetProductsTests : IntegrationTestBase
         var result = await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>();
         result.Should().NotBeNull();
 
-        var prices = result!.Items.Select(p => p.Price).ToList();
+        // Effective price: the Price sort orders by DiscountPrice ?? Price (Catalog audit Stage 10).
+        var prices = result!.Items.Select(p => p.DiscountPrice ?? p.Price).ToList();
         prices.Should().BeInAscendingOrder();
     }
 
@@ -123,7 +125,8 @@ public class GetProductsTests : IntegrationTestBase
         var result = await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>();
         result.Should().NotBeNull();
 
-        var prices = result!.Items.Select(p => p.Price).ToList();
+        // Effective price: the Price sort orders by DiscountPrice ?? Price (Catalog audit Stage 10).
+        var prices = result!.Items.Select(p => p.DiscountPrice ?? p.Price).ToList();
         prices.Should().BeInDescendingOrder();
     }
 

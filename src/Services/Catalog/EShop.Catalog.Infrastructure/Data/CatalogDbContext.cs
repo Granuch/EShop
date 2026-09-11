@@ -53,6 +53,12 @@ public class CatalogDbContext : BaseDbContext
                 .IsRequired()
                 .HasMaxLength(50);
 
+            // L23 (Stage 10). Capped at 1000, the limit the Category validators already enforced, so
+            // schema and validator agree the way they do for Name and Sku. Was unbounded `text` with
+            // no validator rule at all.
+            entity.Property(p => p.Description)
+                .HasMaxLength(1000);
+
             entity.Property(p => p.Price)
                 .HasColumnType("decimal(18,2)");
 
@@ -135,6 +141,11 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(c => c.Slug)
                 .IsRequired()
                 .HasMaxLength(200);
+
+            // L23 (Stage 10). Both Category validators have capped Description at 1000 since Stage 8
+            // while the column was unbounded `text`; now they agree.
+            entity.Property(c => c.Description)
+                .HasMaxLength(1000);
 
             // Optimistic concurrency token
             entity.Property(c => c.Version)

@@ -215,4 +215,47 @@ public class ProductDiscountTests : AuthenticatedIntegrationTestBase
         (await anonymous.DeleteAsync($"{ProductsEndpoint}/{id}/discount")).StatusCode
             .Should().Be(HttpStatusCode.Unauthorized);
     }
+
+    private async Task<PagedResponse<ProductResponse>> ListAsync(string query)
+    {
+        var response = await Client.GetAsync($"{ProductsEndpoint}?PageNumber=1&PageSize=100{query}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        return (await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>())!;
+    }
+
+    /// <summary>
+    /// Catalog audit Stage 10. Price filters compare the <b>effective</b> price, the one Basket
+    /// charges. On the list price, a product discounted from 100 to 79.99 was hidden from a
+    /// MaxPrice=80 shopper and shown to a MinPrice=90 one who could not buy it at that price.
+    /// </summary>
+    [Test]
+    public async Task PriceFilters_CompareTheDiscountedPrice()
+    {
+        var id = await CreatePublishedProductAsync(100m);
+        await SetDiscountAsync(id, 79.99m);
+
+        (await ListAsync("&MinPrice=79&MaxPrice=80")).Items.Should().Contain(p => p.Id == id,
+            "the customer pays 79.99, so a shopper capped at 80 must see it");
+        (await ListAsync("&MinPrice=90")).Items.Should().NotContain(p => p.Id == id,
+            "its 100 list price is not what anyone pays while the discount is active");
+    }
+
+    /// <summary>
+    /// The Price sort orders by the same effective price. The discounted product is created last so
+    /// the discount's family bump is the final write before the read; rows seeded through the
+    /// DbContext bypass cache invalidation.
+    /// </summary>
+    [Test]
+    public async Task ThePriceSort_OrdersByTheDiscountedPrice()
+    {
+        var plain = await CreatePublishedProductAsync(50m);
+        var discounted = await CreatePublishedProductAsync(100m);
+        await SetDiscountAsync(discounted, 10m);
+
+        var items = (await ListAsync("&MinPrice=5&MaxPrice=60&SortBy=1&IsDescending=false")).Items.ToList();
+
+        items.Select(p => p.DiscountPrice ?? p.Price).Should().BeInAscendingOrder();
+        items.FindIndex(p => p.Id == discounted).Should().BeLessThan(items.FindIndex(p => p.Id == plain),
+            "10 effective sorts before 50, even though its list price is 100");
+    }
 }

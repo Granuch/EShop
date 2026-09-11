@@ -58,6 +58,29 @@ public class ProductCommandValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.Name);
     }
 
+    /// <summary>L23. 1000 is accepted, 1001 is not — the same limit as the column and the Category validators.</summary>
+    [TestCase(1000, false)]
+    [TestCase(1001, true)]
+    public void CreateProduct_DescriptionLength_IsCappedAt1000(int length, bool expectError)
+    {
+        var command = new CreateProductCommand
+        {
+            Name = "Test Product",
+            Description = new string('d', length),
+            Sku = "SKU-001",
+            Price = 29.99m,
+            StockQuantity = 100,
+            CategoryId = Guid.NewGuid()
+        };
+
+        var result = _createValidator.TestValidate(command);
+
+        if (expectError)
+            result.ShouldHaveValidationErrorFor(x => x.Description);
+        else
+            result.ShouldNotHaveValidationErrorFor(x => x.Description);
+    }
+
     [Test]
     public void CreateProduct_NameExceeds200Characters_ShouldHaveError()
     {
