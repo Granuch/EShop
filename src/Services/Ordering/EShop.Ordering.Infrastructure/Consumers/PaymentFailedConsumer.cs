@@ -3,6 +3,7 @@ using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.Ordering.Infrastructure.Caching;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
 using Microsoft.Extensions.Logging;
@@ -17,16 +18,22 @@ public class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEvent, Orde
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly OrderCacheInvalidator _cacheInvalidator;
+
+    /// <summary>Set once the order has been cancelled; read after commit to invalidate its caches.</summary>
+    private (Guid OrderId, string UserId)? _changed;
 
     public PaymentFailedConsumer(
         OrderingDbContext dbContext,
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
+        OrderCacheInvalidator cacheInvalidator,
         ILogger<PaymentFailedConsumer> logger)
         : base(dbContext, logger)
     {
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
+        _cacheInvalidator = cacheInvalidator;
     }
 
     protected override async Task HandleAsync(ConsumeContext<PaymentFailedEvent> context, CancellationToken cancellationToken)
@@ -64,6 +71,17 @@ public class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEvent, Orde
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        _changed = (order.Id, order.UserId);
+
         Logger.LogInformation("Order {OrderId} cancelled due to payment failure", message.OrderId);
     }
+
+    /// <summary>
+    /// This consumer used to invalidate nothing, so a cancelled order kept reading as Pending for up
+    /// to five minutes (audit H4).
+    /// </summary>
+    protected override Task OnCommittedAsync(ConsumeContext<PaymentFailedEvent> context, CancellationToken cancellationToken)
+        => _changed is { } changed
+            ? _cacheInvalidator.InvalidateAsync(changed.OrderId, changed.UserId, cancellationToken)
+            : Task.CompletedTask;
 }

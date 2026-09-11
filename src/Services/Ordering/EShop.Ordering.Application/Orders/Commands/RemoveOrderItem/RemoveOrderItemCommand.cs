@@ -13,8 +13,6 @@ public record RemoveOrderItemCommand : IRequest<Result>, ITransactionalCommand, 
     public Guid OrderId { get; init; }
     public Guid ItemId { get; init; }
 
-    public IEnumerable<string> CacheKeysToInvalidate =>
-    [
-        $"order:{OrderId}"
-    ];
+    /// <summary>The user's list family is added by the handler, which is where the user id is known.</summary>
+    public IEnumerable<string> CacheKeysToInvalidate => [OrderCacheKeys.Order(OrderId)];
 }

@@ -108,6 +108,35 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
     protected abstract Task HandleAsync(ConsumeContext<TMessage> context, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Runs once this message's writes are committed — the place for anything that must not happen
+    /// while the transaction could still roll back, cache invalidation above all. A consumer owns its
+    /// transaction, so <c>CacheInvalidationBehavior</c> inside it runs <i>before</i> the commit, and a
+    /// concurrent read in that window re-caches the old state for the full TTL (Ordering audit H4).
+    ///
+    /// <para>
+    /// Not called for a duplicate, nor when <see cref="HandleAsync"/> throws. A failure here is logged
+    /// and swallowed: the message is already consumed, and rethrowing would only redeliver it for the
+    /// claim to skip. On the in-memory test path "committed" means <see cref="HandleAsync"/> returned.
+    /// </para>
+    /// </summary>
+    protected virtual Task OnCommittedAsync(ConsumeContext<TMessage> context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    private async Task RunOnCommittedAsync(ConsumeContext<TMessage> context)
+    {
+        try
+        {
+            await OnCommittedAsync(context, context.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex,
+                "Post-commit step failed for {MessageType}. The message was consumed and is not retried.",
+                typeof(TMessage).Name);
+        }
+    }
+
+    /// <summary>
     /// Relational database path: wraps claim + handling in a single transaction.
     /// Uses ON CONFLICT DO NOTHING so a duplicate INSERT does not abort the PostgreSQL transaction.
     /// On failure, the transaction rolls back and the claim is atomically removed.
@@ -147,6 +176,9 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
             await HandleAsync(context, context.CancellationToken);
 
             await transaction.CommitAsync(context.CancellationToken);
+
+            // Never throws (see RunOnCommittedAsync), so it cannot reach the rollback below.
+            await RunOnCommittedAsync(context);
 
             Logger.LogInformation(
                 "Message consumed successfully. MessageId={MessageId}, Type={MessageType}",
@@ -188,6 +220,8 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
         try
         {
             await HandleAsync(context, context.CancellationToken);
+
+            await RunOnCommittedAsync(context);
 
             Logger.LogInformation(
                 "Message consumed successfully. MessageId={MessageId}, Type={MessageType}",

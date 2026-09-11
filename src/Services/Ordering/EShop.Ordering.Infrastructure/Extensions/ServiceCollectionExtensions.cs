@@ -9,6 +9,7 @@ using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.Ordering.Application.Abstractions;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.Ordering.Infrastructure.Caching;
 using EShop.Ordering.Infrastructure.Configuration;
 using EShop.Ordering.Infrastructure.Consumers;
 using EShop.Ordering.Infrastructure.Data;
@@ -50,6 +51,13 @@ public static class ServiceCollectionExtensions
         // drained before the write commits. It is registered by AddEShopCacheInvalidation() in
         // Program.cs instead — see that method for why.
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
+
+        // Backs IVersionedCacheKey. Without it CachingBehavior keys the user order list unversioned
+        // and every family bump is a logged no-op — the list would stay uninvalidatable (audit H4).
+        services.AddScoped<ICacheKeyVersionProvider, DistributedCacheKeyVersionProvider>();
+
+        // Consumers only: they invalidate after IdempotentConsumer commits. See the class.
+        services.AddScoped<OrderCacheInvalidator>();
 
         // Add DbContext
         if (useInMemoryDatabase)

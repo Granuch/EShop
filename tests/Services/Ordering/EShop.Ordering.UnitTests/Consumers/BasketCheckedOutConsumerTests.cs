@@ -34,6 +34,7 @@ namespace EShop.Ordering.UnitTests.Consumers;
 public class BasketCheckedOutConsumerTests
 {
     private OrderingDbContext _dbContext = null!;
+    private CacheSpy _cache = null!;
     private BasketCheckedOutConsumer _consumer = null!;
 
     [SetUp]
@@ -42,6 +43,7 @@ public class BasketCheckedOutConsumerTests
         _dbContext = new OrderingDbContext(new DbContextOptionsBuilder<OrderingDbContext>()
             .UseInMemoryDatabase($"BasketCheckedOutTests_{Guid.NewGuid()}")
             .Options);
+        _cache = new CacheSpy();
 
         var handler = new CreateCheckedOutOrderCommandHandler(new OrderRepository(_dbContext), _dbContext);
         var mediator = new Mock<IMediator>();
@@ -57,7 +59,7 @@ public class BasketCheckedOutConsumerTests
     public void TearDown() => _dbContext.Dispose();
 
     private BasketCheckedOutConsumer ConsumerWith(IMediator mediator) =>
-        new(_dbContext, mediator, Mock.Of<ILogger<BasketCheckedOutConsumer>>());
+        new(_dbContext, mediator, _cache.Invalidator, Mock.Of<ILogger<BasketCheckedOutConsumer>>());
 
     private static BasketCheckedOutEvent Checkout(
         CheckoutShippingAddress? address,
@@ -110,6 +112,7 @@ public class BasketCheckedOutConsumerTests
         Assert.That(order.ShippingAddress.Country, Is.EqualTo("UA"));
         Assert.That(order.TotalPrice, Is.EqualTo(40.00m));
         Assert.That(StoredClaims, Is.EqualTo(1), "a consumed message is claimed");
+        _cache.VerifyInvalidated(order);
     }
 
     [Test]
@@ -121,6 +124,7 @@ public class BasketCheckedOutConsumerTests
         Assert.That(ex, Is.InstanceOf<ArgumentException>(), "ArgumentException is what the retry policy skips");
         Assert.That(ex!.Message, Does.Contain("ShippingAddressDetails"));
         Assert.That(StoredOrders, Is.EqualTo(0));
+        _cache.VerifyNothingInvalidated();
         Assert.That(StoredClaims, Is.EqualTo(0), "a failed message must not stay claimed, or a redelivery is skipped");
     }
 

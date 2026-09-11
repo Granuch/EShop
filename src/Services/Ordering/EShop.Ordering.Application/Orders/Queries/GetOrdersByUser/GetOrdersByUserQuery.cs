@@ -7,8 +7,10 @@ namespace EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 
 /// <summary>
 /// Query to get paginated orders for a specific user with distributed caching.
+/// Versioned by <see cref="OrderCacheKeys.UserOrders"/>: every page of one user's list is invalidated
+/// together by bumping that family, since no write can name the pages.
 /// </summary>
-public record GetOrdersByUserQuery : IRequest<Result<PagedResult<OrderDto>>>, ICacheableQuery
+public record GetOrdersByUserQuery : IRequest<Result<PagedResult<OrderDto>>>, ICacheableQuery, IVersionedCacheKey
 {
     public string UserId { get; init; } = string.Empty;
     public int? PageNumber { get; init; }
@@ -26,4 +28,6 @@ public record GetOrdersByUserQuery : IRequest<Result<PagedResult<OrderDto>>>, IC
         $"orders:user:{UserId}:p={EffectivePageNumber}:ps={EffectivePageSize}:cur={Cursor?.Ticks}";
     public TimeSpan? CacheDuration => TimeSpan.FromMinutes(3);
     public TimeSpan? SlidingExpiration => null;
+
+    public string CacheKeyFamily => OrderCacheKeys.UserOrders(UserId);
 }

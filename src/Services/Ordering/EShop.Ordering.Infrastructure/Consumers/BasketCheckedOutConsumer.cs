@@ -3,6 +3,7 @@ using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
+using EShop.Ordering.Infrastructure.Caching;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
 using MediatR;
@@ -23,15 +24,30 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent, OrderingDbContext>
 {
     private readonly IMediator _mediator;
+    private readonly OrderCacheInvalidator _cacheInvalidator;
+
+    /// <summary>Set once the order exists; read after commit to invalidate the user's list.</summary>
+    private (Guid OrderId, string UserId)? _created;
 
     public BasketCheckedOutConsumer(
         OrderingDbContext dbContext,
         IMediator mediator,
+        OrderCacheInvalidator cacheInvalidator,
         ILogger<BasketCheckedOutConsumer> logger)
         : base(dbContext, logger)
     {
         _mediator = mediator;
+        _cacheInvalidator = cacheInvalidator;
     }
+
+    /// <summary>
+    /// After commit — CreateCheckedOutOrderCommand deliberately does not invalidate through the
+    /// pipeline, because that would run inside this consumer's still-open transaction.
+    /// </summary>
+    protected override Task OnCommittedAsync(ConsumeContext<BasketCheckedOutEvent> context, CancellationToken cancellationToken)
+        => _created is { } created
+            ? _cacheInvalidator.InvalidateAsync(created.OrderId, created.UserId, cancellationToken)
+            : Task.CompletedTask;
 
     protected override async Task HandleAsync(ConsumeContext<BasketCheckedOutEvent> context, CancellationToken cancellationToken)
     {
@@ -90,6 +106,8 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
             throw new InvalidCheckoutEventException(
                 $"BasketCheckedOutEvent {message.EventId} was rejected: {result.Error!.Code}: {result.Error.Message}");
         }
+
+        _created = (result.Value, message.UserId);
 
         Logger.LogInformation(
             "Order {OrderId} created from BasketCheckedOutEvent for UserId={UserId}",

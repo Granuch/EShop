@@ -1,23 +1,16 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Domain.ValueObjects;
 using EShop.Ordering.Infrastructure.Consumers;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
-using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Moq;
-using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
-using StackExchange.Redis;
-using System.Net;
+using Moq;
 using OrderEntity = EShop.Ordering.Domain.Entities.Order;
 
 namespace EShop.Ordering.UnitTests.Consumers;
@@ -28,38 +21,18 @@ public class PaymentSuccessConsumerTests
     private OrderingDbContext _dbContext = null!;
     private Mock<IOrderRepository> _orderRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<IDistributedCache> _cacheMock = null!;
-    private PaymentSuccessConsumer _consumer = null!;
+    private CacheSpy _cache = null!;
 
     [SetUp]
     public void SetUp()
     {
-        var options = new DbContextOptionsBuilder<OrderingDbContext>()
+        _dbContext = new OrderingDbContext(new DbContextOptionsBuilder<OrderingDbContext>()
             .UseInMemoryDatabase($"PaymentSuccessTests_{Guid.NewGuid()}")
-            .Options;
-        _dbContext = new OrderingDbContext(options);
+            .Options);
         _orderRepositoryMock = new Mock<IOrderRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheMock = new Mock<IDistributedCache>();
-
-        var cachingOptions = Options.Create(new CachingBehaviorOptions
-        {
-            KeyPrefix = "ordering:",
-            Version = "v1",
-            UseVersioning = true
-        });
-
-        _consumer = new PaymentSuccessConsumer(
-            _dbContext,
-            _cacheMock.Object,
-            _orderRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            cachingOptions,
-            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions
-            {
-                AutoShipOnPaymentSuccess = true
-            }),
-            Mock.Of<ILogger<PaymentSuccessConsumer>>());
+        _unitOfWorkMock.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        _cache = new CacheSpy();
     }
 
     [TearDown]
@@ -68,278 +41,151 @@ public class PaymentSuccessConsumerTests
         _dbContext.Dispose();
     }
 
-    [Test]
-    public async Task Consume_WithExistingOrder_ShouldMarkAsPaidAndShipOrder()
-    {
-        // Arrange
-        var order = CreatePendingOrder();
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_test_123",
-            Amount = 29.99m,
-            ProcessedAt = DateTime.UtcNow
-        };
+    /// <param name="autoShip"><c>null</c> leaves the options at their defaults.</param>
+    private PaymentSuccessConsumer Consumer(bool? autoShip = true) => new(
+        _dbContext,
+        _orderRepositoryMock.Object,
+        _unitOfWorkMock.Object,
+        _cache.Invalidator,
+        Options.Create(autoShip is { } ship
+            ? new PaymentSuccessConsumer.PaymentSuccessProcessingOptions { AutoShipOnPaymentSuccess = ship }
+            : new PaymentSuccessConsumer.PaymentSuccessProcessingOptions()),
+        Mock.Of<ILogger<PaymentSuccessConsumer>>());
 
+    private OrderEntity Stored(OrderEntity order)
+    {
         _orderRepositoryMock
             .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(order);
+        return order;
+    }
 
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
+    private static PaymentSuccessEvent PaymentFor(OrderEntity order, decimal? amount = null) => new()
+    {
+        OrderId = order.Id,
+        PaymentIntentId = "pi_test_123",
+        Amount = amount ?? order.TotalPrice,
+        ProcessedAt = DateTime.UtcNow
+    };
 
-        var context = CreateConsumeContext(message);
+    [Test]
+    public async Task Consume_WithExistingOrder_ShouldMarkAsPaidAndShipOrder()
+    {
+        var order = Stored(CreatePendingOrder());
 
-        // Act
-        await _consumer.Consume(context.Object);
+        await Consumer(autoShip: true).Consume(ContextFor(PaymentFor(order)).Object);
 
-        // Assert
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Shipped));
         Assert.That(order.PaymentIntentId, Is.EqualTo("pi_test_123"));
         Assert.That(order.ShippedAt, Is.Not.Null);
         _orderRepositoryMock.Verify(x => x.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _cacheMock.Verify(x => x.RemoveAsync(
-            "ordering:v1:orders:user:user-1:p=1:ps=5:cur=",
-            It.IsAny<CancellationToken>()), Times.Once);
-        _cacheMock.Verify(x => x.RemoveAsync(
-            "ordering:v1:orders:user:user-1:p=1:ps=10:cur=",
-            It.IsAny<CancellationToken>()), Times.Once);
-        _cacheMock.Verify(x => x.RemoveAsync(
-            "ordering:v1:orders:user:user-1:p=1:ps=20:cur=",
-            It.IsAny<CancellationToken>()), Times.Once);
-        _cacheMock.Verify(x => x.RemoveAsync(
-            "ordering:v1:orders:user:user-1:p=1:ps=25:cur=",
-            It.IsAny<CancellationToken>()), Times.Once);
-        _cacheMock.Verify(x => x.RemoveAsync(
-            "ordering:v1:orders:user:user-1:p=1:ps=50:cur=",
-            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// Audit H4/M8. The order's detail entry and its owner's list family are both invalidated, after
+    /// commit. This used to SCAN the whole Redis keyspace for list pages and never evict the detail
+    /// entry, so GET /orders/{id} kept showing Pending for up to five minutes after payment.
+    /// </summary>
+    [Test]
+    public async Task Consume_InvalidatesTheOrderAndItsOwnersList()
+    {
+        var order = Stored(CreatePendingOrder());
+
+        await Consumer().Consume(ContextFor(PaymentFor(order)).Object);
+
+        _cache.VerifyInvalidated(order);
+    }
+
+    /// <summary>The write has committed; a cache outage must not fail the message into a redelivery.</summary>
+    [Test]
+    public async Task Consume_WhenTheCacheIsDown_StillSucceeds()
+    {
+        var order = Stored(CreatePendingOrder());
+        _cache.Versions
+            .Setup(x => x.BumpVersionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("redis down"));
+
+        await Consumer().Consume(ContextFor(PaymentFor(order)).Object);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Shipped));
     }
 
     [Test]
     public async Task Consume_WithNonExistentOrder_ShouldNotThrow()
     {
-        // Arrange
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = Guid.NewGuid(),
-            PaymentIntentId = "pi_test_456",
-            Amount = 10.00m,
-            ProcessedAt = DateTime.UtcNow
-        };
-
+        var message = new PaymentSuccessEvent { OrderId = Guid.NewGuid(), PaymentIntentId = "pi_test_456", Amount = 10.00m };
         _orderRepositoryMock
             .Setup(x => x.GetByIdAsync(message.OrderId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((OrderEntity?)null);
 
-        var context = CreateConsumeContext(message);
+        await Consumer().Consume(ContextFor(message).Object);
 
-        // Act & Assert — should not throw
-        await _consumer.Consume(context.Object);
-
-        _orderRepositoryMock.Verify(
-            x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+        _cache.VerifyNothingInvalidated();
     }
 
     [Test]
     public async Task Consume_WithAlreadyPaidOrder_ShouldSkipWithoutFailure()
     {
-        // Arrange
         var order = CreatePendingOrder();
         order.MarkAsPaid("pi_existing", order.TotalPrice);
+        Stored(order);
 
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_duplicate",
-            Amount = 10m,
-            ProcessedAt = DateTime.UtcNow
-        };
+        await Consumer().Consume(ContextFor(PaymentFor(order)).Object);
 
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        var context = CreateConsumeContext(message);
-
-        // Act
-        await _consumer.Consume(context.Object);
-
-        // Assert
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
-        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _cache.VerifyNothingInvalidated();
     }
 
     [Test]
     public async Task Consume_WhenAutoShipDisabled_ShouldMarkAsPaidOnly()
     {
-        var options = new DbContextOptionsBuilder<OrderingDbContext>()
-            .UseInMemoryDatabase($"PaymentSuccessTests_Disabled_{Guid.NewGuid()}")
-            .Options;
+        var order = Stored(CreatePendingOrder());
 
-        using var dbContext = new OrderingDbContext(options);
-        var orderRepository = new Mock<IOrderRepository>();
-        var unitOfWork = new Mock<IUnitOfWork>();
-        var cache = new Mock<IDistributedCache>();
+        await Consumer(autoShip: false).Consume(ContextFor(PaymentFor(order)).Object);
 
-        var order = CreatePendingOrder();
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_paid_only",
-            Amount = 29.99m,
-            ProcessedAt = DateTime.UtcNow
-        };
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        Assert.That(order.ShippedAt, Is.Null);
+    }
 
-        orderRepository
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-        unitOfWork
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
+    /// <summary>Pins the default: with no configuration, a paid order waits for an admin to ship it.</summary>
+    [Test]
+    public async Task Consume_WithDefaultOptions_ShouldMarkAsPaidWithoutShipping()
+    {
+        var order = Stored(CreatePendingOrder());
 
-        var consumer = new PaymentSuccessConsumer(
-            dbContext,
-            cache.Object,
-            orderRepository.Object,
-            unitOfWork.Object,
-            Options.Create(new CachingBehaviorOptions()),
-            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions { AutoShipOnPaymentSuccess = false }),
-            Mock.Of<ILogger<PaymentSuccessConsumer>>());
-
-        var context = CreateConsumeContext(message);
-        await consumer.Consume(context.Object);
+        await Consumer(autoShip: null).Consume(ContextFor(PaymentFor(order)).Object);
 
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
         Assert.That(order.ShippedAt, Is.Null);
     }
 
     [Test]
-    public async Task Consume_WhenRedisIsAvailable_ShouldInvalidateByPrefixScan()
-    {
-        var order = CreatePendingOrder();
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_test_redis",
-            Amount = 29.99m,
-            ProcessedAt = DateTime.UtcNow
-        };
-
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
-
-        var database = new Mock<IDatabase>();
-        database.SetupGet(x => x.Database).Returns(0);
-        database
-            .Setup(x => x.KeyDeleteAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .ReturnsAsync(true);
-
-        var server = new Mock<IServer>();
-        server.SetupGet(x => x.IsConnected).Returns(true);
-        server.SetupGet(x => x.IsReplica).Returns(false);
-        server
-            .Setup(x => x.Keys(0, It.IsAny<RedisValue>(), 250, It.IsAny<long>(), 0, It.IsAny<CommandFlags>()))
-            .Returns(["EShop_Ordering_ordering:v1:orders:user:user-1:p=2:ps=10:cur="]);
-
-        var multiplexer = new Mock<IConnectionMultiplexer>();
-        var endpoint = new DnsEndPoint("localhost", 6379);
-        multiplexer.Setup(x => x.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
-        multiplexer.Setup(x => x.GetEndPoints(true)).Returns([endpoint]);
-        multiplexer.Setup(x => x.GetServer(endpoint, null)).Returns(server.Object);
-
-        var cachingOptions = Options.Create(new CachingBehaviorOptions
-        {
-            KeyPrefix = "ordering:",
-            Version = "v1",
-            UseVersioning = true
-        });
-        var consumer = new PaymentSuccessConsumer(
-            _dbContext,
-            _cacheMock.Object,
-            _orderRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            cachingOptions,
-            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions
-            {
-                AutoShipOnPaymentSuccess = true
-            }),
-            Mock.Of<ILogger<PaymentSuccessConsumer>>(),
-            multiplexer.Object);
-
-        var context = CreateConsumeContext(message);
-
-        await consumer.Consume(context.Object);
-
-        database.Verify(x => x.KeyDeleteAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()), Times.Once);
-        _cacheMock.Verify(x => x.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Test]
     public async Task Consume_WithAlreadyShippedOrder_ShouldSkipWithoutFailure()
     {
-        // Arrange
         var order = CreatePendingOrder();
         order.MarkAsPaid("pi_paid", order.TotalPrice);
         order.Ship();
+        Stored(order);
 
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_duplicate",
-            Amount = 10m,
-            ProcessedAt = DateTime.UtcNow
-        };
+        await Consumer().Consume(ContextFor(PaymentFor(order)).Object);
 
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        var context = CreateConsumeContext(message);
-
-        // Act
-        await _consumer.Consume(context.Object);
-
-        // Assert
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Shipped));
-        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
     public async Task Consume_WithCancelledOrder_ShouldSkipWithoutFailure()
     {
-        // Arrange
         var order = CreatePendingOrder();
         order.Cancel("User requested cancellation");
+        Stored(order);
 
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_late",
-            Amount = 10m,
-            ProcessedAt = DateTime.UtcNow
-        };
+        await Consumer().Consume(ContextFor(PaymentFor(order)).Object);
 
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        var context = CreateConsumeContext(message);
-
-        // Act
-        await _consumer.Consume(context.Object);
-
-        // Assert
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
-        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -351,56 +197,14 @@ public class PaymentSuccessConsumerTests
     [Test]
     public void Consume_WhenPaidAmountDiffersFromTotal_ShouldThrowAndLeaveOrderPending()
     {
-        var order = CreatePendingOrder(); // total 29.99
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_short",
-            Amount = 19.99m,
-            ProcessedAt = DateTime.UtcNow
-        };
+        var order = Stored(CreatePendingOrder()); // total 29.99
 
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        Assert.ThrowsAsync<DomainException>(() => _consumer.Consume(CreateConsumeContext(message).Object));
+        Assert.ThrowsAsync<DomainException>(() =>
+            Consumer().Consume(ContextFor(PaymentFor(order, amount: 19.99m)).Object));
 
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Pending));
-        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    /// <summary>Pins the default: with no configuration, a paid order waits for an admin to ship it.</summary>
-    [Test]
-    public async Task Consume_WithDefaultOptions_ShouldMarkAsPaidWithoutShipping()
-    {
-        var order = CreatePendingOrder();
-        var message = new PaymentSuccessEvent
-        {
-            OrderId = order.Id,
-            PaymentIntentId = "pi_default",
-            Amount = 29.99m,
-            ProcessedAt = DateTime.UtcNow
-        };
-
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        var consumer = new PaymentSuccessConsumer(
-            _dbContext,
-            _cacheMock.Object,
-            _orderRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            Options.Create(new CachingBehaviorOptions()),
-            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions()),
-            Mock.Of<ILogger<PaymentSuccessConsumer>>());
-
-        await consumer.Consume(CreateConsumeContext(message).Object);
-
-        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
-        Assert.That(order.ShippedAt, Is.Null);
+        _cache.VerifyNothingInvalidated();
     }
 
     private static OrderEntity CreatePendingOrder()
@@ -410,7 +214,7 @@ public class PaymentSuccessConsumerTests
         return OrderEntity.Create("user-1", address, items);
     }
 
-    private static Mock<ConsumeContext<T>> CreateConsumeContext<T>(T message) where T : class
+    internal static Mock<ConsumeContext<T>> ContextFor<T>(T message) where T : class
     {
         var context = new Mock<ConsumeContext<T>>();
         context.Setup(x => x.Message).Returns(message);
@@ -426,22 +230,25 @@ public class PaymentFailedConsumerTests
     private OrderingDbContext _dbContext = null!;
     private Mock<IOrderRepository> _orderRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
+    private CacheSpy _cache = null!;
     private PaymentFailedConsumer _consumer = null!;
 
     [SetUp]
     public void SetUp()
     {
-        var options = new DbContextOptionsBuilder<OrderingDbContext>()
+        _dbContext = new OrderingDbContext(new DbContextOptionsBuilder<OrderingDbContext>()
             .UseInMemoryDatabase($"PaymentFailedTests_{Guid.NewGuid()}")
-            .Options;
-        _dbContext = new OrderingDbContext(options);
+            .Options);
         _orderRepositoryMock = new Mock<IOrderRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
+        _unitOfWorkMock.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        _cache = new CacheSpy();
 
         _consumer = new PaymentFailedConsumer(
             _dbContext,
             _orderRepositoryMock.Object,
             _unitOfWorkMock.Object,
+            _cache.Invalidator,
             Mock.Of<ILogger<PaymentFailedConsumer>>());
     }
 
@@ -451,60 +258,53 @@ public class PaymentFailedConsumerTests
         _dbContext.Dispose();
     }
 
-    [Test]
-    public async Task Consume_WithExistingOrder_ShouldCancelOrder()
+    private OrderEntity Stored(OrderEntity order)
     {
-        // Arrange
-        var order = CreatePendingOrder();
-        var message = new PaymentFailedEvent
-        {
-            OrderId = order.Id,
-            Reason = "Insufficient funds",
-            FailedAt = DateTime.UtcNow
-        };
-
         _orderRepositoryMock
             .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(order);
+        return order;
+    }
 
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
+    private static PaymentFailedEvent FailureFor(OrderEntity order, string reason = "Insufficient funds") =>
+        new() { OrderId = order.Id, Reason = reason, FailedAt = DateTime.UtcNow };
 
-        var context = CreateConsumeContext(message);
+    [Test]
+    public async Task Consume_WithExistingOrder_ShouldCancelOrder()
+    {
+        var order = Stored(CreatePendingOrder());
 
-        // Act
-        await _consumer.Consume(context.Object);
+        await _consumer.Consume(PaymentSuccessConsumerTests.ContextFor(FailureFor(order)).Object);
 
-        // Assert
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
         Assert.That(order.CancellationReason, Does.Contain("Insufficient funds"));
         _orderRepositoryMock.Verify(x => x.UpdateAsync(order, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>This consumer used to invalidate nothing, so a cancelled order kept reading as Pending.</summary>
+    [Test]
+    public async Task Consume_InvalidatesTheOrderAndItsOwnersList()
+    {
+        var order = Stored(CreatePendingOrder());
+
+        await _consumer.Consume(PaymentSuccessConsumerTests.ContextFor(FailureFor(order)).Object);
+
+        _cache.VerifyInvalidated(order);
+    }
+
     [Test]
     public async Task Consume_WithNonExistentOrder_ShouldNotThrow()
     {
-        // Arrange
-        var message = new PaymentFailedEvent
-        {
-            OrderId = Guid.NewGuid(),
-            Reason = "Card declined",
-            FailedAt = DateTime.UtcNow
-        };
-
+        var message = new PaymentFailedEvent { OrderId = Guid.NewGuid(), Reason = "Card declined", FailedAt = DateTime.UtcNow };
         _orderRepositoryMock
             .Setup(x => x.GetByIdAsync(message.OrderId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((OrderEntity?)null);
 
-        var context = CreateConsumeContext(message);
+        await _consumer.Consume(PaymentSuccessConsumerTests.ContextFor(message).Object);
 
-        // Act & Assert — should not throw
-        await _consumer.Consume(context.Object);
-
-        _orderRepositoryMock.Verify(
-            x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+        _cache.VerifyNothingInvalidated();
     }
 
     /// <summary>
@@ -516,16 +316,13 @@ public class PaymentFailedConsumerTests
     {
         var order = CreatePendingOrder();
         order.MarkAsPaid("pi_paid", order.TotalPrice);
-        var message = new PaymentFailedEvent { OrderId = order.Id, Reason = "Late failure", FailedAt = DateTime.UtcNow };
+        Stored(order);
 
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        await _consumer.Consume(CreateConsumeContext(message).Object);
+        await _consumer.Consume(PaymentSuccessConsumerTests.ContextFor(FailureFor(order, "Late failure")).Object);
 
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
         _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+        _cache.VerifyNothingInvalidated();
     }
 
     /// <summary>A duplicate failure used to throw from Order.Cancel and ride every retry to the error queue.</summary>
@@ -534,13 +331,9 @@ public class PaymentFailedConsumerTests
     {
         var order = CreatePendingOrder();
         order.Cancel("Payment failed: first");
-        var message = new PaymentFailedEvent { OrderId = order.Id, Reason = "second", FailedAt = DateTime.UtcNow };
+        Stored(order);
 
-        _orderRepositoryMock
-            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(order);
-
-        await _consumer.Consume(CreateConsumeContext(message).Object);
+        await _consumer.Consume(PaymentSuccessConsumerTests.ContextFor(FailureFor(order, "second")).Object);
 
         Assert.That(order.CancellationReason, Is.EqualTo("Payment failed: first"));
         _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -552,14 +345,4 @@ public class PaymentFailedConsumerTests
         var items = new List<OrderItem> { new(Guid.NewGuid(), "Widget", 19.99m, 1) };
         return OrderEntity.Create("user-1", address, items);
     }
-
-    private static Mock<ConsumeContext<T>> CreateConsumeContext<T>(T message) where T : class
-    {
-        var context = new Mock<ConsumeContext<T>>();
-        context.Setup(x => x.Message).Returns(message);
-        context.Setup(x => x.MessageId).Returns(Guid.NewGuid());
-        context.Setup(x => x.CancellationToken).Returns(CancellationToken.None);
-        return context;
-    }
 }
-

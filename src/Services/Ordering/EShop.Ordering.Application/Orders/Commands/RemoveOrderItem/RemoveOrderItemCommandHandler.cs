@@ -55,7 +55,7 @@ public class RemoveOrderItemCommandHandler : IRequestHandler<RemoveOrderItemComm
                 $"Item '{request.ItemId}' was not found on order '{request.OrderId}'."));
         }
 
-        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
+        _cacheInvalidationContext?.AddFamily(OrderCacheKeys.UserOrders(order.UserId));
 
         order.RemoveItem(request.ItemId);
 

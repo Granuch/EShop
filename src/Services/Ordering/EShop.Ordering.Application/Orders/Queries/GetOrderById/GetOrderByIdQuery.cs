@@ -11,7 +11,7 @@ public record GetOrderByIdQuery : IRequest<Result<OrderDto>>, ICacheableQuery
 {
     public Guid OrderId { get; init; }
 
-    public string CacheKey => $"order:{OrderId}";
+    public string CacheKey => OrderCacheKeys.Order(OrderId);
     public TimeSpan? CacheDuration => TimeSpan.FromMinutes(5);
     public TimeSpan? SlidingExpiration => null;
 }

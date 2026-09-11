@@ -1,6 +1,5 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 
@@ -16,11 +15,13 @@ namespace EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 /// </para>
 ///
 /// <para>
-/// Not an <c>ITransactionalCommand</c>: the consumer's <c>IdempotentConsumer</c> transaction already
-/// wraps it, so TransactionBehavior would do nothing.
+/// Deliberately neither an <c>ITransactionalCommand</c> nor an <c>ICacheInvalidatingCommand</c>. The
+/// consumer's <c>IdempotentConsumer</c> transaction wraps it, so TransactionBehavior would do nothing
+/// — and CacheInvalidationBehavior would invalidate <i>before</i> that transaction commits, letting a
+/// concurrent read re-cache the list without the new order. The consumer invalidates after commit.
 /// </para>
 /// </summary>
-public record CreateCheckedOutOrderCommand : IRequest<Result<Guid>>, ICacheInvalidatingCommand
+public record CreateCheckedOutOrderCommand : IRequest<Result<Guid>>
 {
     public string UserId { get; init; } = string.Empty;
     public List<CheckedOutOrderItem> Items { get; init; } = new();
@@ -29,11 +30,6 @@ public record CreateCheckedOutOrderCommand : IRequest<Result<Guid>>, ICacheInval
     public string State { get; init; } = string.Empty;
     public string ZipCode { get; init; } = string.Empty;
     public string Country { get; init; } = string.Empty;
-
-    public IEnumerable<string> CacheKeysToInvalidate =>
-    [
-        $"orders:user:{UserId}"
-    ];
 }
 
 public record CheckedOutOrderItem

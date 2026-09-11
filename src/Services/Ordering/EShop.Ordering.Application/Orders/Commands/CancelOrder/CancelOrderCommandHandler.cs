@@ -47,7 +47,7 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, Res
                 $"Only pending orders can be cancelled; this order is {order.Status.ToString().ToLowerInvariant()}."));
         }
 
-        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
+        _cacheInvalidationContext?.AddFamily(OrderCacheKeys.UserOrders(order.UserId));
 
         order.Cancel(request.Reason);
 

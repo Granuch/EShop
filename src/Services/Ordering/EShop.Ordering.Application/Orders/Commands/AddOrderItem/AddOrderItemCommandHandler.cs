@@ -59,7 +59,7 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
 
         var line = priced.Value![0];
 
-        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
+        _cacheInvalidationContext?.AddFamily(OrderCacheKeys.UserOrders(order.UserId));
 
         order.AddItem(line.ProductId, line.ProductName, line.UnitPrice, line.Quantity);
 

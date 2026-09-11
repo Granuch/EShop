@@ -25,10 +25,11 @@ public record CreateOrderCommand : IRequest<Result<Guid>>, ICacheInvalidatingCom
     public string ZipCode { get; init; } = string.Empty;
     public string Country { get; init; } = string.Empty;
 
-    public IEnumerable<string> CacheKeysToInvalidate =>
-    [
-        $"orders:user:{UserId}"
-    ];
+    /// <summary>Nothing to evict by key: a new order has not been read, so nothing caches it yet.</summary>
+    public IEnumerable<string> CacheKeysToInvalidate => [];
+
+    /// <summary>The user's list pages — see <see cref="OrderCacheKeys.UserOrders"/>.</summary>
+    public IEnumerable<string> CacheFamiliesToInvalidate => [OrderCacheKeys.UserOrders(UserId)];
 }
 
 /// <summary>
