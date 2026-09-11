@@ -81,6 +81,31 @@ public class AddOrderItemCommandHandlerTests
         Assert.That(result.Error!.Code, Is.EqualTo("Order.NotFound"));
     }
 
+    [Test]
+    public async Task Handle_WithPaidOrder_ShouldReturnNotModifiable_AndKeepTotal()
+    {
+        var order = CreatePendingOrder();
+        order.MarkAsPaid("pi_paid", order.TotalPrice);
+        var command = new AddOrderItemCommand
+        {
+            OrderId = order.Id,
+            ProductId = Guid.NewGuid(),
+            ProductName = "Unpaid Widget",
+            UnitPrice = 15.00m,
+            Quantity = 1
+        };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("Order.NotModifiable"));
+        Assert.That(order.TotalPrice, Is.EqualTo(10.00m));
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private static Order CreatePendingOrder()
     {
         var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");

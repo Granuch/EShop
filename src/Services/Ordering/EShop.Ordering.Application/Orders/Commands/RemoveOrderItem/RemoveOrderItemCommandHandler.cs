@@ -2,7 +2,9 @@ using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
+using EShop.Ordering.Application.Orders;
 using EShop.Ordering.Application.Telemetry;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -35,6 +37,22 @@ public class RemoveOrderItemCommandHandler : IRequestHandler<RemoveOrderItemComm
         {
             activity?.SetStatus(ActivityStatusCode.Error, "not_found");
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
+        }
+
+        if (order.Status != OrderStatus.Pending)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "not_modifiable");
+            return Result.Failure(OrderItemErrors.NotModifiable(order.Status));
+        }
+
+        // Order.RemoveItem throws a DomainException for a missing item, which the middleware maps to
+        // 400; a missing sub-resource is a 404, so answer it here first.
+        if (order.Items.All(i => i.Id != request.ItemId))
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "item_not_found");
+            return Result.Failure(new Error(
+                "OrderItem.NotFound",
+                $"Item '{request.ItemId}' was not found on order '{request.OrderId}'."));
         }
 
         _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");

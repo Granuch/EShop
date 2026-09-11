@@ -138,6 +138,20 @@ public class OrderTests
             order.AddItem(Guid.NewGuid(), "Widget C", 5.00m, 1));
     }
 
+    /// <summary>The total of a paid order is what was charged; adding to it would be unpaid goods.</summary>
+    [Test]
+    public void AddItem_ToPaidOrder_ShouldThrowAndLeaveTotalUnchanged()
+    {
+        var order = CreatePaidOrder();
+        var totalBefore = order.TotalPrice;
+
+        Assert.Throws<DomainException>(() =>
+            order.AddItem(Guid.NewGuid(), "Widget C", 5.00m, 1));
+
+        Assert.That(order.TotalPrice, Is.EqualTo(totalBefore));
+        Assert.That(order.Items, Has.Count.EqualTo(2));
+    }
+
     #endregion
 
     #region RemoveItem
@@ -175,6 +189,18 @@ public class OrderTests
             order.RemoveItem(Guid.NewGuid()));
     }
 
+    [Test]
+    public void RemoveItem_FromPaidOrder_ShouldThrowAndLeaveItemsUnchanged()
+    {
+        var order = CreatePaidOrder();
+
+        Assert.Throws<DomainException>(() =>
+            order.RemoveItem(order.Items.First().Id));
+
+        Assert.That(order.Items, Has.Count.EqualTo(2));
+        Assert.That(order.TotalPrice, Is.EqualTo(45.50m));
+    }
+
     #endregion
 
     #region MarkAsPaid
@@ -184,7 +210,7 @@ public class OrderTests
     {
         var order = Order.Create("user-1", _validAddress, _validItems);
 
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
 
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
         Assert.That(order.PaymentIntentId, Is.EqualTo("pi_123456"));
@@ -197,7 +223,7 @@ public class OrderTests
         var order = Order.Create("user-1", _validAddress, _validItems);
         order.ClearDomainEvents();
 
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
 
         Assert.That(order.DomainEvents, Has.Count.EqualTo(1));
         var domainEvent = order.DomainEvents[0] as OrderPaidDomainEvent;
@@ -212,7 +238,7 @@ public class OrderTests
         var order = CreatePaidOrder();
 
         Assert.Throws<DomainException>(() =>
-            order.MarkAsPaid("pi_another"));
+            order.MarkAsPaid("pi_another", order.TotalPrice));
     }
 
     [Test]
@@ -221,8 +247,30 @@ public class OrderTests
         var order = Order.Create("user-1", _validAddress, _validItems);
 
         var ex = Assert.Throws<DomainException>(() =>
-            order.MarkAsPaid(""));
+            order.MarkAsPaid("", order.TotalPrice));
         Assert.That(ex!.Message, Does.Contain("Payment intent"));
+    }
+
+    [Test]
+    public void MarkAsPaid_WithAmountDifferentFromTotal_ShouldThrowAndStayPending()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems); // total 45.50
+
+        var ex = Assert.Throws<DomainException>(() => order.MarkAsPaid("pi_short", 40.00m));
+
+        Assert.That(ex!.Message, Does.Contain("40.00").And.Contain("45.50"));
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Pending));
+        Assert.That(order.PaymentIntentId, Is.Null);
+    }
+
+    [Test]
+    public void MarkAsPaid_ComparesAtCentPrecision()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems); // total 45.50
+
+        order.MarkAsPaid("pi_cents", 45.5000m);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
     }
 
     #endregion
@@ -317,14 +365,19 @@ public class OrderTests
         Assert.That(domainEvent.Reason, Is.EqualTo("Changed my mind"));
     }
 
+    /// <summary>
+    /// Reversed from "ShouldSucceed": nothing refunds a cancelled paid order, so cancelling one kept
+    /// the customer's money against an order that no longer existed.
+    /// </summary>
     [Test]
-    public void Cancel_PaidOrder_ShouldSucceed()
+    public void Cancel_PaidOrder_ShouldThrowDomainException()
     {
         var order = CreatePaidOrder();
 
-        order.Cancel("Refund requested");
+        var ex = Assert.Throws<DomainException>(() => order.Cancel("Refund requested"));
 
-        Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
+        Assert.That(ex!.Message, Does.Contain("paid"));
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
     }
 
     [Test]
@@ -388,7 +441,7 @@ public class OrderTests
     private Order CreatePaidOrder()
     {
         var order = Order.Create("user-1", _validAddress, _validItems);
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
         return order;
     }
 

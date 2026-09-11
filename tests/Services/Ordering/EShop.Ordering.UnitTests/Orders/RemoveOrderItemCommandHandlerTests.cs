@@ -75,6 +75,41 @@ public class RemoveOrderItemCommandHandlerTests
         Assert.That(result.Error!.Code, Is.EqualTo("Order.NotFound"));
     }
 
+    [Test]
+    public async Task Handle_WithPaidOrder_ShouldReturnNotModifiable_AndKeepItems()
+    {
+        var order = CreateOrderWithMultipleItems();
+        order.MarkAsPaid("pi_paid", order.TotalPrice);
+        var command = new RemoveOrderItemCommand { OrderId = order.Id, ItemId = order.Items.First().Id };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("Order.NotModifiable"));
+        Assert.That(order.Items, Has.Count.EqualTo(2));
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>Order.RemoveItem throws for a missing item (400); the handler answers 404 first.</summary>
+    [Test]
+    public async Task Handle_WithMissingItem_ShouldReturnItemNotFound()
+    {
+        var order = CreateOrderWithMultipleItems();
+        var command = new RemoveOrderItemCommand { OrderId = order.Id, ItemId = Guid.NewGuid() };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("OrderItem.NotFound"));
+        Assert.That(order.Items, Has.Count.EqualTo(2));
+    }
+
     private static Order CreateOrderWithMultipleItems()
     {
         var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");

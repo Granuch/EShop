@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.Ordering.IntegrationTests.Helpers;
 using EShop.Ordering.IntegrationTests.Models;
 using FluentAssertions;
 
@@ -140,5 +141,56 @@ public class AddOrderItemTests : AuthenticatedIntegrationTestBase
             $"{OrdersEndpoint}/{orderId}/items", NewItem(Guid.NewGuid()));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    /// A paid order's items are what the customer was charged for (audit H2). Adding one used to
+    /// succeed and silently raise the total above the amount paid.
+    /// </summary>
+    [Test]
+    public async Task AddItem_ToAPaidOrder_ReturnsConflict_AndLeavesTheTotalAlone()
+    {
+        Guid orderId;
+        decimal paidTotal;
+        using (var scope = CreateScope())
+        {
+            var order = await OrderingDataHelper.CreatePaidOrderAsync(scope.ServiceProvider, TestUserId);
+            orderId = order.Id;
+            paidTotal = order.TotalPrice;
+        }
+
+        var response = await Client.PostAsJsonAsync($"{OrdersEndpoint}/{orderId}/items", NewItem(orderId));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!
+            .ErrorCode.Should().Be("Order.NotModifiable");
+
+        var stored = await Client.GetFromJsonAsync<OrderResponse>($"{OrdersEndpoint}/{orderId}");
+        stored!.TotalPrice.Should().Be(paidTotal);
+        stored.Items.Should().HaveCount(1);
+    }
+
+    [Test]
+    public async Task RemoveItem_FromAPaidOrder_ReturnsConflict()
+    {
+        using var scope = CreateScope();
+        var order = await OrderingDataHelper.CreatePaidOrderAsync(scope.ServiceProvider, TestUserId);
+
+        var response = await Client.DeleteAsync($"{OrdersEndpoint}/{order.Id}/items/{order.Items.First().Id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    /// <summary>Was a 400 via Order.RemoveItem's DomainException; a missing sub-resource is a 404.</summary>
+    [Test]
+    public async Task RemoveItem_ThatDoesNotExist_ReturnsNotFound()
+    {
+        var orderId = await CreateOrderAsync();
+
+        var response = await Client.DeleteAsync($"{OrdersEndpoint}/{orderId}/items/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!
+            .ErrorCode.Should().Be("OrderItem.NotFound");
     }
 }

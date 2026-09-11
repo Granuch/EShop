@@ -45,7 +45,7 @@ public static class OrderingDataHelper
         };
 
         var order = Order.Create(userId, address, items);
-        order.MarkAsPaid($"pi_{Guid.NewGuid():N}");
+        order.MarkAsPaid($"pi_{Guid.NewGuid():N}", order.TotalPrice);
         order.ClearDomainEvents();
 
         await db.Orders.AddAsync(order);

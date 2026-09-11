@@ -2,7 +2,9 @@ using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
+using EShop.Ordering.Application.Orders;
 using EShop.Ordering.Application.Telemetry;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -35,6 +37,12 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
         {
             activity?.SetStatus(ActivityStatusCode.Error, "not_found");
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
+        }
+
+        if (order.Status != OrderStatus.Pending)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "not_modifiable");
+            return Result.Failure(OrderItemErrors.NotModifiable(order.Status));
         }
 
         _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");

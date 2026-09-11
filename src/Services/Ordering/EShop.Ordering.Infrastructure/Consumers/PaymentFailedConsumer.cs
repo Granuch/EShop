@@ -1,6 +1,7 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
@@ -41,6 +42,20 @@ public class PaymentFailedConsumer : IdempotentConsumer<PaymentFailedEvent, Orde
         if (order is null)
         {
             Logger.LogWarning("Order {OrderId} not found for PaymentFailedEvent", message.OrderId);
+            return;
+        }
+
+        // Only a pending order is waiting on this payment. Cancelled means a redelivered or duplicate
+        // failure; paid or later means the failure arrived after a success, and cancelling would discard
+        // an order that has been paid for. Order.Cancel would throw for both, sending a harmless
+        // message through every retry into the error queue.
+        if (order.Status != OrderStatus.Pending)
+        {
+            Logger.Log(
+                order.Status == OrderStatus.Cancelled ? LogLevel.Information : LogLevel.Warning,
+                "Ignoring PaymentFailedEvent for OrderId={OrderId} because order status is {Status}.",
+                message.OrderId,
+                order.Status);
             return;
         }
 

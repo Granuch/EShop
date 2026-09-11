@@ -93,7 +93,7 @@ public class ShipOrderCommandHandlerTests
         var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");
         var items = new List<OrderItem> { new(Guid.NewGuid(), "Widget", 10.00m, 1) };
         var order = Order.Create("user-1", address, items);
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
         return order;
     }
 

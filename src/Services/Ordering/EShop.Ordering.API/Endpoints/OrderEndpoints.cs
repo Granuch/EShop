@@ -1,4 +1,5 @@
 using MediatR;
+using EShop.BuildingBlocks.Application;
 using EShop.Ordering.Application.Orders.Commands.AddOrderItem;
 using EShop.Ordering.Application.Orders.Commands.CancelOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
@@ -50,11 +51,12 @@ public static class OrderEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
+                error => ProblemForError(error));
         })
         .WithName("GetOrderById")
         .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces<object>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // GET /api/v1/orders
@@ -100,12 +102,14 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemForError(error));
         })
         .WithName("AddOrderItem")
         .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // DELETE /api/v1/orders/{id}/items/{itemId}
         group.MapDelete("/{id:guid}/items/{itemId:guid}", async (Guid id, Guid itemId, IMediator mediator) =>
@@ -114,12 +118,14 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemForError(error));
         })
         .WithName("RemoveOrderItem")
         .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // POST /api/v1/orders/{id}/cancel
         group.MapPost("/{id:guid}/cancel", async (Guid id, CancelOrderRequest request, IMediator mediator) =>
@@ -128,12 +134,14 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemForError(error));
         })
         .WithName("CancelOrder")
         .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // POST /api/v1/orders/{id}/ship (admin only)
         group.MapPost("/{id:guid}/ship", async (Guid id, IMediator mediator) =>
@@ -142,14 +150,7 @@ public static class OrderEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(
-                    error,
-                    error.Code switch
-                    {
-                        "Order.NotFound" => StatusCodes.Status404NotFound,
-                        "Order.NotPaidYet" => StatusCodes.Status409Conflict,
-                        _ => StatusCodes.Status400BadRequest
-                    }));
+                error => ProblemForError(error));
         })
         .WithName("ShipOrder")
         .RequireAuthorization("Admin")
@@ -158,6 +159,23 @@ public static class OrderEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status400BadRequest);
     }
+
+    /// <summary>
+    /// One mapping from a handler's <see cref="Error"/> to a status, for every endpoint that addresses
+    /// an existing order. Every code ending in <c>.NotFound</c> is a 404; a state conflict (the order is
+    /// past the point where the request applies) is a 409; anything else — including
+    /// <c>Validation.Failed</c> — is a 400. Before this, each endpoint hard-coded one status, so a
+    /// missing order came back as 400 from cancel and the item endpoints, and a validation failure as
+    /// 404 from GET.
+    /// </summary>
+    internal static IResult ProblemForError(Error error) => ProblemResults.For(error, StatusFor(error.Code));
+
+    internal static int StatusFor(string errorCode) => errorCode switch
+    {
+        _ when errorCode.EndsWith(".NotFound", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
+        "Order.NotPaidYet" or "Order.NotModifiable" or "Order.NotCancellable" => StatusCodes.Status409Conflict,
+        _ => StatusCodes.Status400BadRequest
+    };
 }
 
 public record CancelOrderRequest(string Reason);

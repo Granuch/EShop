@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 using EShop.Ordering.Domain.Entities;
@@ -146,7 +147,7 @@ public class PaymentSuccessConsumerTests
     {
         // Arrange
         var order = CreatePendingOrder();
-        order.MarkAsPaid("pi_existing");
+        order.MarkAsPaid("pi_existing", order.TotalPrice);
 
         var message = new PaymentSuccessEvent
         {
@@ -188,7 +189,7 @@ public class PaymentSuccessConsumerTests
         {
             OrderId = order.Id,
             PaymentIntentId = "pi_paid_only",
-            Amount = 10m,
+            Amount = 29.99m,
             ProcessedAt = DateTime.UtcNow
         };
 
@@ -223,7 +224,7 @@ public class PaymentSuccessConsumerTests
         {
             OrderId = order.Id,
             PaymentIntentId = "pi_test_redis",
-            Amount = 19.99m,
+            Amount = 29.99m,
             ProcessedAt = DateTime.UtcNow
         };
 
@@ -286,7 +287,7 @@ public class PaymentSuccessConsumerTests
     {
         // Arrange
         var order = CreatePendingOrder();
-        order.MarkAsPaid("pi_paid");
+        order.MarkAsPaid("pi_paid", order.TotalPrice);
         order.Ship();
 
         var message = new PaymentSuccessEvent
@@ -340,6 +341,66 @@ public class PaymentSuccessConsumerTests
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
         _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// Payment charged the total it was sent at creation. An amount that disagrees with the order must
+    /// not mark it paid, and must not be acknowledged either: it throws, so the message retries and
+    /// then lands in the error queue for reconciliation.
+    /// </summary>
+    [Test]
+    public void Consume_WhenPaidAmountDiffersFromTotal_ShouldThrowAndLeaveOrderPending()
+    {
+        var order = CreatePendingOrder(); // total 29.99
+        var message = new PaymentSuccessEvent
+        {
+            OrderId = order.Id,
+            PaymentIntentId = "pi_short",
+            Amount = 19.99m,
+            ProcessedAt = DateTime.UtcNow
+        };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        Assert.ThrowsAsync<DomainException>(() => _consumer.Consume(CreateConsumeContext(message).Object));
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Pending));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>Pins the default: with no configuration, a paid order waits for an admin to ship it.</summary>
+    [Test]
+    public async Task Consume_WithDefaultOptions_ShouldMarkAsPaidWithoutShipping()
+    {
+        var order = CreatePendingOrder();
+        var message = new PaymentSuccessEvent
+        {
+            OrderId = order.Id,
+            PaymentIntentId = "pi_default",
+            Amount = 29.99m,
+            ProcessedAt = DateTime.UtcNow
+        };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var consumer = new PaymentSuccessConsumer(
+            _dbContext,
+            _cacheMock.Object,
+            _orderRepositoryMock.Object,
+            _unitOfWorkMock.Object,
+            Options.Create(new CachingBehaviorOptions()),
+            Options.Create(new PaymentSuccessConsumer.PaymentSuccessProcessingOptions()),
+            Mock.Of<ILogger<PaymentSuccessConsumer>>());
+
+        await consumer.Consume(CreateConsumeContext(message).Object);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        Assert.That(order.ShippedAt, Is.Null);
     }
 
     private static OrderEntity CreatePendingOrder()
@@ -444,6 +505,45 @@ public class PaymentFailedConsumerTests
 
         _orderRepositoryMock.Verify(
             x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// A failure that arrives after a success must not cancel an order that has been paid for.
+    /// Previously Order.Cancel accepted it; now it would throw, so the consumer has to skip it.
+    /// </summary>
+    [Test]
+    public async Task Consume_WithPaidOrder_ShouldNotCancel()
+    {
+        var order = CreatePendingOrder();
+        order.MarkAsPaid("pi_paid", order.TotalPrice);
+        var message = new PaymentFailedEvent { OrderId = order.Id, Reason = "Late failure", FailedAt = DateTime.UtcNow };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        await _consumer.Consume(CreateConsumeContext(message).Object);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>A duplicate failure used to throw from Order.Cancel and ride every retry to the error queue.</summary>
+    [Test]
+    public async Task Consume_WithAlreadyCancelledOrder_ShouldSkipWithoutThrowing()
+    {
+        var order = CreatePendingOrder();
+        order.Cancel("Payment failed: first");
+        var message = new PaymentFailedEvent { OrderId = order.Id, Reason = "second", FailedAt = DateTime.UtcNow };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        await _consumer.Consume(CreateConsumeContext(message).Object);
+
+        Assert.That(order.CancellationReason, Is.EqualTo("Payment failed: first"));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<OrderEntity>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static OrderEntity CreatePendingOrder()

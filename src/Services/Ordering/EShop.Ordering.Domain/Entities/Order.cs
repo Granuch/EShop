@@ -1,3 +1,4 @@
+using System.Globalization;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Ordering.Domain.Events;
@@ -66,7 +67,7 @@ public class Order : AggregateRoot<Guid>
 
     public void AddItem(Guid productId, string productName, decimal unitPrice, int quantity)
     {
-        EnsureNotCompleted();
+        EnsurePending("Items can only be changed while the order is pending");
 
         if (quantity <= 0)
             throw new DomainException("Quantity must be greater than zero.");
@@ -85,7 +86,7 @@ public class Order : AggregateRoot<Guid>
 
     public void RemoveItem(Guid itemId)
     {
-        EnsureNotCompleted();
+        EnsurePending("Items can only be changed while the order is pending");
 
         if (_items.Count == 1)
             throw new DomainException("Order must have at least one item.");
@@ -98,13 +99,25 @@ public class Order : AggregateRoot<Guid>
         RecalculateTotal();
     }
 
-    public void MarkAsPaid(string paymentIntentId)
+    /// <summary>
+    /// Records a successful payment. <paramref name="paidAmount"/> must equal <see cref="TotalPrice"/>:
+    /// Payment charges the total it was sent when the order was created, so a mismatch means the items
+    /// changed after the charge, or the charge was wrong — and marking the order paid anyway would
+    /// release goods nobody paid for. Both figures are compared at cent precision, rounding half away
+    /// from zero, because that is what the <c>numeric(18,2)</c> column does to the stored total.
+    /// </summary>
+    public void MarkAsPaid(string paymentIntentId, decimal paidAmount)
     {
         if (Status != OrderStatus.Pending)
             throw new DomainException("Only pending orders can be marked as paid.");
 
         if (string.IsNullOrWhiteSpace(paymentIntentId))
             throw new DomainException("Payment intent ID is required.");
+
+        if (ToCents(paidAmount) != ToCents(TotalPrice))
+            throw new DomainException(
+                $"Paid amount {ToCents(paidAmount).ToString("0.00", CultureInfo.InvariantCulture)} does not match "
+                + $"the order total {ToCents(TotalPrice).ToString("0.00", CultureInfo.InvariantCulture)}.");
 
         Status = OrderStatus.Paid;
         PaymentIntentId = paymentIntentId;
@@ -142,13 +155,17 @@ public class Order : AggregateRoot<Guid>
         DeliveredAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Only a pending order can be cancelled. A paid order used to be cancellable too, but nothing
+    /// refunds the payment — no service consumes <c>OrderCancelledEvent</c> — so cancelling it kept
+    /// the customer's money against an order that no longer existed.
+    /// </summary>
     public void Cancel(string reason)
     {
-        if (Status == OrderStatus.Shipped || Status == OrderStatus.Delivered)
-            throw new DomainException("Cannot cancel a shipped or delivered order.");
-
         if (Status == OrderStatus.Cancelled)
             throw new DomainException("Order is already cancelled.");
+
+        EnsurePending("Only pending orders can be cancelled");
 
         if (string.IsNullOrWhiteSpace(reason))
             throw new DomainException("Cancellation reason is required.");
@@ -170,11 +187,17 @@ public class Order : AggregateRoot<Guid>
         TotalPrice = _items.Sum(i => i.SubTotal);
     }
 
-    private void EnsureNotCompleted()
+    /// <summary>
+    /// Pending is the only state in which the total may still move. Once paid, the total is what the
+    /// customer was charged, so changing items afterwards made the order disagree with its payment.
+    /// </summary>
+    private void EnsurePending(string rule)
     {
-        if (Status is OrderStatus.Shipped or OrderStatus.Delivered or OrderStatus.Cancelled)
-            throw new DomainException("Cannot modify an order that is shipped, delivered, or cancelled.");
+        if (Status != OrderStatus.Pending)
+            throw new DomainException($"{rule}; this order is already {Status.ToString().ToLowerInvariant()}.");
     }
+
+    private static decimal ToCents(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
 }
 
 public enum OrderStatus

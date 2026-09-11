@@ -14,7 +14,8 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 
 /// <summary>
 /// Idempotent consumer for PaymentSuccessEvent.
-/// Marks the order as paid and immediately ships it.
+/// Marks the order as paid, and also ships it only when
+/// <see cref="PaymentSuccessProcessingOptions.AutoShipOnPaymentSuccess"/> is on (off by default).
 /// </summary>
 public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, OrderingDbContext>
 {
@@ -68,6 +69,20 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
             return;
         }
 
+        if (order.Status == OrderStatus.Cancelled)
+        {
+            // The customer was charged for an order that was cancelled while the payment was in flight.
+            // Nothing refunds that automatically — there is no refund flow — so it needs a person, and a
+            // retry would change nothing. Logged at Error so it is not lost among routine skips.
+            Logger.LogError(
+                "PaymentSuccessEvent for cancelled OrderId={OrderId}: PaymentIntentId={PaymentIntentId}, "
+                + "Amount={Amount} was captured but the order is cancelled. Manual refund required.",
+                message.OrderId,
+                message.PaymentIntentId,
+                message.Amount);
+            return;
+        }
+
         if (order.Status != OrderStatus.Pending)
         {
             Logger.LogWarning(
@@ -77,7 +92,10 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
             return;
         }
 
-        order.MarkAsPaid(message.PaymentIntentId);
+        // Throws DomainException when message.Amount differs from the order total. That is deliberate:
+        // the message retries and then lands in the error queue with its payload intact for
+        // reconciliation, rather than being acknowledged and forgotten.
+        order.MarkAsPaid(message.PaymentIntentId, message.Amount);
 
         if (_processingOptions.AutoShipOnPaymentSuccess)
         {
@@ -96,12 +114,17 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
             message.OrderId);
     }
 
-public sealed class PaymentSuccessProcessingOptions
-{
-    public const string SectionName = "PaymentSuccessProcessing";
+    public sealed class PaymentSuccessProcessingOptions
+    {
+        public const string SectionName = "PaymentSuccessProcessing";
 
-    public bool AutoShipOnPaymentSuccess { get; init; } = true;
-}
+        /// <summary>
+        /// Off by default: a paid order stays Paid until an admin ships it. When on, payment success
+        /// ships the order in the same transaction, so the Paid state and POST /orders/{id}/ship are
+        /// effectively skipped.
+        /// </summary>
+        public bool AutoShipOnPaymentSuccess { get; init; }
+    }
 
     private async Task InvalidateUserOrdersCacheAsync(string userId, CancellationToken cancellationToken)
     {

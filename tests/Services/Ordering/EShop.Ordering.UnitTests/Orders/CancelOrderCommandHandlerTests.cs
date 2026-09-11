@@ -67,6 +67,26 @@ public class CancelOrderCommandHandlerTests
         Assert.That(result.Error!.Code, Is.EqualTo("Order.NotFound"));
     }
 
+    [Test]
+    public async Task Handle_WithPaidOrder_ShouldReturnNotCancellable_AndWriteNothing()
+    {
+        var order = CreatePendingOrder();
+        order.MarkAsPaid("pi_paid", order.TotalPrice);
+        var command = new CancelOrderCommand { OrderId = order.Id, Reason = "Too late" };
+
+        _orderRepositoryMock
+            .Setup(x => x.GetByIdAsync(order.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order);
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Error!.Code, Is.EqualTo("Order.NotCancellable"));
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+        _orderRepositoryMock.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Never);
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private static Order CreatePendingOrder()
     {
         var address = new Address("123 Main St", "Springfield", "IL", "62701", "US");
