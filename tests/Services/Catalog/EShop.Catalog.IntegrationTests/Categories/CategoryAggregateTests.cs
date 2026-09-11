@@ -178,9 +178,15 @@ public class CategoryAggregateTests : AuthenticatedIntegrationTestBase
     }
 
     /// <summary>
-    /// The pre-check is read-then-write, so concurrent creates can all pass it; the unique index
-    /// decides, and the loser must be told <c>Category.SlugConflict</c> (409, retryable), not the
-    /// generic <c>DuplicateResource</c> that every other unique violation maps to.
+    /// Exactly one of eight concurrent creates with one slug may succeed, and every loser must be
+    /// told <c>Category.SlugConflict</c> — 400 from the pre-check or 409 from the index.
+    ///
+    /// <para>
+    /// <b>This does not guard the 409 mapping.</b> Falsification removed
+    /// <c>AddCategorySlugConflict()</c> and this stayed green: in practice the pre-check answers every
+    /// loser before any reaches the index. The deterministic guard for the database side is
+    /// <see cref="CategorySlugConflictTests"/>, which blinds the pre-check.
+    /// </para>
     /// </summary>
     [Test]
     public async Task ConcurrentCreatesWithOneSlug_YieldExactlyOneCategory()
