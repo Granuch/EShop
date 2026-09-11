@@ -112,6 +112,14 @@ public class Product : AggregateRoot<Guid>
     /// </remarks>
     public void UpdatePrice(decimal newPrice)
     {
+        // L21. Every other mutator refuses a deleted product; this one did not. Unreachable through
+        // the API today (the !IsDeleted query filter hides deleted products from every load), which
+        // is exactly why the invariant belongs here rather than relying on that.
+        if (IsDeleted)
+        {
+            throw new DomainException("Cannot update the price of a deleted product.");
+        }
+
         if (newPrice <= 0)
         {
             throw new DomainException("Price must be greater than zero.");

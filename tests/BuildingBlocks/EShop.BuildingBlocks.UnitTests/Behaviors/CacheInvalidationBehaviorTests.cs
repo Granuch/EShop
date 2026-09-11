@@ -75,6 +75,26 @@ public class CacheInvalidationBehaviorTests
     }
 
     /// <summary>
+    /// L33. With versioning off, <c>CachingBehavior</c> writes <c>{KeyPrefix}{key}</c>; the evictor
+    /// used to remove <c>{KeyPrefix}{Version}:{key}</c> regardless, matching nothing. Both now build
+    /// the key through <see cref="CachingBehaviorOptions.StorageKeyFor"/>.
+    /// </summary>
+    [Test]
+    public async Task WithVersioningOff_RemovesTheUnversionedKeyCachingBehaviorWrote()
+    {
+        var options = new CachingBehaviorOptions { KeyPrefix = "eshop:", Version = "v3", UseVersioning = false };
+        var behavior = Behavior(options);
+
+        await behavior.Handle(
+            new InvalidatingCommand(["product:1"]),
+            _ => Task.FromResult(Result<string>.Success("ok")),
+            CancellationToken.None);
+
+        _cache.Verify(c => c.RemoveAsync("eshop:product:1", It.IsAny<CancellationToken>()), Times.Once);
+        _cache.Verify(c => c.RemoveAsync("eshop:v3:product:1", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
     /// A wildcard key is accepted, removes nothing, and only logs a warning — IDistributedCache has
     /// no SCAN. A declared pattern therefore reads as working invalidation while being a no-op.
     /// </summary>

@@ -172,4 +172,15 @@ public class CachingBehaviorOptions
     /// Current cache version. Increment to invalidate all cached data.
     /// </summary>
     public string Version { get; set; } = "v1";
+
+    /// <summary>
+    /// The key actually used in the cache for a logical <paramref name="key"/>. <b>The one place this
+    /// is built</b>, shared by <c>CachingBehavior</c> (which writes) and
+    /// <c>CacheInvalidationBehavior</c> (which evicts). They used to build it separately, and the
+    /// evictor ignored <see cref="UseVersioning"/> — so with versioning off it removed
+    /// <c>{prefix}{version}:{key}</c> while the entry lived at <c>{prefix}{key}</c>, evicting nothing
+    /// and logging success. Every service sets it true today, which is the only reason that was latent.
+    /// </summary>
+    public string StorageKeyFor(string key)
+        => UseVersioning ? $"{KeyPrefix}{Version}:{key}" : $"{KeyPrefix}{key}";
 }

@@ -17,7 +17,10 @@ namespace EShop.BuildingBlocks.Infrastructure.Behaviors;
 /// - Only caches requests that implement ICacheableQuery
 /// - Uses distributed cache (Redis in production, in-memory for testing)
 /// - Configurable expiration (absolute and sliding)
-/// - Cache stampede prevention via locking
+/// - <b>No</b> stampede protection: concurrent misses on one key each run the handler and each
+///   write the entry. <c>DistributedCacheExtensions.GetOrSetAsync</c> has a lock for that; this
+///   behavior reads and writes through <c>GetAsync</c>/<c>SetAsync</c> and does not use it. (This
+///   line used to advertise "stampede prevention via locking", which nothing here implemented.)
 /// - Versioned cache keys for easy invalidation
 /// - Safe serialization with proper error handling
 /// - Smart Result<T> unwrapping: caches only payload, not the wrapper
@@ -205,12 +208,7 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
             baseKey = $"{versioned.CacheKeyFamily}@{familyVersion}:{baseKey}";
         }
 
-        if (_options.UseVersioning)
-        {
-            return $"{_options.KeyPrefix}{_options.Version}:{baseKey}";
-        }
-
-        return $"{_options.KeyPrefix}{baseKey}";
+        return _options.StorageKeyFor(baseKey);
     }
 
     /// <summary>
@@ -401,7 +399,8 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         {
             try
             {
-                var fullKey = $"{_options.KeyPrefix}{_options.Version}:{keyPattern}";
+                // L33. Same builder CachingBehavior writes with, so the two cannot disagree.
+                var fullKey = _options.StorageKeyFor(keyPattern);
                 
                 // For exact keys, remove directly
                 if (!keyPattern.Contains('*'))

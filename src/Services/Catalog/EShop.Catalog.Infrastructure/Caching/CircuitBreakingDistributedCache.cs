@@ -18,54 +18,63 @@ namespace EShop.Catalog.Infrastructure.Caching;
 ///   1. Redis failures are typically cluster-wide
 ///   2. Each instance recovers independently
 ///   3. No external coordination needed
+///
+/// <para>
+/// L28 (Catalog audit Stage 10). Three things changed, none of them the state machine itself.
+/// The admission check was an <c>IsOpen</c> property whose getter <i>claimed the half-open probe</i>
+/// — a read with a side effect, so a debugger watch or a log line reading it would have consumed the
+/// probe; it is now the explicitly-named <see cref="TryAcquirePermission"/>. Time comes from an
+/// injectable <see cref="TimeProvider"/>, which is what makes the cooldown testable. And an outage is
+/// now visible: every per-call failure logged at Debug, so a Redis outage produced exactly one Warning
+/// (the OPEN line) and then silence. The first failure of each streak is now a Warning with its
+/// exception, and recovery logs CLOSED.
+/// </para>
 /// </summary>
 public class CircuitBreakingDistributedCache : IDistributedCache
 {
     private readonly IDistributedCache _inner;
     private readonly ILogger<CircuitBreakingDistributedCache> _logger;
+    private readonly TimeProvider _timeProvider;
 
     private readonly int _failureThreshold;
     private readonly TimeSpan _openDuration;
 
     private int _failureCount;
-    private DateTime _openUntil = DateTime.MinValue;
-    private int _halfOpenProbeActive; // 0 = no probe, 1 = probe in progress
+    private DateTimeOffset _openUntil = DateTimeOffset.MinValue;
+    private bool _probeInFlight;
     private readonly object _lock = new();
 
     public CircuitBreakingDistributedCache(
         IDistributedCache inner,
         ILogger<CircuitBreakingDistributedCache> logger,
         int failureThreshold = 3,
-        TimeSpan? openDuration = null)
+        TimeSpan? openDuration = null,
+        TimeProvider? timeProvider = null)
     {
         _inner = inner;
         _logger = logger;
         _failureThreshold = failureThreshold;
         _openDuration = openDuration ?? TimeSpan.FromSeconds(30);
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    private bool IsOpen
+    /// <summary>
+    /// Whether this call may go to Redis. Closed: always. Open: never until the cooldown ends, then
+    /// exactly one caller becomes the half-open probe and everyone else keeps skipping until that
+    /// probe reports back through <see cref="RecordSuccess"/> or <see cref="RecordFailure"/>.
+    /// </summary>
+    private bool TryAcquirePermission()
     {
-        get
+        lock (_lock)
         {
-            lock (_lock)
-            {
-                if (_failureCount < _failureThreshold)
-                    return false;
-
-                if (DateTime.UtcNow >= _openUntil)
-                {
-                    // Half-open: allow exactly one probe via Interlocked
-                    if (Interlocked.CompareExchange(ref _halfOpenProbeActive, 1, 0) == 0)
-                    {
-                        return false; // this thread is the probe
-                    }
-                    // Another thread is already probing, stay open for this one
-                    return true;
-                }
-
+            if (_failureCount < _failureThreshold)
                 return true;
-            }
+
+            if (_timeProvider.GetUtcNow() < _openUntil || _probeInFlight)
+                return false;
+
+            _probeInFlight = true;
+            return true;
         }
     }
 
@@ -73,20 +82,37 @@ public class CircuitBreakingDistributedCache : IDistributedCache
     {
         lock (_lock)
         {
+            if (_failureCount >= _failureThreshold)
+            {
+                _logger.LogInformation("Redis circuit breaker CLOSED. Cache calls resumed after a successful probe");
+            }
+
             _failureCount = 0;
-            Interlocked.Exchange(ref _halfOpenProbeActive, 0);
+            _probeInFlight = false;
         }
     }
 
-    private void RecordFailure()
+    private void RecordFailure(Exception exception, string operation, string key)
     {
         lock (_lock)
         {
             _failureCount++;
-            Interlocked.Exchange(ref _halfOpenProbeActive, 0);
+            _probeInFlight = false;
+
+            // The first failure of a streak carries the exception at Warning, so an outage says why.
+            // The rest stay at Debug: while the circuit is closed they can arrive once per request.
+            if (_failureCount == 1)
+            {
+                _logger.LogWarning(exception, "Cache {Operation} failed for key {Key}", operation, key);
+            }
+            else
+            {
+                _logger.LogDebug(exception, "Cache {Operation} failed for key {Key}", operation, key);
+            }
+
             if (_failureCount >= _failureThreshold)
             {
-                _openUntil = DateTime.UtcNow.Add(_openDuration);
+                _openUntil = _timeProvider.GetUtcNow().Add(_openDuration);
                 _logger.LogWarning(
                     "Redis circuit breaker OPEN. Suppressing cache calls for {Duration}s after {Failures} consecutive failures",
                     _openDuration.TotalSeconds, _failureCount);
@@ -96,7 +122,7 @@ public class CircuitBreakingDistributedCache : IDistributedCache
 
     public byte[]? Get(string key)
     {
-        if (IsOpen) return null;
+        if (!TryAcquirePermission()) return null;
         try
         {
             var result = _inner.Get(key);
@@ -105,15 +131,14 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache Get failed for key {Key}", key);
+            RecordFailure(ex, nameof(Get), key);
             return null;
         }
     }
 
     public async Task<byte[]?> GetAsync(string key, CancellationToken token = default)
     {
-        if (IsOpen) return null;
+        if (!TryAcquirePermission()) return null;
         try
         {
             var result = await _inner.GetAsync(key, token);
@@ -122,15 +147,14 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache GetAsync failed for key {Key}", key);
+            RecordFailure(ex, nameof(GetAsync), key);
             return null;
         }
     }
 
     public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
     {
-        if (IsOpen) return;
+        if (!TryAcquirePermission()) return;
         try
         {
             _inner.Set(key, value, options);
@@ -138,14 +162,13 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache Set failed for key {Key}", key);
+            RecordFailure(ex, nameof(Set), key);
         }
     }
 
     public async Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
     {
-        if (IsOpen) return;
+        if (!TryAcquirePermission()) return;
         try
         {
             await _inner.SetAsync(key, value, options, token);
@@ -153,14 +176,13 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache SetAsync failed for key {Key}", key);
+            RecordFailure(ex, nameof(SetAsync), key);
         }
     }
 
     public void Refresh(string key)
     {
-        if (IsOpen) return;
+        if (!TryAcquirePermission()) return;
         try
         {
             _inner.Refresh(key);
@@ -168,14 +190,13 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache Refresh failed for key {Key}", key);
+            RecordFailure(ex, nameof(Refresh), key);
         }
     }
 
     public async Task RefreshAsync(string key, CancellationToken token = default)
     {
-        if (IsOpen) return;
+        if (!TryAcquirePermission()) return;
         try
         {
             await _inner.RefreshAsync(key, token);
@@ -183,14 +204,13 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache RefreshAsync failed for key {Key}", key);
+            RecordFailure(ex, nameof(RefreshAsync), key);
         }
     }
 
     public void Remove(string key)
     {
-        if (IsOpen) return;
+        if (!TryAcquirePermission()) return;
         try
         {
             _inner.Remove(key);
@@ -198,14 +218,13 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache Remove failed for key {Key}", key);
+            RecordFailure(ex, nameof(Remove), key);
         }
     }
 
     public async Task RemoveAsync(string key, CancellationToken token = default)
     {
-        if (IsOpen) return;
+        if (!TryAcquirePermission()) return;
         try
         {
             await _inner.RemoveAsync(key, token);
@@ -213,8 +232,7 @@ public class CircuitBreakingDistributedCache : IDistributedCache
         }
         catch (Exception ex)
         {
-            RecordFailure();
-            _logger.LogDebug(ex, "Cache RemoveAsync failed for key {Key}", key);
+            RecordFailure(ex, nameof(RemoveAsync), key);
         }
     }
 }

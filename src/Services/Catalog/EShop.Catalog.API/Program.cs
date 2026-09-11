@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Catalog.API.Endpoints;
 using EShop.Catalog.API.Infrastructure.Configuration;
@@ -14,7 +15,6 @@ using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Infrastructure.Caching;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.Infrastructure.Extensions;
-using HealthChecks.UI.Client;
 using Mapster;
 using MapsterMapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -188,8 +188,10 @@ try
             $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
     }
 
-    // Detect placeholder patterns that must be replaced before deployment
-    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
+    // Detect placeholder patterns that must be replaced before deployment. L27: the same seven as
+    // Identity's JWT guard. This list had five and omitted LOCAL_ and REPLACE_WITH_, so the exact
+    // placeholder that crash-loops Identity booted Catalog cleanly — on the same shared key.
+    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "LOCAL_", "REPLACE_WITH_", "YOUR_", "TestKey", "placeholder" };
     if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
     {
         foreach (var pattern in placeholderPatterns)
@@ -228,23 +230,18 @@ try
         options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
     });
 
-    // Add CORS
+    // Add CORS. L27: the shared CorsOriginGuard, as Identity and Basket use, replacing a hand-rolled
+    // copy. Two differences, both the point of the shared guard: it runs HERE, while the host is
+    // composed — the old check sat inside the AddPolicy lambda, which CORS builds lazily, so a
+    // misconfigured deploy started healthy and threw on its first cross-origin request — and it also
+    // rejects placeholder origins, not only an empty list.
+    var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-            if (allowedOrigins.Length == 0 &&
-                !builder.Environment.IsDevelopment() &&
-                !builder.Environment.IsEnvironment("Testing"))
-            {
-                throw new InvalidOperationException(
-                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                    "Configure allowed origins before deploying to non-development environments.");
-            }
-
-            policy.WithOrigins(allowedOrigins)
+            policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
@@ -332,8 +329,8 @@ try
     // System.Text.Json ignores an unmapped member, so a typo'd or stale field name
     // ("descriptionn", "isMainImage") is accepted with a 201 and the value is never stored —
     // the caller has no way to notice. Disallow turns that into a JsonException, which minimal
-    // API model binding wraps in BadHttpRequestException; GlobalExceptionHandlerMiddleware has
-    // a branch mapping that to 400 with the offending property name in Detail.
+    // API model binding wraps in BadHttpRequestException; ProblemDetailsExceptionMiddleware's
+    // AddMalformedJsonBody branch maps that to 400 with the offending property name in Detail.
     builder.Services.ConfigureHttpJsonOptions(options =>
     {
         options.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
@@ -342,7 +339,7 @@ try
     // Without this, minimal API binding swallows the JsonException and writes a bare 400 with
     // an EMPTY body — the caller learns the request was rejected but not which property caused
     // it, which is the same opacity problem as the old DomainError responses. Throwing instead
-    // routes the failure through GlobalExceptionHandlerMiddleware's BadHttpRequestException
+    // routes the failure through ProblemDetailsExceptionMiddleware's BadHttpRequestException
     // branch, which returns problem+json naming the offending member.
     builder.Services.Configure<RouteHandlerOptions>(options =>
     {
@@ -354,23 +351,25 @@ try
     builder.Services.AddOpenApi();
 
     // Catalog has the widest branch set, and the order is load-bearing throughout: mappers are
-// first-match-wins. AddEfConcurrency must precede AddEfDuplicateKey (DbUpdateConcurrencyException
-// derives from DbUpdateException), and AddProductSkuConflict / AddCategorySlugConflict must precede
-// it too, since AddEfDuplicateKey matches every unique violation and would report a lost SKU or slug
-// race as a generic DuplicateResource. AddMalformedJsonBody pairs with ThrowOnBadRequest +
-// UnmappedMemberHandling.Disallow configured above.
-builder.Services.AddEShopProblemDetails(options => options
-    .AddCommon()
-    .AddNotFound()
-    .AddEfConcurrency()
-    .AddProductSkuConflict()
-    .AddCategorySlugConflict()
-    .AddEfDuplicateKey()
-    .AddMalformedJsonBody());
+    // first-match-wins. AddEfConcurrency must precede AddEfDuplicateKey (DbUpdateConcurrencyException
+    // derives from DbUpdateException), and AddProductSkuConflict / AddCategorySlugConflict must precede
+    // it too, since AddEfDuplicateKey matches every unique violation and would report a lost SKU or slug
+    // race as a generic DuplicateResource. AddMalformedJsonBody pairs with ThrowOnBadRequest +
+    // UnmappedMemberHandling.Disallow configured above.
+    builder.Services.AddEShopProblemDetails(options => options
+        .AddCommon()
+        .AddNotFound()
+        .AddEfConcurrency()
+        .AddProductSkuConflict()
+        .AddCategorySlugConflict()
+        .AddEfDuplicateKey()
+        .AddMalformedJsonBody());
 
-var app = builder.Build();
+    var app = builder.Build();
 
-    // Apply database migrations automatically
+    // Apply database migrations automatically. Catalog always has compiled-in migrations, so the
+    // "no migrations found → EnsureCreated" fallback that used to sit here could never run; it was
+    // removed with its CatalogSchemaMissingAsync helper in Catalog audit Stage 10.
     if (!useInMemoryDb)
     {
         const int maxMigrationAttempts = 8;
@@ -384,38 +383,7 @@ var app = builder.Build();
                 using var scope = app.Services.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
 
-                var hasMigrations = dbContext.Database.GetMigrations().Any();
-                if (!hasMigrations)
-                {
-                    if (app.Environment.IsDevelopment()
-                        || app.Environment.IsEnvironment("Testing")
-                        || app.Environment.IsEnvironment("Sandbox"))
-                    {
-                        Log.Warning("No EF Core migrations found for CatalogDbContext. Using EnsureCreated for {Environment}.",
-                            app.Environment.EnvironmentName);
-
-                        var missingTables = await CatalogSchemaMissingAsync(dbContext);
-                        if (missingTables)
-                        {
-                            await dbContext.Database.EnsureCreatedAsync();
-                        }
-                        else
-                        {
-                            Log.Information("Catalog schema already exists. Skipping EnsureCreated.");
-                        }
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(
-                            $"No EF Core migrations found for CatalogDbContext in {app.Environment.EnvironmentName}. " +
-                            "Add migrations before deploying to non-development environments. " +
-                            "EnsureCreated is not allowed in production-like environments to prevent schema drift.");
-                    }
-                }
-                else
-                {
-                    await dbContext.Database.MigrateAsync();
-                }
+                await dbContext.Database.MigrateAsync();
 
                 Log.Information("Database schema ensured successfully");
                 break;
@@ -439,7 +407,8 @@ var app = builder.Build();
         }
     }
 
-    // Global Exception Handler - must be first middleware
+    // ProblemDetailsExceptionMiddleware (registered by the legacy-named UseGlobalExceptionHandler) -
+    // must be first middleware
     app.UseGlobalExceptionHandler();
 
     app.UseEShopRequestLogging();
@@ -460,17 +429,6 @@ var app = builder.Build();
 
         Log.Information("Scalar API documentation available at /scalar/v1");
     }
-
-static bool IsPostgresStartupException(Exception exception)
-{
-    if (exception is PostgresException { SqlState: "57P03" })
-    {
-        return true;
-    }
-
-    return exception.InnerException is not null
-        && IsPostgresStartupException(exception.InnerException);
-}
 
     // Forwarded Headers — must be before other middleware that depend on correct scheme/IP
     app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
@@ -564,25 +522,13 @@ finally
     Log.CloseAndFlush();
 }
 
-static async Task<bool> CatalogSchemaMissingAsync(CatalogDbContext dbContext)
+static bool IsPostgresStartupException(Exception exception)
 {
-    await dbContext.Database.OpenConnectionAsync();
-    try
+    if (exception is PostgresException { SqlState: "57P03" })
     {
-        var connection = dbContext.Database.GetDbConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*) FROM information_schema.tables
-            WHERE table_schema = 'public'
-              AND table_name IN ('Categories', 'Products', 'ProductImages')
-            """;
+        return true;
+    }
 
-        var result = await command.ExecuteScalarAsync();
-        var count = result is null ? 0 : Convert.ToInt32(result);
-        return count < 3;
-    }
-    finally
-    {
-        await dbContext.Database.CloseConnectionAsync();
-    }
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
 }

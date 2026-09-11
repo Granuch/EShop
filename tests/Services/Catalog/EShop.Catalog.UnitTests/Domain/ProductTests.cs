@@ -398,6 +398,19 @@ public class ProductTests
         Assert.Throws<DomainException>(() => product.UpdateStock(50));
     }
 
+    /// <summary>L21. The one mutator that used to accept a deleted product.</summary>
+    [Test]
+    public void UpdatePrice_OnDeletedProduct_ShouldThrowDomainException()
+    {
+        // Arrange
+        var product = Product.Create("Test", "SKU-001", 29.99m, 100, _validCategoryId);
+        product.SoftDelete();
+
+        // Act & Assert
+        Assert.Throws<DomainException>(() => product.UpdatePrice(39.99m));
+        Assert.That(product.Price, Is.EqualTo(29.99m));
+    }
+
     #endregion
 
     #region Publish
