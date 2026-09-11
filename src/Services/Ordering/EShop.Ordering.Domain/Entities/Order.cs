@@ -169,8 +169,9 @@ public class Order : AggregateRoot<Guid>
 
     /// <summary>
     /// Only a pending order can be cancelled. A paid order used to be cancellable too, but nothing
-    /// refunds the payment — no service consumes <c>OrderCancelledEvent</c> — so cancelling it kept
-    /// the customer's money against an order that no longer existed.
+    /// refunds the payment, so cancelling it kept the customer's money against an order that no longer
+    /// existed. Payment consumes <c>OrderCancelledEvent</c> since Ordering audit Stage 9, but only to
+    /// cancel a payment that has not been captured — it never refunds.
     /// </summary>
     public void Cancel(string reason)
     {

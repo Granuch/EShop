@@ -126,6 +126,53 @@ public class StripeWebhookProcessorTests
         outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCompletedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
+    /// <summary>
+    /// Ordering audit Stage 9. After OrderCancelledConsumer cancels an intent, Stripe sends its own
+    /// payment_intent.canceled (and a late payment_failed can still arrive). Neither may turn the
+    /// Cancelled record into Failed or publish a PaymentFailedEvent for an already-cancelled order.
+    /// </summary>
+    [TestCase("payment_intent.canceled", "canceled")]
+    [TestCase("payment_intent.payment_failed", "requires_payment_method")]
+    public async Task ProcessAsync_ForAPaymentWeCancelled_KeepsItCancelled_AndPublishesNoFailure(string type, string status)
+    {
+        await using var dbContext = CreateDbContext();
+        var repository = new PaymentRepository(dbContext);
+
+        await repository.AddAsync(new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-1",
+            Amount = 100m,
+            Currency = "USD",
+            PaymentMethod = "Stripe",
+            PaymentIntentId = "pi_cancelled_by_us",
+            Status = PaymentStatus.Cancelled,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var stripePaymentService = new Mock<IStripePaymentService>();
+        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(new StripeWebhookEvent($"evt_{type}", type, "pi_cancelled_by_us", status, null, true));
+
+        var outbox = new Mock<IIntegrationEventOutbox>();
+
+        var processor = new StripeWebhookProcessor(
+            repository,
+            stripePaymentService.Object,
+            dbContext,
+            outbox.Object,
+            Mock.Of<ILogger<StripeWebhookProcessor>>());
+
+        await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+
+        var stored = await repository.GetByPaymentIntentIdAsync("pi_cancelled_by_us", CancellationToken.None);
+        Assert.That(stored!.Status, Is.EqualTo(PaymentStatus.Cancelled));
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Never);
+    }
+
     [Test]
     public async Task ProcessAsync_WhenDuplicateEvent_ShouldReturnDuplicate()
     {

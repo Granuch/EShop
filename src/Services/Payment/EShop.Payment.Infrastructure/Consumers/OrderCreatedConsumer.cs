@@ -16,7 +16,10 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
     [
         PaymentStatus.Success,
         PaymentStatus.Failed,
-        PaymentStatus.Refunded
+        PaymentStatus.Refunded,
+        // OrderCancelledConsumer leaves this when a cancellation overtakes OrderCreatedEvent; without
+        // it here, the late OrderCreatedEvent would charge an order that no longer exists.
+        PaymentStatus.Cancelled
     ];
 
     private readonly IPaymentRepository _paymentRepository;

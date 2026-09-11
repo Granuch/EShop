@@ -81,6 +81,7 @@ public static class ServiceCollectionExtensions
             bus =>
             {
                 bus.AddConsumer<OrderCreatedConsumer>();
+                bus.AddConsumer<OrderCancelledConsumer>();
             });
 
         return services;

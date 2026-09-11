@@ -29,5 +29,11 @@ public enum PaymentStatus
     Processing,
     Success,
     Failed,
-    Refunded
+    Refunded,
+
+    /// <summary>
+    /// The order was cancelled before the payment was captured, and any Stripe intent was cancelled
+    /// with it (Ordering audit Stage 9). Final: nothing will charge this order afterwards.
+    /// </summary>
+    Cancelled
 }

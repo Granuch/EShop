@@ -69,6 +69,47 @@ public sealed class StripePaymentService : IStripePaymentService
         return new StripeRefundResult(refund.Id, refund.Status ?? string.Empty);
     }
 
+    public async Task<StripePaymentIntentCancelResult> CancelPaymentIntentAsync(
+        string paymentIntentId,
+        CancellationToken cancellationToken = default)
+    {
+        var paymentIntentService = new PaymentIntentService();
+
+        try
+        {
+            var intent = await paymentIntentService.CancelAsync(
+                paymentIntentId,
+                new PaymentIntentCancelOptions { CancellationReason = "requested_by_customer" },
+                cancellationToken: cancellationToken);
+
+            return new StripePaymentIntentCancelResult(intent.Id, intent.Status ?? string.Empty);
+        }
+        catch (StripeException ex) when (IsAlreadyCanceled(ex))
+        {
+            // Cancelling twice is not a failure: the intent is in the state we asked for.
+            return new StripePaymentIntentCancelResult(paymentIntentId, "canceled");
+        }
+        catch (StripeException ex) when (IsUnexpectedState(ex))
+        {
+            throw new PaymentIntentNotCancellableException(
+                paymentIntentId,
+                ex.StripeError?.Message ?? ex.Message,
+                ex);
+        }
+    }
+
+    /// <summary>
+    /// Stripe's answer when an intent cannot move to the requested state — for a cancel, because it
+    /// has already succeeded (or is processing, or is already canceled). A structured code, not the
+    /// message text, which Stripe may reword.
+    /// </summary>
+    public static bool IsUnexpectedState(StripeException ex)
+        => string.Equals(ex.StripeError?.Code, "payment_intent_unexpected_state", StringComparison.Ordinal);
+
+    public static bool IsAlreadyCanceled(StripeException ex)
+        => IsUnexpectedState(ex)
+           && string.Equals(ex.StripeError?.PaymentIntent?.Status, "canceled", StringComparison.Ordinal);
+
     public StripeWebhookEvent ConstructWebhookEvent(string payload, string signatureHeader)
     {
         Event stripeEvent;
