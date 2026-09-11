@@ -12,6 +12,15 @@ namespace EShop.Basket.UnitTests.Application;
 [TestFixture]
 public class CheckoutBasketCommandHandlerTests
 {
+    private static readonly CheckoutAddress ValidAddress = new()
+    {
+        Street = "1 Main St",
+        City = "Springfield",
+        State = "IL",
+        ZipCode = "62701",
+        Country = "US"
+    };
+
     [Test]
     public async Task Handle_WhenCompletedCheckoutExists_ShouldReturnDeduplicatedSuccess()
     {
@@ -41,7 +50,7 @@ public class CheckoutBasketCommandHandlerTests
         var result = await handler.Handle(new CheckoutBasketCommand
         {
             UserId = "user-1",
-            ShippingAddress = "Street",
+            ShippingAddress = ValidAddress,
             PaymentMethod = "Card"
         }, CancellationToken.None);
 
@@ -85,7 +94,7 @@ public class CheckoutBasketCommandHandlerTests
         var result = await handler.Handle(new CheckoutBasketCommand
         {
             UserId = "user-1",
-            ShippingAddress = "Street",
+            ShippingAddress = ValidAddress,
             PaymentMethod = "Card"
         }, CancellationToken.None);
 
@@ -131,7 +140,7 @@ public class CheckoutBasketCommandHandlerTests
         var result = await handler.Handle(new CheckoutBasketCommand
         {
             UserId = "user-1",
-            ShippingAddress = "Street",
+            ShippingAddress = ValidAddress,
             PaymentMethod = "Card"
         }, CancellationToken.None);
 
@@ -190,7 +199,7 @@ public class CheckoutBasketCommandHandlerTests
         var result = await handler.Handle(new CheckoutBasketCommand
         {
             UserId = "user-1",
-            ShippingAddress = "Street",
+            ShippingAddress = ValidAddress,
             PaymentMethod = "Card"
         }, CancellationToken.None);
 
@@ -241,7 +250,7 @@ public class CheckoutBasketCommandHandlerTests
         Assert.ThrowsAsync<OperationCanceledException>(() => handler.Handle(new CheckoutBasketCommand
         {
             UserId = "user-1",
-            ShippingAddress = "Street",
+            ShippingAddress = ValidAddress,
             PaymentMethod = "Card"
         }, cts.Token));
 
@@ -284,7 +293,7 @@ public class CheckoutBasketCommandHandlerTests
         var result = await handler.Handle(new CheckoutBasketCommand
         {
             UserId = "user-1",
-            ShippingAddress = "Street",
+            ShippingAddress = ValidAddress,
             PaymentMethod = "Card"
         }, CancellationToken.None);
 

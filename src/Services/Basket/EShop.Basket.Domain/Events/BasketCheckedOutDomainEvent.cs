@@ -1,3 +1,4 @@
+using EShop.Basket.Domain.ValueObjects;
 using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Basket.Domain.Events;
@@ -13,7 +14,7 @@ public record BasketCheckedOutDomainEvent : IDomainEvent
     public string UserId { get; init; } = string.Empty;
     public IReadOnlyCollection<BasketCheckedOutDomainEventItem> Items { get; init; } = [];
     public decimal TotalPrice { get; init; }
-    public string ShippingAddress { get; init; } = string.Empty;
+    public ShippingAddress ShippingAddress { get; init; } = null!;
     public string PaymentMethod { get; init; } = string.Empty;
 }
 

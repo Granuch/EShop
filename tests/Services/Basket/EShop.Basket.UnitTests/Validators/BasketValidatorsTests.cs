@@ -100,20 +100,80 @@ public class BasketValidatorsTests
         result.ShouldHaveValidationErrorFor(x => x.UserId);
     }
 
-    [Test]
-    public void Checkout_TooLongFields_ShouldHaveErrors()
+    private static CheckoutBasketCommand ValidCheckout(CheckoutAddress? address = null) => new()
     {
-        var command = new CheckoutBasketCommand
+        UserId = "user-1",
+        ShippingAddress = address ?? new CheckoutAddress
         {
-            UserId = "user-1",
-            ShippingAddress = new string('a', 501),
-            PaymentMethod = new string('p', 101)
+            Street = "1 Main St",
+            City = "Springfield",
+            State = "IL",
+            ZipCode = "62701",
+            Country = "US"
+        },
+        PaymentMethod = "Card"
+    };
+
+    [Test]
+    public void Checkout_ValidStructuredAddress_ShouldHaveNoErrors()
+    {
+        _checkoutValidator.TestValidate(ValidCheckout()).ShouldNotHaveAnyValidationErrors();
+    }
+
+    /// <summary>A non-US address with a non-numeric postcode is fine — only US zips have a format.</summary>
+    [Test]
+    public void Checkout_NonUsAddress_ShouldHaveNoErrors()
+    {
+        var address = new CheckoutAddress
+        {
+            Street = "10 Downing Street",
+            City = "London",
+            State = "Greater London",
+            ZipCode = "SW1A 2AA",
+            Country = "gb"
         };
 
-        var result = _checkoutValidator.TestValidate(command);
+        _checkoutValidator.TestValidate(ValidCheckout(address)).ShouldNotHaveAnyValidationErrors();
+    }
 
-        result.ShouldHaveValidationErrorFor(x => x.ShippingAddress);
-        result.ShouldHaveValidationErrorFor(x => x.PaymentMethod);
+    [Test]
+    public void Checkout_MissingAddress_ShouldHaveError()
+    {
+        _checkoutValidator.TestValidate(ValidCheckout() with { ShippingAddress = null })
+            .ShouldHaveValidationErrorFor(x => x.ShippingAddress);
+    }
+
+    /// <summary>
+    /// Each case is an address Ordering's Address value object refuses. Basket clears the basket at
+    /// checkout, before Ordering reads the event, so anything accepted here and refused there is a
+    /// lost order (Ordering audit C2). These cases are the contract between the two.
+    /// </summary>
+    [TestCase("1 Main St", "Springfield", "IL", "62701", "USA", TestName = "Country must be ISO alpha-2")]
+    [TestCase("1 Main St", "Springfield", "IL", "6270", "US", TestName = "US zip must be 5 digits")]
+    [TestCase("1 Main St", "Springfield", "", "62701", "US", TestName = "State is required")]
+    [TestCase("1 Main St", "Springfield", "IL", "12", "GB", TestName = "Zip must be at least 3 characters")]
+    [TestCase("1", "Springfield", "IL", "62701", "US", TestName = "Street must be at least 3 characters")]
+    [TestCase("1 Main St", "Spring3field", "IL", "62701", "US", TestName = "City has no digits")]
+    public void Checkout_AddressOrderingWouldRefuse_ShouldHaveErrors(
+        string street, string city, string state, string zipCode, string country)
+    {
+        var address = new CheckoutAddress
+        {
+            Street = street,
+            City = city,
+            State = state,
+            ZipCode = zipCode,
+            Country = country
+        };
+
+        Assert.That(_checkoutValidator.TestValidate(ValidCheckout(address)).IsValid, Is.False);
+    }
+
+    [Test]
+    public void Checkout_TooLongPaymentMethod_ShouldHaveError()
+    {
+        _checkoutValidator.TestValidate(ValidCheckout() with { PaymentMethod = new string('p', 101) })
+            .ShouldHaveValidationErrorFor(x => x.PaymentMethod);
     }
 
     [Test]

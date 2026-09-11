@@ -127,12 +127,12 @@ public class ShoppingBasket : AggregateRoot<string>
         LastModifiedAt = DateTime.UtcNow;
     }
 
-    public void Checkout(string shippingAddress, string paymentMethod)
+    public void Checkout(ValueObjects.ShippingAddress shippingAddress, string paymentMethod)
     {
         if (_items.Count == 0)
             throw new DomainException("Cannot checkout an empty basket.");
 
-        if (string.IsNullOrWhiteSpace(shippingAddress))
+        if (shippingAddress is null)
             throw new DomainException("Shipping address is required.");
 
         if (string.IsNullOrWhiteSpace(paymentMethod))

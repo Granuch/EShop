@@ -10,13 +10,15 @@ public record BasketCheckedOutEvent : IntegrationEvent
     public decimal TotalPrice { get; init; }
 
     /// <summary>
-    /// Legacy string address for backward compatibility.
-    /// New publishers should populate <see cref="ShippingAddressDetails"/> instead.
+    /// Display-only rendering of <see cref="ShippingAddressDetails"/>. Do not parse it: Ordering used
+    /// to comma-split it and turned most real addresses into dead-lettered checkouts (Ordering audit C2).
     /// </summary>
     public string ShippingAddress { get; init; } = string.Empty;
 
     /// <summary>
-    /// Structured shipping address. Preferred over <see cref="ShippingAddress"/>.
+    /// The shipping address. <b>Required</b> — Basket always sends it, and Ordering rejects a message
+    /// without it. Nullable only so a message from an older publisher deserializes and can be rejected
+    /// with a clear reason rather than failing to bind.
     /// </summary>
     public CheckoutShippingAddress? ShippingAddressDetails { get; init; }
 

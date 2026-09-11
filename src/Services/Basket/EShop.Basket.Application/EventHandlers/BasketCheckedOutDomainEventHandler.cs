@@ -40,7 +40,17 @@ public class BasketCheckedOutDomainEventHandler : INotificationHandler<BasketChe
                 })
                 .ToList(),
             TotalPrice = notification.TotalPrice,
-            ShippingAddress = notification.ShippingAddress,
+            // Ordering reads only the structured form, and rejects a message without it. The string
+            // stays populated for anything that just displays the address.
+            ShippingAddressDetails = new CheckoutShippingAddress
+            {
+                Street = notification.ShippingAddress.Street,
+                City = notification.ShippingAddress.City,
+                State = notification.ShippingAddress.State,
+                ZipCode = notification.ShippingAddress.ZipCode,
+                Country = notification.ShippingAddress.Country
+            },
+            ShippingAddress = notification.ShippingAddress.ToString(),
             PaymentMethod = notification.PaymentMethod,
             CorrelationId = _currentUserContext.CorrelationId
         };

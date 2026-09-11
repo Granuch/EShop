@@ -1,5 +1,6 @@
 using EShop.Basket.Domain.Entities;
 using EShop.Basket.Domain.Events;
+using EShop.Basket.Domain.ValueObjects;
 
 namespace EShop.Basket.UnitTests.Domain;
 
@@ -36,12 +37,30 @@ public class ShoppingBasketTests
         var basket = ShoppingBasket.Create("user-1");
         basket.AddItem(Guid.Parse("33333333-3333-3333-3333-333333333333"), "Product", 10m, 2);
 
-        basket.Checkout("Street 1, City", "CreditCard");
+        basket.Checkout(ShippingAddress.Create("1 Main St", "Springfield", "IL", "62701", "US"), "CreditCard");
 
         var checkoutEvent = basket.DomainEvents.OfType<BasketCheckedOutDomainEvent>().SingleOrDefault();
         Assert.That(checkoutEvent, Is.Not.Null);
         Assert.That(checkoutEvent!.UserId, Is.EqualTo("user-1"));
         Assert.That(checkoutEvent.Items, Has.Count.EqualTo(1));
+        Assert.That(checkoutEvent.ShippingAddress.City, Is.EqualTo("Springfield"));
+    }
+
+    [Test]
+    public void ShippingAddress_TrimsPartsAndUpperCasesTheCountry()
+    {
+        var address = ShippingAddress.Create(" 1 Main St ", "Springfield", "IL", "62701", "us");
+
+        Assert.That(address.Street, Is.EqualTo("1 Main St"));
+        Assert.That(address.Country, Is.EqualTo("US"));
+        Assert.That(address.ToString(), Is.EqualTo("1 Main St, Springfield, IL 62701, US"));
+    }
+
+    [Test]
+    public void ShippingAddress_WithAMissingPart_ShouldThrow()
+    {
+        Assert.Throws<EShop.BuildingBlocks.Domain.Exceptions.DomainException>(() =>
+            ShippingAddress.Create("1 Main St", "Springfield", "IL", " ", "US"));
     }
 
     [Test]
@@ -60,7 +79,7 @@ public class ShoppingBasketTests
         basket.AddItem(Guid.NewGuid(), "Product", 10m, 1);
 
         Assert.Throws<EShop.BuildingBlocks.Domain.Exceptions.DomainException>(() =>
-            basket.Checkout(string.Empty, "Card"));
+            basket.Checkout(null!, "Card"));
     }
 
     [Test]

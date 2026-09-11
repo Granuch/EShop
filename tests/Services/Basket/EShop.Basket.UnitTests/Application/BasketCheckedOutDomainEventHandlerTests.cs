@@ -1,6 +1,8 @@
 using EShop.Basket.Application.EventHandlers;
 using EShop.Basket.Domain.Events;
+using EShop.Basket.Domain.ValueObjects;
 using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Messaging;
 using EShop.BuildingBlocks.Messaging.Events;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -10,6 +12,10 @@ namespace EShop.Basket.UnitTests.Application;
 [TestFixture]
 public class BasketCheckedOutDomainEventHandlerTests
 {
+    /// <summary>
+    /// Ordering reads only ShippingAddressDetails and rejects a message without it (Ordering audit C2),
+    /// so the structured form is the part of this mapping that must never go missing.
+    /// </summary>
     [Test]
     public async Task Handle_ShouldMapDomainEventToIntegrationEventAndEnqueue()
     {
@@ -35,21 +41,33 @@ public class BasketCheckedOutDomainEventHandlerTests
                 }
             ],
             TotalPrice = 25m,
-            ShippingAddress = "Street 1, City",
+            ShippingAddress = ShippingAddress.Create("1 Main St", "Kyiv", "Kyiv", "01001", "UA"),
             PaymentMethod = "Card"
         };
 
+        BasketCheckedOutEvent? enqueued = null;
+        outbox
+            .Setup(x => x.Enqueue(It.IsAny<BasketCheckedOutEvent>(), "corr-1"))
+            .Callback<IIntegrationEvent, string?>((e, _) => enqueued = (BasketCheckedOutEvent)e);
+
         await handler.Handle(domainEvent, CancellationToken.None);
 
-        outbox.Verify(x => x.Enqueue(
-            It.Is<BasketCheckedOutEvent>(e =>
-                e.UserId == "user-1"
-                && e.TotalPrice == 25m
-                && e.Items.Count == 1
-                && e.Items[0].ProductName == "Product"
-                && e.ShippingAddress == "Street 1, City"
-                && e.PaymentMethod == "Card"
-                && e.CorrelationId == "corr-1"),
-            "corr-1"), Times.Once);
+        Assert.That(enqueued, Is.Not.Null);
+        Assert.That(enqueued!.UserId, Is.EqualTo("user-1"));
+        Assert.That(enqueued.TotalPrice, Is.EqualTo(25m));
+        Assert.That(enqueued.Items, Has.Count.EqualTo(1));
+        Assert.That(enqueued.Items[0].ProductName, Is.EqualTo("Product"));
+        Assert.That(enqueued.PaymentMethod, Is.EqualTo("Card"));
+        Assert.That(enqueued.CorrelationId, Is.EqualTo("corr-1"));
+
+        Assert.That(enqueued.ShippingAddressDetails, Is.EqualTo(new CheckoutShippingAddress
+        {
+            Street = "1 Main St",
+            City = "Kyiv",
+            State = "Kyiv",
+            ZipCode = "01001",
+            Country = "UA"
+        }));
+        Assert.That(enqueued.ShippingAddress, Is.EqualTo("1 Main St, Kyiv, Kyiv 01001, UA"));
     }
 }

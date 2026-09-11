@@ -150,4 +150,8 @@ public record AddItemToBasketRequest(
 
 public record UpdateBasketItemQuantityRequest(int Quantity);
 
-public record CheckoutBasketRequest(string ShippingAddress, string PaymentMethod);
+/// <summary>
+/// <c>shippingAddress</c> is an object — street, city, state, zipCode, country (ISO alpha-2). It was a
+/// single free-text string until Ordering audit C2; a body that still sends a string fails to bind (400).
+/// </summary>
+public record CheckoutBasketRequest(CheckoutAddress? ShippingAddress, string PaymentMethod);

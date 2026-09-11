@@ -6,6 +6,7 @@ using EShop.Basket.Application.Telemetry;
 using EShop.Basket.Domain.Events;
 using EShop.Basket.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
+using DomainShippingAddress = EShop.Basket.Domain.ValueObjects.ShippingAddress;
 
 namespace EShop.Basket.Application.Commands.CheckoutBasket;
 
@@ -88,7 +89,11 @@ public class CheckoutBasketCommandHandler : IRequestHandler<CheckoutBasketComman
                 return Result<Guid>.Failure(BasketErrors.BasketEmpty);
             }
 
-            basket.Checkout(request.ShippingAddress, request.PaymentMethod);
+            // Non-null: the validator requires it.
+            var address = request.ShippingAddress!;
+            basket.Checkout(
+                DomainShippingAddress.Create(address.Street, address.City, address.State, address.ZipCode, address.Country),
+                request.PaymentMethod);
 
             var domainEvent = basket.DomainEvents
                 .OfType<BasketCheckedOutDomainEvent>()
