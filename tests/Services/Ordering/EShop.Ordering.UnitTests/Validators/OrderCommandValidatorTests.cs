@@ -412,5 +412,22 @@ public class OrderCommandValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.UserId);
     }
 
+    /// <summary>Audit M4: cursor paging was removed, and a cursor is rejected rather than ignored.</summary>
+    [TestCase("2026-01-01T00:00:00Z")]
+    [TestCase("anything")]
+    public void GetOrdersByUser_AnyCursor_ShouldHaveError(string cursor)
+    {
+        _getByUserValidator.TestValidate(new GetOrdersByUserQuery { UserId = "user-1", Cursor = cursor })
+            .ShouldHaveValidationErrorFor(x => x.Cursor);
+    }
+
+    [TestCase(0, null, nameof(GetOrdersByUserQuery.PageNumber))]
+    [TestCase(null, 101, nameof(GetOrdersByUserQuery.PageSize))]
+    public void GetOrdersByUser_InvalidPaging_NamesTheParameterAsSent(int? page, int? size, string field)
+    {
+        _getByUserValidator.TestValidate(new GetOrdersByUserQuery { UserId = "user-1", PageNumber = page, PageSize = size })
+            .ShouldHaveValidationErrorFor(field);
+    }
+
     #endregion
 }

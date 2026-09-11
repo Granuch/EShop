@@ -20,6 +20,5 @@ public interface IOrderQueryService
         string userId,
         int pageNumber,
         int pageSize,
-        DateTime? cursor = null,
         CancellationToken cancellationToken = default);
 }

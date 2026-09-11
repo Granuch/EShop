@@ -29,7 +29,7 @@ public class GetOrdersByUserQueryHandlerTests
         };
 
         _orderQueryServiceMock
-            .Setup(x => x.GetOrdersByUserAsync("user-1", 1, 10, null, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetOrdersByUserAsync("user-1", 1, 10, It.IsAny<CancellationToken>()))
             .ReturnsAsync((dtos, dtos.Count));
 
         var query = new GetOrdersByUserQuery { UserId = "user-1" };
@@ -48,7 +48,7 @@ public class GetOrdersByUserQueryHandlerTests
     {
         // Arrange
         _orderQueryServiceMock
-            .Setup(x => x.GetOrdersByUserAsync("user-1", 1, 10, null, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetOrdersByUserAsync("user-1", 1, 10, It.IsAny<CancellationToken>()))
             .ReturnsAsync((new List<OrderDto>(), 0));
 
         var query = new GetOrdersByUserQuery { UserId = "user-1" };

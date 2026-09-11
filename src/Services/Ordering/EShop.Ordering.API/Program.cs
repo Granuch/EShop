@@ -5,6 +5,7 @@ using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Http;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.Security;
 using EShop.Ordering.Application.Extensions;
 using EShop.Ordering.Infrastructure.Data;
@@ -164,8 +165,10 @@ try
             $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
     }
 
-    // Detect placeholder patterns that must be replaced before deployment
-    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
+    // Detect placeholder patterns that must be replaced before deployment. Audit M7: the same seven as
+    // Identity's and Catalog's JWT guards. This list had five and omitted LOCAL_ and REPLACE_WITH_, so
+    // the exact placeholder that crash-loops Identity booted Ordering cleanly — on the same shared key.
+    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "LOCAL_", "REPLACE_WITH_", "YOUR_", "TestKey", "placeholder" };
     if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
     {
         foreach (var pattern in placeholderPatterns)
@@ -214,23 +217,17 @@ try
     builder.Services.AddScoped<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
     builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
-    // Add CORS
+    // Add CORS. Audit M7: the shared CorsOriginGuard, as Basket, Identity and Catalog use. It runs
+    // HERE, while the host is composed — the old check sat inside the AddPolicy lambda, which CORS
+    // builds lazily, so a misconfigured deploy started healthy and threw on its first cross-origin
+    // request — and it also rejects placeholder origins, not only an empty list.
+    var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-            if (allowedOrigins.Length == 0 &&
-                !builder.Environment.IsDevelopment() &&
-                !builder.Environment.IsEnvironment("Testing"))
-            {
-                throw new InvalidOperationException(
-                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                    "Configure allowed origins before deploying to non-development environments.");
-            }
-
-            policy.WithOrigins(allowedOrigins)
+            policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
