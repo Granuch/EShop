@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 
@@ -25,10 +26,11 @@ public record CreateCheckedOutOrderCommand : IRequest<Result<Guid>>
 {
     public string UserId { get; init; } = string.Empty;
     public List<CheckedOutOrderItem> Items { get; init; } = new();
-    public string Street { get; init; } = string.Empty;
-    public string City { get; init; } = string.Empty;
-    public string State { get; init; } = string.Empty;
-    public string ZipCode { get; init; } = string.Empty;
+    // A home address is personal data; LoggingBehavior logs every command at Information (audit L7).
+    [SensitiveData] public string Street { get; init; } = string.Empty;
+    [SensitiveData] public string City { get; init; } = string.Empty;
+    [SensitiveData] public string State { get; init; } = string.Empty;
+    [SensitiveData] public string ZipCode { get; init; } = string.Empty;
     public string Country { get; init; } = string.Empty;
 }
 

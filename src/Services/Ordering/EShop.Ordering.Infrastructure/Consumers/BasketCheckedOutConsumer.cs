@@ -92,8 +92,9 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
         }
         catch (DomainException ex)
         {
-            // e.g. the same product on two lines. Deterministic, so retrying is pointless. (An invalid
-            // address throws ArgumentException from Address, which is already not retried.)
+            // e.g. the same product on two lines, or an address or line Address/OrderItem refuse (the
+            // validator mirrors both, so normally that arrives as a failed Result instead). Deterministic,
+            // so retrying is pointless.
             throw new InvalidCheckoutEventException(
                 $"BasketCheckedOutEvent {message.EventId} was rejected by the order domain: {ex.Message}", ex);
         }

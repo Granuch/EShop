@@ -129,8 +129,10 @@ public class BasketCheckedOutConsumerTests
     }
 
     /// <summary>
-    /// Address throws ArgumentException itself, so an address Ordering cannot store is also not retried.
-    /// Basket's validator mirrors Address to keep this from happening in the first place.
+    /// Address throws DomainException, which the consumer wraps, so an address Ordering cannot store is
+    /// also not retried. Through the real pipeline the validator rejects it first; this fixture forwards
+    /// straight to the handler, so it pins the domain's refusal. Basket's validator mirrors Address to
+    /// keep this from happening in the first place.
     /// </summary>
     [Test]
     public void AnAddressOrderingCannotStore_IsNotRetried()

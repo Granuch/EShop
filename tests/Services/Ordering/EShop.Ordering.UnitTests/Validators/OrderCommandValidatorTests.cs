@@ -5,7 +5,10 @@ using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 using EShop.Ordering.Application.Orders.Commands.RemoveOrderItem;
 using EShop.Ordering.Application.Orders.Commands.ShipOrder;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
+using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
+using EShop.Ordering.Domain.Entities;
+using EShop.Ordering.Domain.ValueObjects;
 using FluentValidation.TestHelper;
 
 namespace EShop.Ordering.UnitTests.Validators;
@@ -122,6 +125,49 @@ public class OrderCommandValidatorTests
         _createValidator.TestValidate(command).ShouldHaveValidationErrorFor(x => x.Items);
     }
 
+    /// <summary>
+    /// Audit M1: the validator and <see cref="Address"/> must agree on every address, in both
+    /// directions. Before, only non-emptiness was checked, so "USA" or a blank state passed validation
+    /// and threw inside the handler — and nothing compared the two sets of rules.
+    /// </summary>
+    [TestCase("123 Main St", "Springfield", "IL", "62701", "US")]
+    [TestCase("1 Khreshchatyk St", "Kyiv", "Kyiv", "01001", "UA")]
+    [TestCase(" 123 Main St ", "Springfield", "IL", " 62701 ", " us ")]
+    [TestCase("123 Main St", "Springfield", "IL", "62701", "USA")]
+    [TestCase("123 Main St", "Springfield", "", "62701", "US")]
+    [TestCase("123 Main St", "Springfield", "IL", "ABCDE", "US")]
+    [TestCase("12", "Springfield", "IL", "62701", "US")]
+    [TestCase("123 Main St", "Spr1ngfield", "IL", "62701", "US")]
+    [TestCase("10 Downing St", "London", "Westminster", "12", "GB")]
+    public void CreateOrder_AcceptsExactlyTheAddressesAddressAccepts(
+        string street, string city, string state, string zipCode, string country)
+    {
+        var addressAccepts = Address.Validate(street, city, state, zipCode, country).Count == 0;
+        var command = ValidCreate() with
+        {
+            Street = street, City = city, State = state, ZipCode = zipCode, Country = country
+        };
+        var checkedOut = ValidCheckedOut() with
+        {
+            Street = street, City = city, State = state, ZipCode = zipCode, Country = country
+        };
+
+        Assert.That(_createValidator.TestValidate(command).IsValid, Is.EqualTo(addressAccepts), "CreateOrder");
+        Assert.That(_checkedOutValidator.TestValidate(checkedOut).IsValid, Is.EqualTo(addressAccepts), "CreateCheckedOutOrder");
+    }
+
+    /// <summary>Each problem is reported against the field the client sent, not the command as a whole.</summary>
+    [Test]
+    public void CreateOrder_InvalidAddress_NamesTheOffendingFields()
+    {
+        // A zip that fails on length: the US format rule applies only once the country is a valid "US".
+        var result = _createValidator.TestValidate(ValidCreate() with { Country = "USA", ZipCode = "12" });
+
+        result.ShouldHaveValidationErrorFor(x => x.Country);
+        result.ShouldHaveValidationErrorFor(x => x.ZipCode);
+        result.ShouldNotHaveValidationErrorFor(x => x.Street);
+    }
+
     #endregion
 
     #region CreateCheckedOutOrderCommand
@@ -163,6 +209,51 @@ public class OrderCommandValidatorTests
         };
 
         Assert.That(_checkedOutValidator.TestValidate(command).IsValid, Is.False);
+    }
+
+    /// <summary>The column's limit, reported as a failed Result rather than a database error.</summary>
+    [Test]
+    public void CreateCheckedOutOrder_ItemNameLongerThanTheColumn_ShouldHaveError()
+    {
+        CreateCheckedOutOrderCommand WithName(int length) => ValidCheckedOut() with
+        {
+            Items = [new() { ProductId = Guid.NewGuid(), ProductName = new string('x', length), UnitPrice = 1.00m, Quantity = 1 }]
+        };
+
+        Assert.That(_checkedOutValidator.TestValidate(WithName(OrderItem.MaxProductNameLength + 1)).IsValid, Is.False);
+        Assert.That(_checkedOutValidator.TestValidate(WithName(OrderItem.MaxProductNameLength)).IsValid, Is.True);
+    }
+
+    #endregion
+
+    #region GetOrdersQuery
+
+    [Test]
+    public void GetOrders_DefaultQuery_ShouldHaveNoErrors()
+    {
+        new GetOrdersQueryValidator().TestValidate(new GetOrdersQuery()).ShouldNotHaveAnyValidationErrors();
+    }
+
+    /// <summary>Audit M3: the admin list had no validator at all.</summary>
+    [TestCase(0, null, null, nameof(GetOrdersQuery.PageNumber))]
+    [TestCase(null, 0, null, nameof(GetOrdersQuery.PageSize))]
+    [TestCase(null, 101, null, nameof(GetOrdersQuery.PageSize))]
+    [TestCase(null, null, "Payed", nameof(GetOrdersQuery.Status))]
+    [TestCase(null, null, "7", nameof(GetOrdersQuery.Status))]
+    public void GetOrders_InvalidQuery_NamesTheParameterAsSent(int? page, int? size, string? status, string field)
+    {
+        var query = new GetOrdersQuery { PageNumber = page, PageSize = size, Status = status };
+
+        new GetOrdersQueryValidator().TestValidate(query).ShouldHaveValidationErrorFor(field);
+    }
+
+    [TestCase("Paid")]
+    [TestCase("paid")]
+    [TestCase("CANCELLED")]
+    public void GetOrders_StatusName_IsAcceptedInAnyCase(string status)
+    {
+        new GetOrdersQueryValidator().TestValidate(new GetOrdersQuery { Status = status })
+            .ShouldNotHaveAnyValidationErrors();
     }
 
     #endregion

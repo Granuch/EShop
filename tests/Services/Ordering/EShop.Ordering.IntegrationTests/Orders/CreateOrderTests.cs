@@ -134,6 +134,33 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    /// <summary>
+    /// Audit M1. Each of these passed validation, reached the handler, and made Address throw an
+    /// ArgumentException, which nothing maps — a 500 for a typo in a form. Now it is a validation
+    /// failure naming the field, before Catalog is called or anything is stored.
+    /// </summary>
+    [TestCase("Country", "USA")]
+    [TestCase("ZipCode", "ABCDE")]
+    [TestCase("State", "")]
+    public async Task CreateOrder_WithAnAddressTheDomainCannotStore_ShouldReturnBadRequest_NamingTheField(
+        string field, string value)
+    {
+        var request = RequestFor(Item(Product()));
+        request = field switch
+        {
+            "Country" => request with { Country = value },
+            "ZipCode" => request with { ZipCode = value },
+            _ => request with { State = value }
+        };
+
+        var response = await Client.PostAsJsonAsync(OrdersEndpoint, request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Validation.Failed").And.Contain(field);
+        (await StoredOrderCountAsync()).Should().Be(0);
+    }
+
     [Test]
     public async Task CreateOrder_WithEmptyUserId_ShouldReturnBadRequest()
     {

@@ -25,14 +25,8 @@ public class CreateOrderCommandValidator : AbstractValidator<CreateOrderCommand>
                 .GreaterThan(0).WithMessage("Quantity must be greater than 0");
         });
 
-        RuleFor(x => x.Street)
-            .NotEmpty().WithMessage("Street is required");
-
-        RuleFor(x => x.City)
-            .NotEmpty().WithMessage("City is required");
-
-        RuleFor(x => x.Country)
-            .NotEmpty().WithMessage("Country is required");
+        RuleFor(x => x).Custom((command, context) => ShippingAddressRules.Check(
+            context, command.Street, command.City, command.State, command.ZipCode, command.Country));
     }
 
     private static bool HaveDistinctProducts(List<CreateOrderItemDto>? items)
