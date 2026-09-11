@@ -355,15 +355,16 @@ try
 
     // Catalog has the widest branch set, and the order is load-bearing throughout: mappers are
 // first-match-wins. AddEfConcurrency must precede AddEfDuplicateKey (DbUpdateConcurrencyException
-// derives from DbUpdateException), and AddProductSkuConflict must precede it too, since
-// AddEfDuplicateKey matches every unique violation and would report a lost SKU race as a generic
-// DuplicateResource. AddMalformedJsonBody pairs with ThrowOnBadRequest +
+// derives from DbUpdateException), and AddProductSkuConflict / AddCategorySlugConflict must precede
+// it too, since AddEfDuplicateKey matches every unique violation and would report a lost SKU or slug
+// race as a generic DuplicateResource. AddMalformedJsonBody pairs with ThrowOnBadRequest +
 // UnmappedMemberHandling.Disallow configured above.
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()
     .AddNotFound()
     .AddEfConcurrency()
     .AddProductSkuConflict()
+    .AddCategorySlugConflict()
     .AddEfDuplicateKey()
     .AddMalformedJsonBody());
 

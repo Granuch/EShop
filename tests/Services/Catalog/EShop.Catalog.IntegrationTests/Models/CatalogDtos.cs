@@ -117,13 +117,18 @@ public record CreateCategoryRequest
     public string Name { get; init; } = string.Empty;
     public string? Slug { get; init; }
     public Guid? ParentCategoryId { get; init; }
+    public string? Description { get; init; }
+    public int? DisplayOrder { get; init; }
 }
 
 public record UpdateCategoryRequest
 {
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
-    public string Description { get; init; } = string.Empty;
+
+    /// <summary>Null (omitted) leaves the stored description; "" clears it (Stage 8, M10).</summary>
+    public string? Description { get; init; }
+    public int? DisplayOrder { get; init; }
 }
 
 public record CategoryResponse
@@ -133,6 +138,7 @@ public record CategoryResponse
     public string? Description { get; init; }
     public string Slug { get; init; } = string.Empty;
     public Guid? ParentCategoryId { get; init; }
+    public string? ParentCategoryName { get; init; }
     public int DisplayOrder { get; init; }
     public bool IsActive { get; init; }
     public List<CategoryResponse>? ChildCategories { get; init; }

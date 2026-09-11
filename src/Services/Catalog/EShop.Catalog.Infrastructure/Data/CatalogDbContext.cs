@@ -151,10 +151,17 @@ public class CatalogDbContext : BaseDbContext
                 .HasForeignKey(c => c.ParentCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }).IsUnique();
-            entity.HasIndex(c => c.Slug)
+            // M12. Both slug indexes are filtered on IsActive, so a soft-deleted category no longer
+            // holds its slug — the category analogue of D2. Two indexes because Postgres treats NULLs
+            // as distinct: the composite one cannot see two roots (ParentCategoryId NULL) sharing a
+            // slug, so the second covers roots. Names are explicit (and equal to EF's defaults, so no
+            // rename) because CatalogProblemDetailsExtensions.AddCategorySlugConflict matches on them.
+            entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }, "IX_Categories_ParentCategoryId_Slug")
                 .IsUnique()
-                .HasFilter("\"ParentCategoryId\" IS NULL");
+                .HasFilter("\"IsActive\"");
+            entity.HasIndex(c => c.Slug, "IX_Categories_Slug")
+                .IsUnique()
+                .HasFilter("\"ParentCategoryId\" IS NULL AND \"IsActive\"");
             entity.HasIndex(c => c.CreatedAt);
 
             entity.HasQueryFilter(c => c.IsActive);

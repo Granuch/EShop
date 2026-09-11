@@ -153,6 +153,42 @@ public class CategoryCommandValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.Description);
     }
 
+    /// <summary>
+    /// M10. Omitting the description must validate, or the "omitted leaves it" contract is
+    /// unreachable over HTTP.
+    /// </summary>
+    [Test]
+    public void UpdateCategory_WithoutADescription_ShouldHaveNoErrors()
+    {
+        var command = new UpdateCategoryCommand { Id = Guid.NewGuid(), Name = "Name only" };
+
+        _updateValidator.TestValidate(command).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Test]
+    public void UpdateCategory_NegativeDisplayOrder_ShouldHaveError()
+    {
+        var command = new UpdateCategoryCommand { Id = Guid.NewGuid(), Name = "N", DisplayOrder = -1 };
+
+        _updateValidator.TestValidate(command).ShouldHaveValidationErrorFor(x => x.DisplayOrder);
+    }
+
+    [Test]
+    public void CreateCategory_DescriptionExceeds1000Characters_ShouldHaveError()
+    {
+        var command = new CreateCategoryCommand { Name = "N", Description = new string('x', 1001) };
+
+        _createValidator.TestValidate(command).ShouldHaveValidationErrorFor(x => x.Description);
+    }
+
+    [Test]
+    public void CreateCategory_NegativeDisplayOrder_ShouldHaveError()
+    {
+        var command = new CreateCategoryCommand { Name = "N", DisplayOrder = -1 };
+
+        _createValidator.TestValidate(command).ShouldHaveValidationErrorFor(x => x.DisplayOrder);
+    }
+
     #endregion
 
     #region DeleteCategoryCommandValidator

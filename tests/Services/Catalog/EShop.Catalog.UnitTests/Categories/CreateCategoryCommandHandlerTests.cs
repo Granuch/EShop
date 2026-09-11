@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Application.Categories.Commands.CreateCategory;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -18,6 +19,9 @@ public class CreateCategoryCommandHandlerTests
     {
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
+        _unitOfWorkMock
+            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
         _handler = new CreateCategoryCommandHandler(
             _categoryRepositoryMock.Object,
             _unitOfWorkMock.Object);
@@ -32,10 +36,6 @@ public class CreateCategoryCommandHandlerTests
             Name = "Electronics",
             Slug = "electronics"
         };
-
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -52,21 +52,16 @@ public class CreateCategoryCommandHandlerTests
     {
         // Arrange
         var parent = Category.Create("Parent", "parent", null);
-        var parentId = parent.Id;
 
         var command = new CreateCategoryCommand
         {
             Name = "Laptops",
-            ParentCategoryId = parentId
+            ParentCategoryId = parent.Id
         };
 
         _categoryRepositoryMock
-            .Setup(x => x.GetById(parentId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetById(parent.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(parent);
-
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -75,7 +70,7 @@ public class CreateCategoryCommandHandlerTests
         Assert.That(result.IsSuccess, Is.True);
         _categoryRepositoryMock.Verify(
             x => x.AddAsync(
-                It.Is<Category>(c => c.ParentCategoryId == parentId),
+                It.Is<Category>(c => c.ParentCategoryId == parent.Id),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -111,10 +106,6 @@ public class CreateCategoryCommandHandlerTests
             Slug = null
         };
 
-        _unitOfWorkMock
-            .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(1);
-
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
 
@@ -125,5 +116,82 @@ public class CreateCategoryCommandHandlerTests
                 It.Is<Category>(c => c.Slug == "home-and-garden"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Test]
+    public async Task Handle_PassesTheDescriptionAndDisplayOrderThrough()
+    {
+        var command = new CreateCategoryCommand { Name = "Books", Description = "Paper", DisplayOrder = 5 };
+
+        await _handler.Handle(command, CancellationToken.None);
+
+        _categoryRepositoryMock.Verify(
+            x => x.AddAsync(
+                It.Is<Category>(c => c.Description == "Paper" && c.DisplayOrder == 5),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// M9. The conflict must be detected before anything is built: Category.Create attaches the new
+    /// category to its tracked parent, and TransactionBehavior commits even on a failure Result, so
+    /// a late check would still insert the rejected category through the parent.
+    /// </summary>
+    [Test]
+    public async Task Handle_WithASlugTakenAtThatLevel_FailsWithoutTouchingTheParent()
+    {
+        var parent = Category.Create("Parent", "parent", null);
+        _categoryRepositoryMock
+            .Setup(x => x.GetById(parent.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(parent);
+        _categoryRepositoryMock
+            .Setup(x => x.SlugExistsAsync(parent.Id, "taken", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _handler.Handle(
+            new CreateCategoryCommand { Name = "Dup", Slug = "taken", ParentCategoryId = parent.Id },
+            CancellationToken.None);
+
+        Assert.That(result.IsFailure, Is.True);
+        Assert.That(result.Error!.Code, Is.EqualTo("Category.SlugConflict"));
+        Assert.That(parent.ChildCategories, Is.Empty,
+            "the rejected category must never reach the tracked parent's children");
+        _categoryRepositoryMock.Verify(x => x.AddAsync(It.IsAny<Category>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task Handle_ChecksTheGeneratedSlug_WhenNoneIsSupplied()
+    {
+        _categoryRepositoryMock
+            .Setup(x => x.SlugExistsAsync(null, "home-and-garden", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _handler.Handle(new CreateCategoryCommand { Name = "Home And Garden" }, CancellationToken.None);
+
+        Assert.That(result.Error?.Code, Is.EqualTo("Category.SlugConflict"));
+    }
+
+    /// <summary>An id-based fallback slug cannot collide, so it is not looked up at all.</summary>
+    [Test]
+    public async Task Handle_DoesNotCheckAFallbackSlug()
+    {
+        var result = await _handler.Handle(new CreateCategoryCommand { Name = "Книги" }, CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        _categoryRepositoryMock.Verify(
+            x => x.SlugExistsAsync(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>M8. A new child must evict its parent's cached detail.</summary>
+    [Test]
+    public void CacheKeysToInvalidate_IncludeTheParentsDetail()
+    {
+        var parentId = Guid.NewGuid();
+
+        Assert.That(new CreateCategoryCommand { Name = "C", ParentCategoryId = parentId }.CacheKeysToInvalidate,
+            Is.EquivalentTo(new[] { CategoryCacheKeys.All, CategoryCacheKeys.Detail(parentId) }));
+        Assert.That(new CreateCategoryCommand { Name = "Root" }.CacheKeysToInvalidate,
+            Is.EquivalentTo(new[] { CategoryCacheKeys.All }));
     }
 }

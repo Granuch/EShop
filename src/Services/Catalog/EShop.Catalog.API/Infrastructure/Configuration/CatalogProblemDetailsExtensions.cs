@@ -56,4 +56,32 @@ public static class CatalogProblemDetailsExtensions
                     detail: "Another product with the same SKU was created concurrently. Retry with a different SKU.",
                     errorCode: "Product.SkuConflict")
                 : null);
+
+    /// <summary>
+    /// The two IsActive-filtered unique slug indexes on <c>Categories</c> (roots, and per parent).
+    /// Must match the names in <c>CatalogDbContext.OnModelCreating</c>.
+    /// </summary>
+    private static readonly HashSet<string> CategorySlugIndexNames =
+        ["IX_Categories_ParentCategoryId_Slug", "IX_Categories_Slug"];
+
+    /// <summary>
+    /// M9 (Catalog audit Stage 8). The category counterpart of <see cref="AddProductSkuConflict"/>:
+    /// <c>CreateCategoryCommandHandler</c>'s read-then-write check answers an ordinary duplicate slug
+    /// with a 400 <c>Category.SlugConflict</c>; this answers the concurrent one that slipped past it
+    /// with a 409 carrying the same code, instead of the generic <c>DuplicateResource</c> every other
+    /// unique violation gets. Register before <c>AddEfDuplicateKey()</c>.
+    /// </summary>
+    public static ProblemDetailsExceptionOptions AddCategorySlugConflict(
+        this ProblemDetailsExceptionOptions options)
+        => options.Add((exception, context) =>
+            exception is DbUpdateException { InnerException: PostgresException postgresEx }
+            && postgresEx.SqlState == PostgresErrorCodes.UniqueViolation
+            && postgresEx.ConstraintName is { } constraint
+            && CategorySlugIndexNames.Contains(constraint)
+                ? EShopProblem.Create(
+                    context,
+                    StatusCodes.Status409Conflict,
+                    detail: "Another category with the same slug was created concurrently at this level. Retry with a different slug.",
+                    errorCode: "Category.SlugConflict")
+                : null);
 }

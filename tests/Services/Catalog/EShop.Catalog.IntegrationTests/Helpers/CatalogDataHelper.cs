@@ -22,7 +22,9 @@ public static class CatalogDataHelper
         Guid? parentCategoryId = null)
     {
         var db = services.GetRequiredService<CatalogDbContext>();
-        var category = Category.Create(name, slug, parentCategoryId);
+        // Stage 8: a parent is fixed at creation and passed as the entity, not an id.
+        var parent = parentCategoryId is { } parentId ? await db.Categories.FindAsync(parentId) : null;
+        var category = Category.Create(name, slug, parent);
         await db.Categories.AddAsync(category);
         await db.SaveChangesAsync();
         return category.Id;
