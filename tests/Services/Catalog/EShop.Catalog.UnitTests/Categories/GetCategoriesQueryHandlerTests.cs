@@ -2,6 +2,8 @@ using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Application.Categories.Queries.GetCategories;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
+using Mapster;
+using MapsterMapper;
 using Moq;
 
 namespace EShop.Catalog.UnitTests.Categories;
@@ -16,7 +18,12 @@ public class GetCategoriesQueryHandlerTests
     public void SetUp()
     {
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
-        _handler = new GetCategoriesQueryHandler(_categoryRepositoryMock.Object);
+
+        // A real mapper over the application's own registrations, not a mock: the handler's whole
+        // job is the mapping, and a mocked IMapper would only echo back whatever it was told.
+        var config = new TypeAdapterConfig();
+        config.Scan(typeof(CategoryDto).Assembly);
+        _handler = new GetCategoriesQueryHandler(_categoryRepositoryMock.Object, new Mapper(config));
     }
 
     [Test]

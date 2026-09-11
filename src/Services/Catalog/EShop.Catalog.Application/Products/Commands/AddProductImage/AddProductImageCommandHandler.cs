@@ -28,7 +28,7 @@ public class AddProductImageCommandHandler : IRequestHandler<AddProductImageComm
             return Result<Guid>.Failure(new Error("Product.NotFound", $"Product with ID '{request.ProductId}' was not found."));
 
         // Domain guards (URL shape, duplicate URL, the 10-image cap) throw DomainException,
-        // which GlobalExceptionHandlerMiddleware maps to 400 — no catch needed here.
+        // which ProblemDetailsExceptionMiddleware maps to 400 — no catch needed here.
         var imageId = product.AddImage(request.Url, request.AltText, request.DisplayOrder);
 
         await _productRepository.UpdateAsync(product, cancellationToken);

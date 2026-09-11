@@ -4,7 +4,6 @@ using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
-using Microsoft.Extensions.Logging;
 
 namespace EShop.Catalog.Application.Products.Commands.UpdateProduct;
 
@@ -12,16 +11,13 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
 {
     private readonly IProductRepository _productRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ILogger<UpdateProductCommandHandler> _logger;
 
     public UpdateProductCommandHandler(
         IProductRepository productRepository,
-        IUnitOfWork unitOfWork,
-        ILogger<UpdateProductCommandHandler> logger)
+        IUnitOfWork unitOfWork)
     {
         _productRepository = productRepository;
         _unitOfWork = unitOfWork;
-        _logger = logger;
     }
 
     public async Task<Result> Handle(UpdateProductCommand request, CancellationToken cancellationToken)

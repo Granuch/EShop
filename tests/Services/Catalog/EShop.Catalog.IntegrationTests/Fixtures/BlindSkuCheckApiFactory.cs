@@ -59,7 +59,5 @@ public class BlindSkuCheckApiFactory : PostgresCatalogApiFactory
 
         public Task DeleteAsync(Product product, CancellationToken cancellationToken = default)
             => inner.DeleteAsync(product, cancellationToken);
-
-        public IQueryable<Product> Query() => inner.Query();
     }
 }

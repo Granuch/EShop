@@ -27,7 +27,7 @@ public class AddProductAttributeCommandHandler : IRequestHandler<AddProductAttri
         if (product == null)
             return Result<Guid>.Failure(new Error("Product.NotFound", $"Product with ID '{request.ProductId}' was not found."));
 
-        // Domain guards throw DomainException, which GlobalExceptionHandlerMiddleware maps to
+        // Domain guards throw DomainException, which ProblemDetailsExceptionMiddleware maps to
         // 400 — no catch needed here. That covers empty/over-length name and value, the
         // 50-attribute cap, and duplicate names (compared trimmed and case-insensitively).
         // The cap and dedupe live in Product.AddAttribute rather than in this command's

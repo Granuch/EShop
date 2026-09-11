@@ -89,7 +89,7 @@ public class AddProductImageCommandHandlerTests
     public void Handle_WithDuplicateUrl_ShouldLetDomainExceptionPropagate()
     {
         // Arrange — the handler deliberately does not convert this to a Result failure:
-        // GlobalExceptionHandlerMiddleware maps DomainException to 400, which is correct here.
+        // ProblemDetailsExceptionMiddleware maps DomainException to 400, which is correct here.
         var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
         product.AddImage("https://example.com/img.jpg", "Alt text", 0);
 

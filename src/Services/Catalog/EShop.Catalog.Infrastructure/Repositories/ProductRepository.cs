@@ -70,9 +70,4 @@ public class ProductRepository : IProductRepository
         _context.Products.Remove(product);
         return Task.CompletedTask;
     }
-
-    public IQueryable<Product> Query()
-    {
-        return _context.Products.AsNoTracking();
-    }
 }

@@ -3,7 +3,6 @@ using EShop.Catalog.Application.Products;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
-using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace EShop.Catalog.UnitTests.Products;
@@ -13,7 +12,6 @@ public class DeleteProductCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ILogger<DeleteProductCommandHandler>> _loggerMock = null!;
     private DeleteProductCommandHandler _handler = null!;
 
     [SetUp]
@@ -21,11 +19,9 @@ public class DeleteProductCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _loggerMock = new Mock<ILogger<DeleteProductCommandHandler>>();
         _handler = new DeleteProductCommandHandler(
             _productRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _loggerMock.Object);
+            _unitOfWorkMock.Object);
     }
 
     [Test]

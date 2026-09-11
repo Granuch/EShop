@@ -90,7 +90,7 @@ public class AddProductAttributeCommandHandlerTests
         // Arrange — uniqueness used to be enforced only within a single create request, so this
         // path let the same Name through twice. The cap and dedupe now live in
         // Product.AddAttribute, which is the only place that can see the already-persisted rows.
-        // DomainException is correct here: GlobalExceptionHandlerMiddleware maps it to 400.
+        // DomainException is correct here: ProblemDetailsExceptionMiddleware maps it to 400.
         var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
         product.AddAttribute("Color", "Red");
 
