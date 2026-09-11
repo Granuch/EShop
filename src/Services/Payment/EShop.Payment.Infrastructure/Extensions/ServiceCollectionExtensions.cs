@@ -76,6 +76,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddMessaging<PaymentDbContext>(
             configuration,
+            "payment",
             isDevelopment,
             bus =>
             {

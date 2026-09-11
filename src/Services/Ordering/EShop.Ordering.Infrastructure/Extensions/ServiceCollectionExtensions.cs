@@ -115,6 +115,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddMessaging<OrderingDbContext>(
             configuration,
+            "ordering",
             isDevelopment,
             bus =>
             {

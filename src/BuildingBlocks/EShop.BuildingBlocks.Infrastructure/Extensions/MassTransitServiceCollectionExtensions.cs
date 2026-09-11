@@ -22,15 +22,24 @@ public static class MassTransitServiceCollectionExtensions
     /// <typeparam name="TDbContext">The DbContext type used for the integration event outbox.</typeparam>
     /// <param name="services">Service collection.</param>
     /// <param name="configuration">Application configuration.</param>
+    /// <param name="serviceName">
+    /// Prefixes every receive endpoint (queue) this service declares — see
+    /// <see cref="CreateEndpointNameFormatter"/>. Required, and must differ between services.
+    /// </param>
     /// <param name="isDevelopment">Whether the environment is Development/Testing (relaxes validation).</param>
     /// <param name="configureConsumers">Action to register consumers on the bus.</param>
     public static IServiceCollection AddMessaging<TDbContext>(
         this IServiceCollection services,
         IConfiguration configuration,
+        string serviceName,
         bool isDevelopment,
         Action<IBusRegistrationConfigurator>? configureConsumers = null)
         where TDbContext : DbContext
     {
+        // Checked before the no-broker early return, so a missing name fails in every environment
+        // rather than only where RabbitMQ is configured.
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
         var settings = configuration.GetSection(RabbitMqSettings.SectionName).Get<RabbitMqSettings>();
 
         // Bind RabbitMqSettings for DI (used by health check and other consumers)
@@ -74,8 +83,7 @@ public static class MassTransitServiceCollectionExtensions
             // Register consumers
             configureConsumers?.Invoke(bus);
 
-            // Use snake_case endpoint naming convention
-            bus.SetEndpointNameFormatter(new SnakeCaseEndpointNameFormatter(includeNamespace: false));
+            bus.SetEndpointNameFormatter(CreateEndpointNameFormatter(serviceName));
 
             bus.UsingRabbitMq((context, cfg) =>
             {
@@ -194,5 +202,30 @@ public static class MassTransitServiceCollectionExtensions
                 tags: ["messaging", "ready"]);
 
         return services;
+    }
+
+    /// <summary>
+    /// The receive-endpoint naming every service must use: snake_case consumer name, <b>prefixed
+    /// with the service name</b>, e.g. <c>payment_order_created</c>.
+    ///
+    /// <para>
+    /// The prefix is the point. Every service shares one broker vhost — it has to, because
+    /// exchanges live in a vhost and publishers and consumers must see the same ones — so without it
+    /// a queue is named by consumer class alone, and two services with a same-named consumer bind
+    /// the <i>same</i> queue. RabbitMQ then load-balances that queue between them instead of giving
+    /// each a copy: Payment's and Notification's <c>OrderCreatedConsumer</c> both bound
+    /// <c>order_created</c>, and on RabbitMQ 3.13, 20 published messages reached Payment 10 times
+    /// and Notification 10 times. Nothing fails and nothing logs; each order just silently gets a
+    /// payment record <i>or</i> a notification.
+    /// </para>
+    ///
+    /// <para>
+    /// Public so Basket, which configures MassTransit itself, applies the same rule.
+    /// </para>
+    /// </summary>
+    public static IEndpointNameFormatter CreateEndpointNameFormatter(string serviceName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        return new SnakeCaseEndpointNameFormatter(serviceName, includeNamespace: false);
     }
 }

@@ -112,6 +112,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddMessaging<NotificationDbContext>(
             configuration,
+            "notification",
             isDevelopment,
             bus =>
             {

@@ -120,7 +120,7 @@ public static class ServiceCollectionExtensions
         // No consumers (D6, Catalog audit Stage 7). UserRegisteredConsumer was a log-and-return stub:
         // Catalog holds no user-scoped data, yet IdempotentConsumer still wrote a processed_messages
         // row for every registration. The bus itself stays — Catalog publishes through the outbox.
-        services.AddMessaging<CatalogDbContext>(configuration, isDevelopment);
+        services.AddMessaging<CatalogDbContext>(configuration, "catalog", isDevelopment);
 
         return services;
     }

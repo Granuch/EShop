@@ -91,7 +91,11 @@ public static class ServiceCollectionExtensions
         services.AddMassTransit(bus =>
         {
             bus.AddConsumer<ProductPriceChangedConsumer>();
-            bus.SetEndpointNameFormatter(new SnakeCaseEndpointNameFormatter(includeNamespace: false));
+            // Same rule as every AddMessaging service: queues carry the service name, or a same-named
+            // consumer elsewhere would share this queue and split its messages.
+            bus.SetEndpointNameFormatter(
+                EShop.BuildingBlocks.Infrastructure.Extensions.MassTransitServiceCollectionExtensions
+                    .CreateEndpointNameFormatter("basket"));
 
             bus.UsingRabbitMq((context, cfg) =>
             {

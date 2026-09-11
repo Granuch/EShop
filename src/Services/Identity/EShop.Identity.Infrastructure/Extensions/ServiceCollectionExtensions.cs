@@ -172,7 +172,7 @@ public static class ServiceCollectionExtensions
         // the copy-paste twin of Catalog's deleted UserRegisteredConsumer, and it still cost a
         // processed_messages write per product created. The bus itself stays — Identity publishes
         // UserRegistered and PasswordResetRequested through the outbox.
-        services.AddMessaging<IdentityDbContext>(configuration, isDevelopment);
+        services.AddMessaging<IdentityDbContext>(configuration, "identity", isDevelopment);
 
         return services;
     }
