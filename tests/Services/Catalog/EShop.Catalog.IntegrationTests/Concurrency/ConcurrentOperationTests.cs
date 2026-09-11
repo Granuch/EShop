@@ -77,6 +77,12 @@ public class ConcurrentOperationTests : AuthenticatedIntegrationTestBase
     /// 409 <c>Product.SkuConflict</c> when it did not and the partial unique index caught it at
     /// insert. What must never happen — and did, before Stage 1 — is two 201s.
     /// </para>
+    ///
+    /// <para>
+    /// Because which status a loser gets is timing, this test cannot show that the 409 is mapped to
+    /// <c>Product.SkuConflict</c>, or even that any loser reached the index. That half is pinned
+    /// deterministically by <c>ProductSkuConflictTests</c>, which blinds the pre-check (Stage 9).
+    /// </para>
     /// </summary>
     [Test]
     public async Task ConcurrentProductCreations_SameSku_ShouldCreateExactlyOne()

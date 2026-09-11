@@ -42,7 +42,7 @@ public class RelationalProviderTests : IntegrationTestBase
 
     /// <summary>
     /// The single search assertion Stage 0 owes; full search coverage (escaping, the trigram
-    /// indexes, case handling) is Stage 9's job. This one exists because <b>no test in this project
+    /// indexes, case handling) lives in <c>ProductSearchTests</c> (Stage 9). This one exists because <b>no test in this project
     /// had ever passed a <c>SearchTerm</c>, and none could</b>: <c>ProductQueryService</c> filters
     /// with <c>EF.Functions.ILike</c>, which the InMemory provider cannot translate, so the request
     /// failed rather than returning the wrong rows.
