@@ -23,8 +23,11 @@ namespace EShop.Payment.Infrastructure.Consumers;
 ///   <c>OrderCreatedConsumer</c> treats it as final and never charges, and the unique OrderId index
 ///   makes <c>CreatePaymentIntent</c> refuse too.</item>
 ///   <item><b>Pending or Processing</b> — a Stripe intent is cancelled at Stripe first, then the
-///   payment is recorded Cancelled. With no intent yet (mock payments, or an intent still being
-///   created) there is nothing at the provider to cancel.</item>
+///   payment is recorded Cancelled. With no intent recorded there is nothing at the provider to
+///   cancel. A Stripe payment whose intent is still being created is not visible here at all:
+///   <c>CreatePaymentIntentCommand</c> writes the row and the intent id in one transaction, so the two
+///   writers meet on the unique OrderId index. Whichever inserts second fails — the HTTP request with
+///   a 409, or this consumer with a retry that then finds the intent and cancels it.</item>
 ///   <item><b>Success</b>, or <b>Stripe refuses</b> because the intent already succeeded — the money
 ///   is taken. That is an error, thrown as <see cref="PaymentCancellationFailedException"/>, so the
 ///   message lands in the error queue for a refund rather than being acknowledged with a log line.</item>
