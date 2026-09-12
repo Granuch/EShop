@@ -12,6 +12,8 @@ namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 
 public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePaymentIntentCommand, Result<CreatePaymentIntentDto>>
 {
+    private const string StripeMethod = "Stripe";
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IStripeCustomerService _stripeCustomerService;
     private readonly IStripePaymentService _stripePaymentService;
@@ -37,35 +39,40 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
 
     public async Task<Result<CreatePaymentIntentDto>> Handle(CreatePaymentIntentCommand request, CancellationToken cancellationToken)
     {
-        var existing = await _paymentRepository.GetByOrderIdAsync(request.OrderId, cancellationToken);
-        if (existing is not null)
+        // Payment audit Stage 2 (C2, D4). The payment to start is the one OrderCreatedConsumer recorded for the
+        // order (D1), and Stripe is asked for exactly its amount and currency. The client used to send both, so a
+        // customer could pay 100 JPY for a $100 order: PaymentSuccessEvent carries no currency, and Ordering's
+        // MarkAsPaid compares only the number.
+        var payment = await _paymentRepository.GetByOrderIdAsync(request.OrderId, cancellationToken);
+        if (payment is null)
+        {
+            return Result<CreatePaymentIntentDto>.Failure(new Error(
+                "PAYMENT_NOT_READY",
+                "The order's payment is not ready yet. Retry shortly."));
+        }
+
+        // Not 403: a customer must not learn that someone else's order exists.
+        if (!request.RequesterIsAdmin
+            && !string.Equals(payment.UserId, request.RequesterId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<CreatePaymentIntentDto>.Failure(new Error(
+                "PAYMENT_NOT_FOUND",
+                "Payment not found."));
+        }
+
+        if (payment.Status != PaymentStatus.Pending
+            || !string.Equals(payment.PaymentMethod, StripeMethod, StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrEmpty(payment.PaymentIntentId))
         {
             return Result<CreatePaymentIntentDto>.Failure(new Error(
                 "PAYMENT_ALREADY_EXISTS",
                 "Payment already exists for this order."));
         }
 
-        var payment = new PaymentTransaction
-        {
-            Id = Guid.NewGuid(),
-            OrderId = request.OrderId,
-            UserId = request.UserId,
-            Amount = request.Amount,
-            Currency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim().ToUpperInvariant(),
-            PaymentMethod = "Stripe",
-            Status = PaymentStatus.Processing,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            StripeStatus = "requires_payment_method"
-        };
-
-        await _paymentRepository.AddAsync(payment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
         try
         {
             var stripeCustomerId = await _stripeCustomerService.CreateOrGetCustomerAsync(
-                request.UserId,
+                payment.UserId,
                 request.Email,
                 cancellationToken);
 
@@ -80,6 +87,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
             payment.StripeCustomerId = stripeCustomerId;
             payment.PaymentIntentId = stripeIntent.PaymentIntentId;
             payment.StripeStatus = stripeIntent.Status;
+            payment.Status = PaymentStatus.Processing;
             payment.UpdatedAt = DateTime.UtcNow;
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
@@ -103,7 +111,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create Stripe payment intent for order {OrderId} and user {UserId}", request.OrderId, request.UserId);
+            _logger.LogError(ex, "Failed to create Stripe payment intent for order {OrderId} and user {UserId}", payment.OrderId, payment.UserId);
 
             payment.Status = PaymentStatus.Failed;
             payment.ErrorMessage = "Failed to create Stripe payment intent.";

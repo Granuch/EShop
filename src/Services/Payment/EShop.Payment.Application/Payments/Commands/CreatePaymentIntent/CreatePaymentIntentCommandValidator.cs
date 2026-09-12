@@ -9,14 +9,8 @@ public sealed class CreatePaymentIntentCommandValidator : AbstractValidator<Crea
         RuleFor(x => x.OrderId)
             .NotEmpty().WithMessage("OrderId is required.");
 
-        RuleFor(x => x.UserId)
-            .NotEmpty().WithMessage("UserId is required.");
-
-        RuleFor(x => x.Amount)
-            .GreaterThan(0).WithMessage("Amount must be greater than 0.");
-
-        RuleFor(x => x.Currency)
-            .Must(static currency => string.IsNullOrWhiteSpace(currency) || currency.Length == 3)
-            .WithMessage("Currency must be a 3-letter ISO code.");
+        RuleFor(x => x.RequesterId)
+            .NotEmpty().WithMessage("The requesting user is required.")
+            .When(x => !x.RequesterIsAdmin);
     }
 }

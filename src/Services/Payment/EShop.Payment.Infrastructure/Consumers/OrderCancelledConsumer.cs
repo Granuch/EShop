@@ -23,14 +23,16 @@ namespace EShop.Payment.Infrastructure.Consumers;
 /// <list type="bullet">
 ///   <item><b>No payment yet</b> — the cancellation overtook <c>OrderCreatedEvent</c> (separate queues,
 ///   no ordering between them). A <see cref="PaymentStatus.Cancelled"/> record is left behind:
-///   <c>OrderCreatedConsumer</c> treats it as final and never charges, and the unique OrderId index
-///   makes <c>CreatePaymentIntent</c> refuse too.</item>
+///   <c>OrderCreatedConsumer</c> treats it as final and never charges, and <c>CreatePaymentIntent</c>
+///   refuses a payment that is not Pending.</item>
 ///   <item><b>Pending or Processing</b> — a Stripe intent is cancelled at Stripe first, then the
 ///   payment is recorded Cancelled. With no intent recorded there is nothing at the provider to
-///   cancel. A Stripe payment whose intent is still being created is not visible here at all:
-///   <c>CreatePaymentIntentCommand</c> writes the row and the intent id in one transaction, so the two
-///   writers meet on the unique OrderId index. Whichever inserts second fails — the HTTP request with
-///   a 409, or this consumer with a retry that then finds the intent and cancels it.</item>
+///   cancel. Since Payment audit Stage 2 a Stripe payment's row comes from <c>OrderCreatedConsumer</c>,
+///   and <c>CreatePaymentIntentCommand</c> only updates it with its intent id, in one transaction. So
+///   an intent still being created meets this consumer on the row version: if the cancellation commits
+///   first, the request finds the payment Cancelled (409) or loses its save and returns no client
+///   secret, leaving an intent at Stripe nobody can pay; if the request commits first, this consumer
+///   finds the intent and cancels it.</item>
 ///   <item><b>Success</b>, or <b>Stripe refuses</b> because the intent already succeeded — the money
 ///   is taken. By default that is an error, thrown as <see cref="PaymentCancellationFailedException"/>,
 ///   so the message lands in the error queue for a refund rather than being acknowledged with a log

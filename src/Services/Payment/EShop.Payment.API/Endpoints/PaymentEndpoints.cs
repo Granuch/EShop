@@ -42,18 +42,12 @@ public static class PaymentEndpoints
                 return authError!;
             }
 
-            if (!user.IsAdmin() &&
-                !string.Equals(subjectId, request.UserId, StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Forbid();
-            }
-
-            var resolvedUserId = user.IsAdmin() ? request.UserId : subjectId!;
+            // Payment audit Stage 2 (C2, D4): the order is all the client names. Who owns it, and what it costs,
+            // come from Payment's own record of the order.
             var result = await mediator.Send(new CreatePaymentIntentCommand(
                 request.OrderId,
-                resolvedUserId,
-                request.Amount,
-                request.Currency,
+                subjectId,
+                user.IsAdmin(),
                 request.Email), cancellationToken);
 
             return result.Match(
@@ -64,16 +58,20 @@ public static class PaymentEndpoints
                     value.Status)),
                 error => ProblemResults.For(
                     error,
-                    error.Code == "PAYMENT_ALREADY_EXISTS"
-                        ? StatusCodes.Status409Conflict
-                        : StatusCodes.Status400BadRequest));
+                    error.Code switch
+                    {
+                        "PAYMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
+                        "PAYMENT_ALREADY_EXISTS" or "PAYMENT_NOT_READY" => StatusCodes.Status409Conflict,
+                        _ => StatusCodes.Status400BadRequest
+                    }));
         })
         .WithName("CreateStripePaymentIntent")
         .RequireAuthorization()
         .Produces<CreatePaymentIntentResponse>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapPost("/", async (
             CreatePaymentRequest request,
@@ -369,11 +367,12 @@ public sealed record CreatePaymentRequest(
     string? Currency,
     string? PaymentMethod);
 
+/// <summary>
+/// Payment audit Stage 2 (C2, D4): only the order. The user, amount and currency it used to carry are ignored if
+/// sent; they come from Payment's record of the order.
+/// </summary>
 public sealed record CreatePaymentIntentRequest(
     Guid OrderId,
-    string UserId,
-    decimal Amount,
-    string? Currency,
     string? Email);
 
 public sealed record CreatePaymentIntentResponse(
