@@ -96,7 +96,7 @@ public class RefundPaymentCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var processor = new Mock<IPaymentProcessor>();
-        processor.Setup(x => x.RefundPaymentAsync("pi_test", 20m, It.IsAny<CancellationToken>()))
+        processor.Setup(x => x.RefundPaymentAsync("pi_test", 100m, It.IsAny<CancellationToken>()))
             .ReturnsAsync(PaymentResult.Successful("pi_test"));
 
         var outbox = new Mock<IIntegrationEventOutbox>();
@@ -109,7 +109,7 @@ public class RefundPaymentCommandHandlerTests
             dbContext,
             Mock.Of<ILogger<RefundPaymentCommandHandler>>());
 
-        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, 20m, "customer request"), CancellationToken.None);
+        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, null, "customer request"), CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value!.Status, Is.EqualTo("REFUNDED"));
@@ -124,17 +124,41 @@ public class RefundPaymentCommandHandlerTests
 
         var stripePaymentService = new Mock<IStripePaymentService>();
         stripePaymentService
-            .Setup(x => x.CreateRefundAsync("pi_stripe_001", 50m, "USD", It.IsAny<CancellationToken>()))
+            .Setup(x => x.CreateRefundAsync("pi_stripe_001", 100m, "USD", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StripeRefundResult("re_test", "succeeded"));
 
         var outbox = new Mock<IIntegrationEventOutbox>();
         var handler = CreateHandler(dbContext, stripePaymentService: stripePaymentService.Object, outbox: outbox.Object);
 
-        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, 50m, "test"), CancellationToken.None);
+        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, 100m, "test"), CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value!.Status, Is.EqualTo("REFUNDED"));
         outbox.Verify(x => x.Enqueue(It.IsAny<PaymentRefundedEvent>(), It.IsAny<string?>()), Times.Once);
+    }
+
+    /// <summary>
+    /// Ordering audit Stage 11. A partial refund used to go through and mark the whole payment Refunded.
+    /// It is refused before any provider is called, and the payment is left as it was.
+    /// </summary>
+    [TestCase(20)]
+    [TestCase(99.99)]
+    [TestCase(100.01)]
+    public async Task Handle_WithAnAmountOtherThanTheFullPayment_IsRefused_AndRefundsNothing(double amount)
+    {
+        await using var dbContext = CreateDbContext();
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_stripe_partial");
+
+        var stripePaymentService = new Mock<IStripePaymentService>(MockBehavior.Strict);
+        var processor = new Mock<IPaymentProcessor>(MockBehavior.Strict);
+        var outbox = new Mock<IIntegrationEventOutbox>(MockBehavior.Strict);
+        var handler = CreateHandler(dbContext, processor.Object, stripePaymentService.Object, outbox.Object);
+
+        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, (decimal)amount, "partial"), CancellationToken.None);
+
+        Assert.That(result.IsFailure, Is.True);
+        Assert.That(result.Error!.Code, Is.EqualTo("PARTIAL_REFUND_NOT_SUPPORTED"));
+        Assert.That(dbContext.PaymentTransactions.Single(p => p.Id == payment.Id).Status, Is.EqualTo(PaymentStatus.Success));
     }
 
     [TestCase("failed")]

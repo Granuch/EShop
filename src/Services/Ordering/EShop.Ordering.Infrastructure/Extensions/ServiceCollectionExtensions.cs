@@ -152,6 +152,7 @@ public static class ServiceCollectionExtensions
                 bus.AddConsumer<BasketCheckedOutConsumer>();
                 bus.AddConsumer<PaymentSuccessConsumer>();
                 bus.AddConsumer<PaymentFailedConsumer>();
+                bus.AddConsumer<PaymentRefundedConsumer>();
             });
 
         return services;

@@ -195,6 +195,27 @@ public class Order : AggregateRoot<Guid>
         });
     }
 
+    /// <summary>
+    /// Records that Payment refunded this order's payment in full (Ordering audit Stage 11, driven by
+    /// <c>PaymentRefundedEvent</c>). Refunded is final: nothing moves an order out of it.
+    ///
+    /// <para>
+    /// Pending is allowed on purpose. A payment can succeed, and be refunded, before Ordering has processed
+    /// its success; left Pending, the order would be marked Paid by that late success and could then ship.
+    /// A cancelled order is refused: it is already final, and its refund only settles the payment side.
+    /// </para>
+    /// </summary>
+    public void Refund()
+    {
+        if (Status == OrderStatus.Refunded)
+            throw new DomainException("Order is already refunded.");
+
+        if (Status == OrderStatus.Cancelled)
+            throw new DomainException("A cancelled order cannot be refunded; its payment is settled in Payment.");
+
+        Status = OrderStatus.Refunded;
+    }
+
     private void RecalculateTotal()
     {
         TotalPrice = _items.Sum(i => i.SubTotal);

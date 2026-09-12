@@ -15,20 +15,24 @@ public class PaymentRefundAndSecurityTests : AuthenticatedIntegrationTestBase
 {
     private const string PaymentsEndpoint = "/api/v1/payments";
 
+    /// <summary>
+    /// Ordering audit Stage 11. Reversed from "ShouldReturnOkAndRefundedStatus": the payment's owner could
+    /// refund it at any time, even after the order shipped. Refunds are admin-only now, and the payment
+    /// is left untouched. Admin refunds are covered by <see cref="AdminRefundTests"/>.
+    /// </summary>
     [Test]
-    public async Task RefundPayment_WhenPaymentSucceeded_ShouldReturnOkAndRefundedStatus()
+    public async Task RefundPayment_AsThePaymentsOwner_IsForbidden_AndLeavesThePaymentUntouched()
     {
         var created = await CreatePaymentAsync();
 
         var response = await Client.PostAsJsonAsync(
             $"{PaymentsEndpoint}/{created.Id}/refund",
-            new { Amount = 10m, Reason = "Customer request" });
+            new { Reason = "Customer request" });
 
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
 
-        var payload = await response.Content.ReadFromJsonAsync<PaymentResponse>();
-        Assert.That(payload, Is.Not.Null);
-        Assert.That(payload!.Status, Is.EqualTo("REFUNDED"));
+        var current = await Client.GetFromJsonAsync<PaymentResponse>($"{PaymentsEndpoint}/{created.Id}");
+        Assert.That(current!.Status, Is.EqualTo("SUCCESS"));
     }
 
     [Test]
@@ -89,8 +93,9 @@ public class PaymentRefundAndSecurityTests : AuthenticatedIntegrationTestBase
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    /// <summary>Was 401 for the missing subject claim; the endpoint is now admin-only, so any non-admin is 403.</summary>
     [Test]
-    public async Task RefundPayment_WithTokenWithoutSubjectClaim_ShouldReturnUnauthorized()
+    public async Task RefundPayment_WithNonAdminTokenWithoutSubjectClaim_IsForbidden()
     {
         var created = await CreatePaymentAsync();
 
@@ -99,9 +104,9 @@ public class PaymentRefundAndSecurityTests : AuthenticatedIntegrationTestBase
 
         var response = await Client.PostAsJsonAsync(
             $"{PaymentsEndpoint}/{created.Id}/refund",
-            new { Amount = 10m, Reason = "Customer request" });
+            new { Reason = "Customer request" });
 
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }
 
     private async Task<PaymentResponse> CreatePaymentAsync()

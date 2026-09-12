@@ -1,3 +1,4 @@
+using System.Globalization;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
@@ -53,13 +54,16 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
                 "Only successful payments can be refunded."));
         }
 
-        var refundAmount = request.Amount ?? payment.Amount;
-        if (refundAmount <= 0 || refundAmount > payment.Amount)
+        // Ordering audit Stage 11. Full refunds only. A partial refund used to mark the whole payment
+        // Refunded, which blocked any further refund and told Ordering all the money had been returned.
+        if (request.Amount is { } requested && requested != payment.Amount)
         {
             return Result<PaymentDto>.Failure(new Error(
-                "INVALID_REFUND_AMOUNT",
-                "Refund amount must be greater than 0 and less than or equal to original amount."));
+                "PARTIAL_REFUND_NOT_SUPPORTED",
+                $"Only a full refund of {payment.Amount.ToString("0.00", CultureInfo.InvariantCulture)} {payment.Currency} is supported."));
         }
+
+        var refundAmount = payment.Amount;
 
         var refundResult = string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase)
             ? await RefundStripePaymentAsync(payment, refundAmount, cancellationToken)

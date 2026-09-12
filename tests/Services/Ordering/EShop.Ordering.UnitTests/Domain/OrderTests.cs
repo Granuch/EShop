@@ -433,6 +433,61 @@ public class OrderTests
 
     #endregion
 
+    #region Refund
+
+    [TestCase(OrderStatus.Pending)]
+    [TestCase(OrderStatus.Paid)]
+    [TestCase(OrderStatus.Shipped)]
+    [TestCase(OrderStatus.Delivered)]
+    public void Refund_FromAnyLiveState_SetsRefunded(OrderStatus from)
+    {
+        var order = OrderIn(from);
+
+        order.Refund();
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Refunded));
+    }
+
+    [Test]
+    public void Refund_CancelledOrder_ShouldThrowAndStayCancelled()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+        order.Cancel("Changed my mind");
+
+        Assert.Throws<DomainException>(() => order.Refund());
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
+    }
+
+    [Test]
+    public void Refund_AlreadyRefundedOrder_ShouldThrowDomainException()
+    {
+        var order = CreatePaidOrder();
+        order.Refund();
+
+        Assert.Throws<DomainException>(() => order.Refund());
+    }
+
+    /// <summary>
+    /// Why a pending order may be refunded: a payment success that arrives after the refund must not mark
+    /// the order Paid, which would let a refunded order ship.
+    /// </summary>
+    [Test]
+    public void RefundedOrder_IsFinal_ALateSuccessCannotMarkItPaid()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+        order.Refund();
+
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<DomainException>(() => order.MarkAsPaid("pi_late", order.TotalPrice));
+            Assert.Throws<DomainException>(() => order.Ship());
+            Assert.Throws<DomainException>(() => order.Cancel("too late"));
+            Assert.That(order.Status, Is.EqualTo(OrderStatus.Refunded));
+        });
+    }
+
+    #endregion
+
     #region ClearDomainEvents
 
     [Test]
@@ -470,6 +525,15 @@ public class OrderTests
         order.Deliver();
         return order;
     }
+
+    private Order OrderIn(OrderStatus status) => status switch
+    {
+        OrderStatus.Pending => Order.Create("user-1", _validAddress, _validItems),
+        OrderStatus.Paid => CreatePaidOrder(),
+        OrderStatus.Shipped => CreateShippedOrder(),
+        OrderStatus.Delivered => CreateDeliveredOrder(),
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
+    };
 
     #endregion
 }

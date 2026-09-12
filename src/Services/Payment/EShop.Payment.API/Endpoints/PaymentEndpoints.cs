@@ -166,32 +166,15 @@ public static class PaymentEndpoints
         .RequireAuthorization("SameUserOrAdmin")
         .Produces<List<PaymentResponse>>(StatusCodes.Status200OK);
 
+        // Ordering audit Stage 11. Admin only: a refund is a manual Payment operation. This used to accept
+        // the payment's owner as well, and required only a successful payment, so a customer could refund
+        // their own payment at any time — including after the order had shipped.
         group.MapPost("/{id:guid}/refund", async (
             Guid id,
             RefundPaymentRequest request,
-            ClaimsPrincipal user,
             IMediator mediator,
             CancellationToken cancellationToken) =>
         {
-            if (!TryResolveUserContext(user, out var subjectId, out var authError))
-            {
-                return authError!;
-            }
-
-            var paymentResult = await mediator.Send(new GetPaymentByIdQuery(id), cancellationToken);
-            if (paymentResult.IsFailure)
-            {
-                return ProblemResults.For(paymentResult.Error!, StatusCodes.Status404NotFound);
-            }
-
-            var payment = paymentResult.Value!;
-
-            if (!user.IsAdmin() &&
-                !string.Equals(subjectId, payment.UserId, StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Forbid();
-            }
-
             var result = await mediator.Send(new RefundPaymentCommand(id, request.Amount, request.Reason), cancellationToken);
 
             return result.Match(
@@ -206,7 +189,7 @@ public static class PaymentEndpoints
                     }));
         })
         .WithName("RefundPayment")
-        .RequireAuthorization()
+        .RequireAuthorization("Admin")
         .Produces<PaymentResponse>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status400BadRequest)

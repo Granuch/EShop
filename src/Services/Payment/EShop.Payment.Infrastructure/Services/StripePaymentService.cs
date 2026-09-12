@@ -59,12 +59,18 @@ public sealed class StripePaymentService : IStripePaymentService
         var normalizedCurrency = NormalizeCurrency(currency);
         var amountMinor = ConvertToMinorUnits(amount, normalizedCurrency);
 
+        // Refunds are full-only (Ordering audit Stage 11), so an intent is refunded at most once and its id
+        // names the refund. A repeat of the same request within Stripe's idempotency window (24 hours) —
+        // a double submit, or a retry after a lost response — returns the first refund instead of a second.
         var refundService = new RefundService();
-        var refund = await refundService.CreateAsync(new RefundCreateOptions
-        {
-            PaymentIntent = paymentIntentId,
-            Amount = amountMinor
-        }, cancellationToken: cancellationToken);
+        var refund = await refundService.CreateAsync(
+            new RefundCreateOptions
+            {
+                PaymentIntent = paymentIntentId,
+                Amount = amountMinor
+            },
+            new RequestOptions { IdempotencyKey = $"refund-{paymentIntentId}" },
+            cancellationToken);
 
         return new StripeRefundResult(refund.Id, refund.Status ?? string.Empty);
     }
