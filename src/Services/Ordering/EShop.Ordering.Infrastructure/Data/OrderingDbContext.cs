@@ -85,7 +85,10 @@ public class OrderingDbContext : BaseDbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Indexes
-            entity.HasIndex(o => o.UserId);
+            // Audit L12. The per-user list filters on UserId and orders by (CreatedAt, Id) descending; this
+            // one index serves both and replaces the single-column UserId index, whose lookups it covers.
+            entity.HasIndex(o => new { o.UserId, o.CreatedAt, o.Id })
+                .IsDescending(false, true, true);
             entity.HasIndex(o => o.Status);
             entity.HasIndex(o => o.CreatedAt);
         });
