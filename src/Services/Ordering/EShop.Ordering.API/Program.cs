@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
@@ -239,6 +241,36 @@ try
         });
     });
 
+    // Audit L9. Ordering relied on the gateway's limiter alone, which anything reaching ordering-api
+    // directly bypasses. This is Catalog's global limiter ported as-is: partitioned per client (never
+    // AddFixedWindowLimiter(name, ...), which is one bucket shared by every caller), off under Testing
+    // unless RateLimiting:EnableInTesting, and read from the same RateLimiting:* keys as Catalog and
+    // Identity so a test host can make it assertable.
+    var rateLimitingEnabled = !builder.Environment.IsEnvironment("Testing")
+        || builder.Configuration.GetValue<bool>("RateLimiting:EnableInTesting");
+    var globalPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+    var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Global:WindowSeconds") ?? 60;
+
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        if (rateLimitingEnabled)
+        {
+            // GetClientPartitionKey normalises IPv4-mapped IPv6, so a dual-stack client cannot claim two
+            // allowances, and it reads the address UseForwardedHeaders has already rewritten.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        AutoReplenishment = true,
+                        PermitLimit = globalPermitLimit,
+                        Window = TimeSpan.FromSeconds(globalWindowSeconds)
+                    }));
+        }
+    });
+
     // Add Health Checks
     var healthChecksBuilder = builder.Services.AddHealthChecks();
 
@@ -368,6 +400,10 @@ static bool IsPostgresStartupException(Exception exception)
     {
         app.UseHttpsRedirection();
     }
+
+    // Audit L9. After HTTPS redirection, so a request that is only going to be redirected does not spend a
+    // permit (Identity's order; Catalog's differs), and before authentication and the endpoints.
+    app.UseRateLimiter();
 
     // Add Prometheus HTTP metrics middleware
     app.UseHttpMetrics(options =>
