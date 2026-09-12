@@ -43,10 +43,10 @@ namespace EShop.Payment.IntegrationTests.Persistence;
 /// decided and before it writes, or the consumer is paused while it is waiting on Stripe, and the other writer
 /// runs to its commit in that gap.</para>
 ///
-/// <para><b>Not pinned, reported instead:</b> Stripe's own <c>payment_intent.canceled</c> webhook committing
-/// <i>before</i> the consumer that cancelled the intent. The consumer loses and its retry finds the payment
-/// Failed (with a <c>PaymentFailedEvent</c> sent) and leaves it. Nothing is lost, but the payment ends Failed
-/// rather than Cancelled.</para>
+/// <para>Stripe's own <c>payment_intent.canceled</c> webhook committing <i>before</i> the consumer that
+/// cancelled the intent used to end the payment Failed, with a "payment failed" email (audit N6). Since Stage
+/// 21 (D17) the consumer tags the intent before cancelling it, and the webhook records a tagged cancellation
+/// as Cancelled; both orderings are pinned below.</para>
 /// </summary>
 [TestFixture]
 public class PaymentWriteCollisionTests
@@ -181,7 +181,8 @@ public class PaymentWriteCollisionTests
             {
                 await ConsumeCancellationAsync(cancellation, stripe.Object, autoRefund: false);
                 cancellationCommitted = true;
-            }));
+            },
+            cancelRequestedByEShop: true));
 
         Assert.That(cancellationCommitted, Is.True, "precondition: the cancellation committed inside the webhook's window");
         Assert.Multiple(async () =>
@@ -192,13 +193,65 @@ public class PaymentWriteCollisionTests
             Assert.That(await WebhookRecordedAsync("evt_canceled_1"), Is.False);
         });
 
-        var redelivered = await DeliverWebhookAsync("evt_canceled_1", "payment_intent.canceled", "canceled");
+        var redelivered = await DeliverWebhookAsync(
+            "evt_canceled_1", "payment_intent.canceled", "canceled", cancelRequestedByEShop: true);
 
         Assert.Multiple(async () =>
         {
             Assert.That(redelivered.IsDuplicate, Is.False);
             Assert.That((await ReadPaymentAsync(payment.Id)).Status, Is.EqualTo(PaymentStatus.Cancelled));
             Assert.That(await OutboxCountAsync<PaymentFailedEvent>(), Is.Zero);
+        });
+    }
+
+    /// <summary>
+    /// Stage 21 (D17), the ordering that was audit N6. The consumer has cancelled the intent at Stripe and not
+    /// yet committed; Stripe's canceled webhook, carrying the consumer's tag, commits first. It records
+    /// Cancelled and sends no PaymentFailedEvent. The consumer then loses on the row version, and its retry
+    /// finds the payment Cancelled: nothing to do.
+    /// </summary>
+    [Test]
+    public async Task ACancellationAndStripesCanceledWebhook_OnOneVersion_TheCancellationWritingSecondIsRejected_AndThePaymentEndsCancelled()
+    {
+        var payment = await SeedStripePaymentAsync(PaymentStatus.Processing);
+        var messageId = Guid.NewGuid();
+        var cancellation = Cancellation(payment.OrderId, messageId);
+        var webhookCommitted = false;
+
+        var stripe = new Mock<IStripePaymentService>(MockBehavior.Strict);
+        stripe.Setup(s => s.CancelPaymentIntentAsync(IntentId, It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                if (!webhookCommitted)
+                {
+                    await DeliverWebhookAsync(
+                        "evt_canceled_1", "payment_intent.canceled", "canceled", cancelRequestedByEShop: true);
+                    webhookCommitted = true;
+                }
+
+                return new StripePaymentIntentCancelResult(IntentId, "canceled");
+            });
+
+        Assert.ThrowsAsync<DbUpdateConcurrencyException>(async () =>
+            await ConsumeCancellationAsync(cancellation, stripe.Object, autoRefund: false));
+
+        Assert.That(webhookCommitted, Is.True, "precondition: the webhook committed inside the consumer's window");
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await ReadPaymentAsync(payment.Id)).Status, Is.EqualTo(PaymentStatus.Cancelled),
+                "the webhook recorded the cancellation, not a failure");
+            Assert.That(await OutboxCountAsync<PaymentFailedEvent>(), Is.Zero, "no \"payment failed\" email");
+            Assert.That(await ClaimedAsync(messageId), Is.False);
+        });
+
+        // MassTransit retries the same message.
+        await ConsumeCancellationAsync(cancellation, stripe.Object, autoRefund: false);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await ReadPaymentAsync(payment.Id)).Status, Is.EqualTo(PaymentStatus.Cancelled));
+            Assert.That(await OutboxCountAsync<PaymentFailedEvent>(), Is.Zero);
+            Assert.That(await ClaimedAsync(messageId), Is.True);
         });
     }
 
@@ -276,12 +329,13 @@ public class PaymentWriteCollisionTests
         string eventId,
         string eventType,
         string intentStatus,
-        Func<Task>? beforeItsWrite = null)
+        Func<Task>? beforeItsWrite = null,
+        bool cancelRequestedByEShop = false)
     {
         await using var db = NewContext();
         var stripe = new Mock<IStripePaymentService>(MockBehavior.Strict);
         stripe.Setup(s => s.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(new StripeWebhookEvent(eventId, eventType, IntentId, intentStatus, null, true));
+            .Returns(new StripeWebhookEvent(eventId, eventType, IntentId, intentStatus, null, true, cancelRequestedByEShop));
 
         IPaymentRepository repository = new PaymentRepository(db);
         if (beforeItsWrite is not null)

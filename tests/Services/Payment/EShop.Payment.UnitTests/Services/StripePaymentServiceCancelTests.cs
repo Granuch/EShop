@@ -37,6 +37,26 @@ public class StripePaymentServiceCancelTests
         Assert.That(StripePaymentService.IsAlreadyCanceled(Error("payment_intent_unexpected_state", "canceled")), Is.True);
     }
 
+    /// <summary>
+    /// Stage 21 (D17): only the exact tag this service sets marks a cancellation as ours; the intent's
+    /// other metadata (orderId, paymentId) must not.
+    /// </summary>
+    [TestCase("true", true)]
+    [TestCase("false", false)]
+    [TestCase(null, false)]
+    public void ACanceledIntent_IsOurCancellation_OnlyWithOurTag(string? tag, bool expected)
+    {
+        var metadata = new Dictionary<string, string> { ["orderId"] = Guid.NewGuid().ToString() };
+        if (tag is not null)
+        {
+            metadata[StripePaymentService.CancelRequestedMetadataKey] = tag;
+        }
+
+        var intent = new PaymentIntent { Status = "canceled", Metadata = metadata };
+
+        Assert.That(StripePaymentService.IsCancelRequestedByEShop(intent), Is.EqualTo(expected));
+    }
+
     [TestCase("api_error")]
     [TestCase("rate_limit")]
     [TestCase("resource_missing")]

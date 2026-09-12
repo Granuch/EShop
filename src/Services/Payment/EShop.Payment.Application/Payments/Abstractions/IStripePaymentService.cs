@@ -22,7 +22,9 @@ public interface IStripePaymentService
 
     /// <summary>
     /// Cancels an intent that has not been captured. An intent Stripe reports as already canceled
-    /// counts as success.
+    /// counts as success. The intent is first tagged as cancelled at EShop's request, so the
+    /// <c>payment_intent.canceled</c> webhook that follows reads <see cref="StripeWebhookEvent.CancelRequestedByEShop"/>
+    /// (Ordering audit Stage 21, D17).
     /// </summary>
     /// <exception cref="PaymentIntentNotCancellableException">
     /// Stripe refused because of the intent's state — above all, it has already succeeded, so the
@@ -61,10 +63,16 @@ public sealed record StripePaymentIntentCancelResult(
     string PaymentIntentId,
     string Status);
 
+/// <param name="CancelRequestedByEShop">
+/// The intent carries the tag <see cref="IStripePaymentService.CancelPaymentIntentAsync"/> sets before it
+/// cancels. So a <c>payment_intent.canceled</c> event is the cancellation of a cancelled order, not a
+/// payment that failed.
+/// </param>
 public sealed record StripeWebhookEvent(
     string Id,
     string Type,
     string PaymentIntentId,
     string Status,
     string? FailureMessage,
-    bool IsSupportedPaymentIntentEvent);
+    bool IsSupportedPaymentIntentEvent,
+    bool CancelRequestedByEShop = false);

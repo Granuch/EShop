@@ -12,6 +12,12 @@ public sealed class StripePaymentService : IStripePaymentService
         "bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf"
     ];
 
+    /// <summary>
+    /// Intent metadata key set to <c>"true"</c> before this service cancels an intent (Ordering audit Stage
+    /// 21, D17). Read back from webhooks as <see cref="StripeWebhookEvent.CancelRequestedByEShop"/>.
+    /// </summary>
+    public const string CancelRequestedMetadataKey = "eshop_cancel_requested";
+
     private readonly StripeSettings _settings;
 
     public StripePaymentService(IOptions<StripeSettings> settings)
@@ -109,6 +115,28 @@ public sealed class StripePaymentService : IStripePaymentService
     {
         var paymentIntentService = new PaymentIntentService();
 
+        // Ordering audit Stage 21 (D17). Tag the intent before cancelling it. Stripe's own
+        // payment_intent.canceled webhook carries the intent as it was when cancelled, tag included, which
+        // is how the webhook tells a cancelled order from a payment cancelled in the Dashboard or by
+        // Stripe. Without it the webhook recorded Failed and sent PaymentFailedEvent — a "payment failed"
+        // email to a customer who had cancelled — whenever it committed before OrderCancelledConsumer.
+        // Stripe merges metadata, so the intent's orderId and paymentId stay.
+        try
+        {
+            await paymentIntentService.UpdateAsync(
+                paymentIntentId,
+                new PaymentIntentUpdateOptions
+                {
+                    Metadata = new Dictionary<string, string> { [CancelRequestedMetadataKey] = "true" }
+                },
+                cancellationToken: cancellationToken);
+        }
+        catch (StripeException ex) when (IsUnexpectedState(ex))
+        {
+            // An intent Stripe will not update is already canceled or past cancelling. The cancel below
+            // classifies which, exactly as it did before the tag existed.
+        }
+
         try
         {
             var intent = await paymentIntentService.CancelAsync(
@@ -191,8 +219,14 @@ public sealed class StripePaymentService : IStripePaymentService
             paymentIntent.LastPaymentError?.Message,
             stripeEvent.Type is "payment_intent.succeeded"
                 or "payment_intent.payment_failed"
-                or "payment_intent.canceled");
+                or "payment_intent.canceled",
+            IsCancelRequestedByEShop(paymentIntent));
     }
+
+    public static bool IsCancelRequestedByEShop(PaymentIntent paymentIntent)
+        => paymentIntent.Metadata is not null
+           && paymentIntent.Metadata.TryGetValue(CancelRequestedMetadataKey, out var tag)
+           && string.Equals(tag, "true", StringComparison.Ordinal);
 
     private static string NormalizeCurrency(string currency)
     {

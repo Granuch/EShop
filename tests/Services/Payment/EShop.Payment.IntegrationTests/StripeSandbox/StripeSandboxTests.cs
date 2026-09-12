@@ -37,6 +37,7 @@ public class StripeSandboxTests
     private const long AmountMinor = 1000;
     private const decimal Amount = 10m;
 
+    private string _key = null!;
     private StripeClient _client = null!;
     private StripePaymentService _service = null!;
 
@@ -62,6 +63,7 @@ public class StripeSandboxTests
             Assert.Ignore("Stripe sandbox tests need Stripe__SecretKey (or STRIPE_SECRET_KEY) set to a real sk_test_ key.");
         }
 
+        _key = key!;
         _client = new StripeClient(key);
         _service = new StripePaymentService(Options.Create(new StripeSettings { Enabled = true, SecretKey = key! }));
     }
@@ -134,6 +136,87 @@ public class StripeSandboxTests
 
         var refunds = await new RefundService(_client).ListAsync(new RefundListOptions { PaymentIntent = intent.Id });
         Assert.That(refunds.Data, Has.Count.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Stage 21 (D17), end to end with Stripe's own event. Our cancel tags the intent, and the
+    /// <c>payment_intent.canceled</c> event Stripe then emits carries the tag, which is what our webhook
+    /// parsing reads. The control is an intent cancelled outside our service: its event must not read as ours,
+    /// or a Dashboard cancellation would be recorded Cancelled and Ordering never told.
+    /// </summary>
+    [Test]
+    public async Task StripesCanceledEvent_CarriesOurTag_OnlyWhenWeCancelledTheIntent()
+    {
+        var ours = await AnUncapturedIntentAsync();
+        var theirs = await AnUncapturedIntentAsync();
+
+        var cancelled = await _service.CancelPaymentIntentAsync(ours.Id);
+        await new PaymentIntentService(_client).CancelAsync(theirs.Id);
+        Assert.That(cancelled.Status, Is.EqualTo("canceled"));
+
+        var parser = new StripePaymentService(Options.Create(new StripeSettings
+        {
+            Enabled = true,
+            SecretKey = _key,
+            SkipWebhookSignatureVerification = true
+        }));
+
+        var ourEvent = parser.ConstructWebhookEvent((await CanceledEventForAsync(ours.Id)).ToJson(), string.Empty);
+        var theirEvent = parser.ConstructWebhookEvent((await CanceledEventForAsync(theirs.Id)).ToJson(), string.Empty);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ourEvent.Type, Is.EqualTo("payment_intent.canceled"));
+            Assert.That(ourEvent.PaymentIntentId, Is.EqualTo(ours.Id));
+            Assert.That(ourEvent.CancelRequestedByEShop, Is.True);
+            Assert.That(theirEvent.PaymentIntentId, Is.EqualTo(theirs.Id));
+            Assert.That(theirEvent.CancelRequestedByEShop, Is.False);
+        });
+    }
+
+    /// <summary>
+    /// The tag is written before the cancel, and Stripe may refuse to update an intent that is already
+    /// canceled. Cancelling twice must still count as done, as it did before the tag existed.
+    /// </summary>
+    [Test]
+    public async Task OurCancel_OfAnIntentAlreadyCanceled_StillCountsAsCanceled()
+    {
+        var intent = await AnUncapturedIntentAsync();
+        await new PaymentIntentService(_client).CancelAsync(intent.Id);
+
+        var result = await _service.CancelPaymentIntentAsync(intent.Id);
+
+        Assert.That(result.Status, Is.EqualTo("canceled"));
+    }
+
+    private async Task<PaymentIntent> AnUncapturedIntentAsync()
+        => await new PaymentIntentService(_client).CreateAsync(new PaymentIntentCreateOptions
+        {
+            Amount = AmountMinor,
+            Currency = "usd",
+            PaymentMethodTypes = ["card"],
+            Description = "EShop Payment integration test (Ordering audit Stage 21)",
+            Metadata = new Dictionary<string, string> { ["source"] = "EShop.Payment.IntegrationTests" }
+        });
+
+    /// <summary>Stripe writes events asynchronously, so poll briefly for the intent's canceled event.</summary>
+    private async Task<Event> CanceledEventForAsync(string paymentIntentId)
+    {
+        var events = new EventService(_client);
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var page = await events.ListAsync(new EventListOptions { Type = "payment_intent.canceled", Limit = 50 });
+            var match = page.Data.FirstOrDefault(e => e.Data.Object is PaymentIntent pi && pi.Id == paymentIntentId);
+            if (match is not null)
+            {
+                return match;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Fail($"Stripe emitted no payment_intent.canceled event for {paymentIntentId} within 20 s.");
+        return null!;
     }
 
     /// <summary>

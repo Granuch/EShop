@@ -111,6 +111,22 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
             case "payment_intent.canceled":
                 if (payment.Status != PaymentStatus.Success
                     && payment.Status != PaymentStatus.Refunded
+                    && payment.Status != PaymentStatus.Cancelled
+                    && stripeEvent.CancelRequestedByEShop)
+                {
+                    // Ordering audit Stage 21 (D17). OrderCancelledConsumer tagged this intent and cancelled
+                    // it, and this webhook got here before that consumer committed. The order was cancelled;
+                    // the payment did not fail. Record what the consumer will find, send no PaymentFailedEvent.
+                    // The consumer then loses on the row version and its retry finds the payment Cancelled.
+                    payment.Status = PaymentStatus.Cancelled;
+                    payment.StripeStatus = stripeEvent.Status;
+                    payment.ErrorMessage = "Payment intent cancelled because its order was cancelled.";
+                    payment.ProcessedAt = DateTime.UtcNow;
+                    payment.UpdatedAt = DateTime.UtcNow;
+                    await _paymentRepository.UpdateAsync(payment, cancellationToken);
+                }
+                else if (payment.Status != PaymentStatus.Success
+                    && payment.Status != PaymentStatus.Refunded
                     && payment.Status != PaymentStatus.Cancelled)
                 {
                     payment.Status = PaymentStatus.Failed;
