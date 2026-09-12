@@ -563,8 +563,9 @@ try
 
 
     // Configure the HTTP request pipeline
-    // OpenAPI and Scalar UI - available in Development and Production (not in Testing)
-    if (!app.Environment.IsEnvironment("Testing"))
+    // OpenAPI and Scalar UI: every environment except Production, the one rule all services share
+    // (Ordering audit L10, EShopApiDocs). This used to exclude Testing and serve Production.
+    if (EShopApiDocs.IsExposedIn(app.Environment))
     {
         // OpenAPI JSON endpoint - must be mapped first
         app.MapOpenApi();
@@ -649,8 +650,8 @@ try
         environment = app.Environment.EnvironmentName,
         endpoints = new
         {
-            documentation = !app.Environment.IsEnvironment("Testing") ? "/scalar/v1" : "Not available in Testing",
-            openapi = !app.Environment.IsEnvironment("Testing") ? "/openapi/v1.json" : "Not available in Testing",
+            documentation = EShopApiDocs.IsExposedIn(app.Environment) ? "/scalar/v1" : "Not available in Production",
+            openapi = EShopApiDocs.IsExposedIn(app.Environment) ? "/openapi/v1.json" : "Not available in Production",
             health = "/health",
             healthReady = "/health/ready",
             healthLive = "/health/live",

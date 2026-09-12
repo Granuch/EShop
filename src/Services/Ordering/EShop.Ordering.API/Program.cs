@@ -310,15 +310,15 @@ try
     builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 
     // AddEfConcurrency must precede AddEfDuplicateKey: DbUpdateConcurrencyException derives
-// from DbUpdateException, so the broader mapper would otherwise swallow it.
-builder.Services.AddEShopProblemDetails(options => options
-    .AddCommon()
-    .AddNotFound()
-    .AddEfConcurrency()
-    .AddEfDuplicateKey()
-    .AddMalformedJsonBody());
+    // from DbUpdateException, so the broader mapper would otherwise swallow it.
+    builder.Services.AddEShopProblemDetails(options => options
+        .AddCommon()
+        .AddNotFound()
+        .AddEfConcurrency()
+        .AddEfDuplicateKey()
+        .AddMalformedJsonBody());
 
-var app = builder.Build();
+    var app = builder.Build();
 
     // Apply database migrations automatically
     if (!useInMemoryDb)
@@ -363,21 +363,10 @@ var app = builder.Build();
 
     app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
-static bool IsPostgresStartupException(Exception exception)
-{
-    if (exception is PostgresException { SqlState: "57P03" })
-    {
-        return true;
-    }
-
-    return exception.InnerException is not null
-        && IsPostgresStartupException(exception.InnerException);
-}
-
     app.UseEShopRequestLogging();
 
-    // OpenAPI and Scalar UI
-    if (!app.Environment.IsEnvironment("Testing"))
+    // OpenAPI and Scalar UI: every environment except Production, the one rule all services share (L10).
+    if (EShopApiDocs.IsExposedIn(app.Environment))
     {
         app.MapOpenApi();
 
@@ -454,8 +443,8 @@ static bool IsPostgresStartupException(Exception exception)
         environment = app.Environment.EnvironmentName,
         endpoints = new
         {
-            documentation = !app.Environment.IsEnvironment("Testing") ? "/scalar/v1" : "Not available in Testing",
-            openapi = !app.Environment.IsEnvironment("Testing") ? "/openapi/v1.json" : "Not available in Testing",
+            documentation = EShopApiDocs.IsExposedIn(app.Environment) ? "/scalar/v1" : "Not available in Production",
+            openapi = EShopApiDocs.IsExposedIn(app.Environment) ? "/openapi/v1.json" : "Not available in Production",
             health = "/health",
             healthReady = "/health/ready",
             healthLive = "/health/live",
@@ -495,4 +484,17 @@ catch (Exception ex) when (ex is not HostAbortedException)
 finally
 {
     Log.CloseAndFlush();
+}
+
+// Used by the startup migration loop. It sat between two middleware registrations (audit L10); a local
+// function declared at top level is in scope for all the statements above.
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
 }

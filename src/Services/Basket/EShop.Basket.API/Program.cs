@@ -175,7 +175,9 @@ var app = builder.Build();
 
 app.UseGlobalExceptionHandler();
 
-if (app.Environment.IsDevelopment())
+// OpenAPI and Scalar UI: every environment except Production, the one rule all services share (Ordering
+// audit L10, EShopApiDocs). This was Development only.
+if (EShopApiDocs.IsExposedIn(app.Environment))
 {
     app.MapOpenApi();
 

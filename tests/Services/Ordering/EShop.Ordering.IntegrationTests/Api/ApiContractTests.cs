@@ -35,6 +35,19 @@ public class ApiContractTests : AuthenticatedIntegrationTestBase
     }
 
     /// <summary>
+    /// Audit L10 / D15: the API docs are served in every environment except Production — including Testing,
+    /// which used to be the one environment where they were not.
+    /// </summary>
+    [TestCase("/openapi/v1.json")]
+    [TestCase("/scalar/v1")]
+    public async Task TheApiDocs_AreServedOutsideProduction(string path)
+    {
+        using var anonymous = Factory.CreateClient();
+
+        (await anonymous.GetAsync(path)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    /// <summary>
     /// Minimal-API binding swallowed the JsonException and answered with a bare 400 and an empty body, so
     /// a client could not tell what was wrong. It is now problem+json with an error code.
     /// </summary>

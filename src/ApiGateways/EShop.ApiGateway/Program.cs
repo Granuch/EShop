@@ -230,7 +230,9 @@ app.UseMiddleware<BasketProxyGuardMiddleware>();
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();
 
-if (app.Environment.IsDevelopment())
+// OpenAPI: every environment except Production, the one rule all services share (Ordering audit L10,
+// EShopApiDocs). This was Development only.
+if (EShopApiDocs.IsExposedIn(app.Environment))
 {
     app.MapOpenApi();
 }
