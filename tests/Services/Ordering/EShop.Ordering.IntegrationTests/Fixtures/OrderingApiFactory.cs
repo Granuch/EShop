@@ -16,8 +16,9 @@ using Microsoft.IdentityModel.Tokens;
 namespace EShop.Ordering.IntegrationTests.Fixtures;
 
 /// <summary>
-/// Custom WebApplicationFactory for Ordering Integration tests.
-/// Uses In-Memory database for testing.
+/// Custom WebApplicationFactory for Ordering integration tests. On its own it uses an InMemory
+/// database; <see cref="PostgresOrderingApiFactory"/>, the default for <see cref="IntegrationTestBase"/>,
+/// swaps in a real PostgreSQL database.
 /// </summary>
 public class OrderingApiFactory : WebApplicationFactory<Program>
 {
@@ -67,11 +68,7 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
             }
 
-            // Add InMemory database with unique name per factory instance
-            services.AddDbContext<OrderingDbContext>(options =>
-            {
-                options.UseInMemoryDatabase(_databaseName);
-            });
+            ConfigureDatabase(services);
 
             // Re-register IUnitOfWork with the new DbContext
             services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<OrderingDbContext>());
@@ -127,6 +124,18 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
     {
     }
 
+    /// <summary>
+    /// InMemory, one database per factory. <see cref="PostgresOrderingApiFactory"/> — the default for
+    /// <see cref="IntegrationTestBase"/> since Ordering audit M11 — replaces this with Npgsql.
+    /// </summary>
+    protected virtual void ConfigureDatabase(IServiceCollection services)
+    {
+        services.AddDbContext<OrderingDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+    }
+
+    /// <summary>InMemory has no migrations, so it needs <c>EnsureCreated</c>; the Postgres factory overrides this.</summary>
+    protected virtual Task EnsureSchemaAsync(OrderingDbContext db) => db.Database.EnsureCreatedAsync();
+
     public async Task InitializeDatabaseAsync()
     {
         if (_databaseSeeded) return;
@@ -135,7 +144,7 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
         var db = scope.ServiceProvider.GetRequiredService<OrderingDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<OrderingApiFactory>>();
 
-        await db.Database.EnsureCreatedAsync();
+        await EnsureSchemaAsync(db);
 
         try
         {

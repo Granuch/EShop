@@ -76,7 +76,12 @@ try
     builder.Services.AddOrderingApplication();
 
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)
-    var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+    // Testing defaults to the InMemory provider, but a test host opts into real PostgreSQL with
+    // Testing:UseRelationalDatabase=true (Ordering audit M11) — the same switch, for the same reason, as
+    // Identity and Catalog. It must arrive through UseSetting: this line runs while the app is composed,
+    // so a ConfigureAppConfiguration source is too late and InMemory would silently win.
+    var useInMemoryDb = builder.Environment.IsEnvironment("Testing")
+        && !builder.Configuration.GetValue<bool>("Testing:UseRelationalDatabase");
     builder.Services.AddOrderingInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 
     // Add MassTransit with RabbitMQ messaging

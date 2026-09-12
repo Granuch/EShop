@@ -21,6 +21,13 @@ namespace EShop.Ordering.IntegrationTests.Caching;
 [Category("Integration")]
 public class OrderCacheInvalidationTests : AuthenticatedIntegrationTestBase
 {
+    /// <summary>
+    /// A host per test. The cache under test lives in the host, and some tests here write an order straight
+    /// to the database — which, correctly, evicts nothing — so on a shared host a neighbour's cached list
+    /// hides the new order and the test fails for the wrong reason.
+    /// </summary>
+    protected override bool UseFixtureScopedHost => false;
+
     private string ListUrl => $"/api/v1/users/{TestUserId}/orders";
 
     private async Task<PagedOrderResponse> ListAsync() =>

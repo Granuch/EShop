@@ -33,6 +33,14 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
         Items = [.. items]
     };
 
+    /// <summary>
+    /// The host, its fake Catalog and its database are shared by the whole fixture (M11), so a test
+    /// that takes Catalog down must not leave it down for the next one.
+    /// </summary>
+    [SetUp]
+    public void CatalogIsUp() => Factory.Catalog.IsUnavailable = false;
+
+    /// <summary>Counted before and after, because earlier tests in this fixture have stored orders too.</summary>
     private async Task<int> StoredOrderCountAsync()
     {
         using var scope = Factory.Services.CreateScope();
@@ -99,13 +107,14 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
     public async Task CreateOrder_WithAProductCatalogDoesNotKnow_ShouldReturnBadRequest_AndStoreNothing()
     {
         var request = RequestFor(Item(Product()), Item(Guid.NewGuid()));
+        var before = await StoredOrderCountAsync();
 
         var response = await Client.PostAsJsonAsync(OrdersEndpoint, request);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!
             .ErrorCode.Should().Be("Order.ProductUnavailable");
-        (await StoredOrderCountAsync()).Should().Be(0);
+        (await StoredOrderCountAsync()).Should().Be(before);
     }
 
     /// <summary>A Catalog outage must not read as the client's fault (400) or as a crash (500).</summary>
@@ -113,6 +122,7 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
     public async Task CreateOrder_WhenCatalogIsUnavailable_ShouldReturnServiceUnavailable_AndStoreNothing()
     {
         var request = RequestFor(Item(Product()));
+        var before = await StoredOrderCountAsync();
         Factory.Catalog.IsUnavailable = true;
 
         var response = await Client.PostAsJsonAsync(OrdersEndpoint, request);
@@ -120,7 +130,7 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!
             .ErrorCode.Should().Be("Catalog.Unavailable");
-        (await StoredOrderCountAsync()).Should().Be(0);
+        (await StoredOrderCountAsync()).Should().Be(before);
     }
 
     [Test]
@@ -153,12 +163,14 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
             _ => request with { State = value }
         };
 
+        var before = await StoredOrderCountAsync();
+
         var response = await Client.PostAsJsonAsync(OrdersEndpoint, request);
         var body = await response.Content.ReadAsStringAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("Validation.Failed").And.Contain(field);
-        (await StoredOrderCountAsync()).Should().Be(0);
+        (await StoredOrderCountAsync()).Should().Be(before);
     }
 
     [Test]
