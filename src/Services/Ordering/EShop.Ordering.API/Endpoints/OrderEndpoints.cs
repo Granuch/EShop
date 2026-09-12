@@ -4,6 +4,7 @@ using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Ordering.Application.Orders.Commands.AddOrderItem;
 using EShop.Ordering.Application.Orders.Commands.CancelOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
+using EShop.Ordering.Application.Orders.Commands.DeliverOrder;
 using EShop.Ordering.Application.Orders.Commands.RemoveOrderItem;
 using EShop.Ordering.Application.Orders.Commands.ShipOrder;
 using EShop.Ordering.Application.Orders.Queries;
@@ -166,6 +167,23 @@ public static class OrderEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // POST /api/v1/orders/{id}/deliver (admin only) — audit L2, decision D13: nothing could make an
+        // order Delivered before this.
+        group.MapPost("/{id:guid}/deliver", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new DeliverOrderCommand { OrderId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => ProblemForError(error));
+        })
+        .WithName("DeliverOrder")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
     }
 
     /// <summary>
@@ -182,7 +200,8 @@ public static class OrderEndpoints
     internal static int StatusFor(string errorCode) => errorCode switch
     {
         _ when errorCode.EndsWith(".NotFound", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
-        "Order.NotPaidYet" or "Order.NotModifiable" or "Order.NotCancellable" => StatusCodes.Status409Conflict,
+        "Order.NotPaidYet" or "Order.NotShippedYet" or "Order.NotModifiable" or "Order.NotCancellable"
+            => StatusCodes.Status409Conflict,
         "Catalog.Unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest
     };

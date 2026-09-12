@@ -48,6 +48,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["DELETE /api/v1/orders/{id:guid}/items/{itemId:guid}"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/cancel"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/ship"] = "Admin",
+        ["POST /api/v1/orders/{id:guid}/deliver"] = "Admin",
         ["GET /api/v1/users/{userId}/orders"] = "SameUserOrAdmin",
     };
 
@@ -154,6 +155,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         (await Client.GetAsync("/api/v1/orders"))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.PostAsync($"/api/v1/orders/{order.Id}/ship", null))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.PostAsync($"/api/v1/orders/{order.Id}/deliver", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 

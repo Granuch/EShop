@@ -433,7 +433,8 @@ static bool IsPostgresStartupException(Exception exception)
                 addItem = "POST /api/v1/orders/{id}/items",
                 removeItem = "DELETE /api/v1/orders/{id}/items/{itemId}",
                 cancel = "POST /api/v1/orders/{id}/cancel",
-                ship = "POST /api/v1/orders/{id}/ship (Admin)"
+                ship = "POST /api/v1/orders/{id}/ship (Admin)",
+                deliver = "POST /api/v1/orders/{id}/deliver (Admin)"
             }
         }
     }))

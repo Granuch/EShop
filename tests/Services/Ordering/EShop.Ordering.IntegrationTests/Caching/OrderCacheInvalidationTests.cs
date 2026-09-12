@@ -126,4 +126,23 @@ public class OrderCacheInvalidationTests : AuthenticatedIntegrationTestBase
 
         (await ListAsync()).Items.Single(o => o.Id == id).Status.Should().Be(OrderStatus.Shipped);
     }
+
+    /// <summary>Audit L2 / D13: the new deliver endpoint invalidates like ship does.</summary>
+    [Test]
+    public async Task ADelivery_ShowsInAnAlreadyCachedList_AndTheCachedOrder()
+    {
+        Guid id;
+        using (var scope = CreateScope())
+        {
+            id = (await OrderingDataHelper.CreateShippedOrderAsync(scope.ServiceProvider, TestUserId)).Id;
+        }
+
+        (await ListAsync()).Items.Single(o => o.Id == id).Status.Should().Be(OrderStatus.Shipped);
+        (await GetAsync(id)).Status.Should().Be(OrderStatus.Shipped);
+
+        (await Client.PostAsync($"/api/v1/orders/{id}/deliver", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await ListAsync()).Items.Single(o => o.Id == id).Status.Should().Be(OrderStatus.Delivered);
+        (await GetAsync(id)).Status.Should().Be(OrderStatus.Delivered);
+    }
 }

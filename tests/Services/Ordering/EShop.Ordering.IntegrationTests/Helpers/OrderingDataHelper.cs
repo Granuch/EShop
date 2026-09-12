@@ -54,6 +54,22 @@ public static class OrderingDataHelper
         return order;
     }
 
+    public static async Task<Order> CreateShippedOrderAsync(IServiceProvider serviceProvider, string userId = "test-user-1")
+    {
+        var db = serviceProvider.GetRequiredService<OrderingDbContext>();
+
+        var address = new Address("123 Test St", "TestCity", "TS", "12345", "US");
+        var order = Order.Create(userId, address, [new OrderItem(Guid.NewGuid(), "Test Product", 29.99m, 1)]);
+        order.MarkAsPaid($"pi_{Guid.NewGuid():N}", order.TotalPrice);
+        order.Ship();
+        order.ClearDomainEvents();
+
+        await db.Orders.AddAsync(order);
+        await db.SaveChangesAsync();
+
+        return order;
+    }
+
     public static async Task<Guid> GetFirstOrderIdAsync(IServiceProvider serviceProvider)
     {
         var db = serviceProvider.GetRequiredService<OrderingDbContext>();
