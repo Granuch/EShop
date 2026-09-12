@@ -97,11 +97,15 @@ public class GetOrdersByUserTests : AuthenticatedIntegrationTestBase
     }
 
     /// <summary>
-    /// Ordering audit M7/M11. <c>CreatedAt</c> alone is not unique, so the lists order by
-    /// <c>(CreatedAt, Id)</c>. On InMemory a missing tie-break could not be seen, because InMemory sorts
-    /// stably. Postgres, given only <c>CreatedAt</c>, returns ties in physical order, which matches
-    /// Id-descending by chance only once in 120 for five rows. Expected order compares ids as strings,
-    /// because Postgres orders uuids by their bytes in textual order.
+    /// Ordering audit M7/M11: ties on <c>CreatedAt</c> page correctly, once each, newest Id first.
+    /// Expected order compares ids as strings, because Postgres orders uuids by their bytes in textual order.
+    ///
+    /// <para>
+    /// <b>This is not the tie-break's guard.</b> With the <c>(UserId, CreatedAt DESC, Id DESC)</c> index,
+    /// Postgres may return ties Id-descending even when the query sorts by <c>CreatedAt</c> alone — in
+    /// Stage 13, removing the tie-break left this test green. <see cref="Persistence.ListOrderSqlTests"/>
+    /// asserts the SQL instead. This one stays as the end-to-end paging check.
+    /// </para>
     /// </summary>
     [Test]
     public async Task OrdersCreatedAtTheSameInstant_ComeBackNewestIdFirst_EachExactlyOnce()

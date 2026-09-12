@@ -40,7 +40,16 @@ public class PostgresOrderingApiFactory : OrderingApiFactory
 
     protected override void ConfigureDatabase(IServiceCollection services)
     {
-        services.AddDbContext<OrderingDbContext>(options => options.UseNpgsql(_connectionString));
+        services.AddDbContext<OrderingDbContext>(options =>
+        {
+            options.UseNpgsql(_connectionString);
+            ConfigureNpgsql(options);
+        });
+    }
+
+    /// <summary>Lets a specialised factory add to the context options, e.g. a command interceptor.</summary>
+    protected virtual void ConfigureNpgsql(DbContextOptionsBuilder options)
+    {
     }
 
     /// <summary>No-op: the schema comes from the migrated template, and the host's startup migration has run.</summary>
