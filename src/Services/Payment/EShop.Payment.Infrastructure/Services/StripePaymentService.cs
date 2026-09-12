@@ -133,8 +133,9 @@ public sealed class StripePaymentService : IStripePaymentService
         }
         catch (StripeException ex) when (IsUnexpectedState(ex))
         {
-            // An intent Stripe will not update is already canceled or past cancelling. The cancel below
-            // classifies which, exactly as it did before the tag existed.
+            // A safety net, not an observed path: the Stripe sandbox accepts this metadata update on canceled
+            // and succeeded intents alike (checked in Stage 21 — disabling this catch changed no test). Should
+            // Stripe ever refuse it, the cancel below still classifies the intent exactly as before the tag.
         }
 
         try
