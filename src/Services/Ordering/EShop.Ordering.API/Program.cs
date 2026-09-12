@@ -160,33 +160,12 @@ try
     // Configure JWT Authentication
     var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()!;
 
-    if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey))
-    {
-        throw new InvalidOperationException(
-            "JWT SecretKey is not configured. Set JwtSettings:SecretKey in configuration or environment variables.");
-    }
-
-    if (jwtSettings.SecretKey.Length < 32)
-    {
-        throw new InvalidOperationException(
-            $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
-    }
-
-    // Detect placeholder patterns that must be replaced before deployment. Audit M7: the same seven as
-    // Identity's and Catalog's JWT guards. This list had five and omitted LOCAL_ and REPLACE_WITH_, so
-    // the exact placeholder that crash-loops Identity booted Ordering cleanly — on the same shared key.
-    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "LOCAL_", "REPLACE_WITH_", "YOUR_", "TestKey", "placeholder" };
-    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
-    {
-        foreach (var pattern in placeholderPatterns)
-        {
-            if (jwtSettings.SecretKey.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    $"JWT SecretKey contains placeholder pattern '{pattern}'. Replace with a secure secret before deploying to {builder.Environment.EnvironmentName}.");
-            }
-        }
-    }
+    // Audit M7, decision D18: the shared JwtSecretGuard. A missing or short key fails everywhere; a
+    // placeholder (the seven patterns Identity checks) fails outside Development and Testing. Ordering's
+    // own copy of this list once had five patterns and omitted LOCAL_ and REPLACE_WITH_, so the exact
+    // placeholder that crash-loops Identity booted Ordering cleanly on the same shared key.
+    // Configuration/StartupGuardTests boots this file as Production to prove the call is still here.
+    JwtSecretGuard.Validate(jwtSettings.SecretKey, builder.Environment);
 
     builder.Services.AddAuthentication(options =>
     {
