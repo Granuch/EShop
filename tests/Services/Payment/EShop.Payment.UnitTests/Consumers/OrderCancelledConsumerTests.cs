@@ -208,7 +208,7 @@ public class OrderCancelledConsumerTests
 
         var processor = new Mock<IPaymentProcessor>(MockBehavior.Strict);
         var created = new OrderCreatedConsumer(
-            _db, new PaymentRepository(_db), _db, processor.Object,
+            _db, new PaymentRepository(_db), _db, processor.Object, Options.Create(new StripeSettings()),
             Mock.Of<IIntegrationEventOutbox>(), Mock.Of<ILogger<OrderCreatedConsumer>>());
         var context = new Mock<ConsumeContext<OrderCreatedEvent>>();
         context.SetupGet(x => x.Message).Returns(new OrderCreatedEvent { OrderId = orderId, UserId = "user-1", TotalAmount = 40m });
