@@ -28,6 +28,9 @@ public static class ServiceCollectionExtensions
         services.Configure<PaymentSimulationSettings>(
             configuration.GetSection(PaymentSimulationSettings.SectionName));
 
+        services.Configure<CancelledOrderRefundSettings>(
+            configuration.GetSection(CancelledOrderRefundSettings.SectionName));
+
         services.AddOptions<StripeSettings>()
             .Bind(configuration.GetSection(StripeSettings.SectionName))
             .Validate(static settings =>

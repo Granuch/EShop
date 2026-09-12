@@ -6,7 +6,19 @@ public interface IStripePaymentService
         StripePaymentIntentRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Refunds an intent. A repeat within Stripe's idempotency window returns the first refund. A charge
+    /// Stripe reports as already refunded counts as success, with
+    /// <see cref="StripeRefundResult.AlreadyRefunded"/> set: the money is back with the customer, which
+    /// is all a caller asked for (Ordering audit Stage 19).
+    /// </summary>
     Task<StripeRefundResult> CreateRefundAsync(string paymentIntentId, decimal amount, string currency, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The intent's status at Stripe right now — <c>succeeded</c>, <c>processing</c>,
+    /// <c>requires_payment_method</c>, <c>canceled</c> and so on.
+    /// </summary>
+    Task<string> GetPaymentIntentStatusAsync(string paymentIntentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cancels an intent that has not been captured. An intent Stripe reports as already canceled
@@ -37,9 +49,13 @@ public sealed record StripePaymentIntentResult(
     string ClientSecret,
     string Status);
 
+/// <param name="AlreadyRefunded">
+/// Stripe refused because the charge had been refunded already; <see cref="RefundId"/> is then empty.
+/// </param>
 public sealed record StripeRefundResult(
     string RefundId,
-    string Status);
+    string Status,
+    bool AlreadyRefunded = false);
 
 public sealed record StripePaymentIntentCancelResult(
     string PaymentIntentId,

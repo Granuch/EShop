@@ -2,6 +2,7 @@ using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Commands.RefundPayment;
 using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
@@ -33,9 +34,12 @@ public class RefundPaymentCommandHandlerTests
         var repository = new PaymentRepository(dbContext);
         return new RefundPaymentCommandHandler(
             repository,
-            processor ?? Mock.Of<IPaymentProcessor>(),
-            stripePaymentService ?? Mock.Of<IStripePaymentService>(),
-            outbox ?? Mock.Of<IIntegrationEventOutbox>(),
+            new PaymentRefunder(
+                repository,
+                processor ?? Mock.Of<IPaymentProcessor>(),
+                stripePaymentService ?? Mock.Of<IStripePaymentService>(),
+                outbox ?? Mock.Of<IIntegrationEventOutbox>(),
+                Mock.Of<ILogger<PaymentRefunder>>()),
             dbContext,
             Mock.Of<ILogger<RefundPaymentCommandHandler>>());
     }
@@ -101,13 +105,7 @@ public class RefundPaymentCommandHandlerTests
 
         var outbox = new Mock<IIntegrationEventOutbox>();
 
-        var handler = new RefundPaymentCommandHandler(
-            repository,
-            processor.Object,
-            Mock.Of<IStripePaymentService>(),
-            outbox.Object,
-            dbContext,
-            Mock.Of<ILogger<RefundPaymentCommandHandler>>());
+        var handler = CreateHandler(dbContext, processor.Object, outbox: outbox.Object);
 
         var result = await handler.Handle(new RefundPaymentCommand(payment.Id, null, "customer request"), CancellationToken.None);
 
@@ -159,6 +157,32 @@ public class RefundPaymentCommandHandlerTests
         Assert.That(result.IsFailure, Is.True);
         Assert.That(result.Error!.Code, Is.EqualTo("PARTIAL_REFUND_NOT_SUPPORTED"));
         Assert.That(dbContext.PaymentTransactions.Single(p => p.Id == payment.Id).Status, Is.EqualTo(PaymentStatus.Success));
+    }
+
+    /// <summary>
+    /// Ordering audit Stage 19. A payment refunded at Stripe whose record still says Success — a refund
+    /// whose commit was lost, retried after the idempotency window. Stripe answers "already refunded"; the
+    /// money is back, so the record is brought in line rather than the admin getting REFUND_FAILED forever.
+    /// </summary>
+    [Test]
+    public async Task Handle_WhenStripeReportsTheChargeAlreadyRefunded_RecordsTheRefund()
+    {
+        await using var dbContext = CreateDbContext();
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_stripe_refunded_earlier");
+
+        var stripePaymentService = new Mock<IStripePaymentService>();
+        stripePaymentService
+            .Setup(x => x.CreateRefundAsync("pi_stripe_refunded_earlier", 100m, "USD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeRefundResult(string.Empty, "succeeded", AlreadyRefunded: true));
+
+        var outbox = new Mock<IIntegrationEventOutbox>();
+        var handler = CreateHandler(dbContext, stripePaymentService: stripePaymentService.Object, outbox: outbox.Object);
+
+        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, null, "test"), CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(dbContext.PaymentTransactions.Single(p => p.Id == payment.Id).Status, Is.EqualTo(PaymentStatus.Refunded));
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentRefundedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
     [TestCase("failed")]

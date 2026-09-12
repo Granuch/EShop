@@ -63,17 +63,45 @@ public sealed class StripePaymentService : IStripePaymentService
         // names the refund. A repeat of the same request within Stripe's idempotency window (24 hours) —
         // a double submit, or a retry after a lost response — returns the first refund instead of a second.
         var refundService = new RefundService();
-        var refund = await refundService.CreateAsync(
-            new RefundCreateOptions
-            {
-                PaymentIntent = paymentIntentId,
-                Amount = amountMinor
-            },
-            new RequestOptions { IdempotencyKey = $"refund-{paymentIntentId}" },
-            cancellationToken);
 
-        return new StripeRefundResult(refund.Id, refund.Status ?? string.Empty);
+        try
+        {
+            var refund = await refundService.CreateAsync(
+                new RefundCreateOptions
+                {
+                    PaymentIntent = paymentIntentId,
+                    Amount = amountMinor
+                },
+                new RequestOptions { IdempotencyKey = $"refund-{paymentIntentId}" },
+                cancellationToken);
+
+            return new StripeRefundResult(refund.Id, refund.Status ?? string.Empty);
+        }
+        catch (StripeException ex) when (IsAlreadyRefunded(ex))
+        {
+            // Ordering audit Stage 19. Past the idempotency window Stripe no longer replays the first
+            // refund; it refuses a second one instead. The usual way here is a refund whose database
+            // commit was lost, retried a day later. The money is already back, so that is success: the
+            // caller records the refund rather than dead-lettering a payment that is settled.
+            // StripeSandboxTests checks this error code against the real Stripe sandbox.
+            return new StripeRefundResult(string.Empty, "succeeded", AlreadyRefunded: true);
+        }
     }
+
+    public async Task<string> GetPaymentIntentStatusAsync(
+        string paymentIntentId,
+        CancellationToken cancellationToken = default)
+    {
+        var intent = await new PaymentIntentService().GetAsync(paymentIntentId, cancellationToken: cancellationToken);
+        return intent.Status ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Stripe's answer to refunding a charge that has no refundable amount left. A structured code, not
+    /// the message text.
+    /// </summary>
+    public static bool IsAlreadyRefunded(StripeException ex)
+        => string.Equals(ex.StripeError?.Code, "charge_already_refunded", StringComparison.Ordinal);
 
     public async Task<StripePaymentIntentCancelResult> CancelPaymentIntentAsync(
         string paymentIntentId,

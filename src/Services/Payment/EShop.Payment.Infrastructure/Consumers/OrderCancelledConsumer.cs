@@ -2,11 +2,14 @@ using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
+using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Data;
 using MassTransit;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace EShop.Payment.Infrastructure.Consumers;
 
@@ -29,8 +32,12 @@ namespace EShop.Payment.Infrastructure.Consumers;
 ///   writers meet on the unique OrderId index. Whichever inserts second fails — the HTTP request with
 ///   a 409, or this consumer with a retry that then finds the intent and cancels it.</item>
 ///   <item><b>Success</b>, or <b>Stripe refuses</b> because the intent already succeeded — the money
-///   is taken. That is an error, thrown as <see cref="PaymentCancellationFailedException"/>, so the
-///   message lands in the error queue for a refund rather than being acknowledged with a log line.</item>
+///   is taken. By default that is an error, thrown as <see cref="PaymentCancellationFailedException"/>,
+///   so the message lands in the error queue for a refund rather than being acknowledged with a log
+///   line. With <c>CancelledOrders:AutoRefund</c> on (Stage 19, D16) the payment is refunded in full here
+///   instead — for a refused cancel, only once Stripe confirms the intent <c>succeeded</c>; one still
+///   <c>processing</c> is thrown as before. A refund Stripe refuses is thrown too, so only the settled
+///   cases skip the error queue.</item>
 ///   <item><b>Failed, Refunded, Cancelled</b> — nothing to do.</item>
 /// </list>
 /// <para>Any other failure (a Stripe outage, the database) propagates unchanged and is retried.</para>
@@ -46,21 +53,30 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
         PaymentStatus.Cancelled
     ];
 
+    /// <summary>The Stripe intent status that means the money was captured.</summary>
+    private const string StripeIntentSucceeded = "succeeded";
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStripePaymentService _stripePaymentService;
+    private readonly IPaymentRefunder _paymentRefunder;
+    private readonly CancelledOrderRefundSettings _refundSettings;
 
     public OrderCancelledConsumer(
         PaymentDbContext dbContext,
         IPaymentRepository paymentRepository,
         IUnitOfWork unitOfWork,
         IStripePaymentService stripePaymentService,
+        IPaymentRefunder paymentRefunder,
+        IOptions<CancelledOrderRefundSettings> refundSettings,
         ILogger<OrderCancelledConsumer> logger)
         : base(dbContext, logger)
     {
         _paymentRepository = paymentRepository;
         _unitOfWork = unitOfWork;
         _stripePaymentService = stripePaymentService;
+        _paymentRefunder = paymentRefunder;
+        _refundSettings = refundSettings.Value;
     }
 
     protected override async Task HandleAsync(ConsumeContext<OrderCancelledEvent> context, CancellationToken cancellationToken)
@@ -105,10 +121,16 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
 
         if (payment.Status == PaymentStatus.Success)
         {
-            throw new PaymentCancellationFailedException(
-                message.OrderId,
-                $"payment {payment.Id} ({payment.PaymentMethod}, intent '{payment.PaymentIntentId}') was already captured; "
-                + "it needs a refund, not a cancellation.");
+            if (!_refundSettings.AutoRefund)
+            {
+                throw new PaymentCancellationFailedException(
+                    message.OrderId,
+                    $"payment {payment.Id} ({payment.PaymentMethod}, intent '{payment.PaymentIntentId}') was already captured; "
+                    + "it needs a refund, not a cancellation.");
+            }
+
+            await RefundCapturedPaymentAsync(payment, message, cancellationToken);
+            return;
         }
 
         // Pending or Processing. Cancel at Stripe BEFORE touching the record: if Stripe refuses, the
@@ -122,6 +144,18 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             }
             catch (PaymentIntentNotCancellableException ex)
             {
+                // The record still says Pending/Processing because the success webhook has not been
+                // recorded yet. Refund only on Stripe's own word that the money was captured: an intent
+                // still "processing" may yet fail, and refunding it is not possible.
+                if (_refundSettings.AutoRefund
+                    && await _stripePaymentService.GetPaymentIntentStatusAsync(payment.PaymentIntentId, cancellationToken)
+                        == StripeIntentSucceeded)
+                {
+                    payment.StripeStatus = StripeIntentSucceeded;
+                    await RefundCapturedPaymentAsync(payment, message, cancellationToken);
+                    return;
+                }
+
                 throw new PaymentCancellationFailedException(
                     message.OrderId,
                     $"Stripe refused to cancel intent '{payment.PaymentIntentId}': {ex.StripeMessage}",
@@ -141,6 +175,41 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             "Payment {PaymentId} for cancelled OrderId={OrderId} cancelled (intent '{PaymentIntentId}').",
             payment.Id,
             message.OrderId,
+            payment.PaymentIntentId);
+    }
+
+    /// <summary>
+    /// The automatic refund. A refusal is rethrown as <see cref="PaymentCancellationFailedException"/> so
+    /// it dead-letters at once, like every other case a person must look at; a failure to reach the
+    /// provider propagates unchanged and is retried. The refund, the record and the message claim commit
+    /// together, so a redelivered cancellation finds the payment Refunded and does nothing.
+    /// </summary>
+    private async Task RefundCapturedPaymentAsync(
+        PaymentTransaction payment,
+        OrderCancelledEvent message,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _paymentRefunder.RefundInFullAsync(payment, cancellationToken);
+        }
+        catch (PaymentRefundRefusedException ex)
+        {
+            throw new PaymentCancellationFailedException(
+                message.OrderId,
+                $"payment {payment.Id} (intent '{payment.PaymentIntentId}') was captured and the automatic refund was refused: {ex.Reason}",
+                ex);
+        }
+
+        payment.ErrorMessage = CancellationNote(message);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        Logger.LogWarning(
+            "Payment {PaymentId} for cancelled OrderId={OrderId} had already been captured; refunded {Amount} {Currency} automatically (intent '{PaymentIntentId}').",
+            payment.Id,
+            message.OrderId,
+            payment.Amount,
+            payment.Currency,
             payment.PaymentIntentId);
     }
 

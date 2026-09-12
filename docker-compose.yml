@@ -721,6 +721,10 @@ services:
       PaymentSimulation__SuccessRatePercent: ${PAYMENT_SUCCESS_RATE_PERCENT:-80}
       PaymentSimulation__RefundDelaySeconds: ${PAYMENT_REFUND_DELAY_SECONDS:-2}
 
+      # A cancelled order whose money was already taken: false (default) sends it to
+      # payment_order_cancelled_error for a manual refund; true refunds it in full automatically.
+      CancelledOrders__AutoRefund: ${PAYMENT_AUTO_REFUND_CANCELLED_ORDERS:-false}
+
       Stripe__Enabled: ${STRIPE_ENABLED:-false}
       Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-true}
       Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-true}
