@@ -38,7 +38,10 @@ public class OrderItem : Entity<Guid>
         Id = Guid.NewGuid();
         ProductId = productId;
         ProductName = productName;
-        UnitPrice = unitPrice;
+        // Ordering audit L1. The column is numeric(18,2), so a sub-cent price was stored rounded while the
+        // in-memory total — and OrderCreatedEvent.TotalAmount, which Payment charges — kept the extra
+        // digits. Rounding here, the same way the column does, makes every line and total exact at cents.
+        UnitPrice = Math.Round(unitPrice, 2, MidpointRounding.AwayFromZero);
         Quantity = quantity;
         CreatedAt = DateTime.UtcNow;
     }

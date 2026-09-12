@@ -133,6 +133,23 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
         (await StoredOrderCountAsync()).Should().Be(before);
     }
 
+    /// <summary>
+    /// Audit L1, on the real column. A total past numeric(18,2) used to reach Postgres, which refused it with
+    /// 22003, and nothing maps that, so the request was a 500. It is now refused by the domain, as a 400,
+    /// before anything is written.
+    /// </summary>
+    [Test]
+    public async Task CreateOrder_WithATotalTheColumnCannotHold_ShouldReturnBadRequest_AndStoreNothing()
+    {
+        var request = RequestFor(Item(Product("Yacht", 9_000_000_000_000_000m), 2));
+        var before = await StoredOrderCountAsync();
+
+        var response = await Client.PostAsJsonAsync(OrdersEndpoint, request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        (await StoredOrderCountAsync()).Should().Be(before);
+    }
+
     [Test]
     public async Task CreateOrder_WithTheSameProductTwice_ShouldReturnBadRequest()
     {

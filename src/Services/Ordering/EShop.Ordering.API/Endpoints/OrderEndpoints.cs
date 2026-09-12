@@ -1,10 +1,12 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Ordering.Application.Orders.Commands.AddOrderItem;
 using EShop.Ordering.Application.Orders.Commands.CancelOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 using EShop.Ordering.Application.Orders.Commands.RemoveOrderItem;
 using EShop.Ordering.Application.Orders.Commands.ShipOrder;
+using EShop.Ordering.Application.Orders.Queries;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
@@ -17,6 +19,8 @@ namespace EShop.Ordering.API.Endpoints;
 /// Order endpoints using Minimal API.
 /// Caching is handled by CachingBehavior in the MediatR pipeline via ICacheableQuery.
 /// Cache invalidation is handled by CacheInvalidationBehavior via ICacheInvalidatingCommand.
+/// Every success response declares its type (audit L8); they were all <c>Produces&lt;object&gt;</c>, so the
+/// OpenAPI document described no response shapes at all.
 /// </summary>
 public static class OrderEndpoints
 {
@@ -36,12 +40,12 @@ public static class OrderEndpoints
             var result = await mediator.Send(resolvedCommand);
 
             return result.Match(
-                value => Results.Created($"/api/v1/orders/{value}", new { id = value }),
+                value => Results.Created($"/api/v1/orders/{value}", new CreateOrderResponse(value)),
                 error => ProblemForError(error));
         })
         .WithName("CreateOrder")
         .RequireAuthorization()
-        .Produces<object>(StatusCodes.Status201Created)
+        .Produces<CreateOrderResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
@@ -56,7 +60,7 @@ public static class OrderEndpoints
         })
         .WithName("GetOrderById")
         .RequireAuthorization("OrderOwnerOrAdmin")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<OrderDto>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -71,7 +75,7 @@ public static class OrderEndpoints
         })
         .WithName("GetOrders")
         .RequireAuthorization("Admin")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<PagedResult<OrderDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/users/{userId}/orders
@@ -87,19 +91,21 @@ public static class OrderEndpoints
         .WithTags("Orders")
         .WithName("GetOrdersByUser")
         .RequireAuthorization("SameUserOrAdmin")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<PagedResult<OrderDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // POST /api/v1/orders/{id}/items
+        // The route names the order (audit L8): the body's OrderId may be omitted, and is refused only when
+        // it names a different order. It used to be required in both places.
         group.MapPost("/{id:guid}/items", async (Guid id, AddOrderItemCommand command, IMediator mediator) =>
         {
-            if (id != command.OrderId)
+            if (command.OrderId != Guid.Empty && command.OrderId != id)
                 return ProblemResults.For(
                     "Validation.IdMismatch",
                     "Route ID does not match command ID.",
                     StatusCodes.Status400BadRequest);
 
-            var result = await mediator.Send(command);
+            var result = await mediator.Send(command with { OrderId = id });
 
             return result.Match(
                 () => Results.NoContent(),
@@ -183,3 +189,6 @@ public static class OrderEndpoints
 }
 
 public record CancelOrderRequest(string Reason);
+
+/// <summary>The body of a 201 from POST /api/v1/orders — the same <c>{ "id": … }</c> the anonymous object gave.</summary>
+public record CreateOrderResponse(Guid Id);

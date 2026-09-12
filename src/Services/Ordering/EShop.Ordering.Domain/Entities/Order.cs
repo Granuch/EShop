@@ -45,6 +45,8 @@ public class Order : AggregateRoot<Guid>
         if (itemList.Select(i => i.ProductId).Distinct().Count() != itemList.Count)
             throw new DomainException("Each product may appear only once in an order.");
 
+        EnsureStorable(itemList.Sum(i => i.SubTotal));
+
         var order = new Order
         {
             Id = Guid.NewGuid(),
@@ -92,6 +94,7 @@ public class Order : AggregateRoot<Guid>
             throw new DomainException($"Product '{productName}' already exists in this order.");
 
         var item = new OrderItem(productId, productName, unitPrice, quantity);
+        EnsureStorable(TotalPrice + item.SubTotal);
         _items.Add(item);
         RecalculateTotal();
     }
@@ -214,6 +217,20 @@ public class Order : AggregateRoot<Guid>
             throw new DomainException("A cancelled order cannot be refunded; its payment is settled in Payment.");
 
         Status = OrderStatus.Refunded;
+    }
+
+    /// <summary>
+    /// The largest total the <c>numeric(18,2)</c> column holds (Ordering audit L1). Above it Postgres
+    /// refused the write with 22003, which nothing maps, so the request was a 500.
+    /// </summary>
+    public const decimal MaxTotal = 9_999_999_999_999_999.99m;
+
+    /// <summary>Checked before the order changes, so a refused line leaves the order as it was.</summary>
+    private static void EnsureStorable(decimal total)
+    {
+        if (total > MaxTotal)
+            throw new DomainException(
+                $"Order total must not exceed {MaxTotal.ToString("0.00", CultureInfo.InvariantCulture)}.");
     }
 
     private void RecalculateTotal()

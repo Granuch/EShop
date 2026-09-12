@@ -14,20 +14,14 @@ public class OrderRepository : IOrderRepository
         _context = context;
     }
 
+    /// <summary>
+    /// One query. <c>AsSplitQuery</c> exists to avoid the row explosion of several collection includes;
+    /// with a single collection (the items) it only added a second round trip (audit L11).
+    /// </summary>
     public async Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Orders
             .Include(o => o.Items)
-            .AsSplitQuery()
-            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
-    }
-
-    public async Task<Order?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        return await _context.Orders
-            .Include(o => o.Items)
-            .AsNoTracking()
-            .AsSplitQuery()
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
@@ -38,31 +32,6 @@ public class OrderRepository : IOrderRepository
             .Where(o => o.Id == id)
             .Select(o => o.UserId)
             .FirstOrDefaultAsync(cancellationToken);
-    }
-
-    public async Task<IEnumerable<Order>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
-    {
-        // Legacy read method retained for backward compatibility.
-        // User-facing queries should use IOrderQueryService.GetOrdersByUserAsync for pagination.
-        return await _context.Orders
-            .Include(o => o.Items)
-            .Where(o => o.UserId == userId)
-            .OrderByDescending(o => o.CreatedAt)
-            .Take(200)
-            .AsNoTracking()
-            .AsSplitQuery()
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IEnumerable<Order>> GetByStatusAsync(OrderStatus status, CancellationToken cancellationToken = default)
-    {
-        return await _context.Orders
-            .Include(o => o.Items)
-            .Where(o => o.Status == status)
-            .OrderByDescending(o => o.CreatedAt)
-            .AsNoTracking()
-            .AsSplitQuery()
-            .ToListAsync(cancellationToken);
     }
 
     public async Task AddAsync(Order order, CancellationToken cancellationToken = default)
@@ -98,11 +67,6 @@ public class OrderRepository : IOrderRepository
         }
 
         return Task.CompletedTask;
-    }
-
-    public IQueryable<Order> Query()
-    {
-        return _context.Orders.AsNoTracking();
     }
 
     /// <summary>

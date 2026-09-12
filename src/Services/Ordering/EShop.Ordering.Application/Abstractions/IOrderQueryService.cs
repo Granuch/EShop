@@ -16,6 +16,9 @@ public interface IOrderQueryService
         int pageSize,
         CancellationToken cancellationToken = default);
 
+    /// <summary>One order, through the same projection as the lists (audit L5), or <c>null</c>.</summary>
+    Task<OrderDto?> GetOrderByIdAsync(Guid orderId, CancellationToken cancellationToken = default);
+
     Task<(List<OrderDto> Items, int TotalCount)> GetOrdersByUserAsync(
         string userId,
         int pageNumber,

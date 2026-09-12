@@ -40,6 +40,13 @@ public class OrderQueryService : IOrderQueryService
         return (dtos, totalCount);
     }
 
+    public Task<OrderDto?> GetOrderByIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => _context.Orders
+            .AsNoTracking()
+            .Where(o => o.Id == orderId)
+            .Select(ToDto)
+            .FirstOrDefaultAsync(cancellationToken);
+
     /// <summary>
     /// Offset paging only. The cursor mode that lived here (<c>CreatedAt &lt; cursor</c>, with the count
     /// taken before the filter) was removed in audit M4; <c>GetOrdersByUserQueryValidator</c> rejects
@@ -74,7 +81,10 @@ public class OrderQueryService : IOrderQueryService
     private static IOrderedQueryable<Order> NewestFirst(IQueryable<Order> query)
         => query.OrderByDescending(o => o.CreatedAt).ThenByDescending(o => o.Id);
 
-    /// <summary>One projection for both lists; this file used to spell it out twice (audit L5).</summary>
+    /// <summary>
+    /// One projection for every order read — both lists and the single order (audit L5). It used to be
+    /// written out three times: twice here and once by hand in <c>GetOrderByIdQueryHandler</c>.
+    /// </summary>
     private static readonly Expression<Func<Order, OrderDto>> ToDto = o => new OrderDto
     {
         Id = o.Id,

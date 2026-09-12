@@ -433,6 +433,49 @@ public class OrderTests
 
     #endregion
 
+    #region Money (audit L1)
+
+    /// <summary>
+    /// The columns are numeric(18,2). A sub-cent price used to be stored rounded while the in-memory
+    /// total, and the TotalAmount Payment charges, kept the extra digits.
+    /// </summary>
+    [Test]
+    public void Create_RoundsUnitPricesToCents_SoTheTotalIsWhatTheColumnStores()
+    {
+        var order = Order.Create("user-1", _validAddress, [new OrderItem(Guid.NewGuid(), "Bolt", 0.335m, 3)]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(order.Items.Single().UnitPrice, Is.EqualTo(0.34m));
+            Assert.That(order.TotalPrice, Is.EqualTo(1.02m));
+        });
+    }
+
+    [Test]
+    public void Create_WithATotalTheColumnCannotHold_Throws()
+    {
+        var items = new List<OrderItem> { new(Guid.NewGuid(), "Yacht", Order.MaxTotal, 2) };
+
+        Assert.Throws<DomainException>(() => Order.Create("user-1", _validAddress, items));
+    }
+
+    [Test]
+    public void AddItem_PastTheColumnsLimit_ThrowsAndLeavesTheOrderUnchanged()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+        var totalBefore = order.TotalPrice;
+
+        Assert.Throws<DomainException>(() => order.AddItem(Guid.NewGuid(), "Yacht", Order.MaxTotal, 1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(order.Items, Has.Count.EqualTo(_validItems.Count));
+            Assert.That(order.TotalPrice, Is.EqualTo(totalBefore));
+        });
+    }
+
+    #endregion
+
     #region Refund
 
     [TestCase(OrderStatus.Pending)]

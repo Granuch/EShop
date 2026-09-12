@@ -270,13 +270,21 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
+    // Audit L8. Without this, minimal-API body binding swallows a JsonException and writes a bare 400
+    // with an empty body. Throwing routes it to AddMalformedJsonBody below, which returns problem+json
+    // naming the offending member. Unknown properties are deliberately still ignored (no
+    // UnmappedMemberHandling.Disallow, unlike Catalog): the C1 contract is that a client still sending
+    // the old ProductName/Price fields gets them ignored in favour of Catalog's, not rejected.
+    builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+
     // AddEfConcurrency must precede AddEfDuplicateKey: DbUpdateConcurrencyException derives
 // from DbUpdateException, so the broader mapper would otherwise swallow it.
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()
     .AddNotFound()
     .AddEfConcurrency()
-    .AddEfDuplicateKey());
+    .AddEfDuplicateKey()
+    .AddMalformedJsonBody());
 
 var app = builder.Build();
 
