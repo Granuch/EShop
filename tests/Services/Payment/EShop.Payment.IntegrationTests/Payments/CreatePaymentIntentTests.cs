@@ -132,5 +132,21 @@ public class CreatePaymentIntentTests : AuthenticatedIntegrationTestBase
         VerifyStripeNeverAsked();
     }
 
+    /// <summary>
+    /// The order was cancelled before the customer began paying, so its Stripe payment is Cancelled with no intent.
+    /// Starting it must not open a live intent for an order that no longer exists.
+    /// </summary>
+    [Test]
+    public async Task ACancelledOrdersPayment_CannotBeStarted()
+    {
+        var seeded = await SeedAsync(status: PaymentStatus.Cancelled);
+
+        var response = await Client.PostAsJsonAsync(Endpoint, new { seeded.OrderId });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        Assert.That((await Stripe.FindByOrderIdAsync(seeded.OrderId))!.Status, Is.EqualTo(PaymentStatus.Cancelled));
+        VerifyStripeNeverAsked();
+    }
+
     private sealed record IntentResponse(Guid PaymentId, string PaymentIntentId, string ClientSecret, string Status);
 }

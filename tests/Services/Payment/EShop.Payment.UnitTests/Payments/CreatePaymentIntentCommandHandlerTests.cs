@@ -161,6 +161,10 @@ public class CreatePaymentIntentCommandHandlerTests
     [TestCase(PaymentStatus.Success, "Stripe", "pi_existing")]
     [TestCase(PaymentStatus.Cancelled, "None", "")]
     [TestCase(PaymentStatus.Pending, "Mock", "")]
+    // A Stripe payment that never got an intent and has ended: the order was cancelled before the customer began
+    // paying, or an earlier attempt failed. Only the status says it is over (the S2 F2 round found this uncovered).
+    [TestCase(PaymentStatus.Cancelled, "Stripe", "")]
+    [TestCase(PaymentStatus.Failed, "Stripe", "")]
     public async Task Handle_WhenThePaymentIsNotAwaitingStripe_IsAConflict(PaymentStatus status, string method, string intentId)
     {
         var seeded = await SeedAsync(status: status, method: method, intentId: intentId);
