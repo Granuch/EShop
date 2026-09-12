@@ -1,56 +1,16 @@
 using System.Net;
-using System.Net.Http.Json;
 
 namespace EShop.Payment.IntegrationTests.Payments;
 
+/// <summary>
+/// The request-validation cases for settling a payment (an empty order id, settling twice) moved to
+/// <see cref="AdminSettlePaymentTests"/> when that endpoint became admin-only (Payment audit Stage 3).
+/// </summary>
 [TestFixture]
 [Category("Integration")]
 public class PaymentValidationTests : AuthenticatedIntegrationTestBase
 {
     private const string PaymentsEndpoint = "/api/v1/payments";
-
-    [Test]
-    public async Task CreatePayment_WithInvalidAmount_ShouldReturnBadRequest()
-    {
-        var response = await Client.PostAsJsonAsync(PaymentsEndpoint, new
-        {
-            OrderId = Guid.NewGuid(),
-            UserId = TestUserId,
-            Amount = 0m,
-            Currency = "USD",
-            PaymentMethod = "Mock"
-        });
-
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-    }
-
-    [Test]
-    public async Task CreatePayment_WithDuplicateOrderId_ShouldReturnConflict()
-    {
-        var orderId = Guid.NewGuid();
-
-        var first = await Client.PostAsJsonAsync(PaymentsEndpoint, new
-        {
-            OrderId = orderId,
-            UserId = TestUserId,
-            Amount = 50m,
-            Currency = "USD",
-            PaymentMethod = "Mock"
-        });
-
-        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.Created));
-
-        var second = await Client.PostAsJsonAsync(PaymentsEndpoint, new
-        {
-            OrderId = orderId,
-            UserId = TestUserId,
-            Amount = 50m,
-            Currency = "USD",
-            PaymentMethod = "Mock"
-        });
-
-        Assert.That(second.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
-    }
 
     [Test]
     public async Task GetPaymentById_WhenNotFound_ShouldReturnNotFound()

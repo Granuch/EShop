@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.Payment.Domain.Entities;
 
 namespace EShop.Payment.IntegrationTests.Payments;
 
@@ -19,7 +20,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
     [Test]
     public async Task AnAdmin_RefundsACustomersPayment_InFull()
     {
-        var created = await CreateCustomerPaymentAsync();
+        var created = await SeedCustomerPaymentAsync();
 
         var response = await Client.PostAsJsonAsync($"{PaymentsEndpoint}/{created.Id}/refund", new { Reason = "Damaged" });
 
@@ -31,7 +32,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
     [Test]
     public async Task AnAdmin_NamingTheFullAmount_IsAccepted()
     {
-        var created = await CreateCustomerPaymentAsync();
+        var created = await SeedCustomerPaymentAsync();
 
         var response = await Client.PostAsJsonAsync(
             $"{PaymentsEndpoint}/{created.Id}/refund",
@@ -44,7 +45,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
     [Test]
     public async Task APartialRefund_IsRefused_AndLeavesThePaymentUntouched()
     {
-        var created = await CreateCustomerPaymentAsync();
+        var created = await SeedCustomerPaymentAsync();
 
         var response = await Client.PostAsJsonAsync(
             $"{PaymentsEndpoint}/{created.Id}/refund",
@@ -61,7 +62,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
     [Test]
     public async Task AnAmountAboveTheTotal_IsRefused()
     {
-        var created = await CreateCustomerPaymentAsync();
+        var created = await SeedCustomerPaymentAsync();
 
         var response = await Client.PostAsJsonAsync(
             $"{PaymentsEndpoint}/{created.Id}/refund",
@@ -80,20 +81,9 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
 
-    private async Task<PaymentResponse> CreateCustomerPaymentAsync()
-    {
-        var response = await Client.PostAsJsonAsync(PaymentsEndpoint, new
-        {
-            OrderId = Guid.NewGuid(),
-            UserId = "customer-1",
-            Amount = 99.99m,
-            Currency = "USD",
-            PaymentMethod = "Mock"
-        });
-        response.EnsureSuccessStatusCode();
-
-        return (await response.Content.ReadFromJsonAsync<PaymentResponse>())!;
-    }
+    /// <summary>A customer's simulated payment that succeeded. Seeded: no endpoint creates payments since Payment audit Stage 3.</summary>
+    private Task<PaymentTransaction> SeedCustomerPaymentAsync()
+        => Factory.SeedPaymentAsync("customer-1", PaymentStatus.Success, 99.99m, "Mock", "pi_seeded");
 
     private sealed record PaymentResponse(Guid Id, decimal Amount, string Status);
 }

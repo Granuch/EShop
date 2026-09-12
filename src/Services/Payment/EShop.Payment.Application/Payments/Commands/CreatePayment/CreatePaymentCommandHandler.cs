@@ -11,6 +11,9 @@ namespace EShop.Payment.Application.Payments.Commands.CreatePayment;
 
 public sealed class CreatePaymentCommandHandler : IRequestHandler<CreatePaymentCommand, Result<PaymentDto>>
 {
+    /// <summary>The payment method of a payment settled through the simulator.</summary>
+    private const string SimulatedMethod = "Mock";
+
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentProcessor _paymentProcessor;
     private readonly IIntegrationEventOutbox _integrationEventOutbox;
@@ -30,28 +33,29 @@ public sealed class CreatePaymentCommandHandler : IRequestHandler<CreatePaymentC
 
     public async Task<Result<PaymentDto>> Handle(CreatePaymentCommand request, CancellationToken cancellationToken)
     {
-        var existing = await _paymentRepository.GetByOrderIdAsync(request.OrderId, cancellationToken);
-        if (existing is not null)
+        // Payment audit Stage 3 (H4, D2). Every order's payment is recorded from OrderCreatedEvent (D1), so this
+        // admin tool settles that record, for its amount. It used to create a payment from the request, which let a
+        // customer settle any order through the simulator for any amount.
+        var payment = await _paymentRepository.GetByOrderIdAsync(request.OrderId, cancellationToken);
+        if (payment is null)
         {
             return Result<PaymentDto>.Failure(new Error(
-                "PAYMENT_ALREADY_EXISTS",
-                "Payment already exists for this order."));
+                "PAYMENT_NOT_FOUND",
+                "No payment has been recorded for this order."));
         }
 
-        var payment = new PaymentTransaction
+        if (payment.Status != PaymentStatus.Pending)
         {
-            Id = Guid.NewGuid(),
-            OrderId = request.OrderId,
-            UserId = request.UserId,
-            Amount = request.Amount,
-            Currency = (request.Currency ?? "USD").ToUpperInvariant(),
-            PaymentMethod = request.PaymentMethod ?? "Mock",
-            Status = PaymentStatus.Processing,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
+            return Result<PaymentDto>.Failure(new Error(
+                "PAYMENT_NOT_PENDING",
+                "Only a pending payment can be settled."));
+        }
 
-        await _paymentRepository.AddAsync(payment, cancellationToken);
+        payment.PaymentMethod = SimulatedMethod;
+        payment.Status = PaymentStatus.Processing;
+        payment.UpdatedAt = DateTime.UtcNow;
+
+        await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
         {
             OrderId = payment.OrderId,

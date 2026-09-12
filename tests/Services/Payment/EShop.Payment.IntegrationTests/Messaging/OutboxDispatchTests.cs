@@ -12,15 +12,19 @@ using Microsoft.Extensions.Options;
 namespace EShop.Payment.IntegrationTests.Messaging;
 
 /// <summary>
-/// Ordering audit Stage 10. Payment wrote every integration event to <c>outbox_messages</c> and never
-/// registered the processor that sends them, so nothing it published ever left the service — Ordering
-/// never learned that a payment succeeded. Its unit tests could not notice: they assert that an event
-/// was enqueued, on a mock. These tests assert that an event reaches the bus.
+/// Ordering audit Stage 10. Payment wrote every integration event to <c>outbox_messages</c> and never registered
+/// the processor that sends them, so nothing it published ever left the service. Ordering never learned that a
+/// payment succeeded. Its unit tests could not notice, because they assert that an event was enqueued, on a mock.
+/// These tests assert that an event reaches the bus. The payment is settled by an admin over HTTP, the only
+/// endpoint that settles one since Payment audit Stage 3.
 /// </summary>
 [TestFixture]
 [Category("Integration")]
 public class OutboxDispatchTests : AuthenticatedIntegrationTestBase
 {
+    protected override string TestUserRole => "Admin";
+    protected override string TestUserId => "admin-1";
+
     protected override PaymentApiFactory CreateFactory() => new BusCapturingPaymentApiFactory();
 
     [Test]
@@ -29,21 +33,14 @@ public class OutboxDispatchTests : AuthenticatedIntegrationTestBase
         var harness = Factory.Services.GetRequiredService<ITestHarness>();
         await harness.Start();
 
-        var orderId = Guid.NewGuid();
-        var response = await Client.PostAsJsonAsync("/api/v1/payments", new
-        {
-            OrderId = orderId,
-            UserId = TestUserId,
-            Amount = 42.50m,
-            Currency = "USD",
-            PaymentMethod = "Mock"
-        });
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+        var seeded = await Factory.SeedPaymentAsync("customer-1", amount: 42.50m);
+        var response = await Client.PostAsJsonAsync("/api/v1/payments", new { seeded.OrderId });
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 
         var successPublished = await harness.Published.Any<PaymentSuccessEvent>(
-            m => m.Context.Message.OrderId == orderId);
+            m => m.Context.Message.OrderId == seeded.OrderId);
         var createdPublished = await harness.Published.Any<PaymentCreatedEvent>(
-            m => m.Context.Message.OrderId == orderId);
+            m => m.Context.Message.OrderId == seeded.OrderId);
 
         Assert.Multiple(() =>
         {

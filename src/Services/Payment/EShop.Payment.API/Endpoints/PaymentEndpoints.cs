@@ -73,45 +73,33 @@ public static class PaymentEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        // Payment audit Stage 3 (H4, D2). An admin tool: settles the order's recorded Pending payment through the
+        // simulator, for the recorded amount. It used to be open to every customer and create a payment from the
+        // request's user, amount, currency and method, so a customer could settle an order without Stripe.
         group.MapPost("/", async (
-            CreatePaymentRequest request,
-            ClaimsPrincipal user,
+            SettlePaymentRequest request,
             IMediator mediator,
             CancellationToken cancellationToken) =>
         {
-            if (!TryResolveUserContext(user, out var subjectId, out var authError))
-            {
-                return authError!;
-            }
-
-            if (!user.IsAdmin() &&
-                !string.Equals(subjectId, request.UserId, StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Forbid();
-            }
-
-            var resolvedUserId = user.IsAdmin() ? request.UserId : subjectId!;
-
-            var result = await mediator.Send(new CreatePaymentCommand(
-                request.OrderId,
-                resolvedUserId,
-                request.Amount,
-                request.Currency,
-                request.PaymentMethod), cancellationToken);
+            var result = await mediator.Send(new CreatePaymentCommand(request.OrderId), cancellationToken);
 
             return result.Match(
-                value => Results.Created($"/api/v1/payments/{value.Id}", ToResponse(value)),
+                value => Results.Ok(ToResponse(value)),
                 error => ProblemResults.For(
                     error,
-                    error.Code == "PAYMENT_ALREADY_EXISTS"
-                        ? StatusCodes.Status409Conflict
-                        : StatusCodes.Status400BadRequest));
+                    error.Code switch
+                    {
+                        "PAYMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
+                        "PAYMENT_NOT_PENDING" => StatusCodes.Status409Conflict,
+                        _ => StatusCodes.Status400BadRequest
+                    }));
         })
         .WithName("CreatePayment")
-        .RequireAuthorization()
-        .Produces<PaymentResponse>(StatusCodes.Status201Created)
+        .RequireAuthorization("Admin")
+        .Produces<PaymentResponse>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapGet("/{id:guid}", async (
@@ -299,6 +287,9 @@ public static class PaymentEndpoints
         .WithTags("Stripe Webhooks")
         .WithName("StripeWebhook")
         .AllowAnonymous()
+        // Payment audit Stage 3. Stripe answers a 429 by redelivering later, so throttling its deliveries only
+        // delays payments being recorded. The endpoint is protected by the signature check instead.
+        .DisableRateLimiting()
         .Produces(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
@@ -360,12 +351,11 @@ public static class PaymentEndpoints
     }
 }
 
-public sealed record CreatePaymentRequest(
-    Guid OrderId,
-    string UserId,
-    decimal Amount,
-    string? Currency,
-    string? PaymentMethod);
+/// <summary>
+/// Payment audit Stage 3 (H4, D2): only the order. The user, amount, currency and payment method it used to carry
+/// are ignored if sent; the payment settled is the one recorded for the order.
+/// </summary>
+public sealed record SettlePaymentRequest(Guid OrderId);
 
 /// <summary>
 /// Payment audit Stage 2 (C2, D4): only the order. The user, amount and currency it used to carry are ignored if

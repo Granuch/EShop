@@ -1,9 +1,6 @@
 using EShop.Payment.Application.Payments.Abstractions;
-using EShop.Payment.Domain.Entities;
-using EShop.Payment.Infrastructure.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -42,20 +39,5 @@ public sealed class StripeEnabledPaymentApiFactory : PaymentApiFactory
             services.RemoveAll<IStripeCustomerService>();
             services.AddSingleton(StripeCustomers.Object);
         });
-    }
-
-    public async Task SeedAsync(PaymentTransaction payment)
-    {
-        using var scope = Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        db.PaymentTransactions.Add(payment);
-        await db.SaveChangesAsync();
-    }
-
-    public async Task<PaymentTransaction?> FindByOrderIdAsync(Guid orderId)
-    {
-        using var scope = Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-        return await db.PaymentTransactions.AsNoTracking().SingleOrDefaultAsync(x => x.OrderId == orderId);
     }
 }

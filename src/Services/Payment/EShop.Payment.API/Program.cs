@@ -18,6 +18,7 @@ using Prometheus;
 using Serilog;
 using Serilog.Events;
 using System.Text;
+using System.Threading.RateLimiting;
 
 ThreadPool.SetMinThreads(workerThreads: 50, completionPortThreads: 50);
 
@@ -157,6 +158,36 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Payment audit Stage 3 (H4). Payment had no rate limiter, so anything reaching payment-api directly could call
+// /create-intent without limit, and each call creates a Stripe customer and intent. This is Ordering's global
+// limiter (itself Catalog's), ported as-is: partitioned per client (never AddFixedWindowLimiter(name, ...), which
+// is one bucket shared by every caller), off under Testing unless RateLimiting:EnableInTesting, and read from the
+// same RateLimiting:* keys as Catalog, Identity and Ordering. The Stripe webhook opts out (see PaymentEndpoints).
+var rateLimitingEnabled = !builder.Environment.IsEnvironment("Testing")
+    || builder.Configuration.GetValue<bool>("RateLimiting:EnableInTesting");
+var globalPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Global:WindowSeconds") ?? 60;
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    if (rateLimitingEnabled)
+    {
+        // GetClientPartitionKey normalises IPv4-mapped IPv6, so a dual-stack client cannot claim two
+        // allowances, and it reads the address UseForwardedHeaders has already rewritten.
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = globalPermitLimit,
+                    Window = TimeSpan.FromSeconds(globalWindowSeconds)
+                }));
+    }
+});
+
 // Infrastructure calls AddHealthChecks() but registered no checks, so both health endpoints
 // evaluated an empty set. The readiness check must be skipped under the in-memory provider,
 // same as every other service's DB-backed check.
@@ -233,6 +264,10 @@ if (!string.IsNullOrWhiteSpace(httpsPort))
 app.UseGlobalExceptionHandler();
 app.UseEShopRequestLogging();
 app.UseCors("AllowFrontend");
+
+// Payment audit Stage 3. Ordering's position: after HTTPS redirection and CORS, so a request that is only going to
+// be redirected, or a preflight, does not spend a permit; before authentication and the endpoints.
+app.UseRateLimiter();
 
 app.UseHttpMetrics(options =>
 {
