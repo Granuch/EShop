@@ -20,8 +20,14 @@ namespace EShop.Payment.IntegrationTests.StripeSandbox;
 ///
 /// <para><b>These tests run only with a sandbox key.</b> Set <c>Stripe__SecretKey</c> (or
 /// <c>STRIPE_SECRET_KEY</c>, as in <c>.env</c>) to an <c>sk_test_</c> key. Without one they are skipped, so a
-/// clean checkout and CI are unaffected; a live key is refused. Each run creates a few $10 test-mode
-/// payments, all refunded, tagged <c>source=EShop.Payment.IntegrationTests</c>.</para>
+/// clean checkout is unaffected; a live key is never used. Each run creates a few $10 test-mode payments,
+/// all refunded, tagged <c>source=EShop.Payment.IntegrationTests</c>.</para>
+///
+/// <para><b>In CI they must run</b> (Stage 20). <c>ci.yml</c> passes the <c>STRIPE_SANDBOX_SECRET_KEY</c>
+/// repository secret as <c>STRIPE_SECRET_KEY</c> and sets <c>STRIPE_SANDBOX_REQUIRED=true</c> for pushes and
+/// same-repository pull requests; with that set, a missing or non-sandbox key fails the fixture instead of
+/// skipping it, so a deleted secret turns CI red rather than quietly dropping the only tests that check
+/// Stripe itself. Fork and Dependabot pull requests get no secrets from GitHub and are not required.</para>
 /// </summary>
 [TestFixture]
 [Category("StripeSandbox")]
@@ -47,6 +53,12 @@ public class StripeSandboxTests
             || !key.StartsWith("sk_test_", StringComparison.Ordinal)
             || key.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))
         {
+            if (string.Equals(Environment.GetEnvironmentVariable("STRIPE_SANDBOX_REQUIRED"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                Assert.Fail("STRIPE_SANDBOX_REQUIRED is true, but Stripe__SecretKey / STRIPE_SECRET_KEY holds no sk_test_ key. "
+                    + "In CI it comes from the STRIPE_SANDBOX_SECRET_KEY repository secret.");
+            }
+
             Assert.Ignore("Stripe sandbox tests need Stripe__SecretKey (or STRIPE_SECRET_KEY) set to a real sk_test_ key.");
         }
 
