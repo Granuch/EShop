@@ -415,8 +415,12 @@ public class PaymentWriteCollisionTests
         public Task<PaymentTransaction?> GetByPaymentIntentIdAsync(string paymentIntentId, CancellationToken cancellationToken = default)
             => inner.GetByPaymentIntentIdAsync(paymentIntentId, cancellationToken);
 
-        public Task<List<PaymentTransaction>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
-            => inner.GetByUserIdAsync(userId, cancellationToken);
+        public Task<(List<PaymentTransaction> Items, int TotalCount)> GetPageByUserIdAsync(
+            string userId, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+            => inner.GetPageByUserIdAsync(userId, pageNumber, pageSize, cancellationToken);
+
+        public Task<int> DeleteProcessedStripeEventsBeforeAsync(DateTime cutoff, CancellationToken cancellationToken = default)
+            => inner.DeleteProcessedStripeEventsBeforeAsync(cutoff, cancellationToken);
 
         public Task<PaymentCustomer?> GetCustomerByUserIdAsync(string userId, CancellationToken cancellationToken = default)
             => inner.GetCustomerByUserIdAsync(userId, cancellationToken);
@@ -438,7 +442,5 @@ public class PaymentWriteCollisionTests
 
         public Task<PaymentTransaction?> GetCurrentByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default)
             => inner.GetCurrentByOrderIdAsync(orderId, cancellationToken);
-
-        public IQueryable<PaymentTransaction> Query() => inner.Query();
     }
 }

@@ -98,6 +98,9 @@ public static class ServiceCollectionExtensions
         });
         services.AddHostedService<OutboxCleanupService>();
 
+        // Payment audit Stage 10 (D13): processed Stripe webhook events are kept for 30 days, where nothing deleted them.
+        services.AddHostedService<ProcessedStripeWebhookEventCleanupService>();
+
         services.AddSingleton(new OutboxHealthCheckOptions
         {
             DeadLetterWarningThreshold = 10,

@@ -23,6 +23,10 @@ public class PaymentTransaction
     public Guid Id { get; internal set; }
     public Guid OrderId { get; internal set; }
     public string UserId { get; internal set; } = string.Empty;
+    /// <summary>
+    /// The Stripe customer this payment's intent was created under. Nothing reads it (Payment audit D12). It is the
+    /// payment's own record: the per-user <c>PaymentCustomers</c> mapping is not, since that mapping can change.
+    /// </summary>
     public string? StripeCustomerId { get; internal set; }
     public decimal Amount { get; internal set; }
     public string Currency { get; internal set; } = "USD";
@@ -31,7 +35,6 @@ public class PaymentTransaction
     public string? StripeStatus { get; internal set; }
     public PaymentStatus Status { get; internal set; }
     public string? ErrorMessage { get; internal set; }
-    public int RetryCount { get; internal set; }
     public DateTime CreatedAt { get; internal set; }
     public DateTime? ProcessedAt { get; internal set; }
     public DateTime? UpdatedAt { get; internal set; }

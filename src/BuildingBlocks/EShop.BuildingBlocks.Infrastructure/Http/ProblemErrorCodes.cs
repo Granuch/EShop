@@ -14,7 +14,6 @@ public static class ProblemErrorCodes
     public const string Unauthorized = "Unauthorized";
     public const string ConcurrencyConflict = "ConcurrencyConflict";
     public const string DuplicateResource = "DuplicateResource";
-    public const string PersistenceConflict = "PersistenceConflict";
     public const string MalformedRequest = "MalformedRequest";
 
     /// <summary>

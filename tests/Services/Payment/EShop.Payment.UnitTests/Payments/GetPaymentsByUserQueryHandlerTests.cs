@@ -5,13 +5,13 @@ using Moq;
 
 namespace EShop.Payment.UnitTests.Payments;
 
+/// <summary>Payment audit Stage 10 (M7, D10): the per-user list is one page, with its total.</summary>
 [TestFixture]
 public class GetPaymentsByUserQueryHandlerTests
 {
     [Test]
-    public async Task Handle_ShouldUseAsyncRepositoryMethodAndReturnMappedItems()
+    public async Task Handle_ReturnsTheRepositorysPage_WithItsTotal()
     {
-        var createdAt = DateTime.UtcNow;
         var payments = new List<PaymentTransaction>
         {
             new()
@@ -23,24 +23,43 @@ public class GetPaymentsByUserQueryHandlerTests
                 Currency = "USD",
                 PaymentMethod = PaymentMethodType.Mock,
                 Status = PaymentStatus.Success,
-                CreatedAt = createdAt
+                CreatedAt = DateTime.UtcNow
             }
         };
 
         var repository = new Mock<IPaymentRepository>();
         repository
-            .Setup(x => x.GetByUserIdAsync("user-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(payments);
+            .Setup(x => x.GetPageByUserIdAsync("user-1", 2, 5, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((payments, 7));
 
-        var handler = new GetPaymentsByUserQueryHandler(repository.Object);
-
-        var result = await handler.Handle(new GetPaymentsByUserQuery("user-1"), CancellationToken.None);
+        var result = await new GetPaymentsByUserQueryHandler(repository.Object).Handle(
+            new GetPaymentsByUserQuery { UserId = "user-1", PageNumber = 2, PageSize = 5 },
+            CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
-        Assert.That(result.Value, Has.Count.EqualTo(1));
-        Assert.That(result.Value![0].UserId, Is.EqualTo("user-1"));
-        Assert.That(result.Value[0].Status, Is.EqualTo("SUCCESS"));
+        var page = result.Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(page.Items.Single().UserId, Is.EqualTo("user-1"));
+            Assert.That(page.Items.Single().Status, Is.EqualTo("SUCCESS"));
+            Assert.That(page.TotalCount, Is.EqualTo(7));
+            Assert.That(page.PageNumber, Is.EqualTo(2));
+            Assert.That(page.PageSize, Is.EqualTo(5));
+        });
+    }
 
-        repository.Verify(x => x.GetByUserIdAsync("user-1", It.IsAny<CancellationToken>()), Times.Once);
+    [Test]
+    public async Task Handle_WithNoPageGiven_AsksForTheFirstTen()
+    {
+        var repository = new Mock<IPaymentRepository>();
+        repository
+            .Setup(x => x.GetPageByUserIdAsync("user-1", 1, 10, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<PaymentTransaction>(), 0));
+
+        await new GetPaymentsByUserQueryHandler(repository.Object).Handle(
+            new GetPaymentsByUserQuery { UserId = "user-1" },
+            CancellationToken.None);
+
+        repository.Verify(x => x.GetPageByUserIdAsync("user-1", 1, 10, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

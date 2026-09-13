@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
@@ -148,21 +149,29 @@ public static class PaymentEndpoints
         .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Payment audit Stage 10 (M7, D10). Paged like Ordering's per-user order list: ?pageNumber (default 1) and
+        // ?pageSize (default 10, at most 100). It used to return every payment the user ever had, as a bare array.
         app.MapGet("/api/v1/users/{userId}/payments", async (
             string userId,
+            [AsParameters] GetPaymentsByUserQuery query,
             IMediator mediator,
             CancellationToken cancellationToken) =>
         {
-            var result = await mediator.Send(new GetPaymentsByUserQuery(userId), cancellationToken);
+            var result = await mediator.Send(query with { UserId = userId }, cancellationToken);
 
             return result.Match(
-                value => Results.Ok(value.Select(ToResponse).ToList()),
+                page => Results.Ok(PagedResult<PaymentResponse>.Create(
+                    page.Items.Select(ToResponse).ToList(),
+                    page.PageNumber,
+                    page.PageSize,
+                    page.TotalCount)),
                 error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithTags("Payments")
         .WithName("GetPaymentsByUser")
         .RequireAuthorization("SameUserOrAdmin")
-        .Produces<List<PaymentResponse>>(StatusCodes.Status200OK);
+        .Produces<PagedResult<PaymentResponse>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // Ordering audit Stage 11. Admin only: a refund is a manual Payment operation. This used to accept
         // the payment's owner as well, and required only a successful payment, so a customer could refund

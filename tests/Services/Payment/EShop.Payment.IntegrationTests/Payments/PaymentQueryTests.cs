@@ -42,10 +42,13 @@ public class PaymentQueryTests : AuthenticatedIntegrationTestBase
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 
-        var payload = await response.Content.ReadFromJsonAsync<List<PaymentResponse>>();
+        // Payment audit Stage 10 (D10): one page, not a bare array. Paging itself is in PaymentListTests.
+        var payload = await response.Content.ReadFromJsonAsync<PaymentPage>();
         Assert.That(payload, Is.Not.Null);
-        Assert.That(payload!.Any(x => x.Id == seeded.Id), Is.True);
+        Assert.That(payload!.Items.Any(x => x.Id == seeded.Id), Is.True);
     }
+
+    private sealed record PaymentPage(List<PaymentResponse> Items, int TotalCount);
 
     private sealed record PaymentResponse(
         Guid Id,

@@ -202,11 +202,14 @@ if (!useInMemoryDb)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-// Payment maps any DbUpdateException to 409 (no duplicate-key sniff), unlike Catalog/Ordering.
+// Payment audit Stage 10 (M6). Only a real conflict is a 409: a lost row-version race, or a unique index. Payment used to
+// map every DbUpdateException to 409, so a value too long for its column told the client to retry a request that could
+// never succeed. Any other persistence failure is now the generic 500, and is logged as one.
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()
     .AddNotFound()
-    .AddEfPersistenceConflict());
+    .AddEfConcurrency()
+    .AddEfDuplicateKey());
 
 var app = builder.Build();
 

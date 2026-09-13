@@ -74,8 +74,7 @@ public sealed class ProblemDetailsExceptionOptions
             : null);
 
     /// <summary>
-    /// Must be registered BEFORE <see cref="AddEfDuplicateKey"/> and
-    /// <see cref="AddEfPersistenceConflict"/> — DbUpdateConcurrencyException derives from
+    /// Must be registered BEFORE <see cref="AddEfDuplicateKey"/> — DbUpdateConcurrencyException derives from
     /// DbUpdateException, so a broader mapper registered first would swallow it.
     /// </summary>
     public ProblemDetailsExceptionOptions AddEfConcurrency()
@@ -100,18 +99,6 @@ public sealed class ProblemDetailsExceptionOptions
                 StatusCodes.Status409Conflict,
                 detail: "A resource with the same unique value already exists.",
                 errorCode: ProblemErrorCodes.DuplicateResource)
-            : null);
-
-    /// <summary>
-    /// Payment's broader variant: any persistence failure is a 409, with no duplicate-key sniff.
-    /// </summary>
-    public ProblemDetailsExceptionOptions AddEfPersistenceConflict()
-        => Add((exception, context) => exception is DbUpdateException
-            ? EShopProblem.Create(
-                context,
-                StatusCodes.Status409Conflict,
-                detail: "The request conflicts with the current state of the resource.",
-                errorCode: ProblemErrorCodes.PersistenceConflict)
             : null);
 
     /// <summary>

@@ -32,14 +32,38 @@ public class PaymentRepository : IPaymentRepository
             .FirstOrDefaultAsync(x => x.PaymentIntentId == paymentIntentId, cancellationToken);
     }
 
-    public Task<List<PaymentTransaction>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
+    public async Task<(List<PaymentTransaction> Items, int TotalCount)> GetPageByUserIdAsync(
+        string userId,
+        int pageNumber,
+        int pageSize,
+        CancellationToken cancellationToken = default)
     {
-        return _context.PaymentTransactions
-            .AsNoTracking()
-            .Where(x => x.UserId == userId)
-            .OrderByDescending(x => x.CreatedAt)
+        var payments = ForUserList(_context.PaymentTransactions.AsNoTracking(), userId);
+
+        var totalCount = await payments.CountAsync(cancellationToken);
+        var items = await payments
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
     }
+
+    /// <summary>
+    /// The user's listed payments, newest first (Payment audit S10: M7, D11).
+    /// <list type="bullet">
+    ///   <item><c>Id</c> breaks ties. Ordered by <c>CreatedAt</c> alone, Postgres may put rows that share a timestamp in a
+    ///   different order for each page, so one is shown twice and another never; Ordering's audit found the same.</item>
+    ///   <item>Method None is the placeholder a cancellation leaves when it overtakes the order. Nothing was ever started
+    ///   or charged for it.</item>
+    /// </list>
+    /// Public so that a test can check the SQL it produces. InMemory's stable sort hides a missing tie-break.
+    /// </summary>
+    public static IQueryable<PaymentTransaction> ForUserList(IQueryable<PaymentTransaction> payments, string userId)
+        => payments
+            .Where(x => x.UserId == userId && x.PaymentMethod != PaymentMethodType.None)
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.Id);
 
     public async Task AddAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
     {
@@ -82,6 +106,13 @@ public class PaymentRepository : IPaymentRepository
         await _context.ProcessedStripeWebhookEvents.AddAsync(processedEvent, cancellationToken);
     }
 
+    public Task<int> DeleteProcessedStripeEventsBeforeAsync(DateTime cutoff, CancellationToken cancellationToken = default)
+    {
+        return _context.ProcessedStripeWebhookEvents
+            .Where(x => x.ProcessedAt < cutoff)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
     public Task UpdateAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
     {
         var entry = _context.Entry(payment);
@@ -121,10 +152,5 @@ public class PaymentRepository : IPaymentRepository
         return _context.PaymentTransactions
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.OrderId == orderId, cancellationToken);
-    }
-
-    public IQueryable<PaymentTransaction> Query()
-    {
-        return _context.PaymentTransactions.AsNoTracking();
     }
 }
