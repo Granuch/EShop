@@ -19,6 +19,8 @@ using Serilog;
 using Serilog.Events;
 using System.Text;
 using System.Threading.RateLimiting;
+using CorsOriginGuard = EShop.BuildingBlocks.Infrastructure.Configuration.CorsOriginGuard;
+using JwtSecretGuard = EShop.BuildingBlocks.Infrastructure.Configuration.JwtSecretGuard;
 
 ThreadPool.SetMinThreads(workerThreads: 50, completionPortThreads: 50);
 
@@ -86,23 +88,15 @@ builder.Services.AddEShopOpenTelemetry(
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JWT settings are required.");
 
-if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey) || jwtSettings.SecretKey.Length < 32)
+// Payment audit Stage 11 (M8). The shared guard, as Ordering uses, with Sandbox checked like any deployed environment.
+// Payment's own check used to exempt Sandbox (its IsProductionLikeEnvironment excluded it). So a placeholder key booted
+// payment-api and crash-looped Identity on the same shared key. The one Sandbox exemption left is the Stripe webhook
+// bypass above, which is deliberate. Configuration/StartupGuardTests boots this file as Production and as Sandbox.
+JwtSecretGuard.Validate(jwtSettings.SecretKey, builder.Environment);
+
+if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
 {
-    throw new InvalidOperationException("JWT SecretKey must be configured and at least 32 characters long.");
-}
-
-if (IsProductionLikeEnvironment(builder.Environment))
-{
-    EnsureNoPlaceholderValue(jwtSettings.SecretKey, "JwtSettings:SecretKey", builder.Environment.EnvironmentName);
-
-    var paymentDbConnectionString = builder.Configuration.GetConnectionString("PaymentDb");
-    EnsureNoPlaceholderValue(paymentDbConnectionString, "ConnectionStrings:PaymentDb", builder.Environment.EnvironmentName);
-
-    if (paymentDbConnectionString!.Contains("localhost", StringComparison.OrdinalIgnoreCase))
-    {
-        throw new InvalidOperationException(
-            $"ConnectionStrings:PaymentDb contains localhost in {builder.Environment.EnvironmentName}. Use managed environment-specific connection configuration.");
-    }
+    EnsureDeployableConnectionString(builder.Configuration.GetConnectionString("PaymentDb"), builder.Environment.EnvironmentName);
 }
 
 builder.Services.AddHttpContextAccessor();
@@ -136,22 +130,16 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
+// Payment audit Stage 11 (M8). The shared CorsOriginGuard, run while the host is composed. The old check sat inside the
+// AddPolicy lambda, which CORS builds lazily, so a misconfigured deploy started healthy and threw on its first
+// cross-origin request. It also passed a placeholder origin, since it checked only that the list was not empty.
+var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-        if (allowedOrigins.Length == 0 &&
-            !builder.Environment.IsDevelopment() &&
-            !builder.Environment.IsEnvironment("Testing"))
-        {
-            throw new InvalidOperationException(
-                $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                "Configure allowed origins before deploying to non-development environments.");
-        }
-
-        policy.WithOrigins(allowedOrigins)
+        policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
@@ -337,29 +325,29 @@ static bool IsPostgresStartupException(Exception exception)
         && IsPostgresStartupException(exception.InnerException);
 }
 
-static bool IsProductionLikeEnvironment(IHostEnvironment environment)
+// Payment audit Stage 11 (M8). The connection string a deployed Payment may use. It must be present and free of the repo's
+// placeholder patterns (the list JwtSecretGuard checks). It must not be localhost, which inside a container is the
+// container itself.
+static void EnsureDeployableConnectionString(string? connectionString, string environmentName)
 {
-    return !environment.IsDevelopment()
-        && !environment.IsEnvironment("Testing")
-        && !environment.IsEnvironment("Sandbox");
-}
-
-static void EnsureNoPlaceholderValue(string? value, string settingName, string environmentName)
-{
-    if (string.IsNullOrWhiteSpace(value))
+    if (string.IsNullOrWhiteSpace(connectionString))
     {
-        throw new InvalidOperationException($"{settingName} is required in {environmentName}.");
+        throw new InvalidOperationException($"ConnectionStrings:PaymentDb is required in {environmentName}.");
     }
 
-    var placeholderPatterns = new[] { "CHANGE_ME", "LOCAL_", "#{", "REPLACE_WITH_", "YOUR_", "placeholder" };
-
-    foreach (var pattern in placeholderPatterns)
+    foreach (var pattern in JwtSecretGuard.PlaceholderPatterns)
     {
-        if (value.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+        if (connectionString.Contains(pattern, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                $"{settingName} contains placeholder pattern '{pattern}' in {environmentName}. Replace it with a secure value.");
+                $"ConnectionStrings:PaymentDb contains placeholder pattern '{pattern}' in {environmentName}. Replace it with a secure value.");
         }
+    }
+
+    if (connectionString.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"ConnectionStrings:PaymentDb contains localhost in {environmentName}. Use managed environment-specific connection configuration.");
     }
 }
 

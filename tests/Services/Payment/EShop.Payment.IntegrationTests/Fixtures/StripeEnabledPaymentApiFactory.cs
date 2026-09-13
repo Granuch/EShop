@@ -1,7 +1,6 @@
 using EShop.Payment.Application.Payments.Abstractions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
@@ -41,15 +40,13 @@ public sealed class StripeEnabledPaymentApiFactory : PaymentApiFactory
 
         var bypass = _verifyWebhookSignatures ? "false" : "true";
 
-        // Read through IOptions<StripeSettings> at request time, so ConfigureAppConfiguration is early enough here.
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Stripe:Enabled"] = "true",
-            ["Stripe:SecretKey"] = "sk_test_not_a_real_key",
-            ["Stripe:WebhookSecret"] = WebhookSecret,
-            ["Stripe:SkipWebhookSignatureVerification"] = bypass,
-            ["Stripe:AllowMissingSignatureHeaderInBypassMode"] = bypass
-        }));
+        // UseSetting, like the base factory (Payment audit Stage 11). Program.cs's startup bypass check reads these while
+        // it composes the host.
+        builder.UseSetting("Stripe:Enabled", "true");
+        builder.UseSetting("Stripe:SecretKey", "sk_test_not_a_real_key");
+        builder.UseSetting("Stripe:WebhookSecret", WebhookSecret);
+        builder.UseSetting("Stripe:SkipWebhookSignatureVerification", bypass);
+        builder.UseSetting("Stripe:AllowMissingSignatureHeaderInBypassMode", bypass);
 
         builder.ConfigureTestServices(services =>
         {

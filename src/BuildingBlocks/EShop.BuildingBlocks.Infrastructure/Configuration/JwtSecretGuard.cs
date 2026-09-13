@@ -9,8 +9,8 @@ namespace EShop.BuildingBlocks.Infrastructure.Configuration;
 /// <b>Why it is shared.</b> Identity, Catalog, Ordering and Payment each carried their own copy of this check,
 /// and the copies drifted: Catalog's and Ordering's placeholder lists once had five patterns against
 /// Identity's seven, missing <c>LOCAL_</c> and <c>REPLACE_WITH_</c> — so the exact placeholder that stops
-/// Identity booted those two cleanly on the same shared key. Ordering calls this; the other three still
-/// have their own copies until they are moved over.
+/// Identity booted those two cleanly on the same shared key. Ordering and Payment (Payment audit Stage 11)
+/// call this; Identity and Catalog still have their own copies until they are moved over.
 /// </para>
 ///
 /// <para>
