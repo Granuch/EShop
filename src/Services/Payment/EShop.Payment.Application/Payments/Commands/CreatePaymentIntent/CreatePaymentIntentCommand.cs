@@ -1,5 +1,4 @@
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Behaviors;
 using MediatR;
 
 namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
@@ -8,6 +7,8 @@ namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 /// Starts paying an order at Stripe. Payment audit Stage 2 (C2, D4): the request names only the order. What is
 /// charged — amount and currency — comes from the payment Payment recorded for it from <c>OrderCreatedEvent</c>,
 /// never from the client, which used to choose both.
+/// <para>Deliberately not an <c>ITransactionalCommand</c> (Payment audit D7). Stripe is called with no transaction open, and
+/// the result is recorded in one save, guarded by the row version. See the handler.</para>
 /// </summary>
 /// <param name="RequesterId">The signed-in user's id; a non-admin may only pay their own order.</param>
 /// <param name="Email">Optional, for the Stripe customer record.</param>
@@ -15,7 +16,7 @@ public sealed record CreatePaymentIntentCommand(
     Guid OrderId,
     string? RequesterId,
     bool RequesterIsAdmin,
-    string? Email) : IRequest<Result<CreatePaymentIntentDto>>, ITransactionalCommand;
+    string? Email) : IRequest<Result<CreatePaymentIntentDto>>;
 
 public sealed record CreatePaymentIntentDto(
     Guid PaymentId,

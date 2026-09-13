@@ -42,7 +42,7 @@ public class CreatePaymentIntentCommandHandlerTests
         _customers.Object,
         _stripe.Object,
         _outbox.Object,
-        _db);
+        Mock.Of<ILogger<CreatePaymentIntentCommandHandler>>());
 
     private async Task<PaymentTransaction> SeedAsync(
         string userId = "user-1",

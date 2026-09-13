@@ -433,6 +433,12 @@ public class PaymentWriteCollisionTests
         public Task AddAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
             => inner.AddAsync(payment, cancellationToken);
 
+        public Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken = default)
+            => inner.TrySaveChangesAsync(cancellationToken);
+
+        public Task<PaymentTransaction?> GetCurrentByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => inner.GetCurrentByOrderIdAsync(orderId, cancellationToken);
+
         public IQueryable<PaymentTransaction> Query() => inner.Query();
     }
 }

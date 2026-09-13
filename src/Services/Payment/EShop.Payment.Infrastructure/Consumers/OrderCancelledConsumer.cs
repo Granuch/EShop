@@ -28,11 +28,10 @@ namespace EShop.Payment.Infrastructure.Consumers;
 ///   <item><b>Pending or Processing</b> — a Stripe intent is cancelled at Stripe first, then the
 ///   payment is recorded Cancelled. With no intent recorded there is nothing at the provider to
 ///   cancel. Since Payment audit Stage 2 a Stripe payment's row comes from <c>OrderCreatedConsumer</c>,
-///   and <c>CreatePaymentIntentCommand</c> only updates it with its intent id, in one transaction. So
-///   an intent still being created meets this consumer on the row version: if the cancellation commits
-///   first, the request finds the payment Cancelled (409) or loses its save and returns no client
-///   secret, leaving an intent at Stripe nobody can pay; if the request commits first, this consumer
-///   finds the intent and cancels it.</item>
+///   and <c>CreatePaymentIntentCommand</c> only records its intent id on it, in one save after calling
+///   Stripe. So an intent still being created meets this consumer on the row version. If the cancellation
+///   commits first, the request loses its save, cancels the intent it has just created, and answers 409
+///   (Payment audit D7). If the request commits first, this consumer finds the intent and cancels it.</item>
 ///   <item><b>Success</b>, or <b>Stripe refuses</b> because the intent already succeeded — the money
 ///   is taken. By default that is an error, thrown as <see cref="PaymentCancellationFailedException"/>,
 ///   so the message lands in the error queue for a refund rather than being acknowledged with a log

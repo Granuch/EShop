@@ -94,6 +94,35 @@ public class PaymentRepository : IPaymentRepository
         return Task.CompletedTask;
     }
 
+    public async Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        // Payment audit D7. Catching the conflict is only safe with no transaction open: EF rolls back its own
+        // SaveChanges transaction, whereas inside an outer one Postgres would refuse every later statement (25P02).
+        if (_context.Database.CurrentTransaction is not null)
+        {
+            throw new InvalidOperationException(
+                "TrySaveChangesAsync must not run inside a transaction: a lost save there leaves the transaction aborted.");
+        }
+
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _context.ChangeTracker.Clear();
+            return false;
+        }
+    }
+
+    public Task<PaymentTransaction?> GetCurrentByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        return _context.PaymentTransactions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.OrderId == orderId, cancellationToken);
+    }
+
     public IQueryable<PaymentTransaction> Query()
     {
         return _context.PaymentTransactions.AsNoTracking();
