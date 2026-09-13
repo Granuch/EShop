@@ -60,7 +60,7 @@ public class OrderCancelledConsumerTests
     public void TearDown() => _db.Dispose();
 
     private async Task<PaymentTransaction> SeedAsync(
-        PaymentStatus status, string method = "Stripe", string intentId = "pi_live_1")
+        PaymentStatus status, string method = "Stripe", string intentId = "pi_live_1", string? errorMessage = null)
     {
         var payment = new PaymentTransaction
         {
@@ -72,6 +72,7 @@ public class OrderCancelledConsumerTests
             PaymentMethod = method,
             PaymentIntentId = intentId,
             Status = status,
+            ErrorMessage = errorMessage,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -180,7 +181,6 @@ public class OrderCancelledConsumerTests
         Assert.That((await StoredAsync(payment.OrderId)).Status, Is.EqualTo(PaymentStatus.Cancelled));
     }
 
-    [TestCase(PaymentStatus.Failed)]
     [TestCase(PaymentStatus.Refunded)]
     [TestCase(PaymentStatus.Cancelled)]
     public async Task APaymentAlreadyOver_IsLeftAlone(PaymentStatus status)
@@ -191,6 +191,55 @@ public class OrderCancelledConsumerTests
 
         _stripe.VerifyNoOtherCalls();
         Assert.That((await StoredAsync(payment.OrderId)).Status, Is.EqualTo(status));
+    }
+
+    /// <summary>
+    /// Payment audit Stage 5 (H1). Before it, a declined card was recorded Failed while Stripe left its intent payable,
+    /// and this consumer treated Failed as over. So the order was cancelled, and the customer could still pay it.
+    /// </summary>
+    [Test]
+    public async Task AFailedStripePayment_HasItsIntentCancelled_AndStaysFailed()
+    {
+        var payment = await SeedAsync(PaymentStatus.Failed, errorMessage: "Your card was declined.");
+        _stripe.Setup(s => s.CancelPaymentIntentAsync("pi_live_1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripePaymentIntentCancelResult("pi_live_1", "canceled"));
+
+        await _consumer.Consume(Cancelled(payment.OrderId));
+
+        _stripe.Verify(s => s.CancelPaymentIntentAsync("pi_live_1", It.IsAny<CancellationToken>()), Times.Once);
+        var stored = await StoredAsync(payment.OrderId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Failed));
+            Assert.That(stored.StripeStatus, Is.EqualTo("canceled"));
+            Assert.That(stored.ErrorMessage, Is.EqualTo("Your card was declined."), "the record keeps why it failed");
+        });
+    }
+
+    /// <summary>The customer paid a second card before the cancellation arrived: the money is taken, as for Processing.</summary>
+    [Test]
+    public async Task AFailedStripePayment_WhoseIntentHasSinceSucceeded_IsAnError()
+    {
+        var payment = await SeedAsync(PaymentStatus.Failed);
+        _stripe.Setup(s => s.CancelPaymentIntentAsync("pi_live_1", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new PaymentIntentNotCancellableException("pi_live_1", "This PaymentIntent's status is succeeded."));
+
+        Assert.ThrowsAsync<PaymentCancellationFailedException>(() => _consumer.Consume(Cancelled(payment.OrderId)));
+
+        Assert.That((await StoredAsync(payment.OrderId)).Status, Is.EqualTo(PaymentStatus.Failed));
+    }
+
+    /// <summary>A failed simulated payment, or a Stripe one that never got an intent: nothing at the provider.</summary>
+    [TestCase("Mock", "pi_mock_1")]
+    [TestCase("Stripe", "")]
+    public async Task AFailedPaymentWithNothingAtStripe_IsLeftAlone(string method, string intentId)
+    {
+        var payment = await SeedAsync(PaymentStatus.Failed, method, intentId);
+
+        await _consumer.Consume(Cancelled(payment.OrderId));
+
+        _stripe.VerifyNoOtherCalls();
+        Assert.That((await StoredAsync(payment.OrderId)).Status, Is.EqualTo(PaymentStatus.Failed));
     }
 
     /// <summary>

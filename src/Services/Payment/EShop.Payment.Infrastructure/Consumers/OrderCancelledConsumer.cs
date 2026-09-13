@@ -40,7 +40,10 @@ namespace EShop.Payment.Infrastructure.Consumers;
 ///   instead — for a refused cancel, only once Stripe confirms the intent <c>succeeded</c>; one still
 ///   <c>processing</c> is thrown as before. A refund Stripe refuses is thrown too, so only the settled
 ///   cases skip the error queue.</item>
-///   <item><b>Failed, Refunded, Cancelled</b> — nothing to do.</item>
+///   <item><b>Failed</b> — a Stripe payment with an intent has the intent cancelled at Stripe and stays Failed
+///   (Payment audit Stage 5, H1). Until then a declined card was recorded Failed with its intent still payable,
+///   so the customer could pay a cancelled order. Any other Failed payment has nothing to cancel.</item>
+///   <item><b>Refunded, Cancelled</b> — nothing to do.</item>
 /// </list>
 /// <para>Any other failure (a Stripe outage, the database) propagates unchanged and is retried.</para>
 /// </summary>
@@ -50,7 +53,6 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
 
     private static readonly HashSet<PaymentStatus> NothingToCancel =
     [
-        PaymentStatus.Failed,
         PaymentStatus.Refunded,
         PaymentStatus.Cancelled
     ];
@@ -112,7 +114,8 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             return;
         }
 
-        if (NothingToCancel.Contains(payment.Status))
+        if (NothingToCancel.Contains(payment.Status)
+            || (payment.Status == PaymentStatus.Failed && !HasStripeIntent(payment)))
         {
             Logger.LogInformation(
                 "Payment for cancelled OrderId={OrderId} is already {Status}; nothing to cancel.",
@@ -135,9 +138,10 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             return;
         }
 
-        // Pending or Processing. Cancel at Stripe BEFORE touching the record: if Stripe refuses, the
-        // record must still say what is true, and the exception rolls back the consumer's transaction.
-        if (IsStripe(payment) && !string.IsNullOrEmpty(payment.PaymentIntentId))
+        // Pending, Processing, or a Failed Stripe payment. Cancel at Stripe BEFORE touching the record: if
+        // Stripe refuses, the record must still say what is true, and the exception rolls back the consumer's
+        // transaction.
+        if (HasStripeIntent(payment))
         {
             try
             {
@@ -163,6 +167,21 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
                     $"Stripe refused to cancel intent '{payment.PaymentIntentId}': {ex.StripeMessage}",
                     ex);
             }
+        }
+
+        if (payment.Status == PaymentStatus.Failed)
+        {
+            // Payment audit Stage 5 (H1). The intent can no longer be paid; the record keeps why the payment failed.
+            payment.UpdatedAt = now;
+            await _paymentRepository.UpdateAsync(payment, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            Logger.LogInformation(
+                "Payment {PaymentId} for cancelled OrderId={OrderId} had failed; its intent '{PaymentIntentId}' is cancelled at Stripe.",
+                payment.Id,
+                message.OrderId,
+                payment.PaymentIntentId);
+            return;
         }
 
         payment.Status = PaymentStatus.Cancelled;
@@ -215,8 +234,9 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             payment.PaymentIntentId);
     }
 
-    private static bool IsStripe(PaymentTransaction payment)
-        => string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase);
+    private static bool HasStripeIntent(PaymentTransaction payment)
+        => string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase)
+           && !string.IsNullOrEmpty(payment.PaymentIntentId);
 
     private static string CancellationNote(OrderCancelledEvent message)
     {

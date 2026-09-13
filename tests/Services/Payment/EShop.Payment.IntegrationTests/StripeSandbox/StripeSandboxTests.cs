@@ -1,7 +1,15 @@
+using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Entities;
 using EShop.Payment.Infrastructure.Configuration;
+using EShop.Payment.Infrastructure.Data;
+using EShop.Payment.Infrastructure.Repositories;
 using EShop.Payment.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 using Stripe;
 
 namespace EShop.Payment.IntegrationTests.StripeSandbox;
@@ -199,13 +207,81 @@ public class StripeSandboxTests
             Metadata = new Dictionary<string, string> { ["source"] = "EShop.Payment.IntegrationTests" }
         });
 
+    /// <summary>
+    /// Payment audit Stage 5 (H1, D3), with Stripe's own events. A declined card leaves the intent payable
+    /// (<c>requires_payment_method</c>), and a second card pays the same intent. Fed those two events in order, our
+    /// webhook keeps the payment open after the decline, with no <c>PaymentFailedEvent</c> (which would have Ordering
+    /// cancel the order), then records the success.
+    /// </summary>
+    [Test]
+    public async Task ADeclinedCard_LeavesTheIntentPayable_AndOurWebhookWaitsForTheSecondCard()
+    {
+        var intent = await AnUncapturedIntentAsync();
+        var intents = new PaymentIntentService(_client);
+
+        var declined = Assert.ThrowsAsync<StripeException>(() => intents.ConfirmAsync(
+            intent.Id, new PaymentIntentConfirmOptions { PaymentMethod = "pm_card_chargeDeclined" }));
+        Assert.That(declined!.StripeError?.Code, Is.EqualTo("card_declined"));
+        Assert.That((await intents.GetAsync(intent.Id)).Status, Is.EqualTo("requires_payment_method"));
+        var declineEvent = await EventForAsync("payment_intent.payment_failed", intent.Id);
+
+        var paid = await intents.ConfirmAsync(intent.Id, new PaymentIntentConfirmOptions { PaymentMethod = "pm_card_visa" });
+        Assert.That(paid.Status, Is.EqualTo("succeeded"), "the same intent takes a second card");
+        var successEvent = await EventForAsync("payment_intent.succeeded", intent.Id);
+        await RefundUnderAFreshKeyAsync(intent.Id);
+
+        await using var db = new PaymentDbContext(new DbContextOptionsBuilder<PaymentDbContext>()
+            .UseInMemoryDatabase($"sandbox-decline-{Guid.NewGuid():N}").Options);
+        db.PaymentTransactions.Add(new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "sandbox-user",
+            Amount = Amount,
+            Currency = "USD",
+            PaymentMethod = "Stripe",
+            PaymentIntentId = intent.Id,
+            Status = PaymentStatus.Processing,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var outbox = new Mock<IIntegrationEventOutbox>();
+        var processor = new StripeWebhookProcessor(
+            new PaymentRepository(db),
+            new StripeWebhookEventParser(Options.Create(new StripeSettings { Enabled = true, SkipWebhookSignatureVerification = true })),
+            db,
+            outbox.Object,
+            NullLogger<StripeWebhookProcessor>.Instance);
+
+        await processor.ProcessAsync(declineEvent.ToJson(), string.Empty);
+
+        var afterDecline = await db.PaymentTransactions.AsNoTracking().SingleAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(afterDecline.Status, Is.EqualTo(PaymentStatus.Processing));
+            Assert.That(afterDecline.ErrorMessage, Is.Not.Null.And.Not.Empty, "Stripe's decline reason is recorded");
+            Assert.That(afterDecline.StripeStatus, Is.EqualTo("requires_payment_method"));
+        });
+        outbox.Verify(o => o.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Never);
+
+        await processor.ProcessAsync(successEvent.ToJson(), string.Empty);
+
+        Assert.That((await db.PaymentTransactions.AsNoTracking().SingleAsync()).Status, Is.EqualTo(PaymentStatus.Success));
+        outbox.Verify(o => o.Enqueue(It.IsAny<PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+    }
+
     /// <summary>Stripe writes events asynchronously, so poll briefly for the intent's canceled event.</summary>
-    private async Task<Event> CanceledEventForAsync(string paymentIntentId)
+    private Task<Event> CanceledEventForAsync(string paymentIntentId)
+        => EventForAsync("payment_intent.canceled", paymentIntentId);
+
+    private async Task<Event> EventForAsync(string type, string paymentIntentId)
     {
         var events = new EventService(_client);
         for (var attempt = 0; attempt < 20; attempt++)
         {
-            var page = await events.ListAsync(new EventListOptions { Type = "payment_intent.canceled", Limit = 50 });
+            var page = await events.ListAsync(new EventListOptions { Type = type, Limit = 50 });
             var match = page.Data.FirstOrDefault(e => e.Data.Object is PaymentIntent pi && pi.Id == paymentIntentId);
             if (match is not null)
             {
@@ -215,7 +291,7 @@ public class StripeSandboxTests
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
 
-        Assert.Fail($"Stripe emitted no payment_intent.canceled event for {paymentIntentId} within 20 s.");
+        Assert.Fail($"Stripe emitted no {type} event for {paymentIntentId} within 20 s.");
         return null!;
     }
 

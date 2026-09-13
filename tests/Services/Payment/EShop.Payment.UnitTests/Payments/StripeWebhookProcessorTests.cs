@@ -174,6 +174,104 @@ public class StripeWebhookProcessorTests
     }
 
     /// <summary>
+    /// Payment audit Stage 5 (H1, D3). A declined card ends an attempt, not the payment: Stripe leaves the intent
+    /// payable with another card. It used to be recorded Failed with a PaymentFailedEvent, so Ordering cancelled the
+    /// order while the customer could still pay it.
+    /// </summary>
+    [TestCase(PaymentStatus.Pending)]
+    [TestCase(PaymentStatus.Processing)]
+    public async Task ADecline_KeepsThePaymentOpen_RecordsWhy_AndPublishesNoFailure(PaymentStatus status)
+    {
+        await using var dbContext = CreateDbContext();
+        var (processor, outbox, intentId) = await APaymentWithWebhooksAsync(dbContext, status,
+            Decline("evt_decline"));
+
+        await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+
+        var stored = await new PaymentRepository(dbContext).GetByPaymentIntentIdAsync(intentId, CancellationToken.None);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.Status, Is.EqualTo(status));
+            Assert.That(stored.ErrorMessage, Is.EqualTo("Your card was declined."));
+            Assert.That(stored.StripeStatus, Is.EqualTo("requires_payment_method"));
+            Assert.That(stored.ProcessedAt, Is.Null, "nothing was settled");
+        });
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    /// <summary>Stripe does not order deliveries: a decline of the first card can arrive after the second one paid.</summary>
+    [Test]
+    public async Task ADeclineDeliveredAfterTheSuccess_LeavesThePaymentSucceeded()
+    {
+        await using var dbContext = CreateDbContext();
+        var (processor, outbox, intentId) = await APaymentWithWebhooksAsync(dbContext, PaymentStatus.Success,
+            Decline("evt_late_decline"));
+
+        await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+
+        var stored = await new PaymentRepository(dbContext).GetByPaymentIntentIdAsync(intentId, CancellationToken.None);
+        Assert.That(stored!.Status, Is.EqualTo(PaymentStatus.Success));
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ASecondCardAfterADecline_SettlesThePayment_AndClearsTheError()
+    {
+        await using var dbContext = CreateDbContext();
+        var (processor, outbox, intentId) = await APaymentWithWebhooksAsync(dbContext, PaymentStatus.Processing,
+            Decline("evt_first_card"),
+            new StripeWebhookEvent("evt_second_card", "payment_intent.succeeded", "pi_retry", "succeeded", null, true));
+
+        await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+        await processor.ProcessAsync("payload", "sig", CancellationToken.None);
+
+        var stored = await new PaymentRepository(dbContext).GetByPaymentIntentIdAsync(intentId, CancellationToken.None);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.Status, Is.EqualTo(PaymentStatus.Success));
+            Assert.That(stored.ErrorMessage, Is.Null);
+        });
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    private static StripeWebhookEvent Decline(string eventId) => new(
+        eventId, "payment_intent.payment_failed", "pi_retry", "requires_payment_method", "Your card was declined.", true);
+
+    /// <summary>A Stripe payment on intent <c>pi_retry</c>, and a processor whose parser yields <paramref name="events"/> in turn.</summary>
+    private static async Task<(StripeWebhookProcessor Processor, Mock<IIntegrationEventOutbox> Outbox, string IntentId)> APaymentWithWebhooksAsync(
+        PaymentDbContext dbContext, PaymentStatus status, params StripeWebhookEvent[] events)
+    {
+        var repository = new PaymentRepository(dbContext);
+        await repository.AddAsync(new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-1",
+            Amount = 100m,
+            Currency = "USD",
+            PaymentMethod = "Stripe",
+            PaymentIntentId = "pi_retry",
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var eventParser = new Mock<IStripeWebhookEventParser>();
+        var sequence = eventParser.SetupSequence(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()));
+        foreach (var stripeEvent in events)
+        {
+            sequence = sequence.Returns(stripeEvent);
+        }
+
+        var outbox = new Mock<IIntegrationEventOutbox>();
+        var processor = new StripeWebhookProcessor(
+            repository, eventParser.Object, dbContext, outbox.Object, Mock.Of<ILogger<StripeWebhookProcessor>>());
+        return (processor, outbox, "pi_retry");
+    }
+
+    /// <summary>
     /// Ordering audit Stage 21 (D17). Stripe's canceled webhook arriving while the payment still reads
     /// Processing: OrderCancelledConsumer cancelled the intent and has not committed yet. The intent's tag
     /// decides it. Tagged, it is a cancelled order: Cancelled, no PaymentFailedEvent. Untagged (a Dashboard or

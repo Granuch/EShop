@@ -90,24 +90,26 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
                 }
                 break;
 
-            // Cancelled is left alone by both failure branches: OrderCancelledConsumer cancelled the
-            // intent itself, and Stripe's own payment_intent.canceled webhook follows. Recording that as
-            // Failed would overwrite why the payment ended and publish a PaymentFailedEvent for an
-            // order that is already cancelled. (A succeeded webhook is still recorded: if Stripe
-            // captured the money, the record must say so.)
+            // Payment audit Stage 5 (H1, D3). A decline ends one attempt, not the payment. Stripe returns the intent
+            // to requires_payment_method, and the customer can pay it with another card. So the error is recorded
+            // and the payment stays open, with no PaymentFailedEvent, which would have Ordering cancel the order.
+            // This used to record Failed and publish that event: the order was cancelled while its intent stayed
+            // payable. And because a decline can be delivered after a later success, it could also turn a paid
+            // payment into Failed. Only a cancelled intent ends a Stripe payment (below).
             case "payment_intent.payment_failed":
-                if (payment.Status != PaymentStatus.Refunded && payment.Status != PaymentStatus.Cancelled)
+                if (payment.Status is PaymentStatus.Pending or PaymentStatus.Processing)
                 {
-                    payment.Status = PaymentStatus.Failed;
                     payment.StripeStatus = stripeEvent.Status;
-                    payment.ErrorMessage = stripeEvent.FailureMessage ?? "Stripe payment failed.";
-                    payment.ProcessedAt = DateTime.UtcNow;
+                    payment.ErrorMessage = stripeEvent.FailureMessage ?? "Stripe payment attempt failed.";
                     payment.UpdatedAt = DateTime.UtcNow;
                     await _paymentRepository.UpdateAsync(payment, cancellationToken);
-                    publishFailure = true;
                 }
                 break;
 
+            // Cancelled is left alone here: OrderCancelledConsumer cancelled the intent itself, and Stripe's own
+            // payment_intent.canceled webhook follows. Recording that as Failed would overwrite why the payment
+            // ended and publish a PaymentFailedEvent for an order that is already cancelled. (A succeeded webhook
+            // is still recorded: if Stripe captured the money, the record must say so.)
             case "payment_intent.canceled":
                 if (payment.Status != PaymentStatus.Success
                     && payment.Status != PaymentStatus.Refunded
