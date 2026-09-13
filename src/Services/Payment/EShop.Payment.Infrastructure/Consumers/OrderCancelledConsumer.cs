@@ -91,20 +91,9 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
 
         if (payment is null)
         {
-            await _paymentRepository.AddAsync(new PaymentTransaction
-            {
-                Id = Guid.NewGuid(),
-                OrderId = message.OrderId,
-                UserId = message.UserId,
-                Amount = 0m,
-                Currency = "USD",
-                PaymentMethod = "None",
-                Status = PaymentStatus.Cancelled,
-                ErrorMessage = CancellationNote(message),
-                CreatedAt = now,
-                ProcessedAt = now,
-                UpdatedAt = now
-            }, cancellationToken);
+            await _paymentRepository.AddAsync(
+                PaymentTransaction.RecordCancelledBeforeCreation(message.OrderId, message.UserId, CancellationNote(message), now),
+                cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             Logger.LogInformation(
@@ -145,7 +134,7 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             try
             {
                 var cancelled = await _stripePaymentService.CancelPaymentIntentAsync(payment.PaymentIntentId, cancellationToken);
-                payment.StripeStatus = cancelled.Status;
+                payment.ObserveStripeStatus(cancelled.Status, now);
             }
             catch (PaymentIntentNotCancellableException ex)
             {
@@ -156,7 +145,7 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
                     && await _stripePaymentService.GetPaymentIntentStatusAsync(payment.PaymentIntentId, cancellationToken)
                         == StripeIntentSucceeded)
                 {
-                    payment.StripeStatus = StripeIntentSucceeded;
+                    payment.ObserveStripeStatus(StripeIntentSucceeded, now);
                     await RefundCapturedPaymentAsync(payment, message, cancellationToken);
                     return;
                 }
@@ -171,7 +160,6 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
         if (payment.Status == PaymentStatus.Failed)
         {
             // Payment audit Stage 5 (H1). The intent can no longer be paid; the record keeps why the payment failed.
-            payment.UpdatedAt = now;
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -183,10 +171,7 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
             return;
         }
 
-        payment.Status = PaymentStatus.Cancelled;
-        payment.ErrorMessage = CancellationNote(message);
-        payment.ProcessedAt = now;
-        payment.UpdatedAt = now;
+        payment.Cancel(CancellationNote(message), now);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -221,7 +206,7 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
                 ex);
         }
 
-        payment.ErrorMessage = CancellationNote(message);
+        payment.AnnotateRefund(CancellationNote(message));
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         Logger.LogWarning(
@@ -234,8 +219,7 @@ public class OrderCancelledConsumer : IdempotentConsumer<OrderCancelledEvent, Pa
     }
 
     private static bool HasStripeIntent(PaymentTransaction payment)
-        => string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase)
-           && !string.IsNullOrEmpty(payment.PaymentIntentId);
+        => payment.PaymentMethod == PaymentMethodType.Stripe && !string.IsNullOrEmpty(payment.PaymentIntentId);
 
     private static string CancellationNote(OrderCancelledEvent message)
     {

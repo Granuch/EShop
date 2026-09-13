@@ -157,7 +157,7 @@ public class OrderCreatedConsumerTests
         Assert.Multiple(() =>
         {
             Assert.That(payment.Status, Is.EqualTo(PaymentStatus.Pending));
-            Assert.That(payment.PaymentMethod, Is.EqualTo("Stripe"));
+            Assert.That(payment.PaymentMethod, Is.EqualTo(PaymentMethodType.Stripe));
             Assert.That(payment.Amount, Is.EqualTo(123.45m));
             Assert.That(payment.Currency, Is.EqualTo("USD"));
             Assert.That(payment.UserId, Is.EqualTo("user-9"));
@@ -184,7 +184,7 @@ public class OrderCreatedConsumerTests
             OrderId = orderId,
             UserId = "user-4",
             Amount = 100m,
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = "pi_real",
             StripeStatus = "requires_payment_method",
             Status = PaymentStatus.Processing,
@@ -241,7 +241,7 @@ public class OrderCreatedConsumerTests
             OrderId = orderId,
             UserId = "user-5",
             Amount = 100m,
-            PaymentMethod = "Mock",
+            PaymentMethod = PaymentMethodType.Mock,
             Status = PaymentStatus.Processing,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow

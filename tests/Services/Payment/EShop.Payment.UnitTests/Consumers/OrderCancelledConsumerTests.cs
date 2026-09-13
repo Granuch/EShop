@@ -60,7 +60,7 @@ public class OrderCancelledConsumerTests
     public void TearDown() => _db.Dispose();
 
     private async Task<PaymentTransaction> SeedAsync(
-        PaymentStatus status, string method = "Stripe", string intentId = "pi_live_1", string? errorMessage = null)
+        PaymentStatus status, PaymentMethodType method = PaymentMethodType.Stripe, string intentId = "pi_live_1", string? errorMessage = null)
     {
         var payment = new PaymentTransaction
         {
@@ -142,9 +142,9 @@ public class OrderCancelledConsumerTests
     }
 
     /// <summary>Already captured here, too: no Stripe call can undo it, and it must not pass quietly.</summary>
-    [TestCase("Stripe")]
-    [TestCase("Mock")]
-    public async Task AnAlreadyCapturedPayment_IsAnError(string method)
+    [TestCase(PaymentMethodType.Stripe)]
+    [TestCase(PaymentMethodType.Mock)]
+    public async Task AnAlreadyCapturedPayment_IsAnError(PaymentMethodType method)
     {
         var payment = await SeedAsync(PaymentStatus.Success, method);
 
@@ -169,9 +169,9 @@ public class OrderCancelledConsumerTests
     }
 
     /// <summary>A mock payment in flight, or a Stripe intent not yet created: nothing at the provider.</summary>
-    [TestCase("Mock", "")]
-    [TestCase("Stripe", "")]
-    public async Task APaymentWithNoIntentYet_IsCancelled_WithoutCallingStripe(string method, string intentId)
+    [TestCase(PaymentMethodType.Mock, "")]
+    [TestCase(PaymentMethodType.Stripe, "")]
+    public async Task APaymentWithNoIntentYet_IsCancelled_WithoutCallingStripe(PaymentMethodType method, string intentId)
     {
         var payment = await SeedAsync(PaymentStatus.Processing, method, intentId);
 
@@ -230,9 +230,9 @@ public class OrderCancelledConsumerTests
     }
 
     /// <summary>A failed simulated payment, or a Stripe one that never got an intent: nothing at the provider.</summary>
-    [TestCase("Mock", "pi_mock_1")]
-    [TestCase("Stripe", "")]
-    public async Task AFailedPaymentWithNothingAtStripe_IsLeftAlone(string method, string intentId)
+    [TestCase(PaymentMethodType.Mock, "pi_mock_1")]
+    [TestCase(PaymentMethodType.Stripe, "")]
+    public async Task AFailedPaymentWithNothingAtStripe_IsLeftAlone(PaymentMethodType method, string intentId)
     {
         var payment = await SeedAsync(PaymentStatus.Failed, method, intentId);
 
@@ -275,9 +275,9 @@ public class OrderCancelledConsumerTests
     private static PaymentIntentNotCancellableException IntentAlreadySucceeded()
         => new("pi_live_1", "This PaymentIntent's status is succeeded.");
 
-    private void SetupRefund(string method, StripeRefundResult? stripeResult = null)
+    private void SetupRefund(PaymentMethodType method, StripeRefundResult? stripeResult = null)
     {
-        if (method == "Stripe")
+        if (method == PaymentMethodType.Stripe)
         {
             _stripe.Setup(s => s.CreateRefundAsync("pi_live_1", 40m, "USD", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(stripeResult ?? new StripeRefundResult("re_1", "succeeded"));
@@ -295,9 +295,9 @@ public class OrderCancelledConsumerTests
             times);
 
     /// <summary>The case the error queue used to get: money captured for an order that no longer exists.</summary>
-    [TestCase("Stripe")]
-    [TestCase("Mock")]
-    public async Task WithAutoRefund_AnAlreadyCapturedPayment_IsRefundedInFull(string method)
+    [TestCase(PaymentMethodType.Stripe)]
+    [TestCase(PaymentMethodType.Mock)]
+    public async Task WithAutoRefund_AnAlreadyCapturedPayment_IsRefundedInFull(PaymentMethodType method)
     {
         var payment = await SeedAsync(PaymentStatus.Success, method);
         SetupRefund(method);
@@ -323,7 +323,7 @@ public class OrderCancelledConsumerTests
             .ThrowsAsync(IntentAlreadySucceeded());
         _stripe.Setup(s => s.GetPaymentIntentStatusAsync("pi_live_1", It.IsAny<CancellationToken>()))
             .ReturnsAsync("succeeded");
-        SetupRefund("Stripe");
+        SetupRefund(PaymentMethodType.Stripe);
 
         await CreateConsumer(autoRefund: true).Consume(Cancelled(payment.OrderId));
 
@@ -360,7 +360,7 @@ public class OrderCancelledConsumerTests
     public async Task WithAutoRefund_ARefusedRefund_IsStillAnError_AndChangesNothing(string refundStatus)
     {
         var payment = await SeedAsync(PaymentStatus.Success);
-        SetupRefund("Stripe", new StripeRefundResult("re_1", refundStatus));
+        SetupRefund(PaymentMethodType.Stripe, new StripeRefundResult("re_1", refundStatus));
 
         var ex = Assert.ThrowsAsync<PaymentCancellationFailedException>(
             () => CreateConsumer(autoRefund: true).Consume(Cancelled(payment.OrderId)));
@@ -397,7 +397,7 @@ public class OrderCancelledConsumerTests
     public async Task WithAutoRefund_APaymentStripeHasAlreadyRefunded_IsRecordedRefunded()
     {
         var payment = await SeedAsync(PaymentStatus.Success);
-        SetupRefund("Stripe", new StripeRefundResult(string.Empty, "succeeded", AlreadyRefunded: true));
+        SetupRefund(PaymentMethodType.Stripe, new StripeRefundResult(string.Empty, "succeeded", AlreadyRefunded: true));
 
         await CreateConsumer(autoRefund: true).Consume(Cancelled(payment.OrderId));
 
@@ -410,7 +410,7 @@ public class OrderCancelledConsumerTests
     public async Task WithAutoRefund_ACancellationDeliveredTwice_RefundsOnce()
     {
         var payment = await SeedAsync(PaymentStatus.Success);
-        SetupRefund("Stripe");
+        SetupRefund(PaymentMethodType.Stripe);
         var consumer = CreateConsumer(autoRefund: true);
 
         await consumer.Consume(Cancelled(payment.OrderId));

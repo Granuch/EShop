@@ -37,7 +37,7 @@ public class CreatePaymentIntentTests : AuthenticatedIntegrationTestBase
             UserId = userId ?? TestUserId,
             Amount = 100m,
             Currency = "USD",
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = intentId,
             Status = status,
             CreatedAt = DateTime.UtcNow,

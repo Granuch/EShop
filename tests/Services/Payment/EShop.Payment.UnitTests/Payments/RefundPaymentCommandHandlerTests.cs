@@ -54,7 +54,7 @@ public class RefundPaymentCommandHandlerTests
             UserId = "user-1",
             Amount = 100m,
             Currency = "USD",
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = paymentIntentId,
             Status = PaymentStatus.Success,
             CreatedAt = DateTime.UtcNow
@@ -90,7 +90,7 @@ public class RefundPaymentCommandHandlerTests
             UserId = "user-1",
             Amount = 100m,
             Currency = "USD",
-            PaymentMethod = "Mock",
+            PaymentMethod = PaymentMethodType.Mock,
             PaymentIntentId = "pi_test",
             Status = PaymentStatus.Success,
             CreatedAt = DateTime.UtcNow

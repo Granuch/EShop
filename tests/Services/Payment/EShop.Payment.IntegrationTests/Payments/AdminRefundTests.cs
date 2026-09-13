@@ -83,7 +83,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
 
     /// <summary>A customer's simulated payment that succeeded. Seeded: no endpoint creates payments since Payment audit Stage 3.</summary>
     private Task<PaymentTransaction> SeedCustomerPaymentAsync()
-        => Factory.SeedPaymentAsync("customer-1", PaymentStatus.Success, 99.99m, "Mock", "pi_seeded");
+        => Factory.SeedPaymentAsync("customer-1", PaymentStatus.Success, 99.99m, PaymentMethodType.Mock, "pi_seeded");
 
     private sealed record PaymentResponse(Guid Id, decimal Amount, string Status);
 }

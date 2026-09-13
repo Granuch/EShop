@@ -11,9 +11,6 @@ namespace EShop.Payment.Application.Payments.Commands.CreatePayment;
 
 public sealed class CreatePaymentCommandHandler : IRequestHandler<CreatePaymentCommand, Result<PaymentDto>>
 {
-    /// <summary>The payment method of a payment settled through the simulator.</summary>
-    private const string SimulatedMethod = "Mock";
-
     private readonly IPaymentRepository _paymentRepository;
     private readonly IPaymentProcessor _paymentProcessor;
     private readonly IIntegrationEventOutbox _integrationEventOutbox;
@@ -51,9 +48,7 @@ public sealed class CreatePaymentCommandHandler : IRequestHandler<CreatePaymentC
                 "Only a pending payment can be settled."));
         }
 
-        payment.PaymentMethod = SimulatedMethod;
-        payment.Status = PaymentStatus.Processing;
-        payment.UpdatedAt = DateTime.UtcNow;
+        payment.StartSimulated(DateTime.UtcNow);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
@@ -75,11 +70,7 @@ public sealed class CreatePaymentCommandHandler : IRequestHandler<CreatePaymentC
 
         if (result.Success)
         {
-            payment.Status = PaymentStatus.Success;
-            payment.PaymentIntentId = result.PaymentIntentId ?? string.Empty;
-            payment.ErrorMessage = null;
-            payment.ProcessedAt = DateTime.UtcNow;
-            payment.UpdatedAt = DateTime.UtcNow;
+            payment.RecordSimulatedSuccess(result.PaymentIntentId ?? string.Empty, DateTime.UtcNow);
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
             _integrationEventOutbox.Enqueue(new PaymentSuccessEvent
@@ -105,10 +96,7 @@ public sealed class CreatePaymentCommandHandler : IRequestHandler<CreatePaymentC
             return Result<PaymentDto>.Success(payment.ToDto());
         }
 
-        payment.Status = PaymentStatus.Failed;
-        payment.ErrorMessage = result.ErrorMessage ?? "Unknown payment processing error";
-        payment.ProcessedAt = DateTime.UtcNow;
-        payment.UpdatedAt = DateTime.UtcNow;
+        payment.RecordSimulatedFailure(result.ErrorMessage ?? "Unknown payment processing error", DateTime.UtcNow);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentFailedEvent

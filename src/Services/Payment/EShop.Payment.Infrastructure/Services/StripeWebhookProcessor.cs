@@ -74,72 +74,34 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         var publishFailure = false;
         var publishCompleted = false;
 
+        // Payment audit Stage 7 (H5). Which event may change which payment is the entity's rule; see the methods'
+        // comments. Each returns false when the event changes nothing, and only a change is written.
+        var now = DateTime.UtcNow;
+        var changed = false;
         switch (stripeEvent.Type)
         {
             case "payment_intent.succeeded":
-                if (payment.Status != PaymentStatus.Success && payment.Status != PaymentStatus.Refunded)
-                {
-                    payment.Status = PaymentStatus.Success;
-                    payment.StripeStatus = stripeEvent.Status;
-                    payment.ErrorMessage = null;
-                    payment.ProcessedAt = DateTime.UtcNow;
-                    payment.UpdatedAt = DateTime.UtcNow;
-                    await _paymentRepository.UpdateAsync(payment, cancellationToken);
-                    publishSuccess = true;
-                    publishCompleted = true;
-                }
+                changed = payment.RecordStripeSuccess(stripeEvent.Status, now);
+                publishSuccess = changed;
+                publishCompleted = changed;
                 break;
 
-            // Payment audit Stage 5 (H1, D3). A decline ends one attempt, not the payment. Stripe returns the intent
-            // to requires_payment_method, and the customer can pay it with another card. So the error is recorded
-            // and the payment stays open, with no PaymentFailedEvent, which would have Ordering cancel the order.
-            // This used to record Failed and publish that event: the order was cancelled while its intent stayed
-            // payable. And because a decline can be delivered after a later success, it could also turn a paid
-            // payment into Failed. Only a cancelled intent ends a Stripe payment (below).
+            // Stage 5 (H1, D3): a decline keeps the payment open for another card, with no PaymentFailedEvent.
             case "payment_intent.payment_failed":
-                if (payment.Status is PaymentStatus.Pending or PaymentStatus.Processing)
-                {
-                    payment.StripeStatus = stripeEvent.Status;
-                    payment.ErrorMessage = stripeEvent.FailureMessage ?? "Stripe payment attempt failed.";
-                    payment.UpdatedAt = DateTime.UtcNow;
-                    await _paymentRepository.UpdateAsync(payment, cancellationToken);
-                }
+                changed = payment.RecordDeclinedAttempt(stripeEvent.FailureMessage, stripeEvent.Status, now);
                 break;
 
-            // Cancelled is left alone here: OrderCancelledConsumer cancelled the intent itself, and Stripe's own
-            // payment_intent.canceled webhook follows. Recording that as Failed would overwrite why the payment
-            // ended and publish a PaymentFailedEvent for an order that is already cancelled. (A succeeded webhook
-            // is still recorded: if Stripe captured the money, the record must say so.)
+            // Ordering audit Stage 21 (D17): tagged by OrderCancelledConsumer, it is a cancelled order, recorded
+            // Cancelled with no PaymentFailedEvent. Untagged (Dashboard, Stripe), the payment failed.
             case "payment_intent.canceled":
-                if (payment.Status != PaymentStatus.Success
-                    && payment.Status != PaymentStatus.Refunded
-                    && payment.Status != PaymentStatus.Cancelled
-                    && stripeEvent.CancelRequestedByEShop)
-                {
-                    // Ordering audit Stage 21 (D17). OrderCancelledConsumer tagged this intent and cancelled
-                    // it, and this webhook got here before that consumer committed. The order was cancelled;
-                    // the payment did not fail. Record what the consumer will find, send no PaymentFailedEvent.
-                    // The consumer then loses on the row version and its retry finds the payment Cancelled.
-                    payment.Status = PaymentStatus.Cancelled;
-                    payment.StripeStatus = stripeEvent.Status;
-                    payment.ErrorMessage = "Payment intent cancelled because its order was cancelled.";
-                    payment.ProcessedAt = DateTime.UtcNow;
-                    payment.UpdatedAt = DateTime.UtcNow;
-                    await _paymentRepository.UpdateAsync(payment, cancellationToken);
-                }
-                else if (payment.Status != PaymentStatus.Success
-                    && payment.Status != PaymentStatus.Refunded
-                    && payment.Status != PaymentStatus.Cancelled)
-                {
-                    payment.Status = PaymentStatus.Failed;
-                    payment.StripeStatus = stripeEvent.Status;
-                    payment.ErrorMessage = "Stripe payment intent canceled.";
-                    payment.ProcessedAt = DateTime.UtcNow;
-                    payment.UpdatedAt = DateTime.UtcNow;
-                    await _paymentRepository.UpdateAsync(payment, cancellationToken);
-                    publishFailure = true;
-                }
+                changed = payment.RecordStripeCancellation(stripeEvent.CancelRequestedByEShop, stripeEvent.Status, now);
+                publishFailure = changed && payment.Status == PaymentStatus.Failed;
                 break;
+        }
+
+        if (changed)
+        {
+            await _paymentRepository.UpdateAsync(payment, cancellationToken);
         }
 
         await _paymentRepository.AddProcessedStripeEventAsync(processedEvent, cancellationToken);

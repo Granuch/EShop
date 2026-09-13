@@ -16,7 +16,7 @@ public class PaymentRefundAndSecurityTests : AuthenticatedIntegrationTestBase
     private const string PaymentsEndpoint = "/api/v1/payments";
 
     private Task<PaymentTransaction> SeedOwnSettledPaymentAsync()
-        => Factory.SeedPaymentAsync(TestUserId, PaymentStatus.Success, 99.99m, "Mock", "pi_seeded");
+        => Factory.SeedPaymentAsync(TestUserId, PaymentStatus.Success, 99.99m, PaymentMethodType.Mock, "pi_seeded");
 
     /// <summary>
     /// Ordering audit Stage 11. Reversed from "ShouldReturnOkAndRefundedStatus": the payment's owner could

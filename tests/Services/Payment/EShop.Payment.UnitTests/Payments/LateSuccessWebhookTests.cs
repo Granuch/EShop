@@ -59,7 +59,7 @@ public class LateSuccessWebhookTests
             UserId = "user-1",
             Amount = 40m,
             Currency = "USD",
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = IntentId,
             Status = status,
             CreatedAt = DateTime.UtcNow,

@@ -21,7 +21,7 @@ public class GetPaymentsByUserQueryHandlerTests
                 UserId = "user-1",
                 Amount = 25m,
                 Currency = "USD",
-                PaymentMethod = "Mock",
+                PaymentMethod = PaymentMethodType.Mock,
                 Status = PaymentStatus.Success,
                 CreatedAt = createdAt
             }

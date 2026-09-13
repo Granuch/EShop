@@ -185,7 +185,7 @@ public class CreatePaymentIntentWithoutTransactionTests
             UserId = "user-1",
             Amount = 40m,
             Currency = "USD",
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = string.Empty,
             Status = PaymentStatus.Pending,
             CreatedAt = DateTime.UtcNow,

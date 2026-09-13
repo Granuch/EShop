@@ -48,7 +48,7 @@ public class CreatePaymentIntentCommandHandlerTests
         string userId = "user-1",
         decimal amount = 100m,
         PaymentStatus status = PaymentStatus.Pending,
-        string method = "Stripe",
+        PaymentMethodType method = PaymentMethodType.Stripe,
         string intentId = "")
     {
         var payment = new PaymentTransaction
@@ -155,16 +155,16 @@ public class CreatePaymentIntentCommandHandlerTests
         _customers.Verify(x => x.CreateOrGetCustomerAsync("user-2", null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [TestCase(PaymentStatus.Processing, "Stripe", "pi_existing")]
-    [TestCase(PaymentStatus.Pending, "Stripe", "pi_existing")]
-    [TestCase(PaymentStatus.Success, "Stripe", "pi_existing")]
-    [TestCase(PaymentStatus.Cancelled, "None", "")]
-    [TestCase(PaymentStatus.Pending, "Mock", "")]
+    [TestCase(PaymentStatus.Processing, PaymentMethodType.Stripe, "pi_existing")]
+    [TestCase(PaymentStatus.Pending, PaymentMethodType.Stripe, "pi_existing")]
+    [TestCase(PaymentStatus.Success, PaymentMethodType.Stripe, "pi_existing")]
+    [TestCase(PaymentStatus.Cancelled, PaymentMethodType.None, "")]
+    [TestCase(PaymentStatus.Pending, PaymentMethodType.Mock, "")]
     // A Stripe payment that never got an intent and has ended: the order was cancelled before the customer began
     // paying, or an earlier attempt failed. Only the status says it is over (the S2 F2 round found this uncovered).
-    [TestCase(PaymentStatus.Cancelled, "Stripe", "")]
-    [TestCase(PaymentStatus.Failed, "Stripe", "")]
-    public async Task Handle_WhenThePaymentIsNotAwaitingStripe_IsAConflict(PaymentStatus status, string method, string intentId)
+    [TestCase(PaymentStatus.Cancelled, PaymentMethodType.Stripe, "")]
+    [TestCase(PaymentStatus.Failed, PaymentMethodType.Stripe, "")]
+    public async Task Handle_WhenThePaymentIsNotAwaitingStripe_IsAConflict(PaymentStatus status, PaymentMethodType method, string intentId)
     {
         var seeded = await SeedAsync(status: status, method: method, intentId: intentId);
 

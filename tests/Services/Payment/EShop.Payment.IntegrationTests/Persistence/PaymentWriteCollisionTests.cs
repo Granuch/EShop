@@ -269,7 +269,7 @@ public class PaymentWriteCollisionTests
             UserId = "user-1",
             Amount = Amount,
             Currency = Currency,
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = IntentId,
             Status = status,
             CreatedAt = DateTime.UtcNow,

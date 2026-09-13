@@ -240,7 +240,7 @@ public class StripeSandboxTests
             UserId = "sandbox-user",
             Amount = Amount,
             Currency = "USD",
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             PaymentIntentId = intent.Id,
             Status = PaymentStatus.Processing,
             CreatedAt = DateTime.UtcNow,

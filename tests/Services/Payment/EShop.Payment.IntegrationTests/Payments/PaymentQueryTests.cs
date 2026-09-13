@@ -15,7 +15,7 @@ public class PaymentQueryTests : AuthenticatedIntegrationTestBase
     private const string PaymentsEndpoint = "/api/v1/payments";
 
     private Task<PaymentTransaction> SeedOwnPaymentAsync()
-        => Factory.SeedPaymentAsync(TestUserId, PaymentStatus.Success, 99.99m, "Mock", "pi_seeded");
+        => Factory.SeedPaymentAsync(TestUserId, PaymentStatus.Success, 99.99m, PaymentMethodType.Mock, "pi_seeded");
 
     [Test]
     public async Task GetPaymentById_ForTheOwner_ShouldReturnPayment()

@@ -12,7 +12,7 @@ internal static class PaymentMapping
             payment.UserId,
             payment.Amount,
             payment.Currency,
-            payment.PaymentMethod,
+            payment.PaymentMethod.ToString(),
             payment.Status.ToString().ToUpperInvariant(),
             string.IsNullOrWhiteSpace(payment.PaymentIntentId) ? null : payment.PaymentIntentId,
             payment.ErrorMessage,

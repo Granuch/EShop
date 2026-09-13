@@ -57,6 +57,7 @@ public class PaymentDbContext : BaseDbContext
                 .IsRequired();
 
             entity.Property(x => x.PaymentMethod)
+                .HasConversion<string>()
                 .HasMaxLength(50)
                 .IsRequired();
 

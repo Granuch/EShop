@@ -12,8 +12,6 @@ namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 
 public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePaymentIntentCommand, Result<CreatePaymentIntentDto>>
 {
-    private const string StripeMethod = "Stripe";
-
     private readonly IPaymentRepository _paymentRepository;
     private readonly IStripeCustomerService _stripeCustomerService;
     private readonly IStripePaymentService _stripePaymentService;
@@ -58,7 +56,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
         }
 
         if (payment.Status != PaymentStatus.Pending
-            || !string.Equals(payment.PaymentMethod, StripeMethod, StringComparison.OrdinalIgnoreCase)
+            || payment.PaymentMethod != PaymentMethodType.Stripe
             || !string.IsNullOrEmpty(payment.PaymentIntentId))
         {
             return AlreadyExists();
@@ -86,11 +84,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
             payment.Amount,
             payment.Currency), cancellationToken);
 
-        payment.StripeCustomerId = stripeCustomerId;
-        payment.PaymentIntentId = stripeIntent.PaymentIntentId;
-        payment.StripeStatus = stripeIntent.Status;
-        payment.Status = PaymentStatus.Processing;
-        payment.UpdatedAt = DateTime.UtcNow;
+        payment.StartStripePayment(stripeIntent.PaymentIntentId, stripeCustomerId, stripeIntent.Status, DateTime.UtcNow);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentCreatedEvent

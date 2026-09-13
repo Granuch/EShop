@@ -30,7 +30,7 @@ public class AdminSettlePaymentTests : AuthenticatedIntegrationTestBase
             UserId = "someone-else",
             Amount = 1m,
             Currency = "JPY",
-            PaymentMethod = "Stripe"
+            PaymentMethod = PaymentMethodType.Stripe
         });
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), await response.Content.ReadAsStringAsync());

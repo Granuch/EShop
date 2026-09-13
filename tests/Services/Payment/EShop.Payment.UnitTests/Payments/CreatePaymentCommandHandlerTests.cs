@@ -45,7 +45,7 @@ public class CreatePaymentCommandHandlerTests
             UserId = "customer-1",
             Amount = amount,
             Currency = "USD",
-            PaymentMethod = "Stripe",
+            PaymentMethod = PaymentMethodType.Stripe,
             Status = status,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -74,7 +74,7 @@ public class CreatePaymentCommandHandlerTests
         Assert.Multiple(() =>
         {
             Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Success));
-            Assert.That(stored.PaymentMethod, Is.EqualTo("Mock"));
+            Assert.That(stored.PaymentMethod, Is.EqualTo(PaymentMethodType.Mock));
             Assert.That(stored.Amount, Is.EqualTo(123.45m));
             Assert.That(stored.UserId, Is.EqualTo("customer-1"));
         });

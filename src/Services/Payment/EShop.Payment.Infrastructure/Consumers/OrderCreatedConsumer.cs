@@ -23,12 +23,6 @@ namespace EShop.Payment.Infrastructure.Consumers;
 /// </summary>
 public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, PaymentDbContext>
 {
-    /// <summary>The payment method of a payment settled through the simulator.</summary>
-    internal const string SimulatedMethod = "Mock";
-
-    /// <summary>The payment method of a payment the customer pays at Stripe.</summary>
-    internal const string StripeMethod = "Stripe";
-
     private static readonly HashSet<PaymentStatus> TerminalStatuses =
     [
         PaymentStatus.Success,
@@ -84,7 +78,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
         // nothing charged. The only payment this consumer resumes is one it started through the simulator
         // itself, with Stripe off.
         if (payment is not null
-            && (_stripeEnabled || !string.Equals(payment.PaymentMethod, SimulatedMethod, StringComparison.OrdinalIgnoreCase)))
+            && (_stripeEnabled || payment.PaymentMethod != PaymentMethodType.Mock))
         {
             _logger.LogInformation(
                 "Payment for OrderId={OrderId} is already {Status} ({PaymentMethod}); left to the flow that owns it.",
@@ -98,19 +92,10 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
         {
             // D1: with Stripe on, the customer pays through /create-intent, which charges this record's amount
             // (D4). Nothing is charged or announced here.
-            var now = DateTime.UtcNow;
-            await _paymentRepository.AddAsync(new PaymentTransaction
-            {
-                Id = Guid.NewGuid(),
-                OrderId = message.OrderId,
-                UserId = message.UserId,
-                Amount = message.TotalAmount,
-                Currency = "USD",
-                PaymentMethod = StripeMethod,
-                Status = PaymentStatus.Pending,
-                CreatedAt = now,
-                UpdatedAt = now
-            }, cancellationToken);
+            await _paymentRepository.AddAsync(
+                PaymentTransaction.RecordForOrder(
+                    message.OrderId, message.UserId, message.TotalAmount, PaymentMethodType.Stripe, DateTime.UtcNow),
+                cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
@@ -122,24 +107,13 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
 
         if (payment is null)
         {
-            payment = new PaymentTransaction
-            {
-                Id = Guid.NewGuid(),
-                OrderId = message.OrderId,
-                UserId = message.UserId,
-                Amount = message.TotalAmount,
-                Currency = "USD",
-                PaymentMethod = SimulatedMethod,
-                Status = PaymentStatus.Pending,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
+            payment = PaymentTransaction.RecordForOrder(
+                message.OrderId, message.UserId, message.TotalAmount, PaymentMethodType.Mock, DateTime.UtcNow);
 
             await _paymentRepository.AddAsync(payment, cancellationToken);
         }
 
-        payment.Status = PaymentStatus.Processing;
-        payment.UpdatedAt = DateTime.UtcNow;
+        payment.StartSimulated(DateTime.UtcNow);
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
         {
@@ -167,11 +141,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
 
         if (result.Success)
         {
-            payment.Status = PaymentStatus.Success;
-            payment.PaymentIntentId = result.PaymentIntentId ?? string.Empty;
-            payment.ErrorMessage = null;
-            payment.ProcessedAt = DateTime.UtcNow;
-            payment.UpdatedAt = DateTime.UtcNow;
+            payment.RecordSimulatedSuccess(result.PaymentIntentId ?? string.Empty, DateTime.UtcNow);
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
             _integrationEventOutbox.Enqueue(new PaymentSuccessEvent
@@ -204,10 +174,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
             return;
         }
 
-        payment.Status = PaymentStatus.Failed;
-        payment.ErrorMessage = result.ErrorMessage ?? "Unknown payment processing error";
-        payment.ProcessedAt = DateTime.UtcNow;
-        payment.UpdatedAt = DateTime.UtcNow;
+        payment.RecordSimulatedFailure(result.ErrorMessage ?? "Unknown payment processing error", DateTime.UtcNow);
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentFailedEvent
         {

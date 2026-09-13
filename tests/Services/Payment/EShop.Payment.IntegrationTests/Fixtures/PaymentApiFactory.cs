@@ -90,7 +90,7 @@ public class PaymentApiFactory : WebApplicationFactory<Program>
         string userId,
         PaymentStatus status = PaymentStatus.Pending,
         decimal amount = 100m,
-        string method = "Stripe",
+        PaymentMethodType method = PaymentMethodType.Stripe,
         string intentId = "")
     {
         var payment = new PaymentTransaction

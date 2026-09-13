@@ -31,7 +31,7 @@ public sealed class PaymentRefunder : IPaymentRefunder
 
     public async Task RefundInFullAsync(PaymentTransaction payment, CancellationToken cancellationToken = default)
     {
-        if (string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase))
+        if (payment.PaymentMethod == PaymentMethodType.Stripe)
         {
             var refund = await _stripePaymentService.CreateRefundAsync(
                 payment.PaymentIntentId,
@@ -63,9 +63,7 @@ public sealed class PaymentRefunder : IPaymentRefunder
         }
 
         var now = DateTime.UtcNow;
-        payment.Status = PaymentStatus.Refunded;
-        payment.UpdatedAt = now;
-        payment.ProcessedAt = now;
+        payment.MarkRefunded(now);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
         _integrationEventOutbox.Enqueue(new PaymentRefundedEvent
