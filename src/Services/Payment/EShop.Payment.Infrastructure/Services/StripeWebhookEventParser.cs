@@ -7,8 +7,8 @@ namespace EShop.Payment.Infrastructure.Services;
 
 /// <summary>
 /// Payment audit Stage 4 (M10). Kept apart from <see cref="StripePaymentService"/>: checking a webhook needs only the
-/// webhook secret, never the API key that service writes into the process-wide <c>StripeConfiguration</c>. That is
-/// also what lets the HTTP tests check real signatures while every call to Stripe is mocked.
+/// webhook secret, never the API key or a Stripe client. That is also what lets the HTTP tests check real signatures
+/// while every call to Stripe is mocked.
 /// </summary>
 public sealed class StripeWebhookEventParser : IStripeWebhookEventParser
 {

@@ -10,9 +10,9 @@ namespace EShop.Payment.IntegrationTests.Fixtures;
 
 /// <summary>
 /// The Payment host with <c>Stripe:Enabled</c> on and both Stripe services replaced by mocks, so the Stripe
-/// endpoints run end to end over HTTP without reaching Stripe (Payment audit Stage 2). Replacing the services also
-/// keeps the real <c>StripePaymentService</c> from being built, which would overwrite the process-wide
-/// <c>StripeConfiguration.ApiKey</c> that <c>StripeSandboxTests</c> rely on.
+/// endpoints run end to end over HTTP without reaching Stripe (Payment audit Stage 2). Since Stage 9 the real services
+/// no longer touch Stripe.net's process-wide configuration, so the replacement exists only to keep these tests off the
+/// network. The host's <c>IStripeClient</c> is still registered, with the fake key below.
 /// <para>The webhook parser is left real (Stage 4): it needs only <see cref="WebhookSecret"/>, so the webhook tests
 /// check genuine Stripe signatures.</para>
 /// </summary>

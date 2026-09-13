@@ -74,7 +74,7 @@ public class StripeSandboxTests
 
         _key = key!;
         _client = new StripeClient(key);
-        _service = new StripePaymentService(Options.Create(new StripeSettings { Enabled = true, SecretKey = key! }));
+        _service = new StripePaymentService(_client);
     }
 
     private async Task<PaymentIntent> ACapturedPaymentAsync()
@@ -287,7 +287,7 @@ public class StripeSandboxTests
             .ReturnsAsync((PaymentCustomer?)null);
         repository.Setup(r => r.AddCustomerIfAbsentAsync(It.IsAny<PaymentCustomer>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((PaymentCustomer c, CancellationToken _) => c);
-        var customers = new StripeCustomerService(repository.Object);
+        var customers = new StripeCustomerService(repository.Object, _client);
 
         var customer = await customers.CreateOrGetCustomerAsync(userId, "sandbox@example.test");
         var customerAgain = await customers.CreateOrGetCustomerAsync(userId, "sandbox@example.test");

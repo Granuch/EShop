@@ -10,10 +10,16 @@ namespace EShop.Payment.Infrastructure.Services;
 public sealed class StripeCustomerService : IStripeCustomerService
 {
     private readonly IPaymentRepository _paymentRepository;
+    private readonly IStripeClient _client;
 
-    public StripeCustomerService(IPaymentRepository paymentRepository)
+    /// <summary>
+    /// Payment audit Stage 9 (M4). Stripe is called through the injected client. This service used Stripe.net's
+    /// process-wide client, which had a key only if a <c>StripePaymentService</c> had been built earlier in the process.
+    /// </summary>
+    public StripeCustomerService(IPaymentRepository paymentRepository, IStripeClient client)
     {
         _paymentRepository = paymentRepository;
+        _client = client;
     }
 
     public async Task<string> CreateOrGetCustomerAsync(string userId, string? email, CancellationToken cancellationToken = default)
@@ -29,9 +35,10 @@ public sealed class StripeCustomerService : IStripeCustomerService
         Customer created;
         try
         {
-            // Payment audit Stage 6 (M1). The mapping below commits with the caller's transaction, which can still roll
-            // back. The key makes the retry get the same Stripe customer back (for 24 hours) instead of a second one.
-            created = await new CustomerService().CreateAsync(
+            // Payment audit Stage 6 (M1). The request can fail after Stripe has created the customer and before the
+            // mapping below is stored. The key makes the retry get the same Stripe customer back (for 24 hours) instead
+            // of a second one.
+            created = await new CustomerService(_client).CreateAsync(
                 new CustomerCreateOptions
                 {
                     Email = email,

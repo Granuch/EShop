@@ -1,6 +1,4 @@
 using EShop.Payment.Application.Payments.Abstractions;
-using EShop.Payment.Infrastructure.Configuration;
-using Microsoft.Extensions.Options;
 using Stripe;
 
 namespace EShop.Payment.Infrastructure.Services;
@@ -18,9 +16,15 @@ public sealed class StripePaymentService : IStripePaymentService
     /// </summary>
     public const string CancelRequestedMetadataKey = "eshop_cancel_requested";
 
-    public StripePaymentService(IOptions<StripeSettings> settings)
+    private readonly IStripeClient _client;
+
+    /// <summary>
+    /// Payment audit Stage 9 (M4). Every call goes through the injected client. This constructor used to write the key
+    /// into Stripe.net's process-wide <c>StripeConfiguration</c>, and every call used the process-wide client.
+    /// </summary>
+    public StripePaymentService(IStripeClient client)
     {
-        StripeConfiguration.ApiKey = settings.Value.SecretKey;
+        _client = client;
     }
 
     public async Task<StripePaymentIntentResult> CreatePaymentIntentAsync(
@@ -30,13 +34,13 @@ public sealed class StripePaymentService : IStripePaymentService
         var currency = NormalizeCurrency(request.Currency);
         var amountMinor = ConvertToMinorUnits(request.Amount, currency);
 
-        var paymentIntentService = new PaymentIntentService();
+        var paymentIntentService = new PaymentIntentService(_client);
         PaymentIntent intent;
         try
         {
-            // Payment audit Stage 6 (M1). One payment has one intent. The request runs inside the handler's database
-            // transaction, so an intent can be created and its commit then lost. The key makes the retry get that
-            // same intent back from Stripe (for 24 hours) instead of opening a second one nobody can pay.
+            // Payment audit Stage 6 (M1). One payment has one intent. The handler records the intent after Stripe
+            // answers (S6b), and that save can be lost. The key makes the retry get the same intent back from Stripe
+            // (for 24 hours) instead of opening a second one nobody can pay.
             intent = await paymentIntentService.CreateAsync(
                 new PaymentIntentCreateOptions
                 {
@@ -82,7 +86,7 @@ public sealed class StripePaymentService : IStripePaymentService
         // Refunds are full-only (Ordering audit Stage 11), so an intent is refunded at most once and its id
         // names the refund. A repeat of the same request within Stripe's idempotency window (24 hours) —
         // a double submit, or a retry after a lost response — returns the first refund instead of a second.
-        var refundService = new RefundService();
+        var refundService = new RefundService(_client);
 
         try
         {
@@ -112,7 +116,7 @@ public sealed class StripePaymentService : IStripePaymentService
         string paymentIntentId,
         CancellationToken cancellationToken = default)
     {
-        var intent = await new PaymentIntentService().GetAsync(paymentIntentId, cancellationToken: cancellationToken);
+        var intent = await new PaymentIntentService(_client).GetAsync(paymentIntentId, cancellationToken: cancellationToken);
         return intent.Status ?? string.Empty;
     }
 
@@ -127,7 +131,7 @@ public sealed class StripePaymentService : IStripePaymentService
         string paymentIntentId,
         CancellationToken cancellationToken = default)
     {
-        var paymentIntentService = new PaymentIntentService();
+        var paymentIntentService = new PaymentIntentService(_client);
 
         // Ordering audit Stage 21 (D17). Tag the intent before cancelling it. Stripe's own
         // payment_intent.canceled webhook carries the intent as it was when cancelled, tag included, which

@@ -3,9 +3,7 @@ using System.Text;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
-using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Services;
-using Microsoft.Extensions.Options;
 using Moq;
 using Stripe;
 
@@ -15,37 +13,56 @@ namespace EShop.Payment.UnitTests.Services;
 /// Payment audit Stage 6 (H2, M1), against a fake Stripe HTTP endpoint. Our two creating calls carry idempotency keys,
 /// so a rolled-back attempt's customer and intent come back on the retry. And a failure a retry can fix surfaces as
 /// <see cref="PaymentProviderUnavailableException"/>, while one it cannot fix stays a <see cref="StripeException"/>.
-/// <para>Both services use Stripe.net's process-wide client, so this fixture swaps in a client over a fake handler,
-/// with Stripe.net's own retries off. Setting <c>StripeConfiguration.ApiKey</c> to the same value keeps that client.</para>
+/// <para>Payment audit Stage 9 (M4). Both services take their client by injection: here, a client over the fake, with
+/// Stripe.net's own retries off. Stripe.net's process-wide client is pointed at a second fake, the trap. A call that falls
+/// back to it lands there, and <see cref="RestoreStripe"/> fails the test. Until Stage 9 both services used that
+/// process-wide client, and the key came from whichever <c>StripePaymentService</c> was built last.</para>
 /// </summary>
 [TestFixture]
 [NonParallelizable]
 public class StripeProviderCallsTests
 {
     private const string Key = "sk_test_unit_fake_stripe";
+    private const string ProcessWideKey = "sk_test_process_wide_trap";
 
     private FakeStripe _stripe = null!;
+    private FakeStripe _processWide = null!;
+    private IStripeClient _client = null!;
 
     [SetUp]
     public void UseFakeStripe()
     {
         _stripe = new FakeStripe();
-        StripeConfiguration.ApiKey = Key;
-        StripeConfiguration.StripeClient = new StripeClient(
+        _client = new StripeClient(
             apiKey: Key,
             httpClient: new SystemNetHttpClient(new HttpClient(_stripe), 0, null, false));
+
+        _processWide = new FakeStripe();
+        StripeConfiguration.ApiKey = ProcessWideKey;
+        StripeConfiguration.StripeClient = new StripeClient(
+            apiKey: ProcessWideKey,
+            httpClient: new SystemNetHttpClient(new HttpClient(_processWide), 0, null, false));
     }
 
     [TearDown]
     public void RestoreStripe()
     {
-        StripeConfiguration.StripeClient = null;
-        _stripe.Dispose();
+        try
+        {
+            Assert.That(_processWide.Calls, Is.Empty, "a call went through Stripe.net's process-wide client");
+        }
+        finally
+        {
+            StripeConfiguration.StripeClient = null;
+            StripeConfiguration.ApiKey = null;
+            _stripe.Dispose();
+            _processWide.Dispose();
+        }
     }
 
-    private static StripePaymentService Payments() => new(Options.Create(new StripeSettings { SecretKey = Key }));
+    private StripePaymentService Payments() => new(_client);
 
-    private static StripeCustomerService Customers(Mock<IPaymentRepository> repository) => new(repository.Object);
+    private StripeCustomerService Customers(Mock<IPaymentRepository> repository) => new(repository.Object, _client);
 
     private static Mock<IPaymentRepository> NoCustomerYet()
     {
@@ -95,6 +112,46 @@ public class StripeProviderCallsTests
             Assert.That(keys[0], Does.StartWith("customer-user-1-"));
             Assert.That(keys[1], Is.EqualTo(keys[0]), "a retry for the same user");
             Assert.That(keys[2], Is.Not.EqualTo(keys[0]), "Stripe refuses one key with different parameters");
+        });
+    }
+
+    /// <summary>
+    /// Payment audit Stage 9 (M4). Every operation both services perform reaches Stripe through the injected client, and
+    /// none of them writes the process-wide key. The service's constructor used to set it.
+    /// </summary>
+    [Test]
+    public async Task EveryStripeCall_GoesThroughTheInjectedClient_AndLeavesTheProcessWideKeyAlone()
+    {
+        _stripe.Respond = request => request.RequestUri!.AbsolutePath switch
+        {
+            var path when path.StartsWith("/v1/refunds", StringComparison.Ordinal)
+                => FakeStripe.Json(HttpStatusCode.OK, """{"id":"re_1","object":"refund","status":"succeeded"}"""),
+            var path when path.StartsWith("/v1/customers", StringComparison.Ordinal)
+                => FakeStripe.Json(HttpStatusCode.OK, """{"id":"cus_1","object":"customer"}"""),
+            _ => FakeStripe.Json(HttpStatusCode.OK,
+                """{"id":"pi_1","object":"payment_intent","client_secret":"pi_1_secret_x","status":"canceled"}""")
+        };
+        var payments = Payments();
+
+        await payments.CreatePaymentIntentAsync(IntentFor(Guid.NewGuid()));
+        await payments.CreateRefundAsync("pi_1", 10m, "USD");
+        await payments.GetPaymentIntentStatusAsync("pi_1");
+        await payments.CancelPaymentIntentAsync("pi_1");
+        await Customers(NoCustomerYet()).CreateOrGetCustomerAsync("user-1", null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_stripe.Calls.Select(c => c.Path), Is.EqualTo(new[]
+            {
+                "/v1/payment_intents",
+                "/v1/refunds",
+                "/v1/payment_intents/pi_1",
+                "/v1/payment_intents/pi_1",
+                "/v1/payment_intents/pi_1/cancel",
+                "/v1/customers"
+            }));
+            Assert.That(StripeConfiguration.ApiKey, Is.EqualTo(ProcessWideKey),
+                "building and using the services must not write the process-wide key");
         });
     }
 

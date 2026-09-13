@@ -49,6 +49,13 @@ public static class ServiceCollectionExtensions
                 "AllowMissingSignatureHeaderInBypassMode requires SkipWebhookSignatureVerification to be enabled.")
             .ValidateOnStart();
 
+        // Payment audit Stage 9 (M4). One Stripe client for the process, built from Stripe:SecretKey and injected into
+        // both Stripe services. StripePaymentService used to write the key into Stripe.net's process-wide
+        // StripeConfiguration from its constructor. So StripeCustomerService, which used the process-wide client, only had
+        // a key if a StripePaymentService had been built earlier in the same process.
+        services.AddSingleton<Stripe.IStripeClient>(provider =>
+            CreateStripeClient(provider.GetRequiredService<IOptions<StripeSettings>>().Value));
+
         if (useInMemoryDatabase)
         {
             var dbName = inMemoryDatabaseName ?? $"PaymentTestDb_{Guid.NewGuid()}";
@@ -103,6 +110,15 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// The Stripe client for <paramref name="settings"/>. With no key configured, the client has none. That is the case
+    /// with Stripe off: the tracked appsettings.json ships an empty key.
+    /// <para>Stripe.net throws on an empty or whitespace key, and <c>PaymentRefunder</c> resolves the Stripe service even to
+    /// refund a simulated payment. Such a client fails only if something actually calls Stripe.</para>
+    /// </summary>
+    public static Stripe.IStripeClient CreateStripeClient(StripeSettings settings)
+        => new Stripe.StripeClient(apiKey: string.IsNullOrWhiteSpace(settings.SecretKey) ? null : settings.SecretKey);
 
     public static IServiceCollection AddPaymentMessaging(
         this IServiceCollection services,
