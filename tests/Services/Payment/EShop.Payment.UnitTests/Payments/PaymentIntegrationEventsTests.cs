@@ -109,10 +109,14 @@ public class PaymentIntegrationEventsTests
         });
     }
 
+    /// <summary>
+    /// Payment audit Stage 8b: the refund carries the record's currency too. EUR is not the event's default, so a
+    /// builder that forgot to copy it would still produce "USD" here and go red.
+    /// </summary>
     [Test]
-    public void ARefund_CarriesTheRecordedAmount_AndTime()
+    public void ARefund_CarriesTheRecordedAmountCurrencyAndTime()
     {
-        var payment = Payment(PaymentStatus.Refunded);
+        var payment = Payment(PaymentStatus.Refunded, currency: "EUR");
         var outbox = new CapturingOutbox();
 
         outbox.EnqueuePaymentRefunded(payment);
@@ -124,6 +128,7 @@ public class PaymentIntegrationEventsTests
             Assert.That(refunded.UserId, Is.EqualTo("user-8"));
             Assert.That(refunded.PaymentIntentId, Is.EqualTo("pi_events"));
             Assert.That(refunded.Amount, Is.EqualTo(42.50m));
+            Assert.That(refunded.Currency, Is.EqualTo("EUR"));
             Assert.That(refunded.RefundedAt, Is.EqualTo(ProcessedAt));
         });
     }

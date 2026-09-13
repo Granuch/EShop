@@ -105,7 +105,8 @@ public sealed class PaymentRefundedConsumer : IdempotentConsumer<PaymentRefunded
                     OrderId = message.OrderId,
                     CustomerName = recipient.DisplayName ?? message.UserId,
                     Amount = message.Amount,
-                    Currency = "USD",
+                    // Payment audit Stage 8b: the event says which currency was refunded; this used to hard-code USD.
+                    Currency = message.Currency,
                     RefundedAt = message.RefundedAt,
                     SupportEmail = _supportEmail
                 },

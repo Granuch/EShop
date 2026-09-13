@@ -108,6 +108,7 @@ public static class PaymentIntegrationEvents
             UserId = payment.UserId,
             PaymentIntentId = payment.PaymentIntentId,
             Amount = payment.Amount,
+            Currency = payment.Currency,
             RefundedAt = at
         }, correlationId);
     }

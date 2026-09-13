@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Entities;
@@ -276,6 +277,89 @@ public class NotificationConsumerTests
         repo.Verify(x => x.AddAsync(It.IsAny<NotificationLog>(), It.IsAny<CancellationToken>()), Times.Once);
         repo.Verify(x => x.UpdateAsync(It.Is<NotificationLog>(l => l.Status == NotificationStatus.Sent), It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    #region Payment audit Stage 8b: the refund email's currency comes from the event
+
+    /// <summary>
+    /// The refund email used to hard-code USD whatever the event said. EUR is not the event's default, so a consumer
+    /// that ignored the field would still say USD here and go red.
+    /// </summary>
+    [Test]
+    public async Task PaymentRefundedConsumer_EmailsTheCurrencyTheEventCarries()
+    {
+        var model = await RefundEmailFor(new PaymentRefundedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-11",
+            PaymentIntentId = "pi_ref_eur",
+            Amount = 42.5m,
+            Currency = "EUR",
+            RefundedAt = DateTime.UtcNow
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(model.Currency, Is.EqualTo("EUR"));
+            Assert.That(model.Amount, Is.EqualTo(42.5m));
+        });
+    }
+
+    /// <summary>
+    /// A PaymentRefundedEvent published before Stage 8b has no currency field. It may still be in Payment's outbox or in
+    /// the queue during the deploy, and must read as USD, which is what Payment refunded.
+    /// </summary>
+    [Test]
+    public async Task PaymentRefundedConsumer_AMessagePublishedBeforeTheCurrencyExisted_EmailsUsd()
+    {
+        var json = $$"""{"eventId":"{{Guid.NewGuid()}}","orderId":"{{Guid.NewGuid()}}","userId":"user-12","paymentIntentId":"pi_legacy","amount":10.5,"refundedAt":"2026-01-01T00:00:00Z"}""";
+        var evt = JsonSerializer.Deserialize<PaymentRefundedEvent>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        var model = await RefundEmailFor(evt);
+
+        Assert.That(model.Currency, Is.EqualTo("USD"));
+    }
+
+    /// <summary>Consumes <paramref name="evt"/> and returns the refund email model the consumer sent.</summary>
+    private static async Task<PaymentRefundedEmailModel> RefundEmailFor(PaymentRefundedEvent evt)
+    {
+        await using var dbContext = CreateDbContext();
+        var repo = new Mock<INotificationLogRepository>();
+        repo.Setup(x => x.FindByEventIdAsync(evt.EventId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationLog?)null);
+
+        var resolver = new Mock<IUserContactResolver>();
+        resolver.Setup(x => x.ResolveAsync(evt.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecipientAddress("refund@test.com", "Refund Customer"));
+
+        PaymentRefundedEmailModel? sent = null;
+        var emailService = new Mock<IEmailService>();
+        emailService.Setup(x => x.SendPaymentRefundedAsync(
+                It.IsAny<RecipientAddress>(),
+                It.IsAny<PaymentRefundedEmailModel>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<RecipientAddress, PaymentRefundedEmailModel, CancellationToken>((_, model, _) => sent = model)
+            .Returns(Task.CompletedTask);
+
+        var consumer = new PaymentRefundedConsumer(
+            dbContext,
+            repo.Object,
+            emailService.Object,
+            resolver.Object,
+            Options.Create(new SmtpSettings { FromEmail = "support@eshop.local" }),
+            Mock.Of<ILogger<PaymentRefundedConsumer>>());
+
+        var context = new Mock<ConsumeContext<PaymentRefundedEvent>>();
+        context.SetupGet(x => x.Message).Returns(evt);
+        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
+        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
+
+        await consumer.Consume(context.Object);
+
+        return sent ?? throw new AssertionException("No refund email was sent.");
+    }
+
+    #endregion
 
     [Test]
     public async Task PaymentRefundedConsumer_WhenDuplicateEventId_ShouldSkipSend()
