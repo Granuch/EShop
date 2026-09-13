@@ -1,4 +1,4 @@
-using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Interfaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;

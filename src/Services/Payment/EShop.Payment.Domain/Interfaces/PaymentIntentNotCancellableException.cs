@@ -1,4 +1,4 @@
-namespace EShop.Payment.Application.Payments.Abstractions;
+namespace EShop.Payment.Domain.Interfaces;
 
 /// <summary>
 /// Stripe refused to cancel a payment intent because of its state — typically because it has

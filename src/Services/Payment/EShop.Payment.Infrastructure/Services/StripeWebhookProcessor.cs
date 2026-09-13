@@ -1,7 +1,6 @@
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;

@@ -81,9 +81,51 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
 
+    /// <summary>
+    /// Payment audit Stage 12 (D15). The admin's reason is recorded as the refunded payment's note. It used to be
+    /// accepted and discarded.
+    /// </summary>
+    [Test]
+    public async Task TheAdminsReason_IsRecordedOnTheRefundedPayment()
+    {
+        var created = await SeedCustomerPaymentAsync();
+
+        var response = await Client.PostAsJsonAsync(
+            $"{PaymentsEndpoint}/{created.Id}/refund",
+            new { Reason = "  Damaged in transit  " });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), await response.Content.ReadAsStringAsync());
+        var refunded = await response.Content.ReadFromJsonAsync<PaymentResponse>();
+        var current = await Client.GetFromJsonAsync<PaymentResponse>($"{PaymentsEndpoint}/{created.Id}");
+        Assert.Multiple(() =>
+        {
+            Assert.That(refunded!.ErrorMessage, Is.EqualTo("Damaged in transit"));
+            Assert.That(current!.ErrorMessage, Is.EqualTo("Damaged in transit"));
+        });
+    }
+
+    /// <summary>
+    /// Payment audit Stage 12 (D16). Each refusal names its cause. All of them used to be PAYMENT_ALREADY_PROCESSED, a
+    /// Pending payment included.
+    /// </summary>
+    [TestCase(PaymentStatus.Refunded, "PAYMENT_ALREADY_REFUNDED")]
+    [TestCase(PaymentStatus.Pending, "PAYMENT_NOT_CAPTURED")]
+    [TestCase(PaymentStatus.Processing, "PAYMENT_NOT_CAPTURED")]
+    [TestCase(PaymentStatus.Failed, "PAYMENT_NOT_CAPTURED")]
+    [TestCase(PaymentStatus.Cancelled, "PAYMENT_NOT_CAPTURED")]
+    public async Task APaymentThatCannotBeRefunded_IsAConflict_ThatSaysWhy(PaymentStatus status, string errorCode)
+    {
+        var payment = await Factory.SeedPaymentAsync("customer-1", status, 99.99m, PaymentMethodType.Mock, "pi_seeded");
+
+        var response = await Client.PostAsJsonAsync($"{PaymentsEndpoint}/{payment.Id}/refund", new { Reason = "x" });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        Assert.That(await response.Content.ReadAsStringAsync(), Does.Contain(errorCode));
+    }
+
     /// <summary>A customer's simulated payment that succeeded. Seeded: no endpoint creates payments since Payment audit Stage 3.</summary>
     private Task<PaymentTransaction> SeedCustomerPaymentAsync()
         => Factory.SeedPaymentAsync("customer-1", PaymentStatus.Success, 99.99m, PaymentMethodType.Mock, "pi_seeded");
 
-    private sealed record PaymentResponse(Guid Id, decimal Amount, string Status);
+    private sealed record PaymentResponse(Guid Id, decimal Amount, string Status, string? ErrorMessage);
 }

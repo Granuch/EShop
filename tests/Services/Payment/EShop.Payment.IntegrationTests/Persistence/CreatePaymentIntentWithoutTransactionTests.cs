@@ -5,7 +5,6 @@ using EShop.BuildingBlocks.Domain.Outbox;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Extensions;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;

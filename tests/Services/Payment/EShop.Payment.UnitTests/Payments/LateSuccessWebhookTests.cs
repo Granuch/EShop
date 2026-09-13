@@ -1,6 +1,5 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Commands.RefundPayment;
 using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;

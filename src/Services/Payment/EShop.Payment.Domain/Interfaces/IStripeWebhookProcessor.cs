@@ -1,4 +1,4 @@
-namespace EShop.Payment.Application.Payments.Abstractions;
+namespace EShop.Payment.Domain.Interfaces;
 
 public interface IStripeWebhookProcessor
 {

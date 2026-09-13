@@ -299,11 +299,11 @@ app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthC
     ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
+// Payment audit Stage 12 (D17). Anonymous, so it does not say which environment answered.
 app.MapGet("/", () => Results.Ok(new
 {
     service = "EShop Payment API",
     version = "1.0.0",
-    environment = app.Environment.EnvironmentName,
     endpoints = new
     {
         healthReady = "/health/ready",

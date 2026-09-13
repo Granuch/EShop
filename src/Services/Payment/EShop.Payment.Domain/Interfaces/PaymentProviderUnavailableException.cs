@@ -1,4 +1,4 @@
-namespace EShop.Payment.Application.Payments.Abstractions;
+namespace EShop.Payment.Domain.Interfaces;
 
 /// <summary>
 /// Stripe could not be reached, or answered with an error that retrying can fix (a timeout, 429, 5xx, or an

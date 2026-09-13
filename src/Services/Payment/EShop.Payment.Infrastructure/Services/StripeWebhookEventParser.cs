@@ -1,4 +1,4 @@
-using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 using Stripe;

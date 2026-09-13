@@ -1,5 +1,5 @@
 using EShop.BuildingBlocks.Application.Abstractions;
-using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;

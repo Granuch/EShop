@@ -1,4 +1,4 @@
-using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Interfaces;
 using Stripe;
 
 namespace EShop.Payment.Infrastructure.Services;

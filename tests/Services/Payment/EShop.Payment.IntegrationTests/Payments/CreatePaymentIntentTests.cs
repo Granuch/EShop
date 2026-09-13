@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Domain.Entities;
 using EShop.BuildingBlocks.Domain.Outbox;
 using EShop.Payment.Infrastructure.Data;

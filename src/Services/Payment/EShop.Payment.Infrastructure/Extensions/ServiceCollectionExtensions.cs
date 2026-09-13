@@ -3,7 +3,6 @@ using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Infrastructure.Consumers;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;

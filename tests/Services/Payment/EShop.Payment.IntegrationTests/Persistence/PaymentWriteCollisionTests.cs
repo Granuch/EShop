@@ -1,7 +1,6 @@
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;

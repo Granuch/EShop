@@ -8,7 +8,7 @@ using EShop.Payment.Application.Payments.Commands.RefundPayment;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Application.Payments.Queries.GetPaymentById;
 using EShop.Payment.Application.Payments.Queries.GetPaymentsByUser;
-using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
 using MediatR;
 using Microsoft.Extensions.Options;
@@ -16,6 +16,11 @@ using System.Security.Claims;
 
 namespace EShop.Payment.API.Endpoints;
 
+/// <summary>
+/// Payment audit Stage 12. Every payment endpoint answers <see cref="PaymentDto"/> itself. The API used to copy it, field
+/// for field, into a <c>PaymentResponse</c>, and the copy re-applied the upper-casing and the empty-intent-to-null
+/// mapping that <c>ToDto</c> had already done. The JSON is unchanged.
+/// </summary>
 public static class PaymentEndpoints
 {
     public static void MapPaymentEndpoints(this IEndpointRouteBuilder app)
@@ -97,7 +102,7 @@ public static class PaymentEndpoints
             var result = await mediator.Send(new CreatePaymentCommand(request.OrderId), cancellationToken);
 
             return result.Match(
-                value => Results.Ok(ToResponse(value)),
+                value => Results.Ok(value),
                 error => ProblemResults.For(
                     error,
                     error.Code switch
@@ -109,7 +114,7 @@ public static class PaymentEndpoints
         })
         .WithName("CreatePayment")
         .RequireAuthorization("Admin")
-        .Produces<PaymentResponse>(StatusCodes.Status200OK)
+        .Produces<PaymentDto>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -126,27 +131,17 @@ public static class PaymentEndpoints
                 return authError!;
             }
 
-            var result = await mediator.Send(new GetPaymentByIdQuery(id), cancellationToken);
+            // Payment audit Stage 12. The query answers "not found" for another customer's payment, as /create-intent
+            // does. This endpoint used to load the payment and answer 403, which confirmed that the id existed.
+            var result = await mediator.Send(new GetPaymentByIdQuery(id, subjectId, user.IsAdmin()), cancellationToken);
 
-            if (result.IsFailure)
-            {
-                return ProblemResults.For(result.Error!, StatusCodes.Status404NotFound);
-            }
-
-            var payment = result.Value!;
-
-            if (!user.IsAdmin() &&
-                !string.Equals(subjectId, payment.UserId, StringComparison.OrdinalIgnoreCase))
-            {
-                return Results.Forbid();
-            }
-
-            return Results.Ok(ToResponse(payment));
+            return result.Match(
+                value => Results.Ok(value),
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("GetPaymentById")
         .RequireAuthorization()
-        .Produces<PaymentResponse>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status403Forbidden)
+        .Produces<PaymentDto>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // Payment audit Stage 10 (M7, D10). Paged like Ordering's per-user order list: ?pageNumber (default 1) and
@@ -160,17 +155,13 @@ public static class PaymentEndpoints
             var result = await mediator.Send(query with { UserId = userId }, cancellationToken);
 
             return result.Match(
-                page => Results.Ok(PagedResult<PaymentResponse>.Create(
-                    page.Items.Select(ToResponse).ToList(),
-                    page.PageNumber,
-                    page.PageSize,
-                    page.TotalCount)),
+                page => Results.Ok(page),
                 error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithTags("Payments")
         .WithName("GetPaymentsByUser")
         .RequireAuthorization("SameUserOrAdmin")
-        .Produces<PagedResult<PaymentResponse>>(StatusCodes.Status200OK)
+        .Produces<PagedResult<PaymentDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // Ordering audit Stage 11. Admin only: a refund is a manual Payment operation. This used to accept
@@ -185,19 +176,19 @@ public static class PaymentEndpoints
             var result = await mediator.Send(new RefundPaymentCommand(id, request.Amount, request.Reason), cancellationToken);
 
             return result.Match(
-                value => Results.Ok(ToResponse(value)),
+                value => Results.Ok(value),
                 error => ProblemResults.For(
                     error,
                     error.Code switch
                     {
                         "PAYMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
-                        "PAYMENT_ALREADY_PROCESSED" => StatusCodes.Status409Conflict,
+                        "PAYMENT_ALREADY_REFUNDED" or "PAYMENT_NOT_CAPTURED" => StatusCodes.Status409Conflict,
                         _ => StatusCodes.Status400BadRequest
                     }));
         })
         .WithName("RefundPayment")
         .RequireAuthorization("Admin")
-        .Produces<PaymentResponse>(StatusCodes.Status200OK)
+        .Produces<PaymentDto>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -319,33 +310,12 @@ public static class PaymentEndpoints
         .ProducesProblem(StatusCodes.Status500InternalServerError);
     }
 
-    private static PaymentResponse ToResponse(PaymentDto payment)
-    {
-        return new PaymentResponse(
-            payment.Id,
-            payment.OrderId,
-            payment.UserId,
-            payment.Amount,
-            payment.Currency,
-            payment.PaymentMethod,
-            payment.Status.ToString().ToUpperInvariant(),
-            string.IsNullOrWhiteSpace(payment.PaymentIntentId) ? null : payment.PaymentIntentId,
-            payment.ErrorMessage,
-            payment.CreatedAt,
-            payment.ProcessedAt,
-            payment.UpdatedAt);
-    }
-
     private static bool TryResolveUserContext(ClaimsPrincipal user, out string? subjectId, out IResult? error)
     {
+        // Every caller is authenticated: the endpoints RequireAuthorization. What is left to check is that a customer's
+        // token names the customer. Payment audit Stage 12 removed an unreachable "not authenticated" branch.
         subjectId = user.GetSubjectId();
         error = null;
-
-        if (user.Identity?.IsAuthenticated != true)
-        {
-            error = Results.Unauthorized();
-            return false;
-        }
 
         if (user.IsAdmin())
         {
@@ -386,20 +356,6 @@ public sealed record CreatePaymentIntentResponse(
     string Status);
 
 public sealed record RefundPaymentRequest(decimal? Amount, string? Reason);
-
-public sealed record PaymentResponse(
-    Guid Id,
-    Guid OrderId,
-    string UserId,
-    decimal Amount,
-    string Currency,
-    string PaymentMethod,
-    string Status,
-    string? PaymentIntentId,
-    string? ErrorMessage,
-    DateTime CreatedAt,
-    DateTime? ProcessedAt,
-    DateTime? UpdatedAt);
 
 public sealed record PaymentSimulationDiagnosticsResponse(
     string Mode,

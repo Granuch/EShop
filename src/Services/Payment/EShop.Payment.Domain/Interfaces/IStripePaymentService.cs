@@ -1,5 +1,11 @@
-namespace EShop.Payment.Application.Payments.Abstractions;
+namespace EShop.Payment.Domain.Interfaces;
 
+/// <summary>
+/// Payment's calls to Stripe. Payment audit Stage 12 (D18) moved this interface, its types, the other Stripe
+/// interfaces and their two exceptions here from <c>Application/Payments/Abstractions</c>. They now sit beside
+/// <see cref="IPaymentProcessor"/>, where the repo's convention puts an interface that Application calls and
+/// Infrastructure implements.
+/// </summary>
 public interface IStripePaymentService
 {
     Task<StripePaymentIntentResult> CreatePaymentIntentAsync(

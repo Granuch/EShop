@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Services;

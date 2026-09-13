@@ -1,7 +1,6 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Commands.RefundPayment;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
@@ -233,5 +232,65 @@ public class RefundPaymentCommandHandlerTests
 
         var updatedPayment = dbContext.PaymentTransactions.Single(p => p.Id == payment.Id);
         Assert.That(updatedPayment.Status, Is.EqualTo(PaymentStatus.Success));
+    }
+
+    /// <summary>
+    /// Payment audit Stage 12 (D16). Each refusal names its cause. All of them used to be PAYMENT_ALREADY_PROCESSED, a
+    /// Pending payment included. Nothing is refunded.
+    /// </summary>
+    [TestCase(PaymentStatus.Refunded, "PAYMENT_ALREADY_REFUNDED")]
+    [TestCase(PaymentStatus.Pending, "PAYMENT_NOT_CAPTURED")]
+    [TestCase(PaymentStatus.Processing, "PAYMENT_NOT_CAPTURED")]
+    [TestCase(PaymentStatus.Failed, "PAYMENT_NOT_CAPTURED")]
+    [TestCase(PaymentStatus.Cancelled, "PAYMENT_NOT_CAPTURED")]
+    public async Task Handle_ForAPaymentThatCannotBeRefunded_NamesTheCause_AndRefundsNothing(PaymentStatus status, string errorCode)
+    {
+        await using var dbContext = CreateDbContext();
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_not_refundable");
+        payment.Status = status;
+        await dbContext.SaveChangesAsync();
+
+        var handler = CreateHandler(
+            dbContext,
+            new Mock<IPaymentProcessor>(MockBehavior.Strict).Object,
+            new Mock<IStripePaymentService>(MockBehavior.Strict).Object,
+            new Mock<IIntegrationEventOutbox>(MockBehavior.Strict).Object);
+
+        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, null, "x"), CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Error!.Code, Is.EqualTo(errorCode));
+            Assert.That(dbContext.PaymentTransactions.Single(p => p.Id == payment.Id).Status, Is.EqualTo(status));
+        });
+    }
+
+    /// <summary>
+    /// Payment audit Stage 12 (D15). The admin's reason becomes the refunded payment's note, trimmed, as
+    /// OrderCancelledConsumer notes a cancelled order's refund. It used to be accepted and discarded.
+    /// </summary>
+    [TestCase("Damaged in transit", "Damaged in transit")]
+    [TestCase("  Damaged in transit  ", "Damaged in transit")]
+    [TestCase(null, null, Description = "no reason, no note")]
+    [TestCase("   ", null, Description = "a blank reason is none")]
+    public async Task Handle_RecordsTheAdminsReason_AsTheRefundsNote(string? reason, string? expectedNote)
+    {
+        await using var dbContext = CreateDbContext();
+        var payment = await CreateAndAddStripePaymentAsync(dbContext, "pi_reason");
+
+        var stripePaymentService = new Mock<IStripePaymentService>();
+        stripePaymentService
+            .Setup(x => x.CreateRefundAsync("pi_reason", 100m, "USD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeRefundResult("re_reason", "succeeded"));
+        var handler = CreateHandler(dbContext, stripePaymentService: stripePaymentService.Object);
+
+        var result = await handler.Handle(new RefundPaymentCommand(payment.Id, null, reason), CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.True);
+            Assert.That(result.Value!.ErrorMessage, Is.EqualTo(expectedNote));
+            Assert.That(dbContext.PaymentTransactions.Single(p => p.Id == payment.Id).ErrorMessage, Is.EqualTo(expectedNote));
+        });
     }
 }

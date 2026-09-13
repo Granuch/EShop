@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using MediatR;
 
 namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
@@ -11,12 +12,15 @@ namespace EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 /// the result is recorded in one save, guarded by the row version. See the handler.</para>
 /// </summary>
 /// <param name="RequesterId">The signed-in user's id; a non-admin may only pay their own order.</param>
-/// <param name="Email">Optional, for the Stripe customer record.</param>
+/// <param name="Email">
+/// Optional, for the Stripe customer record. It is personal data, so <c>LoggingBehavior</c> redacts it (Payment audit
+/// Stage 12). "Email" is not on the behavior's list of secret names, so it used to be logged in clear text.
+/// </param>
 public sealed record CreatePaymentIntentCommand(
     Guid OrderId,
     string? RequesterId,
     bool RequesterIsAdmin,
-    string? Email) : IRequest<Result<CreatePaymentIntentDto>>;
+    [property: SensitiveData] string? Email) : IRequest<Result<CreatePaymentIntentDto>>;
 
 public sealed record CreatePaymentIntentDto(
     Guid PaymentId,

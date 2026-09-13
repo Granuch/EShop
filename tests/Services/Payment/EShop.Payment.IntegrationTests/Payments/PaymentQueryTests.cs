@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EShop.Payment.Domain.Entities;
 
 namespace EShop.Payment.IntegrationTests.Payments;
@@ -31,6 +32,31 @@ public class PaymentQueryTests : AuthenticatedIntegrationTestBase
         Assert.That(payload!.Id, Is.EqualTo(seeded.Id));
         Assert.That(payload.UserId, Is.EqualTo(TestUserId));
         Assert.That(payload.Status, Is.EqualTo("SUCCESS"));
+    }
+
+    /// <summary>
+    /// Payment audit Stage 12. Another customer's payment answers exactly what a missing id does. It used to be 403,
+    /// which confirmed that the id existed.
+    /// </summary>
+    [Test]
+    public async Task GetPaymentById_ForAnotherCustomersPayment_IsIndistinguishableFromAMissingOne()
+    {
+        var theirs = await Factory.SeedPaymentAsync("another-customer", PaymentStatus.Success, 10m, PaymentMethodType.Mock, "pi_theirs");
+
+        var forTheirs = await Client.GetAsync($"{PaymentsEndpoint}/{theirs.Id}");
+        var forMissing = await Client.GetAsync($"{PaymentsEndpoint}/{Guid.NewGuid()}");
+
+        using var theirsBody = JsonDocument.Parse(await forTheirs.Content.ReadAsStringAsync());
+        using var missingBody = JsonDocument.Parse(await forMissing.Content.ReadAsStringAsync());
+        Assert.Multiple(() =>
+        {
+            Assert.That(forTheirs.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+            Assert.That(forMissing.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+            Assert.That(theirsBody.RootElement.GetProperty("errorCode").GetString(),
+                Is.EqualTo(missingBody.RootElement.GetProperty("errorCode").GetString()));
+            Assert.That(theirsBody.RootElement.GetProperty("detail").GetString(),
+                Is.EqualTo(missingBody.RootElement.GetProperty("detail").GetString()));
+        });
     }
 
     [Test]

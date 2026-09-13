@@ -39,11 +39,20 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
                 "Payment not found."));
         }
 
+        // Payment audit Stage 12 (D16). Each refusal names its cause. Every payment but a Success one used to be
+        // PAYMENT_ALREADY_PROCESSED, a Pending one included, which nothing had processed.
+        if (payment.Status == PaymentStatus.Refunded)
+        {
+            return Result<PaymentDto>.Failure(new Error(
+                "PAYMENT_ALREADY_REFUNDED",
+                "The payment has already been refunded."));
+        }
+
         if (payment.Status != PaymentStatus.Success)
         {
             return Result<PaymentDto>.Failure(new Error(
-                "PAYMENT_ALREADY_PROCESSED",
-                "Only successful payments can be refunded."));
+                "PAYMENT_NOT_CAPTURED",
+                $"Only a captured payment can be refunded. This one is {payment.Status}."));
         }
 
         // Ordering audit Stage 11. Full refunds only. A partial refund used to mark the whole payment
@@ -72,6 +81,13 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
             return Result<PaymentDto>.Failure(new Error(
                 "REFUND_FAILED",
                 "An error occurred while processing the refund. Please try again later."));
+        }
+
+        // Payment audit Stage 12 (D15). The admin's reason becomes the refund's note, as OrderCancelledConsumer notes a
+        // cancelled order's automatic refund. It used to be accepted and discarded.
+        if (!string.IsNullOrWhiteSpace(request.Reason))
+        {
+            payment.AnnotateRefund(request.Reason.Trim());
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);

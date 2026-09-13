@@ -1,4 +1,4 @@
-namespace EShop.Payment.Application.Payments.Abstractions;
+namespace EShop.Payment.Domain.Interfaces;
 
 /// <summary>
 /// Turns one Stripe webhook delivery into a <see cref="StripeWebhookEvent"/>, checking its signature unless
