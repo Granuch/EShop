@@ -34,8 +34,6 @@ public interface IStripePaymentService
     Task<StripePaymentIntentCancelResult> CancelPaymentIntentAsync(
         string paymentIntentId,
         CancellationToken cancellationToken = default);
-
-    StripeWebhookEvent ConstructWebhookEvent(string payload, string signatureHeader);
 }
 
 public sealed record StripePaymentIntentRequest(

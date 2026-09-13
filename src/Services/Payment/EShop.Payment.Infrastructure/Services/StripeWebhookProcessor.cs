@@ -13,20 +13,20 @@ namespace EShop.Payment.Infrastructure.Services;
 public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
 {
     private readonly IPaymentRepository _paymentRepository;
-    private readonly IStripePaymentService _stripePaymentService;
+    private readonly IStripeWebhookEventParser _eventParser;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IIntegrationEventOutbox _integrationEventOutbox;
     private readonly ILogger<StripeWebhookProcessor> _logger;
 
     public StripeWebhookProcessor(
         IPaymentRepository paymentRepository,
-        IStripePaymentService stripePaymentService,
+        IStripeWebhookEventParser eventParser,
         IUnitOfWork unitOfWork,
         IIntegrationEventOutbox integrationEventOutbox,
         ILogger<StripeWebhookProcessor> logger)
     {
         _paymentRepository = paymentRepository;
-        _stripePaymentService = stripePaymentService;
+        _eventParser = eventParser;
         _unitOfWork = unitOfWork;
         _integrationEventOutbox = integrationEventOutbox;
         _logger = logger;
@@ -34,7 +34,7 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
 
     public async Task<StripeWebhookProcessResult> ProcessAsync(string payload, string signatureHeader, CancellationToken cancellationToken = default)
     {
-        var stripeEvent = _stripePaymentService.ConstructWebhookEvent(payload, signatureHeader);
+        var stripeEvent = _eventParser.Parse(payload, signatureHeader);
 
         if (!stripeEvent.IsSupportedPaymentIntentEvent)
         {

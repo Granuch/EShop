@@ -67,6 +67,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPaymentProcessor, MockPaymentProcessor>();
         services.AddScoped<IStripeCustomerService, StripeCustomerService>();
         services.AddScoped<IStripePaymentService, StripePaymentService>();
+        services.AddScoped<IStripeWebhookEventParser, StripeWebhookEventParser>();
         services.AddScoped<IStripeWebhookProcessor, StripeWebhookProcessor>();
 
         // Ordering audit Stage 10. The DbContext above was registered "for the outbox processor", but

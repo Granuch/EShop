@@ -726,8 +726,12 @@ services:
       CancelledOrders__AutoRefund: ${PAYMENT_AUTO_REFUND_CANCELLED_ORDERS:-false}
 
       Stripe__Enabled: ${STRIPE_ENABLED:-false}
-      Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-true}
-      Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-true}
+      # Payment audit Stage 4 (H3, D5). Both default to false. With them on, anyone who can reach payment-api
+      # can POST a hand-written payment_intent.succeeded and have an order marked paid. Signed local delivery
+      # comes from stripe-listener (--profile stripe): set STRIPE_WEBHOOK_SECRET to the whsec_ it prints at start
+      # (docker logs eshop-stripe-listener), then recreate payment-api.
+      Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-false}
+      Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-false}
       Stripe__SecretKey: ${STRIPE_SECRET_KEY:-}
       Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY:-}
       Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:-}
@@ -742,7 +746,9 @@ services:
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
-      - "${PAYMENT_API_PORT:-7008}:8080"
+      # Payment audit Stage 4 (H3, D5): loopback only. Other containers reach payment-api by name, and
+      # stripe-listener forwards webhooks to it inside eshop-network, so nothing needs it on a public interface.
+      - "127.0.0.1:${PAYMENT_API_PORT:-7008}:8080"
     volumes:
       - payment-logs:/app/logs
     networks:

@@ -154,15 +154,15 @@ public class StripeSandboxTests
         await new PaymentIntentService(_client).CancelAsync(theirs.Id);
         Assert.That(cancelled.Status, Is.EqualTo("canceled"));
 
-        var parser = new StripePaymentService(Options.Create(new StripeSettings
+        var parser = new StripeWebhookEventParser(Options.Create(new StripeSettings
         {
             Enabled = true,
             SecretKey = _key,
             SkipWebhookSignatureVerification = true
         }));
 
-        var ourEvent = parser.ConstructWebhookEvent((await CanceledEventForAsync(ours.Id)).ToJson(), string.Empty);
-        var theirEvent = parser.ConstructWebhookEvent((await CanceledEventForAsync(theirs.Id)).ToJson(), string.Empty);
+        var ourEvent = parser.Parse((await CanceledEventForAsync(ours.Id)).ToJson(), string.Empty);
+        var theirEvent = parser.Parse((await CanceledEventForAsync(theirs.Id)).ToJson(), string.Empty);
 
         Assert.Multiple(() =>
         {

@@ -18,12 +18,9 @@ public sealed class StripePaymentService : IStripePaymentService
     /// </summary>
     public const string CancelRequestedMetadataKey = "eshop_cancel_requested";
 
-    private readonly StripeSettings _settings;
-
     public StripePaymentService(IOptions<StripeSettings> settings)
     {
-        _settings = settings.Value;
-        StripeConfiguration.ApiKey = _settings.SecretKey;
+        StripeConfiguration.ApiKey = settings.Value.SecretKey;
     }
 
     public async Task<StripePaymentIntentResult> CreatePaymentIntentAsync(
@@ -173,57 +170,7 @@ public sealed class StripePaymentService : IStripePaymentService
         => IsUnexpectedState(ex)
            && string.Equals(ex.StripeError?.PaymentIntent?.Status, "canceled", StringComparison.Ordinal);
 
-    public StripeWebhookEvent ConstructWebhookEvent(string payload, string signatureHeader)
-    {
-        Event stripeEvent;
-
-        if (_settings.SkipWebhookSignatureVerification)
-        {
-            stripeEvent = EventUtility.ParseEvent(payload, throwOnApiVersionMismatch: false);
-        }
-        else
-        {
-            try
-            {
-                stripeEvent = EventUtility.ConstructEvent(
-                    payload,
-                    signatureHeader,
-                    _settings.WebhookSecret,
-                    throwOnApiVersionMismatch: false);
-            }
-            catch (StripeException ex) when (ex.Message.Contains("signature", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new ArgumentException("Invalid Stripe webhook signature.", ex);
-            }
-            catch (StripeException ex)
-            {
-                throw new InvalidOperationException("Stripe webhook payload parsing failed.", ex);
-            }
-        }
-
-        if (stripeEvent.Data.Object is not PaymentIntent paymentIntent)
-        {
-            return new StripeWebhookEvent(
-                stripeEvent.Id,
-                stripeEvent.Type,
-                string.Empty,
-                string.Empty,
-                null,
-                false);
-        }
-
-        return new StripeWebhookEvent(
-            stripeEvent.Id,
-            stripeEvent.Type,
-            paymentIntent.Id,
-            paymentIntent.Status ?? string.Empty,
-            paymentIntent.LastPaymentError?.Message,
-            stripeEvent.Type is "payment_intent.succeeded"
-                or "payment_intent.payment_failed"
-                or "payment_intent.canceled",
-            IsCancelRequestedByEShop(paymentIntent));
-    }
-
+    /// <summary>Read by <see cref="StripeWebhookEventParser"/> from the intent a webhook carries.</summary>
     public static bool IsCancelRequestedByEShop(PaymentIntent paymentIntent)
         => paymentIntent.Metadata is not null
            && paymentIntent.Metadata.TryGetValue(CancelRequestedMetadataKey, out var tag)

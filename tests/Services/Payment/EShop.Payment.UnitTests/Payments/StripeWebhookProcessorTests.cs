@@ -49,8 +49,8 @@ public class StripeWebhookProcessorTests
             });
             await writeDbContext.SaveChangesAsync();
 
-            var stripePaymentService = new Mock<IStripePaymentService>();
-            stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+            var eventParser = new Mock<IStripeWebhookEventParser>();
+            eventParser.Setup(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()))
                 .Returns(new StripeWebhookEvent(
                     "evt_test_outbox_001",
                     "payment_intent.succeeded",
@@ -61,7 +61,7 @@ public class StripeWebhookProcessorTests
 
             var processor = new StripeWebhookProcessor(
                 repository,
-                stripePaymentService.Object,
+                eventParser.Object,
                 writeDbContext,
                 new IntegrationEventOutbox(writeDbContext),
                 Mock.Of<ILogger<StripeWebhookProcessor>>());
@@ -100,15 +100,15 @@ public class StripeWebhookProcessorTests
         });
         await dbContext.SaveChangesAsync();
 
-        var stripePaymentService = new Mock<IStripePaymentService>();
-        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var eventParser = new Mock<IStripeWebhookEventParser>();
+        eventParser.Setup(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent("evt_test_001", "payment_intent.succeeded", "pi_test_001", "succeeded", null, true));
 
         var outbox = new Mock<IIntegrationEventOutbox>();
 
         var processor = new StripeWebhookProcessor(
             repository,
-            stripePaymentService.Object,
+            eventParser.Object,
             dbContext,
             outbox.Object,
             Mock.Of<ILogger<StripeWebhookProcessor>>());
@@ -153,15 +153,15 @@ public class StripeWebhookProcessorTests
         });
         await dbContext.SaveChangesAsync();
 
-        var stripePaymentService = new Mock<IStripePaymentService>();
-        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var eventParser = new Mock<IStripeWebhookEventParser>();
+        eventParser.Setup(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent($"evt_{type}", type, "pi_cancelled_by_us", status, null, true));
 
         var outbox = new Mock<IIntegrationEventOutbox>();
 
         var processor = new StripeWebhookProcessor(
             repository,
-            stripePaymentService.Object,
+            eventParser.Object,
             dbContext,
             outbox.Object,
             Mock.Of<ILogger<StripeWebhookProcessor>>());
@@ -202,8 +202,8 @@ public class StripeWebhookProcessorTests
         });
         await dbContext.SaveChangesAsync();
 
-        var stripePaymentService = new Mock<IStripePaymentService>();
-        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var eventParser = new Mock<IStripeWebhookEventParser>();
+        eventParser.Setup(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent(
                 "evt_live_canceled", "payment_intent.canceled", "pi_live_canceled", "canceled", null, true,
                 cancelRequestedByEShop));
@@ -212,7 +212,7 @@ public class StripeWebhookProcessorTests
 
         var processor = new StripeWebhookProcessor(
             repository,
-            stripePaymentService.Object,
+            eventParser.Object,
             dbContext,
             outbox.Object,
             Mock.Of<ILogger<StripeWebhookProcessor>>());
@@ -230,13 +230,13 @@ public class StripeWebhookProcessorTests
         await using var dbContext = CreateDbContext();
         var repository = new PaymentRepository(dbContext);
 
-        var stripePaymentService = new Mock<IStripePaymentService>();
-        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var eventParser = new Mock<IStripeWebhookEventParser>();
+        eventParser.Setup(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent("evt_test_dup", "payment_intent.succeeded", "pi_missing", "succeeded", null, true));
 
         var processor = new StripeWebhookProcessor(
             repository,
-            stripePaymentService.Object,
+            eventParser.Object,
             dbContext,
             Mock.Of<IIntegrationEventOutbox>(),
             Mock.Of<ILogger<StripeWebhookProcessor>>());
@@ -253,13 +253,13 @@ public class StripeWebhookProcessorTests
         await using var dbContext = CreateDbContext();
         var repository = new PaymentRepository(dbContext);
 
-        var stripePaymentService = new Mock<IStripePaymentService>();
-        stripePaymentService.Setup(x => x.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var eventParser = new Mock<IStripeWebhookEventParser>();
+        eventParser.Setup(x => x.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent("evt_ignored", "charge.succeeded", string.Empty, string.Empty, null, false));
 
         var processor = new StripeWebhookProcessor(
             repository,
-            stripePaymentService.Object,
+            eventParser.Object,
             dbContext,
             Mock.Of<IIntegrationEventOutbox>(),
             Mock.Of<ILogger<StripeWebhookProcessor>>());

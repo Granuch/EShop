@@ -333,8 +333,8 @@ public class PaymentWriteCollisionTests
         bool cancelRequestedByEShop = false)
     {
         await using var db = NewContext();
-        var stripe = new Mock<IStripePaymentService>(MockBehavior.Strict);
-        stripe.Setup(s => s.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var stripe = new Mock<IStripeWebhookEventParser>(MockBehavior.Strict);
+        stripe.Setup(s => s.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent(eventId, eventType, IntentId, intentStatus, null, true, cancelRequestedByEShop));
 
         IPaymentRepository repository = new PaymentRepository(db);

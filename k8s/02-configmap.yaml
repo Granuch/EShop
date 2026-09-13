@@ -58,10 +58,11 @@ data:
   PaymentSimulation__SuccessRatePercent: "80"
   PaymentSimulation__RefundDelaySeconds: "2"
 
-  # Stripe (disabled by default)
+  # Stripe (disabled by default). Payment audit Stage 4 (H3, D5): webhook signatures are always checked.
+  # A bypass would accept a forged payment_intent.succeeded from anything that can reach payment-api.
   Stripe__Enabled: "false"
-  Stripe__SkipWebhookSignatureVerification: "true"
-  Stripe__AllowMissingSignatureHeaderInBypassMode: "true"
+  Stripe__SkipWebhookSignatureVerification: "false"
+  Stripe__AllowMissingSignatureHeaderInBypassMode: "false"
 
   # RabbitMQ delayed exchange
   RabbitMQ__RetryCount: "3"

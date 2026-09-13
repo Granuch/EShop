@@ -251,25 +251,28 @@ public static class PaymentEndpoints
             try
             {
                 var result = await webhookProcessor.ProcessAsync(payload, signatureHeader!, cancellationToken);
-                return Results.Ok(new
-                {
-                    received = true,
-                    result.IsDuplicate,
-                    result.PaymentFound,
+
+                // Payment audit Stage 4 (H3). The endpoint is anonymous, and its answer used to say whether the event's
+                // intent matched a payment and whether the event had been seen before, so anyone could probe for
+                // intent ids. Stripe reads only the status code; the outcome goes to the log.
+                logger.LogInformation(
+                    "Stripe webhook {EventId} ({EventType}) processed: payment found {PaymentFound}, duplicate {IsDuplicate}.",
                     result.EventId,
-                    result.EventType
-                });
+                    result.EventType,
+                    result.PaymentFound,
+                    result.IsDuplicate);
+                return Results.Ok();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
-            catch (Exception ex) when (IsStripeWebhookPayloadOrSignatureError(ex))
+            catch (StripeWebhookRejectedException ex)
             {
-                // Detail carries Stripe's own message. That is a third-party library string
-                // rather than one of ours, so it sits on the wrong side of the "our strings yes,
-                // framework strings no" rule - but it is pre-existing behaviour and useful to a
-                // webhook integrator, so it is preserved here rather than changed silently.
+                // Payment audit Stage 4 (M10). A typed rejection, with our own detail: this used to match exception
+                // message text and echo Stripe's message, and a payload that failed to parse matched neither pattern,
+                // so it was answered 500 and Stripe kept redelivering it.
+                logger.LogWarning(ex, "Stripe webhook refused: {Reason}.", ex.Reason);
                 return ProblemResults.For(
                     "STRIPE_WEBHOOK_INVALID",
                     ex.Message,
@@ -293,16 +296,6 @@ public static class PaymentEndpoints
         .Produces(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
-    }
-
-    private static bool IsStripeWebhookPayloadOrSignatureError(Exception ex)
-    {
-        if (ex is ArgumentException { Message: "Invalid Stripe webhook signature." })
-        {
-            return true;
-        }
-
-        return ex is InvalidOperationException { Message: "Stripe webhook payload parsing failed." };
     }
 
     private static PaymentResponse ToResponse(PaymentDto payment)

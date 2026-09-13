@@ -84,8 +84,8 @@ public class LateSuccessWebhookTests
     private async Task<(StripeWebhookProcessResult Result, Mock<IIntegrationEventOutbox> Outbox)> DeliverSucceededWebhookAsync(string eventId)
     {
         await using var db = NewContext();
-        var stripe = new Mock<IStripePaymentService>();
-        stripe.Setup(s => s.ConstructWebhookEvent(It.IsAny<string>(), It.IsAny<string>()))
+        var stripe = new Mock<IStripeWebhookEventParser>();
+        stripe.Setup(s => s.Parse(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(new StripeWebhookEvent(eventId, "payment_intent.succeeded", IntentId, "succeeded", null, true));
         var outbox = new Mock<IIntegrationEventOutbox>();
 
