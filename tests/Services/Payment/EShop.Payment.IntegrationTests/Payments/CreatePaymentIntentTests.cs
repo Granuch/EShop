@@ -2,7 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
+using EShop.BuildingBlocks.Domain.Outbox;
+using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.IntegrationTests.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 
 namespace EShop.Payment.IntegrationTests.Payments;
@@ -146,6 +150,48 @@ public class CreatePaymentIntentTests : AuthenticatedIntegrationTestBase
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         Assert.That((await Stripe.FindByOrderIdAsync(seeded.OrderId))!.Status, Is.EqualTo(PaymentStatus.Cancelled));
         VerifyStripeNeverAsked();
+    }
+
+    /// <summary>
+    /// Payment audit Stage 6 (H2), over HTTP. A Stripe outage used to be recorded as the payment failing, with a
+    /// PaymentFailedEvent, so Ordering cancelled the order and every later attempt was a conflict.
+    /// </summary>
+    [Test]
+    public async Task AnUnavailableProvider_Is503_RecordsNothing_AndTheSameRequestThenSucceeds()
+    {
+        var seeded = await SeedAsync();
+        Stripe.StripeCustomers
+            .Setup(x => x.CreateOrGetCustomerAsync(TestUserId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("cus_1");
+        Stripe.Stripe
+            .SetupSequence(x => x.CreatePaymentIntentAsync(It.IsAny<StripePaymentIntentRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new PaymentProviderUnavailableException("create payment intent", new HttpRequestException("timeout")))
+            .ReturnsAsync(new StripePaymentIntentResult("pi_retry", "cs_retry", "requires_payment_method"));
+
+        var unavailable = await Client.PostAsJsonAsync(Endpoint, new { seeded.OrderId });
+
+        Assert.That(unavailable.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(await unavailable.Content.ReadAsStringAsync(), Does.Contain("PAYMENT_PROVIDER_UNAVAILABLE"));
+        var untouched = await Stripe.FindByOrderIdAsync(seeded.OrderId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(untouched!.Status, Is.EqualTo(PaymentStatus.Pending));
+            Assert.That(untouched.PaymentIntentId, Is.Empty);
+            Assert.That(OutboxRowsFor(seeded.OrderId, "PaymentFailedEvent"), Is.Zero);
+        });
+
+        var retried = await Client.PostAsJsonAsync(Endpoint, new { seeded.OrderId });
+
+        Assert.That(retried.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That((await Stripe.FindByOrderIdAsync(seeded.OrderId))!.PaymentIntentId, Is.EqualTo("pi_retry"));
+    }
+
+    private int OutboxRowsFor(Guid orderId, string eventName)
+    {
+        using var scope = Stripe.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+        var order = orderId.ToString();
+        return db.Set<OutboxMessage>().AsNoTracking().Count(m => m.Type.Contains(eventName) && m.Payload.Contains(order));
     }
 
     private sealed record IntentResponse(Guid PaymentId, string PaymentIntentId, string ClientSecret, string Status);

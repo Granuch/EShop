@@ -2,6 +2,7 @@ using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
+using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Repositories;
@@ -270,6 +271,53 @@ public class StripeSandboxTests
 
         Assert.That((await db.PaymentTransactions.AsNoTracking().SingleAsync()).Status, Is.EqualTo(PaymentStatus.Success));
         outbox.Verify(o => o.Enqueue(It.IsAny<PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+    }
+
+    /// <summary>
+    /// Payment audit Stage 6 (M1), against Stripe itself. <c>/create-intent</c> creates the customer and the intent
+    /// inside a database transaction that can roll back after Stripe has answered. Repeating our calls, as the retry
+    /// does, must get back the same customer and the same intent, not a second of each.
+    /// </summary>
+    [Test]
+    public async Task OurCustomerAndIntentCreation_Repeated_ReturnTheSameStripeObjects()
+    {
+        var userId = $"sandbox-{Guid.NewGuid():N}";
+        var repository = new Mock<IPaymentRepository>();
+        repository.Setup(r => r.GetCustomerByUserIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentCustomer?)null);
+        repository.Setup(r => r.AddCustomerIfAbsentAsync(It.IsAny<PaymentCustomer>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PaymentCustomer c, CancellationToken _) => c);
+        var customers = new StripeCustomerService(repository.Object);
+
+        var customer = await customers.CreateOrGetCustomerAsync(userId, "sandbox@example.test");
+        var customerAgain = await customers.CreateOrGetCustomerAsync(userId, "sandbox@example.test");
+
+        var request = new StripePaymentIntentRequest(Guid.NewGuid(), Guid.NewGuid(), userId, customer, Amount, "USD");
+        var intent = await _service.CreatePaymentIntentAsync(request);
+        var intentAgain = await _service.CreatePaymentIntentAsync(request);
+
+        try
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(customerAgain, Is.EqualTo(customer));
+                Assert.That(intentAgain.PaymentIntentId, Is.EqualTo(intent.PaymentIntentId));
+            });
+        }
+        finally
+        {
+            await new PaymentIntentService(_client).CancelAsync(intent.PaymentIntentId);
+            if (intentAgain.PaymentIntentId != intent.PaymentIntentId)
+            {
+                await new PaymentIntentService(_client).CancelAsync(intentAgain.PaymentIntentId);
+            }
+
+            await new CustomerService(_client).DeleteAsync(customer);
+            if (customerAgain != customer)
+            {
+                await new CustomerService(_client).DeleteAsync(customerAgain);
+            }
+        }
     }
 
     /// <summary>Stripe writes events asynchronously, so poll briefly for the intent's canceled event.</summary>

@@ -31,27 +31,44 @@ public sealed class StripePaymentService : IStripePaymentService
         var amountMinor = ConvertToMinorUnits(request.Amount, currency);
 
         var paymentIntentService = new PaymentIntentService();
-        var intent = await paymentIntentService.CreateAsync(new PaymentIntentCreateOptions
+        PaymentIntent intent;
+        try
         {
-            Amount = amountMinor,
-            Currency = currency,
-            Customer = request.StripeCustomerId,
-            ConfirmationMethod = "automatic",
-            Confirm = false,
-            PaymentMethodTypes = ["card"],
-            Metadata = new Dictionary<string, string>
-            {
-                ["paymentId"] = request.PaymentId.ToString(),
-                ["orderId"] = request.OrderId.ToString(),
-                ["userId"] = request.UserId
-            }
-        }, cancellationToken: cancellationToken);
+            // Payment audit Stage 6 (M1). One payment has one intent. The request runs inside the handler's database
+            // transaction, so an intent can be created and its commit then lost. The key makes the retry get that
+            // same intent back from Stripe (for 24 hours) instead of opening a second one nobody can pay.
+            intent = await paymentIntentService.CreateAsync(
+                new PaymentIntentCreateOptions
+                {
+                    Amount = amountMinor,
+                    Currency = currency,
+                    Customer = request.StripeCustomerId,
+                    ConfirmationMethod = "automatic",
+                    Confirm = false,
+                    PaymentMethodTypes = ["card"],
+                    Metadata = new Dictionary<string, string>
+                    {
+                        ["paymentId"] = request.PaymentId.ToString(),
+                        ["orderId"] = request.OrderId.ToString(),
+                        ["userId"] = request.UserId
+                    }
+                },
+                new RequestOptions { IdempotencyKey = IntentIdempotencyKey(request.PaymentId) },
+                cancellationToken);
+        }
+        catch (Exception ex) when (StripeErrors.IsTransient(ex, cancellationToken))
+        {
+            throw new PaymentProviderUnavailableException("create payment intent", ex);
+        }
 
         return new StripePaymentIntentResult(
             intent.Id,
             intent.ClientSecret ?? string.Empty,
             intent.Status ?? string.Empty);
     }
+
+    /// <summary>The idempotency key for a payment's intent: one payment, one intent.</summary>
+    public static string IntentIdempotencyKey(Guid paymentId) => $"payment-intent-{paymentId}";
 
     public async Task<StripeRefundResult> CreateRefundAsync(
         string paymentIntentId,

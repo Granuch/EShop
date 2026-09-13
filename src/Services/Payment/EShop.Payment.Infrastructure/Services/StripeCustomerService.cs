@@ -1,8 +1,8 @@
-using EShop.BuildingBlocks.Domain;
+using System.Security.Cryptography;
+using System.Text;
 using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
-using Microsoft.Extensions.Logging;
 using Stripe;
 
 namespace EShop.Payment.Infrastructure.Services;
@@ -10,17 +10,10 @@ namespace EShop.Payment.Infrastructure.Services;
 public sealed class StripeCustomerService : IStripeCustomerService
 {
     private readonly IPaymentRepository _paymentRepository;
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly ILogger<StripeCustomerService> _logger;
 
-    public StripeCustomerService(
-        IPaymentRepository paymentRepository,
-        IUnitOfWork unitOfWork,
-        ILogger<StripeCustomerService> logger)
+    public StripeCustomerService(IPaymentRepository paymentRepository)
     {
         _paymentRepository = paymentRepository;
-        _unitOfWork = unitOfWork;
-        _logger = logger;
     }
 
     public async Task<string> CreateOrGetCustomerAsync(string userId, string? email, CancellationToken cancellationToken = default)
@@ -31,41 +24,50 @@ public sealed class StripeCustomerService : IStripeCustomerService
             return existing.StripeCustomerId;
         }
 
-        var customerService = new CustomerService();
-        var created = await customerService.CreateAsync(new CustomerCreateOptions
-        {
-            Email = string.IsNullOrWhiteSpace(email) ? null : email,
-            Metadata = new Dictionary<string, string>
-            {
-                ["userId"] = userId
-            }
-        }, cancellationToken: cancellationToken);
+        email = string.IsNullOrWhiteSpace(email) ? null : email;
 
-        var customer = new PaymentCustomer
+        Customer created;
+        try
+        {
+            // Payment audit Stage 6 (M1). The mapping below commits with the caller's transaction, which can still roll
+            // back. The key makes the retry get the same Stripe customer back (for 24 hours) instead of a second one.
+            created = await new CustomerService().CreateAsync(
+                new CustomerCreateOptions
+                {
+                    Email = email,
+                    Metadata = new Dictionary<string, string> { ["userId"] = userId }
+                },
+                new RequestOptions { IdempotencyKey = CustomerIdempotencyKey(userId, email) },
+                cancellationToken);
+        }
+        catch (Exception ex) when (StripeErrors.IsTransient(ex, cancellationToken))
+        {
+            throw new PaymentProviderUnavailableException("create customer", ex);
+        }
+
+        // Payment audit Stage 6 (M2). This used to insert through EF and catch the DbUpdateException that a concurrent
+        // first checkout by the same user raises. Inside the caller's transaction that cannot work: Postgres aborts the
+        // transaction on the unique violation, so the re-read failed with 25P02 and the checkout failed after all. The
+        // upsert never violates the index. The loser waits for the winner, then reads the winner's mapping.
+        var stored = await _paymentRepository.AddCustomerIfAbsentAsync(new PaymentCustomer
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             StripeCustomerId = created.Id,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
-        };
+        }, cancellationToken);
 
-        try
-        {
-            await _paymentRepository.AddCustomerAsync(customer, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return customer.StripeCustomerId;
-        }
-        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
-        {
-            _logger.LogWarning(ex, "Concurrent Stripe customer mapping creation detected for UserId={UserId}", userId);
-            var mapped = await _paymentRepository.GetCustomerByUserIdAsync(userId, cancellationToken);
-            if (mapped is not null)
-            {
-                return mapped.StripeCustomerId;
-            }
+        return stored.StripeCustomerId;
+    }
 
-            throw;
-        }
+    /// <summary>
+    /// Stripe refuses a key reused with different parameters, and the e-mail is a parameter, so it is part of the key.
+    /// A different e-mail on the retry creates a second customer, and the upsert keeps whichever mapping was stored first.
+    /// </summary>
+    public static string CustomerIdempotencyKey(string userId, string? email)
+    {
+        var emailHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(email ?? string.Empty)))[..16];
+        return $"customer-{userId}-{emailHash}";
     }
 }

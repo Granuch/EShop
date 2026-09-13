@@ -42,28 +42,40 @@ public static class PaymentEndpoints
                 return authError!;
             }
 
-            // Payment audit Stage 2 (C2, D4): the order is all the client names. Who owns it, and what it costs,
-            // come from Payment's own record of the order.
-            var result = await mediator.Send(new CreatePaymentIntentCommand(
-                request.OrderId,
-                subjectId,
-                user.IsAdmin(),
-                request.Email), cancellationToken);
+            try
+            {
+                // Payment audit Stage 2 (C2, D4): the order is all the client names. Who owns it, and what it costs,
+                // come from Payment's own record of the order.
+                var result = await mediator.Send(new CreatePaymentIntentCommand(
+                    request.OrderId,
+                    subjectId,
+                    user.IsAdmin(),
+                    request.Email), cancellationToken);
 
-            return result.Match(
-                value => Results.Ok(new CreatePaymentIntentResponse(
-                    value.PaymentId,
-                    value.PaymentIntentId,
-                    value.ClientSecret,
-                    value.Status)),
-                error => ProblemResults.For(
-                    error,
-                    error.Code switch
-                    {
-                        "PAYMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
-                        "PAYMENT_ALREADY_EXISTS" or "PAYMENT_NOT_READY" => StatusCodes.Status409Conflict,
-                        _ => StatusCodes.Status400BadRequest
-                    }));
+                return result.Match(
+                    value => Results.Ok(new CreatePaymentIntentResponse(
+                        value.PaymentId,
+                        value.PaymentIntentId,
+                        value.ClientSecret,
+                        value.Status)),
+                    error => ProblemResults.For(
+                        error,
+                        error.Code switch
+                        {
+                            "PAYMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
+                            "PAYMENT_ALREADY_EXISTS" or "PAYMENT_NOT_READY" => StatusCodes.Status409Conflict,
+                            _ => StatusCodes.Status400BadRequest
+                        }));
+            }
+            catch (PaymentProviderUnavailableException)
+            {
+                // Payment audit Stage 6 (H2). The transaction has rolled back, so the payment is still Pending and the
+                // same request can be retried. TransactionBehavior has logged the exception.
+                return ProblemResults.For(
+                    "PAYMENT_PROVIDER_UNAVAILABLE",
+                    "The payment provider is unavailable. Retry shortly.",
+                    StatusCodes.Status503ServiceUnavailable);
+            }
         })
         .WithName("CreateStripePaymentIntent")
         .RequireAuthorization()

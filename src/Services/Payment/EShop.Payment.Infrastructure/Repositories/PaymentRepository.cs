@@ -52,9 +52,23 @@ public class PaymentRepository : IPaymentRepository
             .FirstOrDefaultAsync(x => x.UserId == userId, cancellationToken);
     }
 
-    public async Task AddCustomerAsync(PaymentCustomer customer, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Payment audit Stage 6 (M2). Runs at once, in the current transaction, and never violates the unique
+    /// <c>UserId</c> index: if another transaction holds an uncommitted mapping for the user, this one waits for it,
+    /// then keeps it. Postgres-only SQL, which the InMemory provider cannot run, so InMemory tests mock this repository
+    /// method or the customer service.
+    /// </summary>
+    public async Task<PaymentCustomer> AddCustomerIfAbsentAsync(PaymentCustomer customer, CancellationToken cancellationToken = default)
     {
-        await _context.PaymentCustomers.AddAsync(customer, cancellationToken);
+        await _context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "PaymentCustomers" ("Id", "UserId", "StripeCustomerId", "CreatedAt", "UpdatedAt")
+            VALUES ({customer.Id}, {customer.UserId}, {customer.StripeCustomerId}, {customer.CreatedAt}, {customer.UpdatedAt ?? customer.CreatedAt})
+            ON CONFLICT ("UserId") DO NOTHING
+            """, cancellationToken);
+
+        return await _context.PaymentCustomers
+            .AsNoTracking()
+            .SingleAsync(x => x.UserId == customer.UserId, cancellationToken);
     }
 
     public Task<bool> IsStripeEventProcessedAsync(string eventId, CancellationToken cancellationToken = default)

@@ -42,8 +42,7 @@ public class CreatePaymentIntentCommandHandlerTests
         _customers.Object,
         _stripe.Object,
         _outbox.Object,
-        _db,
-        Mock.Of<ILogger<CreatePaymentIntentCommandHandler>>());
+        _db);
 
     private async Task<PaymentTransaction> SeedAsync(
         string userId = "user-1",
@@ -177,28 +176,39 @@ public class CreatePaymentIntentCommandHandlerTests
         _customers.VerifyNoOtherCalls();
     }
 
-    [Test]
-    public async Task Handle_WhenCustomerCreationFails_ShouldMarkPaymentFailedAndEnqueueFailedEvent()
+    /// <summary>
+    /// Payment audit Stage 6 (H2). Failing to reach Stripe says nothing about the payment. It used to be recorded
+    /// Failed with a PaymentFailedEvent, so Ordering cancelled the order, and the payment could never be started again.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task Handle_WhenStripeIsUnavailable_RecordsNothing_AndPropagates(bool atCustomerCreation)
     {
         var seeded = await SeedAsync();
-        _customers
-            .Setup(x => x.CreateOrGetCustomerAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Stripe customer API error"));
+        var unavailable = new PaymentProviderUnavailableException("test", new HttpRequestException("timeout"));
+        var customer = _customers
+            .Setup(x => x.CreateOrGetCustomerAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()));
+        if (atCustomerCreation)
+        {
+            customer.ThrowsAsync(unavailable);
+        }
+        else
+        {
+            customer.ReturnsAsync("cus_test_123");
+            _stripe
+                .Setup(x => x.CreatePaymentIntentAsync(It.IsAny<StripePaymentIntentRequest>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(unavailable);
+        }
 
-        var result = await Handler().Handle(
-            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, "user@test.com"), CancellationToken.None);
+        Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Handler().Handle(
+            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, "user@test.com"), CancellationToken.None));
 
-        Assert.That(result.Error!.Code, Is.EqualTo("STRIPE_PAYMENT_INTENT_FAILED"));
-        _outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Once);
-        _outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Never);
-
-        var stored = await StoredAsync(seeded.OrderId);
-        Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Failed));
-        Assert.That(stored.ErrorMessage, Is.EqualTo("Failed to create Stripe payment intent."));
+        await AssertNothingRecordedAsync(seeded.OrderId);
     }
 
+    /// <summary>A defect or a misconfiguration (an invalid request, a bad key) is not the payment failing either.</summary>
     [Test]
-    public async Task Handle_WhenIntentCreationFails_ShouldMarkPaymentFailedAndEnqueueFailedEvent()
+    public async Task Handle_WhenStripeFailsForAnyOtherReason_RecordsNothing_AndPropagates()
     {
         var seeded = await SeedAsync();
         _customers
@@ -208,15 +218,22 @@ public class CreatePaymentIntentCommandHandlerTests
             .Setup(x => x.CreatePaymentIntentAsync(It.IsAny<StripePaymentIntentRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Stripe payment intent API error"));
 
-        var result = await Handler().Handle(
-            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, "user@test.com"), CancellationToken.None);
+        Assert.ThrowsAsync<InvalidOperationException>(() => Handler().Handle(
+            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, "user@test.com"), CancellationToken.None));
 
-        Assert.That(result.Error!.Code, Is.EqualTo("STRIPE_PAYMENT_INTENT_FAILED"));
-        _outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Once);
+        await AssertNothingRecordedAsync(seeded.OrderId);
+    }
+
+    private async Task AssertNothingRecordedAsync(Guid orderId)
+    {
+        var stored = await StoredAsync(orderId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Pending));
+            Assert.That(stored.PaymentIntentId, Is.Empty);
+            Assert.That(stored.ErrorMessage, Is.Null);
+        });
+        _outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Never);
         _outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Never);
-
-        var stored = await StoredAsync(seeded.OrderId);
-        Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Failed));
-        Assert.That(stored.ErrorMessage, Is.EqualTo("Failed to create Stripe payment intent."));
     }
 }

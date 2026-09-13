@@ -421,8 +421,8 @@ public class PaymentWriteCollisionTests
         public Task<PaymentCustomer?> GetCustomerByUserIdAsync(string userId, CancellationToken cancellationToken = default)
             => inner.GetCustomerByUserIdAsync(userId, cancellationToken);
 
-        public Task AddCustomerAsync(PaymentCustomer customer, CancellationToken cancellationToken = default)
-            => inner.AddCustomerAsync(customer, cancellationToken);
+        public Task<PaymentCustomer> AddCustomerIfAbsentAsync(PaymentCustomer customer, CancellationToken cancellationToken = default)
+            => inner.AddCustomerIfAbsentAsync(customer, cancellationToken);
 
         public Task<bool> IsStripeEventProcessedAsync(string eventId, CancellationToken cancellationToken = default)
             => inner.IsStripeEventProcessedAsync(eventId, cancellationToken);
