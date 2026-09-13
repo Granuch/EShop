@@ -1,8 +1,8 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using MediatR;
@@ -87,15 +87,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
         payment.StartStripePayment(stripeIntent.PaymentIntentId, stripeCustomerId, stripeIntent.Status, DateTime.UtcNow);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
-        {
-            OrderId = payment.OrderId,
-            UserId = payment.UserId,
-            Amount = payment.Amount,
-            Currency = payment.Currency,
-            Status = payment.Status.ToString().ToUpperInvariant(),
-            CreatedAt = payment.CreatedAt
-        });
+        _integrationEventOutbox.EnqueuePaymentStarted(payment);
 
         // One save, so the intent and PaymentCreatedEvent are recorded together, guarded by the payment's row version.
         if (await _paymentRepository.TrySaveChangesAsync(cancellationToken))

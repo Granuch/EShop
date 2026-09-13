@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Messaging;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
@@ -258,6 +259,82 @@ public class OrderCreatedConsumerTests
         var payment = await dbContext.PaymentTransactions.SingleAsync(x => x.OrderId == orderId);
         Assert.That(payment.Status, Is.EqualTo(PaymentStatus.Success));
         processor.Verify(x => x.ProcessPaymentAsync(orderId, 100m, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    #endregion
+
+    #region Payment audit Stage 8 (M5): a start is announced once, and every event comes from the record
+
+    /// <summary>
+    /// A simulated payment in flight was announced when it started. Resuming it used to send a second
+    /// PaymentCreatedEvent, which Notification emails to the customer.
+    /// </summary>
+    [Test]
+    public async Task AResumedSimulatedPayment_IsNotAnnouncedAsStartedAgain()
+    {
+        await using var dbContext = CreateDbContext();
+        var orderId = Guid.NewGuid();
+        await dbContext.PaymentTransactions.AddAsync(new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            OrderId = orderId,
+            UserId = "user-6",
+            Amount = 100m,
+            PaymentMethod = PaymentMethodType.Mock,
+            Status = PaymentStatus.Processing,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var processor = new Mock<IPaymentProcessor>();
+        processor.Setup(x => x.ProcessPaymentAsync(orderId, 100m, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentResult.Successful("pi_mock"));
+        var outbox = new Mock<IIntegrationEventOutbox>();
+        var consumer = CreateConsumer(dbContext, processor.Object, outbox.Object);
+
+        await consumer.Consume(Created(orderId, "user-6"));
+
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentCreatedEvent>(), It.IsAny<string?>()), Times.Never);
+        outbox.Verify(x => x.Enqueue(It.IsAny<PaymentSuccessEvent>(), It.IsAny<string?>()), Times.Once);
+    }
+
+    /// <summary>
+    /// The simulator's success used to carry the incoming message's total and a fresh clock reading, rather than the
+    /// record's amount and ProcessedAt.
+    /// </summary>
+    [Test]
+    public async Task TheSimulatorsSuccess_CarriesTheRecordsAmountCurrencyAndTime_AndTheMessagesCorrelation()
+    {
+        await using var dbContext = CreateDbContext();
+        var processor = new Mock<IPaymentProcessor>();
+        processor.Setup(x => x.ProcessPaymentAsync(It.IsAny<Guid>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentResult.Successful("pi_sim"));
+
+        var enqueued = new List<(IIntegrationEvent Event, string? CorrelationId)>();
+        var outbox = new Mock<IIntegrationEventOutbox>();
+        outbox.Setup(x => x.Enqueue(It.IsAny<IIntegrationEvent>(), It.IsAny<string?>()))
+            .Callback<IIntegrationEvent, string?>((e, c) => enqueued.Add((e, c)));
+        var consumer = CreateConsumer(dbContext, processor.Object, outbox.Object);
+
+        var orderId = Guid.NewGuid();
+        var context = Created(orderId, "user-7", 55.25m);
+        await consumer.Consume(context);
+
+        var payment = await dbContext.PaymentTransactions.SingleAsync(x => x.OrderId == orderId);
+        var success = enqueued.Select(e => e.Event).OfType<PaymentSuccessEvent>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(success.ProcessedAt, Is.EqualTo(payment.ProcessedAt));
+            Assert.That(success.Amount, Is.EqualTo(55.25m));
+            Assert.That(success.Currency, Is.EqualTo("USD"));
+            Assert.That(success.PaymentIntentId, Is.EqualTo("pi_sim"));
+            Assert.That(enqueued.Select(e => e.CorrelationId), Is.All.EqualTo(context.Message.CorrelationId));
+            Assert.That(enqueued.Select(e => e.Event.GetType().Name), Is.EqualTo(new[]
+            {
+                nameof(PaymentCreatedEvent), nameof(PaymentSuccessEvent), nameof(PaymentCompletedEvent)
+            }));
+        });
     }
 
     #endregion

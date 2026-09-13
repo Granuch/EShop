@@ -2,6 +2,7 @@ using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
+using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
@@ -113,18 +114,16 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
             await _paymentRepository.AddAsync(payment, cancellationToken);
         }
 
+        // Payment audit Stage 8 (M5). A simulated payment already in flight was announced when it started, so resuming
+        // it announces nothing new.
+        var resuming = payment.Status == PaymentStatus.Processing;
+
         payment.StartSimulated(DateTime.UtcNow);
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        _integrationEventOutbox.Enqueue(new PaymentCreatedEvent
+        if (!resuming)
         {
-            CorrelationId = message.CorrelationId,
-            OrderId = payment.OrderId,
-            UserId = payment.UserId,
-            Amount = payment.Amount,
-            Currency = payment.Currency,
-            Status = payment.Status.ToString().ToUpperInvariant(),
-            CreatedAt = payment.CreatedAt
-        }, message.CorrelationId);
+            _integrationEventOutbox.EnqueuePaymentStarted(payment, message.CorrelationId);
+        }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -144,25 +143,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
             payment.RecordSimulatedSuccess(result.PaymentIntentId ?? string.Empty, DateTime.UtcNow);
 
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
-            _integrationEventOutbox.Enqueue(new PaymentSuccessEvent
-            {
-                CorrelationId = message.CorrelationId,
-                OrderId = message.OrderId,
-                PaymentIntentId = result.PaymentIntentId ?? string.Empty,
-                Amount = message.TotalAmount,
-                ProcessedAt = DateTime.UtcNow
-            }, message.CorrelationId);
-
-            _integrationEventOutbox.Enqueue(new PaymentCompletedEvent
-            {
-                CorrelationId = message.CorrelationId,
-                OrderId = payment.OrderId,
-                UserId = payment.UserId,
-                Amount = payment.Amount,
-                Currency = payment.Currency,
-                PaymentIntentId = payment.PaymentIntentId,
-                CompletedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            }, message.CorrelationId);
+            _integrationEventOutbox.EnqueuePaymentSucceeded(payment, message.CorrelationId);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -176,14 +157,7 @@ public class OrderCreatedConsumer : IdempotentConsumer<OrderCreatedEvent, Paymen
 
         payment.RecordSimulatedFailure(result.ErrorMessage ?? "Unknown payment processing error", DateTime.UtcNow);
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        _integrationEventOutbox.Enqueue(new PaymentFailedEvent
-        {
-            CorrelationId = message.CorrelationId,
-            OrderId = message.OrderId,
-            UserId = message.UserId,
-            Reason = payment.ErrorMessage,
-            FailedAt = DateTime.UtcNow
-        }, message.CorrelationId);
+        _integrationEventOutbox.EnqueuePaymentFailed(payment, message.CorrelationId);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

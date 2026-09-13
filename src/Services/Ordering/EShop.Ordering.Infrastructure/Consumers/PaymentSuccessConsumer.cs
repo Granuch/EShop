@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Ordering.Domain.Entities;
@@ -18,6 +19,9 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 /// </summary>
 public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, OrderingDbContext>
 {
+    /// <summary>The currency every order is priced in. Ordering has no per-order currency.</summary>
+    internal const string OrderCurrency = "USD";
+
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly OrderCacheInvalidator _cacheInvalidator;
@@ -86,6 +90,16 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
                 message.OrderId,
                 order.Status);
             return;
+        }
+
+        // Payment audit Stage 8 (M5, the rest of C2). Orders are priced in USD, and MarkAsPaid compares only the number,
+        // so a charge of 100 JPY would pass for a $100.00 order. Payment charges USD only (its D4); this makes Ordering
+        // check that rather than trust it. A message published before the event carried a currency reads as USD.
+        // Refused the same way as a wrong amount, and for the same reason (below).
+        if (!string.Equals(message.Currency, OrderCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainException(
+                $"Payment for order {message.OrderId} was made in {message.Currency}; orders are priced in {OrderCurrency}.");
         }
 
         // Throws DomainException when message.Amount differs from the order total. That is deliberate:

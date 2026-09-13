@@ -52,7 +52,9 @@ public sealed class PaymentCreatedConsumer : IdempotentConsumer<PaymentCreatedEv
             message.UserId,
             recipient?.Email ?? "unresolved@local",
             TemplateName,
-            $"Payment received for order #{message.OrderId}");
+            // Payment audit Stage 8 (M5). The event means an attempt started with nothing charged yet, and a Stripe
+            // customer may never finish paying. It used to be announced as "Payment received".
+            $"Payment started for order #{message.OrderId}");
 
         try
         {

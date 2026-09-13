@@ -1,7 +1,10 @@
 namespace EShop.BuildingBlocks.Messaging.Events;
 
 /// <summary>
-/// Event published when payment is created and accepted for processing.
+/// A payment attempt has started, and nothing has been charged yet. The simulator is about to settle the payment, or the
+/// customer has been given a Stripe intent to pay. Sent once per payment. Payment audit Stage 8 (M5): the outcome follows
+/// as <see cref="PaymentSuccessEvent"/>/<see cref="PaymentCompletedEvent"/> or <see cref="PaymentFailedEvent"/>, and
+/// a Stripe customer may also never pay. So a consumer must not read this event as money received.
 /// </summary>
 public record PaymentCreatedEvent : IntegrationEvent
 {

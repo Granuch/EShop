@@ -2,6 +2,7 @@ using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -72,7 +73,6 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
 
         var publishSuccess = false;
         var publishFailure = false;
-        var publishCompleted = false;
 
         // Payment audit Stage 7 (H5). Which event may change which payment is the entity's rule; see the methods'
         // comments. Each returns false when the event changes nothing, and only a change is written.
@@ -83,7 +83,6 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
             case "payment_intent.succeeded":
                 changed = payment.RecordStripeSuccess(stripeEvent.Status, now);
                 publishSuccess = changed;
-                publishCompleted = changed;
                 break;
 
             // Stage 5 (H1, D3): a decline keeps the payment open for another card, with no PaymentFailedEvent.
@@ -108,37 +107,12 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
 
         if (publishSuccess)
         {
-            _integrationEventOutbox.Enqueue(new PaymentSuccessEvent
-            {
-                OrderId = payment.OrderId,
-                PaymentIntentId = payment.PaymentIntentId,
-                Amount = payment.Amount,
-                ProcessedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            });
-        }
-
-        if (publishCompleted)
-        {
-            _integrationEventOutbox.Enqueue(new PaymentCompletedEvent
-            {
-                OrderId = payment.OrderId,
-                UserId = payment.UserId,
-                Amount = payment.Amount,
-                Currency = payment.Currency,
-                PaymentIntentId = payment.PaymentIntentId,
-                CompletedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            });
+            _integrationEventOutbox.EnqueuePaymentSucceeded(payment);
         }
 
         if (publishFailure)
         {
-            _integrationEventOutbox.Enqueue(new PaymentFailedEvent
-            {
-                OrderId = payment.OrderId,
-                UserId = payment.UserId,
-                Reason = payment.ErrorMessage ?? "Stripe payment failed.",
-                FailedAt = payment.ProcessedAt ?? DateTime.UtcNow
-            });
+            _integrationEventOutbox.EnqueuePaymentFailed(payment);
         }
 
         var saved = await SaveIdempotentAsync(stripeEvent.Id, cancellationToken);

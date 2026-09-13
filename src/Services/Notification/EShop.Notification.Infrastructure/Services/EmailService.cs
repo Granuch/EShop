@@ -73,7 +73,8 @@ public sealed class EmailService : IEmailService
         PaymentCreatedEmailModel model,
         CancellationToken ct = default)
     {
-        var subject = $"Payment received for order #{model.OrderId}";
+        // Payment audit Stage 8 (M5): nothing has been charged yet when this is sent, so it must not say "received".
+        var subject = $"Payment started for order #{model.OrderId}";
         var htmlBody = await _templateRenderer.RenderAsync(
             "payment-created",
             new Dictionary<string, string>

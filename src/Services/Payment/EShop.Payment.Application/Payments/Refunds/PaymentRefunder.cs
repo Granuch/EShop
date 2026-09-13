@@ -1,6 +1,6 @@
 using EShop.BuildingBlocks.Application.Abstractions;
-using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Payment.Application.Payments.Abstractions;
+using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -66,13 +66,6 @@ public sealed class PaymentRefunder : IPaymentRefunder
         payment.MarkRefunded(now);
 
         await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        _integrationEventOutbox.Enqueue(new PaymentRefundedEvent
-        {
-            OrderId = payment.OrderId,
-            UserId = payment.UserId,
-            PaymentIntentId = payment.PaymentIntentId,
-            Amount = payment.Amount,
-            RefundedAt = now
-        });
+        _integrationEventOutbox.EnqueuePaymentRefunded(payment);
     }
 }

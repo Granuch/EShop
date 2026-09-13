@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Messaging.Events;
@@ -205,6 +207,56 @@ public class PaymentSuccessConsumerTests
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Pending));
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
         _cache.VerifyNothingInvalidated();
+    }
+
+    /// <summary>
+    /// Payment audit Stage 8 (M5, the rest of C2). MarkAsPaid compares only the number, so before this a charge of
+    /// 29.99 JPY (about 20 US cents) marked a $29.99 order Paid. Refused like a wrong amount: the message goes to the
+    /// error queue with its payload intact.
+    /// </summary>
+    [TestCase("JPY")]
+    [TestCase("EUR")]
+    [TestCase("")]
+    public void Consume_WithAPaymentInAnotherCurrency_IsRefused_AndTheOrderStaysPending(string currency)
+    {
+        var order = Stored(CreatePendingOrder());
+
+        Assert.ThrowsAsync<DomainException>(() =>
+            Consumer().Consume(ContextFor(PaymentFor(order) with { Currency = currency }).Object));
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Pending));
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _cache.VerifyNothingInvalidated();
+    }
+
+    /// <summary>Stripe writes currency codes in lower case.</summary>
+    [Test]
+    public async Task Consume_WithTheCurrencyInLowerCase_MarksTheOrderPaid()
+    {
+        var order = Stored(CreatePendingOrder());
+
+        await Consumer(autoShip: false).Consume(ContextFor(PaymentFor(order) with { Currency = "usd" }).Object);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
+    }
+
+    /// <summary>
+    /// A PaymentSuccessEvent published before Stage 8 has no currency field. It may still be in Payment's outbox or in the
+    /// queue during the deploy, and must read as USD, which is what Payment charged.
+    /// </summary>
+    [Test]
+    public async Task Consume_AMessagePublishedBeforeTheCurrencyExisted_ReadsAsUsd_AndMarksTheOrderPaid()
+    {
+        var order = Stored(CreatePendingOrder());
+        var amount = order.TotalPrice.ToString(CultureInfo.InvariantCulture);
+        var json = $$"""{"orderId":"{{order.Id}}","paymentIntentId":"pi_legacy","amount":{{amount}},"processedAt":"2026-01-01T00:00:00Z"}""";
+
+        var message = JsonSerializer.Deserialize<PaymentSuccessEvent>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.That(message.Currency, Is.EqualTo("USD"));
+
+        await Consumer(autoShip: false).Consume(ContextFor(message).Object);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
     }
 
     private static OrderEntity CreatePendingOrder()

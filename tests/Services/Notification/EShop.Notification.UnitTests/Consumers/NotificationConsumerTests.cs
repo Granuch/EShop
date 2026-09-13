@@ -425,6 +425,12 @@ public class NotificationConsumerTests
             It.IsAny<RecipientAddress>(),
             It.IsAny<PaymentCreatedEmailModel>(),
             It.IsAny<CancellationToken>()), Times.Once);
+
+        // Payment audit Stage 8 (M5). PaymentCreatedEvent means an attempt started with nothing charged yet, and a Stripe
+        // customer may never finish paying. It used to be logged, and emailed, as "Payment received".
+        repo.Verify(x => x.AddAsync(
+            It.Is<NotificationLog>(l => l.Subject == $"Payment started for order #{evt.OrderId}"),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
