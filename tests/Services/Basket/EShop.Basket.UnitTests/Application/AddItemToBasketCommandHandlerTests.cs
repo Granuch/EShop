@@ -27,7 +27,7 @@ public class AddItemToBasketCommandHandlerTests
         _catalog = new Mock<IProductCatalogReader>();
         _catalog
             .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid productId, CancellationToken _) => new ProductCatalogSnapshot(productId, "Phone", 100m));
+            .ReturnsAsync((Guid productId, CancellationToken _) => new ProductCatalogSnapshot(productId, "Phone", 100m, 100));
 
         _metrics = new Mock<IBasketMetrics>();
         _metrics.Setup(x => x.MeasureOperation(It.IsAny<string>())).Returns(Mock.Of<IDisposable>());
@@ -114,6 +114,25 @@ public class AddItemToBasketCommandHandlerTests
             x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()),
             Times.Exactly(BasketWrites.MaxAttempts));
         _metrics.Verify(x => x.RecordItemAdded(It.IsAny<string>()), Times.Never);
+    }
+
+    /// <summary>Basket audit S6 (H5): the stock check counts what the line already holds.</summary>
+    [Test]
+    public async Task AddingBeyondTheStock_CountingWhatIsAlreadyInTheBasket_IsInsufficientStock()
+    {
+        var productId = Guid.NewGuid();
+        var basket = ShoppingBasket.Create("user-1");
+        basket.AddItem(productId, "Phone", 100m, 2);
+        _repository.Setup(x => x.GetBasketAsync("user-1", It.IsAny<CancellationToken>())).ReturnsAsync(basket);
+        _catalog
+            .Setup(x => x.GetByIdAsync(productId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProductCatalogSnapshot(productId, "Phone", 100m, 3));
+
+        var result = await _handler.Handle(
+            new AddItemToBasketCommand { UserId = "user-1", ProductId = productId, Quantity = 2 }, CancellationToken.None);
+
+        Assert.That(result.Error, Is.EqualTo(BasketErrors.InsufficientStock));
+        _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]

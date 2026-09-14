@@ -29,6 +29,7 @@ public class CheckoutBasketCommandHandlerTests
 
     private Mock<IBasketRepository> _repository = null!;
     private Mock<IBasketCheckoutStore> _store = null!;
+    private Mock<IProductCatalogReader> _catalog = null!;
     private Mock<IBasketMetrics> _metrics = null!;
     private CheckoutBasketCommandHandler _handler = null!;
     private BasketCheckedOutEvent? _committed;
@@ -52,12 +53,19 @@ public class CheckoutBasketCommandHandlerTests
         _metrics = new Mock<IBasketMetrics>();
         _metrics.Setup(x => x.MeasureOperation(It.IsAny<string>())).Returns(Mock.Of<IDisposable>());
 
+        // By default Catalog agrees with every stored line (StoredBasket prices at 10, quantity 1).
+        _catalog = new Mock<IProductCatalogReader>();
+        _catalog
+            .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => new ProductCatalogSnapshot(id, "Product", 10m, 100));
+
         var currentUser = new Mock<ICurrentUserContext>();
         currentUser.SetupGet(x => x.CorrelationId).Returns("corr-1");
 
         _handler = new CheckoutBasketCommandHandler(
             _repository.Object,
             _store.Object,
+            _catalog.Object,
             currentUser.Object,
             Mock.Of<ILogger<CheckoutBasketCommandHandler>>(),
             _metrics.Object);
@@ -202,6 +210,7 @@ public class CheckoutBasketCommandHandlerTests
         var handler = new CheckoutBasketCommandHandler(
             repository.Object,
             _store.Object,
+            new Mock<IProductCatalogReader>(MockBehavior.Strict).Object,
             Mock.Of<ICurrentUserContext>(),
             Mock.Of<ILogger<CheckoutBasketCommandHandler>>(),
             _metrics.Object);
@@ -258,5 +267,79 @@ public class CheckoutBasketCommandHandlerTests
         var result = await _handler.Handle(Command(), CancellationToken.None);
 
         Assert.That(result.Error, Is.EqualTo(BasketErrors.BasketOperationFailed));
+    }
+
+    private void CatalogReturns(decimal price, int stock)
+        => _catalog
+            .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => new ProductCatalogSnapshot(id, "Product", price, stock));
+
+    /// <summary>Basket audit S6 (H5, D6): refused, and the basket takes Catalog's price for the next attempt.</summary>
+    [Test]
+    public async Task ARepricedLine_RefusesTheCheckout_AndTheBasketTakesCatalogsPrice()
+    {
+        var basket = StoredBasket();
+        BasketIs(basket);
+        CatalogReturns(price: 12m, stock: 100);
+        _repository
+            .Setup(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        var error = result.Error as CheckoutRevalidationError;
+        Assert.That(error, Is.Not.Null, "a repriced line must refuse the checkout");
+        Assert.That(error!.Lines.Single().Reason, Is.EqualTo(CheckoutLineProblem.Repriced));
+        Assert.That(error.Lines.Single().BasketPrice, Is.EqualTo(10m));
+        Assert.That(error.Lines.Single().CatalogPrice, Is.EqualTo(12m));
+        Assert.That(basket.Items.Single().Price, Is.EqualTo(12m));
+        _repository.Verify(x => x.TrySaveBasketAsync(basket, It.IsAny<CancellationToken>()), Times.Once);
+        VerifyNothingCommitted();
+    }
+
+    [Test]
+    public async Task AnUnavailableLine_RefusesTheCheckout_WithoutRewritingTheBasket()
+    {
+        BasketIs(StoredBasket());
+        _catalog
+            .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ProductCatalogSnapshot?)null);
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        var line = (result.Error as CheckoutRevalidationError)!.Lines.Single();
+        Assert.That(line.Reason, Is.EqualTo(CheckoutLineProblem.Unavailable));
+        Assert.That(line.CatalogPrice, Is.Null);
+        _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Never);
+        VerifyNothingCommitted();
+    }
+
+    [Test]
+    public async Task ALineBeyondTheStock_RefusesTheCheckoutAsOutOfStock()
+    {
+        BasketIs(StoredBasket());
+        CatalogReturns(price: 10m, stock: 0);
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        var line = (result.Error as CheckoutRevalidationError)!.Lines.Single();
+        Assert.That(line.Reason, Is.EqualTo(CheckoutLineProblem.OutOfStock));
+        Assert.That(line.AvailableQuantity, Is.EqualTo(0));
+        VerifyNothingCommitted();
+    }
+
+    [Test]
+    public async Task WhenCatalogCannotBeReached_ItIsProductVerificationFailed_AndNothingIsCommitted()
+    {
+        BasketIs(StoredBasket());
+        _catalog
+            .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("catalog down"));
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.Error, Is.EqualTo(BasketErrors.ProductVerificationFailed));
+        VerifyNothingCommitted();
+        _store.Verify(x => x.ReleaseProcessingAsync("user-1", It.IsAny<CancellationToken>()), Times.Once);
     }
 }

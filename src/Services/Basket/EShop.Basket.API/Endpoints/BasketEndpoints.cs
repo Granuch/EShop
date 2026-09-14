@@ -130,7 +130,9 @@ public static class BasketEndpoints
 
             return result.Match(
                 checkoutId => Results.Ok(new { checkoutId }),
-                error => ProblemResults.For(error, ConflictOr(error, StatusCodes.Status400BadRequest)));
+                error => error is CheckoutRevalidationError revalidation
+                    ? new RevalidationProblemResult(revalidation)
+                    : ProblemResults.For(error, ConflictOr(error, StatusCodes.Status400BadRequest)));
         })
         .WithName("CheckoutBasket")
         .Produces<object>(StatusCodes.Status200OK)
@@ -146,7 +148,25 @@ public static class BasketEndpoints
     private static bool IsConflict(string errorCode)
         => errorCode == BasketErrors.ConcurrentUpdate.Code
            || errorCode == BasketErrors.CheckoutConflict.Code
-           || errorCode == BasketErrors.CheckoutAlreadyInProgress.Code;
+           || errorCode == BasketErrors.CheckoutAlreadyInProgress.Code
+           || errorCode == BasketErrors.InsufficientStock.Code;
+
+    /// <summary>
+    /// Basket audit S6 (D6): the usual envelope, 409, plus a <c>lines</c> member naming each basket line that failed
+    /// revalidation and why. <see cref="ProblemResults"/> carries no extensions, so this builds the same
+    /// <see cref="EShopProblem"/> itself at execute time, when the HttpContext (and so the traceId) is known.
+    /// </summary>
+    private sealed class RevalidationProblemResult(CheckoutRevalidationError error) : IResult
+    {
+        public const string LinesKey = "lines";
+
+        public Task ExecuteAsync(HttpContext httpContext)
+        {
+            var problem = EShopProblem.Create(httpContext, StatusCodes.Status409Conflict, error.Message, error.Code);
+            problem.Extensions[LinesKey] = error.Lines;
+            return EShopProblem.WriteAsync(httpContext, problem);
+        }
+    }
 
     private static int ConflictOr(Error error, int otherwise)
         => IsConflict(error.Code) ? StatusCodes.Status409Conflict : otherwise;

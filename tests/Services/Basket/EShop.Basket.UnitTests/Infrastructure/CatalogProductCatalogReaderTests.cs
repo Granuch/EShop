@@ -84,6 +84,19 @@ public class CatalogProductCatalogReaderTests
         Assert.That(snapshot!.Price, Is.EqualTo(100m));
     }
 
+    /// <summary>Basket audit S6: checkout's stock check reads this field, so its wire name is pinned too.</summary>
+    [Test]
+    public async Task GetByIdAsync_ReadsTheStockQuantity()
+    {
+        var id = Guid.NewGuid();
+        var reader = CreateReader(HttpStatusCode.OK, ProductJson(id, 100m, discountPrice: null));
+
+        var snapshot = await reader.GetByIdAsync(id);
+
+        Assert.That(snapshot!.StockQuantity, Is.EqualTo(10),
+            "a renamed or missing stockQuantity would bind to 0 and read every product as out of stock");
+    }
+
     [Test]
     public async Task GetByIdAsync_WhenCatalogReturns404_ShouldReturnNull()
     {

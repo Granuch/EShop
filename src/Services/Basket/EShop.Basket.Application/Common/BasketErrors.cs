@@ -11,6 +11,7 @@ public static class BasketErrors
     public static readonly Error CheckoutAlreadyInProgress = new("Basket.CheckoutInProgress", "Checkout is already in progress for this basket.");
     public static readonly Error ConcurrentUpdate = new("Basket.ConcurrentUpdate", "The basket kept changing while this change was being saved. Try again.");
     public static readonly Error CheckoutConflict =new("Basket.CheckoutConflict", "The basket changed while it was being checked out. Review it and check out again.");
-    public static readonly Error ProductNotFound = new("Basket.ProductNotFound", "Product was not found.");
+    public static readonly Error InsufficientStock = new("Basket.InsufficientStock", "Not enough of this product is in stock for that quantity.");
+    public static readonly Error ProductNotFound =new("Basket.ProductNotFound", "Product was not found.");
     public static readonly Error ProductVerificationFailed = new("Basket.ProductVerificationFailed", "Unable to verify product data at this time.");
 }

@@ -60,6 +60,14 @@ public class AddItemToBasketCommandHandler : IRequestHandler<AddItemToBasketComm
                 var basket = await _basketRepository.GetBasketAsync(request.UserId, ct)
                     ?? ShoppingBasket.Create(request.UserId);
 
+                // Basket audit S6 (H5): what the line would hold after this add, against what Catalog has in stock.
+                // Checked again at checkout, where it is authoritative; this only stops an obvious over-add early.
+                var alreadyInBasket = basket.Items.FirstOrDefault(i => i.ProductId == product.ProductId)?.Quantity ?? 0;
+                if ((long)alreadyInBasket + request.Quantity > product.StockQuantity)
+                {
+                    return Result<Unit>.Failure(BasketErrors.InsufficientStock);
+                }
+
                 basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity);
 
                 if (!await _basketRepository.TrySaveBasketAsync(basket, ct))
