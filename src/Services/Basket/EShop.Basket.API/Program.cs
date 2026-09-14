@@ -148,8 +148,8 @@ builder.Services.AddHealthChecks()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-// Basket has never had a NotFoundException branch - its 404s come from the endpoints'
-// ProblemFromError helper, not from exceptions. AddNotFound() is deliberately not registered.
+// Basket has never had a NotFoundException branch - its 404s come from Result errors, mapped by
+// BasketEndpoints.StatusFor (Basket audit S8), not from exceptions. AddNotFound() is deliberately not registered.
 builder.Services.AddEShopProblemDetails(options => options.AddCommon());
 
 var app = builder.Build();
