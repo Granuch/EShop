@@ -88,6 +88,8 @@ public class NotificationConfigurationGuardTests
     [TestCase("RabbitMQ:Host", "REPLACE_WITH_rabbitmq_host")]
     [TestCase("RabbitMQ:Username", "placeholder-user")]
     [TestCase("RabbitMQ:Password", "#{RABBITMQ_PASSWORD}#")]
+    [TestCase("Smtp:Username", "CHANGE_ME_smtp_username")]
+    [TestCase("Smtp:Password", "CHANGE_ME_smtp_password")]
     public void APlaceholder_IsRefusedInSandbox_ButAllowedInDevelopment(string key, string value)
     {
         var settings = Clean();
@@ -122,6 +124,73 @@ public class NotificationConfigurationGuardTests
         settings["PasswordReset:ResetUrlBase"] = "http://localhost:3000/reset-password";
 
         Assert.DoesNotThrow(() => Validate("Sandbox", settings));
+    }
+
+    /// <summary>S5 (M6, D7). The second is the old compose default, UseSsl=false, with credentials added.</summary>
+    [TestCase("Sandbox", "Smtp:Security", "None")]
+    [TestCase("Sandbox", "Smtp:UseSsl", "false")]
+    [TestCase("Production", "Smtp:Security", "None")]
+    public void CredentialsOverAPlaintextConnection_AreRefused(string environment, string modeKey, string modeValue)
+    {
+        var settings = Clean();
+        settings[modeKey] = modeValue;
+        settings["Smtp:Username"] = "mailer";
+        settings["Smtp:Password"] = "s3cret-smtp-password";
+
+        Assert.That(() => Validate(environment, settings),
+            Throws.InvalidOperationException.With.Message.Contains("would travel in cleartext"));
+    }
+
+    /// <summary>D7. The compose and k8s default: Mailpit, plaintext, no credentials.</summary>
+    [Test]
+    public void InSandbox_MailpitWithoutTlsOrCredentials_IsAccepted()
+    {
+        var settings = Clean();
+        settings["Smtp:Security"] = "None";
+
+        Assert.DoesNotThrow(() => Validate("Sandbox", settings));
+    }
+
+    [Test]
+    public void InDevelopment_CredentialsOverPlaintext_AreAllowed()
+    {
+        var settings = Clean();
+        settings["Smtp:Security"] = "None";
+        settings["Smtp:Username"] = "mailer";
+
+        Assert.DoesNotThrow(() => Validate("Development", settings));
+    }
+
+    [Test]
+    public void InProduction_ThePlaintextMode_IsRefused_EvenWithoutCredentials()
+    {
+        var settings = Clean();
+        settings["Smtp:Security"] = "None";
+
+        Assert.That(() => Validate("Production", settings),
+            Throws.InvalidOperationException.With.Message.Contains("Smtp:Security must be StartTls or SslOnConnect"));
+    }
+
+    [TestCase("StartTls")]
+    [TestCase("SslOnConnect")]
+    public void InProduction_AnEncryptedConnectionWithCredentials_IsAccepted(string mode)
+    {
+        var settings = Clean();
+        settings["Smtp:Security"] = mode;
+        settings["Smtp:Username"] = "mailer";
+        settings["Smtp:Password"] = "s3cret-smtp-password";
+
+        Assert.DoesNotThrow(() => Validate("Production", settings));
+    }
+
+    [Test]
+    public void AnUnknownSecurityMode_IsRefused_Everywhere()
+    {
+        var settings = Clean();
+        settings["Smtp:Security"] = "Tls";
+
+        Assert.That(() => Validate("Testing", settings),
+            Throws.InvalidOperationException.With.Message.Contains("Smtp:Security"));
     }
 
     /// <summary>L23. A content root that is the repository makes the renderer read the source tree; one file is gone.</summary>

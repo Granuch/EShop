@@ -7,6 +7,7 @@ using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Interfaces;
+using EShop.Notification.Infrastructure.BackgroundServices;
 using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Consumers;
 using EShop.Notification.Infrastructure.Data;
@@ -93,6 +94,11 @@ public static class ServiceCollectionExtensions
             CleanupIntervalHours = 6
         });
         services.AddHostedService<OutboxCleanupService>();
+
+        // Notification audit S5 (M8, D8): NotificationLogs rows are deleted 90 days after their last update.
+        services.Configure<NotificationLogRetentionSettings>(
+            configuration.GetSection(NotificationLogRetentionSettings.SectionName));
+        services.AddHostedService<NotificationLogRetentionService>();
 
         services.AddSingleton(new OutboxHealthCheckOptions
         {

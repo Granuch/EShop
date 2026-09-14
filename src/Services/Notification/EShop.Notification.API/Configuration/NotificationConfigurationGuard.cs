@@ -1,5 +1,6 @@
 using System.Net.Mail;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Services;
 
 namespace EShop.Notification.API.Configuration;
@@ -24,7 +25,9 @@ namespace EShop.Notification.API.Configuration;
 ///   <item>Production (D4): the reset URL uses https and is not a loopback address. Sandbox and k8s are local stacks
 ///   whose browser reaches the storefront on localhost:3000, so they may use <c>http://localhost</c>.</item>
 /// </list>
-/// <para>The SMTP credentials are left to S5, with the TLS question they belong to.</para>
+/// <para>S5 (M6, D7) added the SMTP connection: outside Development and Testing, credentials over
+/// <see cref="SmtpSecurity.None"/> are refused and the SMTP credentials are placeholder-checked; Production also refuses
+/// <see cref="SmtpSecurity.None"/> altogether.</para>
 /// </summary>
 public static class NotificationConfigurationGuard
 {
@@ -34,7 +37,8 @@ public static class NotificationConfigurationGuard
     public static IReadOnlyList<string> PlaceholderCheckedSettings { get; } =
     [
         "IdentityService:ApiKey", "IdentityService:BaseUrl", ResetUrlKey,
-        "RabbitMQ:Host", "RabbitMQ:Username", "RabbitMQ:Password"
+        "RabbitMQ:Host", "RabbitMQ:Username", "RabbitMQ:Password",
+        "Smtp:Username", "Smtp:Password"
     ];
 
     /// <exception cref="InvalidOperationException">A setting is missing, malformed, or a placeholder where one is not allowed, or a template is missing.</exception>
@@ -59,6 +63,9 @@ public static class NotificationConfigurationGuard
         }
 
         RequireTemplates(environment);
+
+        // Binding also refuses an unknown Smtp:Security value, in every environment.
+        var smtp = configuration.GetSection(SmtpSettings.SectionName).Get<SmtpSettings>() ?? new SmtpSettings();
 
         if (environment.IsDevelopment() || isTesting)
         {
@@ -85,8 +92,21 @@ public static class NotificationConfigurationGuard
             }
         }
 
+        // S5 (M6, D7). Mailpit takes plaintext without credentials; a real provider takes credentials over TLS.
+        if (smtp.EffectiveSecurity == SmtpSecurity.None && !string.IsNullOrWhiteSpace(smtp.Username))
+        {
+            throw new InvalidOperationException(
+                "Smtp:Username is set but Smtp:Security is None, so the SMTP credentials would travel in cleartext. "
+                + "Use StartTls or SslOnConnect, or remove the credentials (Mailpit needs none).");
+        }
+
         if (environment.IsProduction())
         {
+            if (smtp.EffectiveSecurity == SmtpSecurity.None)
+            {
+                throw new InvalidOperationException("Smtp:Security must be StartTls or SslOnConnect in Production.");
+            }
+
             if (resetUrl.Scheme != Uri.UriSchemeHttps)
             {
                 throw new InvalidOperationException($"{ResetUrlKey} must use HTTPS in Production.");

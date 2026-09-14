@@ -68,6 +68,46 @@ public class ShippedNotificationSettingsTests
         Assert.That(deployment[index + 1], Is.EqualTo($"value: \"{LocalResetUrl}\""));
     }
 
+    /// <summary>S5 (D7): every shipped configuration names the SMTP security mode, and none still sets UseSsl.</summary>
+    [Test]
+    public void EveryShippedConfiguration_NamesTheSmtpSecurityMode_NotUseSsl()
+    {
+        var compose = ComposeServiceBlock("docker-compose.yml", "notification-api");
+        var production = ComposeServiceBlock("docker-compose.override.production.yml", "notification-api");
+        var configMap = File.ReadAllLines(Path.Combine(RepositoryRoot, "k8s", "02-configmap.yaml")).Select(l => l.Trim()).ToList();
+        var tracked = ReadJson("appsettings.json").GetProperty("Smtp");
+        var development = ReadJson("appsettings.Development.json").GetProperty("Smtp");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(compose, Does.Contain("Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:-None}"));
+            Assert.That(production,
+                Does.Contain("Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:?NOTIFICATION_SMTP_SECURITY is required in production}"));
+            Assert.That(configMap, Does.Contain("Smtp__Security: \"None\""));
+            Assert.That(tracked.GetProperty("Security").GetString(), Is.EqualTo("StartTls"));
+            Assert.That(development.GetProperty("Security").GetString(), Is.EqualTo("StartTls"));
+
+            Assert.That(compose.Concat(production).Concat(configMap), Has.None.StartsWith("Smtp__UseSsl"));
+            Assert.That(tracked.TryGetProperty("UseSsl", out _), Is.False);
+            Assert.That(development.TryGetProperty("UseSsl", out _), Is.False);
+        });
+    }
+
+    /// <summary>S5 (D7): the Mailpit stack needs no credentials, and placeholder ones are refused outside Development.</summary>
+    [Test]
+    public void EnvExample_ShipsNoSmtpCredentials_AndThePlaintextModeForMailpit()
+    {
+        var lines = File.ReadAllLines(Path.Combine(RepositoryRoot, ".env.example"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(lines, Does.Contain("NOTIFICATION_SMTP_USERNAME="));
+            Assert.That(lines, Does.Contain("NOTIFICATION_SMTP_PASSWORD="));
+            Assert.That(lines, Does.Contain("NOTIFICATION_SMTP_SECURITY=None"));
+            Assert.That(lines, Has.None.StartsWith("NOTIFICATION_SMTP_USE_SSL"));
+        });
+    }
+
     private static JsonElement ReadJson(string file)
         => JsonDocument.Parse(
                 File.ReadAllText(Path.Combine(RepositoryRoot, "src", "Services", "Notification", "EShop.Notification.API", file)),

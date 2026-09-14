@@ -48,7 +48,8 @@ data:
   # SMTP (Mailpit в k8s)
   Smtp__Host: "mailpit"
   Smtp__Port: "1025"
-  Smtp__UseSsl: "false"
+  # Notification audit S5 (D7): None, StartTls or SslOnConnect; Mailpit takes plaintext without credentials.
+  Smtp__Security: "None"
   Smtp__FromEmail: "noreply@eshop.local"
   Smtp__FromName: "EShop"
 

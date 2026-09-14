@@ -883,7 +883,9 @@ services:
       Smtp__Port: ${NOTIFICATION_SMTP_PORT:-1025}
       Smtp__Username: ${NOTIFICATION_SMTP_USERNAME:-}
       Smtp__Password: ${NOTIFICATION_SMTP_PASSWORD:-}
-      Smtp__UseSsl: ${NOTIFICATION_SMTP_USE_SSL:-false}
+      # Notification audit S5 (D7): None (Mailpit, no credentials), StartTls or SslOnConnect. Credentials over None are
+      # refused outside Development, and Production requires TLS.
+      Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:-None}
       Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:-noreply@eshop.local}
       Smtp__FromName: ${NOTIFICATION_SMTP_FROM_NAME:-EShop}
 

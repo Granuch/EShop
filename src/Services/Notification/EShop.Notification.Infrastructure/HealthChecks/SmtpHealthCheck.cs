@@ -1,6 +1,6 @@
 using EShop.Notification.Infrastructure.Configuration;
+using EShop.Notification.Infrastructure.Services;
 using MailKit.Net.Smtp;
-using MailKit.Security;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 
@@ -27,11 +27,11 @@ public sealed class SmtpHealthCheck : IHealthCheck
 
         try
         {
-            var secureSocketOptions = _smtpSettings.UseSsl
-                ? SecureSocketOptions.StartTls
-                : SecureSocketOptions.None;
-
-            await client.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port, secureSocketOptions, cancellationToken);
+            await client.ConnectAsync(
+                _smtpSettings.Host,
+                _smtpSettings.Port,
+                _smtpSettings.EffectiveSecurity.ToSocketOptions(),
+                cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(_smtpSettings.Username))
             {

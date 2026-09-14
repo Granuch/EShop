@@ -196,11 +196,11 @@ public sealed class EmailService : IEmailService
         using var smtpClient = new SmtpClient();
         smtpClient.CheckCertificateRevocation = _smtpSettings.CheckCertificateRevocation;
 
-        var secureSocketOptions = _smtpSettings.UseSsl
-            ? SecureSocketOptions.StartTls
-            : SecureSocketOptions.None;
-
-        await smtpClient.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port, secureSocketOptions, ct);
+        await smtpClient.ConnectAsync(
+            _smtpSettings.Host,
+            _smtpSettings.Port,
+            _smtpSettings.EffectiveSecurity.ToSocketOptions(),
+            ct);
 
         if (!string.IsNullOrWhiteSpace(_smtpSettings.Username))
         {
@@ -220,9 +220,10 @@ public sealed class EmailService : IEmailService
             _logger.LogWarning(ex, "The SMTP connection could not be closed cleanly after a successful send.");
         }
 
+        // Notification audit S5 (M7). This logged the recipient's name and address for every email, to the console, the
+        // log files and Seq. The consumer's own log lines carry the EventId, which finds the recipient in NotificationLogs.
         _logger.LogInformation(
-            "Email sent to {Recipient}. Subject={Subject}. ProviderResponse={ProviderResponse}",
-            message.To.ToString(),
+            "Email sent. Subject={Subject}. ProviderResponse={ProviderResponse}",
             message.Subject,
             response);
     }
