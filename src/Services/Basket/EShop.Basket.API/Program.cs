@@ -3,7 +3,6 @@ using EShop.Basket.API.Infrastructure.Configuration;
 using EShop.Basket.API.Infrastructure.HealthChecks;
 using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Extensions;
-using EShop.Basket.Infrastructure.Caching;
 using EShop.Basket.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
@@ -18,7 +17,6 @@ using Prometheus;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
-using Microsoft.Extensions.Caching.StackExchangeRedis;
 using StackExchange.Redis;
 using System.Net;
 using System.Text;
@@ -52,14 +50,10 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
 var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
-// CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline behaviors
-// in DI registration order (first registered = outermost), so these three calls are what sets the
-// pipeline: CacheInvalidation -> Transaction -> Validation -> Logging -> Caching -> handler.
-// CacheInvalidationBehavior has to be outermost because it invalidates AFTER the handler returns:
-// registered inside TransactionBehavior it drained keys before the write committed, so a
-// concurrent read could repopulate the cache with pre-commit data for the full TTL. Silent if
-// broken — nothing fails, and it is invisible without reading all three extension methods.
-builder.Services.AddEShopCacheInvalidation();
+// The pipeline is Validation -> Logging -> handler, both registered by AddBasketApplication. Basket has
+// no TransactionBehavior (there is no database) and, since Basket audit S5 (D5), no caching behaviors:
+// GetBasketQuery was cached as a second Redis copy of a Redis document, which cost the same round trip
+// as the source and served old prices after a price sync. Don't add AddEShopCacheInvalidation() back.
 builder.Services.AddBasketApplication();
 builder.Services.AddBasketInfrastructure(builder.Configuration);
 builder.Services.AddBasketMessaging(
@@ -75,19 +69,6 @@ builder.Services.AddEShopOpenTelemetry(
 
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("Redis connection string is required.");
-
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    options.InstanceName = "EShop_Basket_";
-});
-
-builder.Services.AddOptions<RedisCacheOptions>()
-    .Configure<IConnectionMultiplexer>((options, mux) =>
-    {
-        options.ConnectionMultiplexerFactory = () => Task.FromResult(mux);
-    });
-
-builder.Services.AddCircuitBreakingCache(failureThreshold: 3, openDuration: TimeSpan.FromSeconds(30));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JWT settings are required.");

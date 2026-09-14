@@ -39,25 +39,6 @@ public class ConcurrentWriteTests
     private static Task<bool> IndexedAsync(BasketApiFactory factory, Guid productId, string userId)
         => factory.Redis.GetDatabase().SetContainsAsync($"basket:product:{productId}:users", userId);
 
-    /// <summary>Runs Basket's real price-sync consumer, resolved from the host, for one price change.</summary>
-    private static async Task RunPriceSyncAsync(BasketApiFactory factory, Guid productId, decimal newPrice)
-    {
-        using var scope = factory.Services.CreateScope();
-        var consumer = ActivatorUtilities.CreateInstance<ProductPriceChangedConsumer>(scope.ServiceProvider);
-
-        var context = new Mock<ConsumeContext<ProductPriceChangedIntegrationEvent>>();
-        context.SetupGet(x => x.Message).Returns(new ProductPriceChangedIntegrationEvent
-        {
-            ProductId = productId,
-            OldPrice = 0m,
-            NewPrice = newPrice
-        });
-        context.SetupGet(x => x.MessageId).Returns(Guid.NewGuid());
-        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
-
-        await consumer.Consume(context.Object);
-    }
-
     [Test]
     public async Task AnItemAddedWhileAnotherAddIsBeingSaved_IsKept()
     {
@@ -107,7 +88,7 @@ public class ConcurrentWriteTests
         await AddAsync(client, userId, mug);
 
         factory.AddToBasketAfterNextRead(userId, addedDuringSync);
-        await RunPriceSyncAsync(factory, mug, 15m);
+        await PriceSync.RunAsync(factory,mug, 15m);
 
         var basket = await StoredAsync(factory, userId);
         basket!.Items.Select(i => i.ProductId).Should().BeEquivalentTo(new[] { mug, addedDuringSync },
@@ -174,7 +155,7 @@ public class ConcurrentWriteTests
         await database.SetAddAsync($"basket:product:{product}:users", withoutTheProduct);
         await database.SetAddAsync($"basket:product:{product}:users", withoutABasket);
 
-        await RunPriceSyncAsync(factory, product, 15m);
+        await PriceSync.RunAsync(factory,product, 15m);
 
         (await IndexedAsync(factory, product, withoutTheProduct)).Should().BeFalse();
         (await IndexedAsync(factory, product, withoutABasket)).Should().BeFalse();
