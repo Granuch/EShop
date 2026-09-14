@@ -141,7 +141,7 @@ public class CheckoutRevalidationTests
         factory.Catalog.IsUnavailable = true;
         var (status, problem) = await CheckOutAsync(client, userId);
 
-        status.Should().Be(HttpStatusCode.BadRequest);
+        status.Should().Be(HttpStatusCode.ServiceUnavailable, "S8 (M3): an outage is a 503");
         problem.GetProperty("errorCode").GetString().Should().Be("Basket.ProductVerificationFailed");
         (await PendingCountAsync(factory)).Should().Be(0, "an unverified basket must not become an order");
         (await factory.Redis.GetDatabase().KeyExistsAsync($"basket:user:{userId}")).Should().BeTrue();

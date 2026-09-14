@@ -56,6 +56,10 @@ public class RemoveBasketItemCommandHandler : IRequestHandler<RemoveBasketItemCo
                 return BasketWrites.Done;
             }, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex,

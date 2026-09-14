@@ -36,6 +36,10 @@ public class ClearBasketCommandHandler : IRequestHandler<ClearBasketCommand, Res
             await _basketRepository.DeleteBasketAsync(request.UserId, cancellationToken);
             return Result<Unit>.Success(Unit.Value);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to clear basket. UserId={UserId}", request.UserId);

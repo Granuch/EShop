@@ -107,6 +107,17 @@ public class AddItemToBasketCommandHandler : IRequestHandler<AddItemToBasketComm
 
             return Result<Unit>.Failure(BasketErrors.ProductVerificationFailed);
         }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Basket audit S8 (L5): HttpClient reports its own timeout as a TaskCanceledException, not an
+            // HttpRequestException, so a slow Catalog used to land in the generic branch below.
+            _logger.LogError(ex,
+                "Catalog lookup timed out while adding item to basket. UserId={UserId}, ProductId={ProductId}",
+                request.UserId,
+                request.ProductId);
+
+            return Result<Unit>.Failure(BasketErrors.ProductVerificationFailed);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex,

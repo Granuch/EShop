@@ -15,6 +15,9 @@ public sealed class FakeProductCatalog : IProductCatalogReader
     /// <summary>When set, every lookup fails the way an unreachable Catalog does.</summary>
     public bool IsUnavailable { get; set; }
 
+    /// <summary>When set, every lookup fails the way an HttpClient timeout does: a TaskCanceledException.</summary>
+    public bool TimesOut { get; set; }
+
     public Guid Add(string name, decimal price, int stock = 100)
     {
         var id = Guid.NewGuid();
@@ -38,6 +41,11 @@ public sealed class FakeProductCatalog : IProductCatalogReader
         if (IsUnavailable)
         {
             throw new HttpRequestException("Catalog is down (test double).");
+        }
+
+        if (TimesOut)
+        {
+            throw new TaskCanceledException("Catalog timed out (test double).");
         }
 
         return Task.FromResult(_products.TryGetValue(productId, out var product) ? product : null);

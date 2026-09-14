@@ -13,32 +13,64 @@ using EShop.BuildingBlocks.Infrastructure.Http;
 namespace EShop.Basket.API.Endpoints;
 
 /// <summary>
-/// Basket endpoints using Minimal API
+/// Basket endpoints using Minimal API.
+///
+/// <para><b>One status mapping for every endpoint (Basket audit S8, M3/M4): <see cref="StatusFor"/>.</b> Each endpoint
+/// used to pick its own — a fixed 400, or a substring test for "NotFound" — so Redis or Catalog being down answered 400,
+/// the same product missing was 400 on one route and 404 on another, and gateway retries and 5xx alerting never saw an
+/// outage. Every endpoint also passes the request's cancellation token on (L4), so a client that disconnects stops the
+/// Catalog and Redis work it started.</para>
 /// </summary>
 public static class BasketEndpoints
 {
+    private static readonly HashSet<string> NotFoundCodes =
+    [
+        BasketErrors.BasketNotFound.Code,
+        BasketErrors.ItemNotFound.Code,
+        BasketErrors.ProductNotFound.Code
+    ];
+
+    /// <summary>"Not now — look again and retry" (D2, S4, S6).</summary>
+    private static readonly HashSet<string> ConflictCodes =
+    [
+        BasketErrors.ConcurrentUpdate.Code,
+        BasketErrors.CheckoutConflict.Code,
+        BasketErrors.CheckoutAlreadyInProgress.Code,
+        BasketErrors.InsufficientStock.Code,
+        CheckoutRevalidationError.ErrorCode
+    ];
+
+    /// <summary>Redis or Catalog failed; the request itself was fine, so a retry may succeed (M3).</summary>
+    private static readonly HashSet<string> UnavailableCodes =
+    [
+        BasketErrors.BasketOperationFailed.Code,
+        BasketErrors.BasketPersistenceFailed.Code,
+        BasketErrors.ProductVerificationFailed.Code
+    ];
+
     public static void MapBasketEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/basket")
             .WithTags("Basket")
             .RequireAuthorization("SameUserOrAdmin");
 
-        group.MapGet("/{userId}", async (string userId, IMediator mediator) =>
+        group.MapGet("/{userId}", async (string userId, IMediator mediator, CancellationToken cancellationToken) =>
         {
-            var result = await mediator.Send(new GetBasketQuery { UserId = userId });
+            var result = await mediator.Send(new GetBasketQuery { UserId = userId }, cancellationToken);
 
-            return result.Match(
-                basket => basket is null
-                    ? Results.NotFound()
-                    : Results.Ok(basket),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+            // D8: a user with no basket gets an empty one, so there is no 404 on this route.
+            return result.Match(basket => Results.Ok(basket), error => Problem(error));
         })
         .WithName("GetBasket")
         .Produces<BasketDto>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-        group.MapPost("/{userId}/items", async (string userId, AddItemToBasketRequest request, IMediator mediator) =>
+        group.MapPost("/{userId}/items", async (
+            string userId,
+            AddItemToBasketRequest request,
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
         {
             var command = new AddItemToBasketCommand
             {
@@ -47,22 +79,23 @@ public static class BasketEndpoints
                 Quantity = request.Quantity
             };
 
-            var result = await mediator.Send(command);
+            var result = await mediator.Send(command, cancellationToken);
 
-            return result.Match(
-                _ => Results.NoContent(),
-                error => ProblemResults.For(error, ConflictOr(error, StatusCodes.Status400BadRequest)));
+            return result.Match(_ => Results.NoContent(), error => Problem(error));
         })
         .WithName("AddItemToBasket")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapPut("/{userId}/items/{productId:guid}", async (
             string userId,
             Guid productId,
             UpdateBasketItemQuantityRequest request,
-            IMediator mediator) =>
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
         {
             var command = new UpdateBasketItemQuantityCommand
             {
@@ -71,85 +104,87 @@ public static class BasketEndpoints
                 Quantity = request.Quantity
             };
 
-            var result = await mediator.Send(command);
+            var result = await mediator.Send(command, cancellationToken);
 
-            return result.Match(
-                _ => Results.NoContent(),
-                error => ProblemFromError(error.Code, error.Message));
+            return result.Match(_ => Results.NoContent(), error => Problem(error));
         })
         .WithName("UpdateBasketItemQuantity")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        // Removing a product that is not in the basket is a 204: the item is not there afterwards either way.
         group.MapDelete("/{userId}/items/{productId:guid}", async (
             string userId,
             Guid productId,
-            IMediator mediator) =>
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
         {
             var result = await mediator.Send(new RemoveBasketItemCommand
             {
                 UserId = userId,
                 ProductId = productId
-            });
+            }, cancellationToken);
 
-            return result.Match(
-                _ => Results.NoContent(),
-                error => ProblemFromError(error.Code, error.Message));
+            return result.Match(_ => Results.NoContent(), error => Problem(error));
         })
         .WithName("RemoveBasketItem")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-        group.MapDelete("/{userId}", async (string userId, IMediator mediator) =>
+        group.MapDelete("/{userId}", async (string userId, IMediator mediator, CancellationToken cancellationToken) =>
         {
-            var result = await mediator.Send(new ClearBasketCommand { UserId = userId });
+            var result = await mediator.Send(new ClearBasketCommand { UserId = userId }, cancellationToken);
 
-            return result.Match(
-                _ => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+            return result.Match(_ => Results.NoContent(), error => Problem(error));
         })
         .WithName("ClearBasket")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapPost("/{userId}/checkout", async (
             string userId,
             CheckoutBasketRequest request,
-            IMediator mediator) =>
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
         {
             var result = await mediator.Send(new CheckoutBasketCommand
             {
                 UserId = userId,
                 ShippingAddress = request.ShippingAddress,
                 PaymentMethod = request.PaymentMethod
-            });
+            }, cancellationToken);
 
             return result.Match(
                 checkoutId => Results.Ok(new { checkoutId }),
                 error => error is CheckoutRevalidationError revalidation
                     ? new RevalidationProblemResult(revalidation)
-                    : ProblemResults.For(error, ConflictOr(error, StatusCodes.Status400BadRequest)));
+                    : Problem(error));
         })
         .WithName("CheckoutBasket")
         .Produces<object>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
     }
 
     /// <summary>
-    /// Basket audit D2 and S4. A basket that kept changing while a write was being saved, a basket that changed while
-    /// it was checked out, and another checkout holding the lock all mean "not now — look again and retry", not a
-    /// malformed request, so they are 409s.
+    /// 404 for something named in the request that does not exist; 409 for a state that changed or is busy; 503 when
+    /// Redis or Catalog failed; 400 for everything else (validation, an empty basket, a domain rule).
     /// </summary>
-    private static bool IsConflict(string errorCode)
-        => errorCode == BasketErrors.ConcurrentUpdate.Code
-           || errorCode == BasketErrors.CheckoutConflict.Code
-           || errorCode == BasketErrors.CheckoutAlreadyInProgress.Code
-           || errorCode == BasketErrors.InsufficientStock.Code;
+    private static int StatusFor(Error error)
+        => NotFoundCodes.Contains(error.Code) ? StatusCodes.Status404NotFound
+            : ConflictCodes.Contains(error.Code) ? StatusCodes.Status409Conflict
+            : UnavailableCodes.Contains(error.Code) ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status400BadRequest;
+
+    private static IResult Problem(Error error) => ProblemResults.For(error, StatusFor(error));
 
     /// <summary>
     /// Basket audit S6 (D6): the usual envelope, 409, plus a <c>lines</c> member naming each basket line that failed
@@ -166,20 +201,6 @@ public static class BasketEndpoints
             problem.Extensions[LinesKey] = error.Lines;
             return EShopProblem.WriteAsync(httpContext, problem);
         }
-    }
-
-    private static int ConflictOr(Error error, int otherwise)
-        => IsConflict(error.Code) ? StatusCodes.Status409Conflict : otherwise;
-
-    private static IResult ProblemFromError(string errorCode, string errorMessage)
-    {
-        var statusCode = IsConflict(errorCode)
-            ? StatusCodes.Status409Conflict
-            : errorCode.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
-                ? StatusCodes.Status404NotFound
-                : StatusCodes.Status400BadRequest;
-
-        return ProblemResults.For(errorCode, errorMessage, statusCode);
     }
 }
 

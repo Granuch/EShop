@@ -164,6 +164,19 @@ public class AddItemToBasketCommandHandlerTests
         Assert.That(result.Error, Is.EqualTo(BasketErrors.ProductNotFound));
     }
 
+    /// <summary>Basket audit S8 (L5): HttpClient's own timeout is a TaskCanceledException, not an HttpRequestException.</summary>
+    [Test]
+    public async Task ACatalogTimeout_IsProductVerificationFailed()
+    {
+        _catalog
+            .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TaskCanceledException("timed out"));
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.Error, Is.EqualTo(BasketErrors.ProductVerificationFailed));
+    }
+
     [Test]
     public async Task Handle_WhenCatalogLookupFails_ShouldReturnProductVerificationFailed()
     {

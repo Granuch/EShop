@@ -124,6 +124,30 @@ public class UpdateBasketItemQuantityCommandHandlerTests
         Assert.That(result.Error, Is.EqualTo(BasketErrors.ConcurrentUpdate));
     }
 
+    /// <summary>Basket audit S8 (M4): a 404 code, not the DomainException the generic catch turned into a 400.</summary>
+    [Test]
+    public async Task AProductThatIsNotInTheBasket_IsItemNotFound_AndNothingIsWritten()
+    {
+        _repository.Setup(x => x.GetBasketAsync("user-1", It.IsAny<CancellationToken>())).ReturnsAsync(BasketWith(Guid.NewGuid()));
+
+        var result = await _handler.Handle(Command(Guid.NewGuid(), 2), CancellationToken.None);
+
+        Assert.That(result.Error, Is.EqualTo(BasketErrors.ItemNotFound));
+        _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public void ACancelledRequest_RethrowsInsteadOfReportingAFailure()
+    {
+        _repository
+            .Setup(x => x.GetBasketAsync("user-1", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        Assert.ThrowsAsync<OperationCanceledException>(() => _handler.Handle(Command(Guid.NewGuid(), 2), cancelled.Token));
+    }
+
     [Test]
     public async Task Handle_WhenRepositoryThrows_ShouldReturnFailure()
     {

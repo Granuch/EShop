@@ -46,7 +46,7 @@ public class NoBasketCacheTests
         using var scope = factory.Services.CreateScope();
 
         var behaviors = scope.ServiceProvider
-            .GetServices<IPipelineBehavior<GetBasketQuery, Result<BasketDto?>>>()
+            .GetServices<IPipelineBehavior<GetBasketQuery, Result<BasketDto>>>()
             .Select(behavior => behavior.GetType().Name)
             .ToList();
 
