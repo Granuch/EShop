@@ -194,6 +194,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapBasketEndpoints();
+app.MapBasketOutboxAdminEndpoints();
 
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
 // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).

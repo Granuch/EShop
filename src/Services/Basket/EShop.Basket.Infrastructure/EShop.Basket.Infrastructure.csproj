@@ -12,6 +12,12 @@
     <PackageReference Include="StackExchange.Redis" Version="2.11.8" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The outbox processor's steps and its envelope are internal; its tests drive them one at a time. -->
+    <InternalsVisibleTo Include="EShop.Basket.IntegrationTests" />
+    <InternalsVisibleTo Include="EShop.Basket.UnitTests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

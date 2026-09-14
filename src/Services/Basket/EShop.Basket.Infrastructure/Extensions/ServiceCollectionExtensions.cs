@@ -67,6 +67,8 @@ public static class ServiceCollectionExtensions
         // Checkout's lock, completed marker and atomic commit, which also writes the outbox entry. There is no
         // IIntegrationEventOutbox here: its synchronous Enqueue was a fire-and-forget push (Basket audit H1, S3).
         services.AddSingleton<IBasketCheckoutStore, RedisBasketCheckoutStore>();
+        // The admin replay endpoint needs it whether or not messaging is configured (Basket audit S7, D7).
+        services.AddSingleton<BasketOutboxDeadLetters>();
         services.AddSingleton<RedisMessageIdempotencyStore>();
 
         // No CachingBehavior: Basket reads its baskets straight from Redis (Basket audit S5, D5).
@@ -89,6 +91,7 @@ public static class ServiceCollectionExtensions
                     $"RabbitMQ configuration is invalid or missing in {RabbitMqSettings.SectionName} section.");
             }
 
+            services.AddHostedService<OutboxNotDrainedWarning>();
             return services;
         }
 
@@ -185,6 +188,8 @@ public static class ServiceCollectionExtensions
         services.AddHealthChecks()
             .AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["messaging", "ready"]);
 
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<BasketOutboxOptions>();
         services.AddHostedService<BasketRedisOutboxProcessorService>();
 
         return services;
