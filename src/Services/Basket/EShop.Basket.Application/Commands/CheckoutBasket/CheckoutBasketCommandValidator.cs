@@ -49,10 +49,6 @@ public class CheckoutBasketCommandValidator : AbstractValidator<CheckoutBasketCo
                 .When(a => string.Equals(a.Country?.Trim(), "US", StringComparison.OrdinalIgnoreCase))
                 .WithMessage("A US zip code must be 12345 or 12345-6789");
         });
-
-        RuleFor(x => x.PaymentMethod)
-            .NotEmpty().WithMessage("Payment method is required")
-            .MaximumLength(100).WithMessage("Payment method must not exceed 100 characters");
     }
 
     private static bool Matches(Regex pattern, string? value) => value is not null && pattern.IsMatch(value.Trim());

@@ -18,6 +18,12 @@ public class ShoppingBasket : AggregateRoot<string>
     /// <summary>Basket audit S9 (M2, D9): the most different products one basket can hold.</summary>
     public const int MaxLines = 100;
 
+    /// <summary>
+    /// The currency of every price in a basket (Basket audit S11, debt 7). Catalog prices in USD, and Ordering and Payment
+    /// refuse any other currency; the checkout event now says so instead of leaving it implied.
+    /// </summary>
+    public const string Currency = "USD";
+
     public string UserId { get; private set; } = string.Empty;
 
     private readonly List<BasketItem> _items = new();
@@ -194,7 +200,11 @@ public class ShoppingBasket : AggregateRoot<string>
         return true;
     }
 
-    public void Checkout(ValueObjects.ShippingAddress shippingAddress, string paymentMethod)
+    /// <summary>
+    /// Raises the checkout event. There is no payment method (Basket audit S11, D11): it was free text nothing downstream
+    /// read — Payment chooses the method itself when the payment intent is created.
+    /// </summary>
+    public void Checkout(ValueObjects.ShippingAddress shippingAddress)
     {
         if (IsCheckedOut)
             throw new DomainException("This basket has already been checked out.");
@@ -204,9 +214,6 @@ public class ShoppingBasket : AggregateRoot<string>
 
         if (shippingAddress is null)
             throw new DomainException("Shipping address is required.");
-
-        if (string.IsNullOrWhiteSpace(paymentMethod))
-            throw new DomainException("Payment method is required.");
 
         AddDomainEvent(new BasketCheckedOutDomainEvent
         {
@@ -221,8 +228,7 @@ public class ShoppingBasket : AggregateRoot<string>
                 })
                 .ToList(),
             TotalPrice = TotalPrice,
-            ShippingAddress = shippingAddress,
-            PaymentMethod = paymentMethod
+            ShippingAddress = shippingAddress
         });
 
         IsCheckedOut = true;

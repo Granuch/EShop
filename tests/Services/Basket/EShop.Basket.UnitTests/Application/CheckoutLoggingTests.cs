@@ -29,8 +29,7 @@ public class CheckoutLoggingTests
                 State = "OR",
                 ZipCode = "97403",
                 Country = "US"
-            },
-            PaymentMethod = "Card"
+            }
         };
 
         await behavior.Handle(command, _ => Task.FromResult(Result<Guid>.Success(Guid.NewGuid())), CancellationToken.None);

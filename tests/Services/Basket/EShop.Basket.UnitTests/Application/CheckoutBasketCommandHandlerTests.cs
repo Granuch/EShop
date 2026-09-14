@@ -74,8 +74,7 @@ public class CheckoutBasketCommandHandlerTests
     private static CheckoutBasketCommand Command() => new()
     {
         UserId = "user-1",
-        ShippingAddress = ValidAddress,
-        PaymentMethod = "Card"
+        ShippingAddress = ValidAddress
     };
 
     private static ShoppingBasket StoredBasket(int items = 1) => ShoppingBasket.Rehydrate(

@@ -122,8 +122,7 @@ public class CheckoutBasketCommandHandler : IRequestHandler<CheckoutBasketComman
             // Non-null: the validator requires it.
             var address = request.ShippingAddress!;
             basket.Checkout(
-                DomainShippingAddress.Create(address.Street, address.City, address.State, address.ZipCode, address.Country),
-                request.PaymentMethod);
+                DomainShippingAddress.Create(address.Street, address.City, address.State, address.ZipCode, address.Country));
 
             var domainEvent = basket.DomainEvents.OfType<BasketCheckedOutDomainEvent>().Single();
             var checkoutEvent = BasketCheckedOutEventMapper.ToIntegrationEvent(domainEvent, _currentUserContext.CorrelationId);

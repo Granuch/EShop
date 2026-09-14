@@ -10,6 +10,13 @@ public record BasketCheckedOutEvent : IntegrationEvent
     public decimal TotalPrice { get; init; }
 
     /// <summary>
+    /// ISO 4217 code of every price in this event (Basket audit S11, debt 7). Basket prices in USD, as Ordering and Payment
+    /// do, and Ordering refuses anything else. The default is what makes a message queued before this field existed read
+    /// as USD — which it was. (<c>PaymentMethod</c> was removed in the same stage: nothing read it, D11.)
+    /// </summary>
+    public string Currency { get; init; } = "USD";
+
+    /// <summary>
     /// Display-only rendering of <see cref="ShippingAddressDetails"/>. Do not parse it: Ordering used
     /// to comma-split it and turned most real addresses into dead-lettered checkouts (Ordering audit C2).
     /// </summary>
@@ -21,8 +28,6 @@ public record BasketCheckedOutEvent : IntegrationEvent
     /// with a clear reason rather than failing to bind.
     /// </summary>
     public CheckoutShippingAddress? ShippingAddressDetails { get; init; }
-
-    public string PaymentMethod { get; init; } = string.Empty;
 }
 
 public record CheckoutShippingAddress

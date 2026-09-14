@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
@@ -69,7 +71,6 @@ public class BasketCheckedOutConsumerTests
         TotalPrice = items.Sum(i => i.Price * i.Quantity),
         ShippingAddressDetails = address,
         ShippingAddress = "display only, never parsed",
-        PaymentMethod = "card",
         Items = items.Length > 0
             ? [.. items]
             : [new CheckoutItem { ProductId = Guid.NewGuid(), ProductName = "Widget", Price = 20.00m, Quantity = 2 }]
@@ -176,5 +177,35 @@ public class BasketCheckedOutConsumerTests
 
         Assert.That(ex!.InnerException, Is.InstanceOf<DomainException>());
         Assert.That(StoredOrders, Is.EqualTo(0));
+    }
+
+    /// <summary>Basket audit S11 (debt 7): an order priced in another currency would be wrong in every amount.</summary>
+    [Test]
+    public void ACheckoutPricedInAnotherCurrency_GoesStraightToTheErrorQueue()
+    {
+        var ex = Assert.ThrowsAsync<InvalidCheckoutEventException>(() =>
+            _consumer.Consume(ContextFor(Checkout(Kyiv()) with { Currency = "EUR" }).Object));
+
+        Assert.That(ex, Is.InstanceOf<ArgumentException>(), "not retried");
+        Assert.That(ex!.Message, Does.Contain("EUR"));
+        Assert.That(StoredOrders, Is.EqualTo(0));
+        Assert.That(StoredClaims, Is.EqualTo(0));
+    }
+
+    /// <summary>
+    /// A checkout queued before Basket sent a currency has no such field on the wire, and it was USD. The field's default
+    /// is what keeps it from being dead-lettered during the deploy (the root guide's in-flight-default rule).
+    /// </summary>
+    [Test]
+    public async Task ACheckoutPublishedBeforeTheCurrencyExisted_BecomesAnOrder()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var wire = JsonSerializer.SerializeToNode(Checkout(Kyiv()), web)!.AsObject();
+        wire.Remove("currency");
+        var old = wire.Deserialize<BasketCheckedOutEvent>(web)!;
+
+        Assert.That(old.Currency, Is.EqualTo("USD"));
+        await _consumer.Consume(ContextFor(old).Object);
+        Assert.That(StoredOrders, Is.EqualTo(1));
     }
 }

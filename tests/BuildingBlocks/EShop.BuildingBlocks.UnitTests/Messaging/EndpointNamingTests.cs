@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -78,6 +79,52 @@ namespace EShop.BuildingBlocks.UnitTests.Messaging
             var formatter = provider.GetRequiredService<IEndpointNameFormatter>();
 
             Assert.That(formatter.Consumer<PaymentFixture.OrderCreatedConsumer>(), Is.EqualTo("payment_order_created"));
+        }
+
+        private static IConfiguration WithBroker() => new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["RabbitMQ:Host"] = "localhost",
+                ["RabbitMQ:Username"] = "u",
+                ["RabbitMQ:Password"] = "p",
+            })
+            .Build();
+
+        /// <summary>
+        /// Basket audit S11 (debt 5): <c>AddEShopBus</c> is the bus without the EF outbox, for a service with no
+        /// DbContext. It reports whether it configured one, so such a service can say what it does without a broker.
+        /// </summary>
+        [Test]
+        public void AddEShopBus_ReportsWhetherItConfiguredABus()
+        {
+            var withoutBroker = new ServiceCollection();
+            var withBroker = new ServiceCollection().AddLogging();
+
+            Assert.That(withoutBroker.AddEShopBus(new ConfigurationBuilder().Build(), "basket", isDevelopment: true), Is.False);
+            Assert.That(withoutBroker.Any(d => d.ServiceType == typeof(IBusControl)), Is.False);
+            Assert.That(withBroker.AddEShopBus(WithBroker(), "basket", isDevelopment: false), Is.True);
+            Assert.That(withBroker.Any(d => d.ServiceType == typeof(IBusControl)), Is.True);
+        }
+
+        [Test]
+        public void AddEShopBus_OutsideDevelopment_RefusesAMissingBroker()
+        {
+            Assert.That(
+                () => new ServiceCollection().AddEShopBus(new ConfigurationBuilder().Build(), "basket", isDevelopment: false),
+                Throws.InstanceOf<InvalidOperationException>());
+        }
+
+        /// <summary>Splitting the bus out must not cost the EF services their outbox, with a broker or without one.</summary>
+        [Test]
+        public void AddMessaging_StillRegistersTheOutbox_WithOrWithoutABroker()
+        {
+            var withoutBroker = new ServiceCollection().AddLogging()
+                .AddMessaging<DummyDbContext>(new ConfigurationBuilder().Build(), "payment", isDevelopment: true);
+            var withBroker = new ServiceCollection().AddLogging()
+                .AddMessaging<DummyDbContext>(WithBroker(), "payment", isDevelopment: true);
+
+            Assert.That(withoutBroker.Any(d => d.ServiceType == typeof(IIntegrationEventOutbox)), Is.True);
+            Assert.That(withBroker.Any(d => d.ServiceType == typeof(IIntegrationEventOutbox)), Is.True);
         }
 
         private sealed class DummyDbContext : DbContext;

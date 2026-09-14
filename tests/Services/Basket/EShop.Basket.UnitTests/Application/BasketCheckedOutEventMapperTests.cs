@@ -22,8 +22,7 @@ public class BasketCheckedOutEventMapperTests
             }
         ],
         TotalPrice = 25m,
-        ShippingAddress = ShippingAddress.Create("1 Main St", "Kyiv", "Kyiv", "01001", "UA"),
-        PaymentMethod = "Card"
+        ShippingAddress = ShippingAddress.Create("1 Main St", "Kyiv", "Kyiv", "01001", "UA")
     };
 
     /// <summary>Basket audit D3: one id from the client's checkoutId to Ordering's MessageId.</summary>
@@ -53,7 +52,8 @@ public class BasketCheckedOutEventMapperTests
         Assert.That(integrationEvent.Items[0].ProductName, Is.EqualTo("Product"));
         Assert.That(integrationEvent.Items[0].Price, Is.EqualTo(12.5m));
         Assert.That(integrationEvent.Items[0].Quantity, Is.EqualTo(2));
-        Assert.That(integrationEvent.PaymentMethod, Is.EqualTo("Card"));
+        // Basket audit S11 (debt 7): stated, so Ordering can refuse anything else.
+        Assert.That(integrationEvent.Currency, Is.EqualTo("USD"));
         Assert.That(integrationEvent.CorrelationId, Is.EqualTo("corr-1"));
         Assert.That(integrationEvent.ShippingAddressDetails, Is.EqualTo(new CheckoutShippingAddress
         {

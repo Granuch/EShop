@@ -22,6 +22,9 @@ using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 
+// StackExchange.Redis's guidance for its "Timeout ... WORKER busy" failures: when a burst queues more work than the pool
+// has threads, the pool adds threads slowly and Redis replies wait behind them. Every Redis call here is asynchronous, so
+// this is headroom, not a fix for blocking code (Basket audit L8 — reviewed and kept; it had no comment saying why).
 ThreadPool.SetMinThreads(workerThreads: 100, completionPortThreads: 100);
 
 Log.Logger = new LoggerConfiguration()
@@ -70,9 +73,6 @@ builder.Services.AddEShopOpenTelemetry(
     serviceVersion: "1.0.0",
     environment: builder.Environment,
     additionalSources: "EShop.Basket");
-
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
-    ?? throw new InvalidOperationException("Redis connection string is required.");
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JWT settings are required.");
@@ -143,7 +143,9 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddHealthChecks()
-    .AddRedis(redisConnectionString, name: "redis", tags: ["cache", "ready"])
+    // The application's own multiplexer (Basket audit L8): the connection-string overload opened a second connection
+    // just to be checked, so the check could pass while the one the basket actually uses was broken.
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>(), name: "redis", tags: ["cache", "ready"])
     .AddCheck<BasketOutboxHealthCheck>("basket-outbox", tags: ["outbox", "ready"])
     .AddCheck<BasketReadinessHealthCheck>("basket-readiness", tags: ["ready"])
     .AddCheck<BasketLivenessHealthCheck>("basket-liveness", tags: ["live"]);

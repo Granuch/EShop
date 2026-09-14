@@ -38,7 +38,7 @@ public class ShoppingBasketTests
         var basket = ShoppingBasket.Create("user-1");
         basket.AddItem(Guid.Parse("33333333-3333-3333-3333-333333333333"), "Product", 10m, 2);
 
-        basket.Checkout(ShippingAddress.Create("1 Main St", "Springfield", "IL", "62701", "US"), "CreditCard");
+        basket.Checkout(ShippingAddress.Create("1 Main St", "Springfield", "IL", "62701", "US"));
 
         var checkoutEvent = basket.DomainEvents.OfType<BasketCheckedOutDomainEvent>().SingleOrDefault();
         Assert.That(checkoutEvent, Is.Not.Null);
@@ -80,7 +80,7 @@ public class ShoppingBasketTests
         basket.AddItem(Guid.NewGuid(), "Product", 10m, 1);
 
         Assert.Throws<EShop.BuildingBlocks.Domain.Exceptions.DomainException>(() =>
-            basket.Checkout(null!, "Card"));
+            basket.Checkout(null!));
     }
 
     [Test]
@@ -232,9 +232,9 @@ public class ShoppingBasketTests
         var basket = ShoppingBasket.Create("user-1");
         basket.AddItem(Guid.NewGuid(), "Product", 10m, 1);
         var address = ShippingAddress.Create("1 Main St", "Springfield", "IL", "62701", "US");
-        basket.Checkout(address, "Card");
+        basket.Checkout(address);
 
-        Assert.Throws<DomainException>(() => basket.Checkout(address, "Card"));
+        Assert.Throws<DomainException>(() => basket.Checkout(address));
         Assert.Throws<DomainException>(() => basket.AddItem(Guid.NewGuid(), "After checkout", 1m, 1));
         Assert.That(basket.IsCheckedOut, Is.True);
         Assert.That(basket.DomainEvents.OfType<BasketCheckedOutDomainEvent>().Count(), Is.EqualTo(1));

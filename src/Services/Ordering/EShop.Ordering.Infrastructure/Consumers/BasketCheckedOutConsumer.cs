@@ -66,6 +66,15 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
             ?? throw new InvalidCheckoutEventException(
                 $"BasketCheckedOutEvent {message.EventId} for UserId={message.UserId} has no ShippingAddressDetails.");
 
+        // Basket audit S11 (debt 7): orders are priced in USD, as payments are (Payment audit S8), and Basket now says
+        // which currency its prices are in. A message queued before it did reads as USD. Any other currency would become
+        // an order in the wrong unit, so it goes to the error queue like any checkout that can never be a correct order.
+        if (!string.Equals(message.Currency, PaymentSuccessConsumer.OrderCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidCheckoutEventException(
+                $"BasketCheckedOutEvent {message.EventId} is priced in {message.Currency}; orders are priced in {PaymentSuccessConsumer.OrderCurrency}.");
+        }
+
         // CreateCheckedOutOrderCommand, not CreateOrderCommand: Basket priced these lines from Catalog
         // on the server, and they are what the customer saw. The HTTP path reprices from Catalog.
         var command = new CreateCheckedOutOrderCommand

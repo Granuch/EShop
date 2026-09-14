@@ -36,6 +36,38 @@ public static class MassTransitServiceCollectionExtensions
         Action<IBusRegistrationConfigurator>? configureConsumers = null)
         where TDbContext : DbContext
     {
+        services.AddEShopBus(configuration, serviceName, isDevelopment, configureConsumers);
+
+        // The integration event outbox, with a bus or without one: without one (Development/Testing with no
+        // RabbitMQ), events queue in the database until a broker is configured.
+        services.AddScoped<IIntegrationEventOutbox>(sp =>
+        {
+            var dbContext = sp.GetRequiredService<TDbContext>();
+            return new IntegrationEventOutbox(dbContext);
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    /// The bus alone: everything <see cref="AddMessaging{TDbContext}"/> configures — RabbitMQ transport, TLS, retries,
+    /// delayed redelivery, circuit breaker, per-service endpoint naming, host options and the RabbitMQ health check —
+    /// except the EF integration event outbox.
+    ///
+    /// <para>For a service with no <c>DbContext</c>. Basket, which is Redis-only, kept a hand-written copy of this block
+    /// for that reason; it matched option for option and could only drift (Basket audit S11, debt 5).</para>
+    /// </summary>
+    /// <returns>
+    /// Whether a bus was configured. False when RabbitMQ is not configured and <paramref name="isDevelopment"/> is true;
+    /// outside Development and Testing a missing configuration throws instead.
+    /// </returns>
+    public static bool AddEShopBus(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string serviceName,
+        bool isDevelopment,
+        Action<IBusRegistrationConfigurator>? configureConsumers = null)
+    {
         // Checked before the no-broker early return, so a missing name fails in every environment
         // rather than only where RabbitMQ is configured.
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
@@ -55,14 +87,7 @@ public static class MassTransitServiceCollectionExtensions
                     "This is required in non-Development environments.");
             }
 
-            // Register integration event outbox even without bus (events will queue until bus is available)
-            services.AddScoped<IIntegrationEventOutbox>(sp =>
-            {
-                var dbContext = sp.GetRequiredService<TDbContext>();
-                return new IntegrationEventOutbox(dbContext);
-            });
-
-            return services;
+            return false;
         }
 
         // R23: Warn if SSL is not enabled in non-development environments.
@@ -188,20 +213,13 @@ public static class MassTransitServiceCollectionExtensions
             options.StopTimeout = TimeSpan.FromSeconds(30);
         });
 
-        // Register integration event outbox
-        services.AddScoped<IIntegrationEventOutbox>(sp =>
-        {
-            var dbContext = sp.GetRequiredService<TDbContext>();
-            return new IntegrationEventOutbox(dbContext);
-        });
-
         // Register RabbitMQ health check
         services.AddHealthChecks()
             .AddCheck<RabbitMqHealthCheck>(
                 "rabbitmq",
                 tags: ["messaging", "ready"]);
 
-        return services;
+        return true;
     }
 
     /// <summary>
@@ -220,7 +238,8 @@ public static class MassTransitServiceCollectionExtensions
     /// </para>
     ///
     /// <para>
-    /// Public so Basket, which configures MassTransit itself, applies the same rule.
+    /// Applied by <see cref="AddEShopBus"/>, which every service's bus now goes through — Basket's included, since
+    /// Basket audit S11.
     /// </para>
     /// </summary>
     public static IEndpointNameFormatter CreateEndpointNameFormatter(string serviceName)

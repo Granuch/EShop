@@ -159,18 +159,17 @@ public static class BasketEndpoints
             var result = await mediator.Send(new CheckoutBasketCommand
             {
                 UserId = userId,
-                ShippingAddress = request.ShippingAddress,
-                PaymentMethod = request.PaymentMethod
+                ShippingAddress = request.ShippingAddress
             }, cancellationToken);
 
             return result.Match(
-                checkoutId => Results.Ok(new { checkoutId }),
+                checkoutId => Results.Ok(new CheckoutResponse(checkoutId)),
                 error => error is CheckoutRevalidationError revalidation
                     ? new RevalidationProblemResult(revalidation)
                     : Problem(error));
         })
         .WithName("CheckoutBasket")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<CheckoutResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -206,16 +205,25 @@ public static class BasketEndpoints
     }
 }
 
-public record AddItemToBasketRequest(
-    Guid ProductId,
-    int Quantity,
-    string? ProductName = null,
-    decimal? Price = null);
+/// <summary>
+/// The product and how many. Every item is priced and named from Catalog (Basket audit S11, L2): the optional
+/// <c>productName</c> and <c>price</c> this used to accept were ignored, while the OpenAPI document advertised
+/// client-side pricing. A client that still sends them is not refused — unknown fields are ignored.
+/// </summary>
+public record AddItemToBasketRequest(Guid ProductId, int Quantity);
 
 public record UpdateBasketItemQuantityRequest(int Quantity);
 
 /// <summary>
 /// <c>shippingAddress</c> is an object — street, city, state, zipCode, country (ISO alpha-2). It was a
 /// single free-text string until Ordering audit C2; a body that still sends a string fails to bind (400).
+/// There is no <c>paymentMethod</c> (Basket audit S11, D11); one still sent is ignored.
 /// </summary>
-public record CheckoutBasketRequest(CheckoutAddress? ShippingAddress, string PaymentMethod);
+public record CheckoutBasketRequest(CheckoutAddress? ShippingAddress);
+
+/// <summary>
+/// What a successful checkout returns (Basket audit S11, L3; it was declared as <c>object</c>, so the OpenAPI document
+/// had no schema for it). <c>CheckoutId</c> is the checkout event's id, the MassTransit <c>MessageId</c> Ordering
+/// deduplicates on (D3); a repeat of a completed checkout returns the same one (D2).
+/// </summary>
+public record CheckoutResponse(Guid CheckoutId);

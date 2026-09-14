@@ -15,7 +15,6 @@ public record BasketCheckedOutDomainEvent : IDomainEvent
     public IReadOnlyCollection<BasketCheckedOutDomainEventItem> Items { get; init; } = [];
     public decimal TotalPrice { get; init; }
     public ShippingAddress ShippingAddress { get; init; } = null!;
-    public string PaymentMethod { get; init; } = string.Empty;
 }
 
 public record BasketCheckedOutDomainEventItem

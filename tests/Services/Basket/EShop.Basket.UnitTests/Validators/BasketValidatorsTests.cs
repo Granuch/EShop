@@ -134,8 +134,7 @@ public class BasketValidatorsTests
             State = "IL",
             ZipCode = "62701",
             Country = "US"
-        },
-        PaymentMethod = "Card"
+        }
     };
 
     [Test]
@@ -191,13 +190,6 @@ public class BasketValidatorsTests
         };
 
         Assert.That(_checkoutValidator.TestValidate(ValidCheckout(address)).IsValid, Is.False);
-    }
-
-    [Test]
-    public void Checkout_TooLongPaymentMethod_ShouldHaveError()
-    {
-        _checkoutValidator.TestValidate(ValidCheckout() with { PaymentMethod = new string('p', 101) })
-            .ShouldHaveValidationErrorFor(x => x.PaymentMethod);
     }
 
     [Test]

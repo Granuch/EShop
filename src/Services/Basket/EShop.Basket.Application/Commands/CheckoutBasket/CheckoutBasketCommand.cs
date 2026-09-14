@@ -22,7 +22,7 @@ public record CheckoutBasketCommand : IRequest<Result<Guid>>
     [SensitiveData]
     public CheckoutAddress? ShippingAddress { get; init; }
 
-    public string PaymentMethod { get; init; } = string.Empty;
+    // No PaymentMethod (Basket audit S11, D11): it was required free text that nothing downstream read.
 }
 
 /// <summary>

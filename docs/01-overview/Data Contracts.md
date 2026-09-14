@@ -284,8 +284,9 @@ Base path: `/api/v1/basket` (all operations are scoped by `{userId}`)
 
 | Field | Type | Required |
 |---|---|---|
-| ShippingAddress | string | yes |
-| PaymentMethod | string | yes |
+| ShippingAddress | object: street, city, state, zipCode, country (ISO alpha-2) | yes |
+
+Response: `200 { "checkoutId": "<guid>" }`. There is no `PaymentMethod` any more; one still sent is ignored.
 
 Other endpoints: `DELETE /api/v1/basket/{userId}/items/{productId}` (remove line item),
 `DELETE /api/v1/basket/{userId}` (clear basket).

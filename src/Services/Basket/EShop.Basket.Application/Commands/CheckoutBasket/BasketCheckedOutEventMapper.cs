@@ -1,3 +1,4 @@
+using EShop.Basket.Domain.Entities;
 using EShop.Basket.Domain.Events;
 using EShop.BuildingBlocks.Messaging.Events;
 
@@ -43,7 +44,8 @@ public static class BasketCheckedOutEventMapper
                 Country = domainEvent.ShippingAddress.Country
             },
             ShippingAddress = domainEvent.ShippingAddress.ToString(),
-            PaymentMethod = domainEvent.PaymentMethod,
+            // Debt 7 (S11): stated, not implied. Ordering refuses a checkout in any other currency.
+            Currency = ShoppingBasket.Currency,
             CorrelationId = correlationId
         };
     }

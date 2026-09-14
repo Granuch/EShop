@@ -13,6 +13,7 @@ using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using MassTransit;
@@ -58,6 +59,9 @@ public static class ServiceCollectionExtensions
             options.KeepAlive = 60;
             options.ReconnectRetryPolicy = new LinearRetry(5000);
 
+            // Synchronous, once, on first resolve (Basket audit L8 — reviewed, kept). With AbortOnConnectFail=false it
+            // returns after the first attempt (at most ConnectTimeout) whether or not Redis answered, and keeps
+            // reconnecting in the background, so Redis being down makes requests answer 503 rather than the host fail.
             return ConnectionMultiplexer.Connect(options);
         });
 
@@ -82,113 +86,21 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        var settings = configuration.GetSection(RabbitMqSettings.SectionName).Get<RabbitMqSettings>();
-        services.Configure<RabbitMqSettings>(configuration.GetSection(RabbitMqSettings.SectionName));
+        // Basket audit S11 (debt 5): the shared bus, the one every AddMessaging service gets — transport, retries, circuit
+        // breaker, the "basket" queue prefix, host options and the RabbitMQ health check. Basket has no DbContext, so it
+        // takes the bus without the EF outbox; its own outbox is the Redis one below. A hand-written copy of that block
+        // stood here, identical option for option, and could only drift.
+        var busConfigured = services.AddEShopBus(
+            configuration,
+            "basket",
+            isDevelopment,
+            bus => bus.AddConsumer<ProductPriceChangedConsumer>());
 
-        if (settings == null || !settings.IsValid)
+        if (!busConfigured)
         {
-            if (!isDevelopment)
-            {
-                throw new InvalidOperationException(
-                    $"RabbitMQ configuration is invalid or missing in {RabbitMqSettings.SectionName} section.");
-            }
-
             services.AddHostedService<OutboxNotDrainedWarning>();
             return services;
         }
-
-        services.AddMassTransit(bus =>
-        {
-            bus.AddConsumer<ProductPriceChangedConsumer>();
-            // Same rule as every AddMessaging service: queues carry the service name, or a same-named
-            // consumer elsewhere would share this queue and split its messages.
-            bus.SetEndpointNameFormatter(
-                EShop.BuildingBlocks.Infrastructure.Extensions.MassTransitServiceCollectionExtensions
-                    .CreateEndpointNameFormatter("basket"));
-
-            bus.UsingRabbitMq((context, cfg) =>
-            {
-                cfg.Host(settings.Host, (ushort)settings.Port, settings.VirtualHost, h =>
-                {
-                    h.Username(settings.Username);
-                    h.Password(settings.Password);
-                    h.PublisherConfirmation = true;
-                    h.Heartbeat(TimeSpan.FromSeconds(settings.HeartbeatIntervalSeconds));
-
-                    if (settings.UseSsl)
-                    {
-                        h.UseSsl(ssl =>
-                        {
-                            ssl.Protocol = System.Security.Authentication.SslProtocols.Tls12
-                                           | System.Security.Authentication.SslProtocols.Tls13;
-                        });
-                    }
-
-                    if (settings.ClusterNodes.Length > 0)
-                    {
-                        h.UseCluster(c =>
-                        {
-                            foreach (var node in settings.ClusterNodes)
-                            {
-                                c.Node(node);
-                            }
-                        });
-                    }
-                });
-
-                cfg.Durable = true;
-                cfg.PrefetchCount = settings.PrefetchCount;
-                cfg.ConcurrentMessageLimit = settings.ConcurrencyLimit;
-
-                if (settings.UseDelayedRedelivery
-                    && settings.UseDelayedExchangePlugin
-                    && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
-                {
-                    cfg.UseDelayedRedelivery(r =>
-                    {
-                        r.Intervals(settings.DelayedRedeliveryIntervalsMinutes
-                            .Select(m => TimeSpan.FromMinutes(m))
-                            .ToArray());
-
-                        r.Ignore<ArgumentException>();
-                        r.Ignore<FormatException>();
-                        r.Ignore<NotSupportedException>();
-                    });
-                }
-
-                cfg.UseMessageRetry(r =>
-                {
-                    r.Incremental(
-                        settings.RetryCount,
-                        TimeSpan.FromSeconds(settings.RetryIntervalSeconds),
-                        TimeSpan.FromSeconds(settings.RetryIncrementSeconds));
-
-                    r.Ignore<ArgumentException>();
-                    r.Ignore<FormatException>();
-                    r.Ignore<NotSupportedException>();
-                });
-
-                cfg.UseCircuitBreaker(cb =>
-                {
-                    cb.TrackingPeriod = TimeSpan.FromMinutes(1);
-                    cb.TripThreshold = settings.CircuitBreakerThreshold;
-                    cb.ActiveThreshold = settings.CircuitBreakerActiveThreshold;
-                    cb.ResetInterval = TimeSpan.FromSeconds(settings.CircuitBreakerDurationSeconds);
-                });
-
-                cfg.ConfigureEndpoints(context);
-            });
-        });
-
-        services.Configure<MassTransitHostOptions>(options =>
-        {
-            options.WaitUntilStarted = settings.WaitUntilStarted;
-            options.StartTimeout = TimeSpan.FromSeconds(Math.Max(5, settings.StartTimeoutSeconds));
-            options.StopTimeout = TimeSpan.FromSeconds(30);
-        });
-
-        services.AddHealthChecks()
-            .AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["messaging", "ready"]);
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<BasketOutboxOptions>();
