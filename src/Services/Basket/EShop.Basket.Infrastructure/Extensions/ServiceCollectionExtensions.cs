@@ -70,6 +70,8 @@ public static class ServiceCollectionExtensions
         // The admin replay endpoint needs it whether or not messaging is configured (Basket audit S7, D7).
         services.AddSingleton<BasketOutboxDeadLetters>();
         services.AddSingleton<RedisMessageIdempotencyStore>();
+        // Price sync's record of the newest price change per product, so an older event cannot undo it (Basket audit M10).
+        services.AddSingleton<PriceChangeWatermark>();
 
         // No CachingBehavior: Basket reads its baskets straight from Redis (Basket audit S5, D5).
         return services;

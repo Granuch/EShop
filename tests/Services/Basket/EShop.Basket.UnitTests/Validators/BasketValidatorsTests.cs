@@ -4,6 +4,7 @@ using EShop.Basket.Application.Commands.ClearBasket;
 using EShop.Basket.Application.Commands.RemoveBasketItem;
 using EShop.Basket.Application.Commands.UpdateBasketItemQuantity;
 using EShop.Basket.Application.Queries.GetBasket;
+using EShop.Basket.Domain.Entities;
 using FluentValidation.TestHelper;
 
 namespace EShop.Basket.UnitTests.Validators;
@@ -59,6 +60,29 @@ public class BasketValidatorsTests
         result.ShouldHaveValidationErrorFor(x => x.UserId);
         result.ShouldHaveValidationErrorFor(x => x.ProductId);
         result.ShouldHaveValidationErrorFor(x => x.Quantity);
+    }
+
+    /// <summary>Basket audit S9 (M2): quantity has an upper bound, in the validator as in the domain.</summary>
+    [Test]
+    public void AddItem_QuantityAboveTheLineLimit_ShouldHaveError()
+    {
+        var command = new AddItemToBasketCommand { UserId = "user-1", ProductId = Guid.NewGuid() };
+
+        _addItemValidator.TestValidate(command with { Quantity = ShoppingBasket.MaxQuantityPerLine })
+            .ShouldNotHaveAnyValidationErrors();
+        _addItemValidator.TestValidate(command with { Quantity = ShoppingBasket.MaxQuantityPerLine + 1 })
+            .ShouldHaveValidationErrorFor(x => x.Quantity);
+    }
+
+    [Test]
+    public void UpdateQuantity_QuantityAboveTheLineLimit_ShouldHaveError()
+    {
+        var command = new UpdateBasketItemQuantityCommand { UserId = "user-1", ProductId = Guid.NewGuid() };
+
+        _updateQuantityValidator.TestValidate(command with { Quantity = ShoppingBasket.MaxQuantityPerLine })
+            .ShouldNotHaveAnyValidationErrors();
+        _updateQuantityValidator.TestValidate(command with { Quantity = ShoppingBasket.MaxQuantityPerLine + 1 })
+            .ShouldHaveValidationErrorFor(x => x.Quantity);
     }
 
     [Test]

@@ -14,32 +14,49 @@ namespace EShop.Basket.IntegrationTests.Fixtures;
 /// <para>Armed per call: <see cref="AfterNextRead"/> makes the <i>next</i> read of that user's basket return the basket
 /// as read, after first storing a fresh copy with the concurrent change applied. The caller then holds a basket whose
 /// stored state has already moved on — what a second tab, a price sync or a checkout produces mid-write. Every later
-/// read passes straight through, which is what a retry on a fresh read relies on.</para>
+/// read passes straight through, which is what a retry on a fresh read relies on. <see cref="RunAfterNextRead"/> runs
+/// any write there instead, such as a whole second price sync (S9).</para>
 /// </summary>
 public sealed class InterleavedWriteApiFactory : BasketApiFactory
 {
     private readonly object _gate = new();
-    private (string UserId, Action<ShoppingBasket> Change)? _pending;
+    private (string UserId, Func<IBasketRepository, Task> Write)? _pending;
 
     public void AfterNextRead(string userId, Action<ShoppingBasket> concurrentChange)
-    {
-        lock (_gate)
+        => Arm(userId, async repository =>
         {
-            _pending = (userId, concurrentChange);
-        }
-    }
+            var concurrent = await repository.GetBasketAsync(userId) ?? ShoppingBasket.Create(userId);
+            concurrentChange(concurrent);
+
+            if (!await repository.TrySaveBasketAsync(concurrent))
+            {
+                throw new InvalidOperationException("The interleaved write itself lost a race; the test is not deterministic.");
+            }
+        });
+
+    /// <summary>Runs <paramref name="concurrentWrite"/> to completion right after the next read of the user's basket.</summary>
+    public void RunAfterNextRead(string userId, Func<Task> concurrentWrite)
+        => Arm(userId, _ => concurrentWrite());
 
     public void AddToBasketAfterNextRead(string userId, Guid productId)
         => AfterNextRead(userId, basket => basket.AddItem(productId, "Added concurrently", 1m, 1));
 
-    private Action<ShoppingBasket>? TakePending(string userId)
+    private void Arm(string userId, Func<IBasketRepository, Task> write)
+    {
+        lock (_gate)
+        {
+            _pending = (userId, write);
+        }
+    }
+
+    private Func<IBasketRepository, Task>? TakePending(string userId)
     {
         lock (_gate)
         {
             if (_pending is { } pending && pending.UserId == userId)
             {
                 _pending = null;
-                return pending.Change;
+                return pending.Write;
             }
 
             return null;
@@ -64,15 +81,9 @@ public sealed class InterleavedWriteApiFactory : BasketApiFactory
         {
             var basket = await inner.GetBasketAsync(userId, cancellationToken);
 
-            if (factory.TakePending(userId) is { } change)
+            if (factory.TakePending(userId) is { } write)
             {
-                var concurrent = await inner.GetBasketAsync(userId, cancellationToken) ?? ShoppingBasket.Create(userId);
-                change(concurrent);
-
-                if (!await inner.TrySaveBasketAsync(concurrent, cancellationToken))
-                {
-                    throw new InvalidOperationException("The interleaved write itself lost a race; the test is not deterministic.");
-                }
+                await write(inner);
             }
 
             return basket;

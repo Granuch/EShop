@@ -1,3 +1,4 @@
+using EShop.Basket.Domain.Entities;
 using FluentValidation;
 
 namespace EShop.Basket.Application.Commands.UpdateBasketItemQuantity;
@@ -12,7 +13,10 @@ public class UpdateBasketItemQuantityCommandValidator : AbstractValidator<Update
         RuleFor(x => x.ProductId)
             .NotEmpty().WithMessage("Product ID is required");
 
+        // Basket audit S9 (M2): the same per-line limit the domain enforces.
         RuleFor(x => x.Quantity)
-            .GreaterThanOrEqualTo(0).WithMessage("Quantity must be greater than or equal to zero");
+            .GreaterThanOrEqualTo(0).WithMessage("Quantity must be greater than or equal to zero")
+            .LessThanOrEqualTo(ShoppingBasket.MaxQuantityPerLine)
+            .WithMessage($"Quantity cannot exceed {ShoppingBasket.MaxQuantityPerLine}");
     }
 }

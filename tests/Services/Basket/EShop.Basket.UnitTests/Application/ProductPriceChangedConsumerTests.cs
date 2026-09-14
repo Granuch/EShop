@@ -2,11 +2,13 @@ using EShop.Basket.Application.Abstractions;
 using EShop.Basket.Application.Common;
 using EShop.Basket.Domain.Entities;
 using EShop.Basket.Domain.Interfaces;
+using EShop.Basket.Infrastructure.Configuration;
 using EShop.Basket.Infrastructure.Consumers;
 using EShop.Basket.Infrastructure.Idempotency;
 using EShop.BuildingBlocks.Messaging.Events;
 using MassTransit;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using StackExchange.Redis;
 
@@ -19,6 +21,7 @@ public class ProductPriceChangedConsumerTests
 
     private Mock<IBasketRepository> _repository = null!;
     private Mock<RedisMessageIdempotencyStore> _idempotency = null!;
+    private Mock<PriceChangeWatermark> _watermark = null!;
     private Mock<IBasketMetrics> _metrics = null!;
     private ProductPriceChangedConsumer _consumer = null!;
 
@@ -42,11 +45,17 @@ public class ProductPriceChangedConsumerTests
         _idempotency.Setup(x => x.TryMarkProcessedAsync(It.IsAny<Guid>(), TimeSpan.FromDays(7))).ReturnsAsync(true);
         _idempotency.Setup(x => x.CompleteProcessingAsync(It.IsAny<Guid>())).Returns(Task.CompletedTask);
 
+        _watermark = new Mock<PriceChangeWatermark>(
+            new Mock<IConnectionMultiplexer>().Object, Options.Create(new RedisBasketOptions())) { CallBase = false };
+        _watermark.Setup(x => x.TryAdvanceAsync(ProductId, It.IsAny<DateTime>())).ReturnsAsync(true);
+        _watermark.Setup(x => x.IsSupersededAsync(ProductId, It.IsAny<DateTime>())).ReturnsAsync(false);
+
         _metrics = new Mock<IBasketMetrics>();
 
         _consumer = new ProductPriceChangedConsumer(
             _repository.Object,
             _idempotency.Object,
+            _watermark.Object,
             Mock.Of<ILogger<ProductPriceChangedConsumer>>(),
             _metrics.Object);
     }
@@ -186,5 +195,112 @@ public class ProductPriceChangedConsumerTests
 
         _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Never);
         _idempotency.Verify(x => x.TryMarkProcessedAsync(It.IsAny<Guid>(), TimeSpan.FromDays(7)), Times.Once);
+    }
+
+    /// <summary>Basket audit S9 (M10): a change older than one already applied touches no basket.</summary>
+    [Test]
+    public async Task AChangeOlderThanOneAlreadyApplied_TouchesNoBasket_AndIsMarkedProcessed()
+    {
+        _watermark.Setup(x => x.TryAdvanceAsync(ProductId, It.IsAny<DateTime>())).ReturnsAsync(false);
+        BasketIs(BasketWithProductAt(10m));
+
+        await _consumer.Consume(Context(15m));
+
+        _repository.Verify(x => x.GetUsersContainingProductAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Never);
+        _idempotency.Verify(x => x.TryMarkProcessedAsync(It.IsAny<Guid>(), TimeSpan.FromDays(7)), Times.Once,
+            "a redelivery of it would be just as stale");
+    }
+
+    /// <summary>Basket audit S9 (M10): a newer change recorded after this one started is not overwritten.</summary>
+    [Test]
+    public async Task ABasketANewerChangeReachedMeanwhile_IsNotRewritten()
+    {
+        _watermark.Setup(x => x.IsSupersededAsync(ProductId, It.IsAny<DateTime>())).ReturnsAsync(true);
+        BasketIs(BasketWithProductAt(10m));
+
+        await _consumer.Consume(Context(15m));
+
+        _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Never);
+        _idempotency.Verify(x => x.TryMarkProcessedAsync(It.IsAny<Guid>(), TimeSpan.FromDays(7)), Times.Once);
+    }
+
+    private void UsersAre(params string[] userIds)
+        => _repository
+            .Setup(x => x.GetUsersContainingProductAsync(ProductId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(userIds);
+
+    /// <summary>
+    /// Basket audit S9 (M9): every basket read waits until all three have started, which only a concurrent fan-out can
+    /// satisfy. The old sequential loop waits on the first read for ever, so the wait is bounded rather than awaited.
+    /// </summary>
+    [Test]
+    public async Task TheFanOut_RepricesSeveralBasketsAtOnce()
+    {
+        string[] users = ["user-1", "user-2", "user-3"];
+        UsersAre(users);
+        var started = 0;
+        var allStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<ShoppingBasket?> ReadOnceAllHaveStarted(string userId)
+        {
+            if (Interlocked.Increment(ref started) == users.Length)
+            {
+                allStarted.TrySetResult();
+            }
+
+            await allStarted.Task;
+            var basket = ShoppingBasket.Create(userId);
+            basket.AddItem(ProductId, "Product", 10m, 1);
+            return basket;
+        }
+
+        _repository
+            .Setup(x => x.GetBasketAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns((string userId, CancellationToken _) => ReadOnceAllHaveStarted(userId));
+
+        var consuming = _consumer.Consume(Context(15m));
+        var first = await Task.WhenAny(consuming, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.That(first, Is.SameAs(consuming), "the baskets were re-priced one after another");
+        await consuming;
+        _repository.Verify(x => x.TrySaveBasketAsync(It.IsAny<ShoppingBasket>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
+    }
+
+    [Test]
+    public async Task TheFanOut_RepricesAtMostMaxConcurrentBasketsAtOnce()
+    {
+        UsersAre(Enumerable.Range(0, ProductPriceChangedConsumer.MaxConcurrentBaskets * 3).Select(i => $"user-{i}").ToArray());
+        var inFlight = 0;
+        var mostInFlight = 0;
+
+        async Task<ShoppingBasket?> SlowRead(string userId)
+        {
+            var now = Interlocked.Increment(ref inFlight);
+            InterlockedMax(ref mostInFlight, now);
+            await Task.Delay(20);
+            Interlocked.Decrement(ref inFlight);
+
+            var basket = ShoppingBasket.Create(userId);
+            basket.AddItem(ProductId, "Product", 10m, 1);
+            return basket;
+        }
+
+        _repository
+            .Setup(x => x.GetBasketAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns((string userId, CancellationToken _) => SlowRead(userId));
+
+        await _consumer.Consume(Context(15m));
+
+        Assert.That(mostInFlight, Is.InRange(2, ProductPriceChangedConsumer.MaxConcurrentBaskets));
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int current;
+        while ((current = Volatile.Read(ref target)) < value
+               && Interlocked.CompareExchange(ref target, value, current) != current)
+        {
+        }
     }
 }

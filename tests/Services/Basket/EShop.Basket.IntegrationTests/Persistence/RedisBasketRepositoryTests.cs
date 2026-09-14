@@ -119,6 +119,29 @@ public class RedisBasketRepositoryTests
             "deleting a basket that is already gone reports that nothing was deleted");
     }
 
+    /// <summary>
+    /// Basket audit L1 (S9): a line is identified by its product and keeps when it was added. Both were new values on
+    /// every read, so the same line had a different id and a different creation time each time it was loaded.
+    /// </summary>
+    [Test]
+    public async Task ALine_KeepsItsIdentityAndWhenItWasAdded_AcrossReads()
+    {
+        var userId = NewUser();
+        var mug = Guid.NewGuid();
+        var basket = ShoppingBasket.Create(userId);
+        basket.AddItem(mug, "Mug", 12.50m, 1);
+        var addedAt = basket.Items.Single().CreatedAt;
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
+
+        var first = (await WithRepository(repository => repository.GetBasketAsync(userId)))!.Items.Single();
+        var second = (await WithRepository(repository => repository.GetBasketAsync(userId)))!.Items.Single();
+
+        first.Id.Should().Be(mug);
+        second.Id.Should().Be(first.Id);
+        first.CreatedAt.Should().Be(addedAt);
+        second.CreatedAt.Should().Be(addedAt);
+    }
+
     /// <summary>Basket audit S4 (H3): a save of a basket that changed since it was read writes nothing.</summary>
     [Test]
     public async Task SavingABasketThatChangedSinceItWasRead_WritesNothing()

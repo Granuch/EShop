@@ -82,7 +82,7 @@ public class CheckoutBasketCommandHandlerTests
         "user-1",
         DateTime.UtcNow,
         DateTime.UtcNow,
-        Enumerable.Range(0, items).Select(_ => (Guid.NewGuid(), "Product", 10m, 1)).ToArray(),
+        Enumerable.Range(0, items).Select(_ => new StoredBasketItem(Guid.NewGuid(), "Product", 10m, 1)).ToArray(),
         concurrencyToken: "stored-state");
 
     private void BasketIs(ShoppingBasket? basket)
