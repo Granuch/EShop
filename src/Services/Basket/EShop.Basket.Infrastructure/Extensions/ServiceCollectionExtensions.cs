@@ -33,7 +33,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
         services.Configure<RedisBasketOptions>(configuration.GetSection(RedisBasketOptions.SectionName));
-        services.Configure<CatalogServiceOptions>(configuration.GetSection(CatalogServiceOptions.SectionName));
+        // Catalog is where every added item gets its name and price. ValidateOnStart so a deployment
+        // without CatalogService:BaseUrl fails to boot rather than failing every add-to-basket with a
+        // 400; the tracked appsettings.json deliberately carries no URL to fall back on (Basket audit
+        // C1, D1 — its old localhost default pointed at Basket's own container).
+        services.AddOptions<CatalogServiceOptions>()
+            .Bind(configuration.GetSection(CatalogServiceOptions.SectionName))
+            .Validate(
+                o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out _),
+                $"{CatalogServiceOptions.SectionName}:BaseUrl must be an absolute URI.")
+            .ValidateOnStart();
 
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {

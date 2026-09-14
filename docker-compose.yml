@@ -439,6 +439,10 @@ services:
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
+
+      # Catalog: every item added to a basket is named and priced from it. Validated at startup, so a
+      # missing value stops basket-api from booting; without it every add-to-basket failed with a 400.
+      CatalogService__BaseUrl: http://catalog-api:8080/
     volumes:
       - basket-logs:/app/logs
     networks:

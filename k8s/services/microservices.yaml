@@ -292,6 +292,10 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
+        # Every item added to a basket is named and priced from Catalog. Validated at startup:
+        # without it the pod fails to boot rather than failing every add-to-basket.
+        - name: CatalogService__BaseUrl
+          value: "http://catalog-api:8080/"
         # Basket runs no migrations (Redis-only), so its startup budget is smaller than the
         # other services'. It still gets a startupProbe so the probe set is uniform.
         startupProbe:
