@@ -47,6 +47,25 @@ public class BasketItem : Entity<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Takes the product's current name and price, read from Catalog when the product is added again (Basket audit M1).
+    /// </summary>
+    public void Refresh(string productName, decimal price)
+    {
+        if (string.IsNullOrWhiteSpace(productName))
+            throw new DomainException("Product name is required.");
+
+        if (price < 0)
+            throw new DomainException("Price cannot be negative.");
+
+        if (productName == ProductName && price == Price)
+            return;
+
+        ProductName = productName;
+        Price = price;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void UpdatePrice(decimal newPrice)
     {
         if (newPrice < 0)

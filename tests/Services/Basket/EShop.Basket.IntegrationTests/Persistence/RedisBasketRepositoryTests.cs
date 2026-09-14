@@ -51,7 +51,7 @@ public class RedisBasketRepositoryTests
         basket.AddItem(mug, "Mug", 12.50m, 2);
         basket.AddItem(pen, "Pen", 0.99m, 10);
 
-        await WithRepository(repository => repository.SaveBasketAsync(basket));
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
         var read = await WithRepository(repository => repository.GetBasketAsync(userId));
 
         read.Should().NotBeNull();
@@ -70,7 +70,7 @@ public class RedisBasketRepositoryTests
         var basket = ShoppingBasket.Create(userId);
         basket.AddItem(Guid.NewGuid(), "Mug", 12.50m, 1);
 
-        await WithRepository(repository => repository.SaveBasketAsync(basket));
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
 
         var ttl = await Database.KeyTimeToLiveAsync($"basket:user:{userId}");
         ttl.Should().NotBeNull("a basket without a TTL would live in Redis forever");
@@ -86,13 +86,13 @@ public class RedisBasketRepositoryTests
         var basket = ShoppingBasket.Create(userId);
         basket.AddItem(kept, "Kept", 1m, 1);
         basket.AddItem(removed, "Removed", 1m, 1);
-        await WithRepository(repository => repository.SaveBasketAsync(basket));
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
 
         (await Database.SetContainsAsync(IndexKey(kept), userId)).Should().BeTrue();
         (await Database.SetContainsAsync(IndexKey(removed), userId)).Should().BeTrue();
 
         basket.RemoveItem(removed);
-        await WithRepository(repository => repository.SaveBasketAsync(basket));
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
 
         (await Database.SetContainsAsync(IndexKey(kept), userId)).Should().BeTrue();
         (await Database.SetContainsAsync(IndexKey(removed), userId)).Should().BeFalse(
@@ -108,7 +108,7 @@ public class RedisBasketRepositoryTests
         var product = Guid.NewGuid();
         var basket = ShoppingBasket.Create(userId);
         basket.AddItem(product, "Mug", 12.50m, 1);
-        await WithRepository(repository => repository.SaveBasketAsync(basket));
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
 
         (await WithRepository(repository => repository.DeleteBasketAsync(userId))).Should().BeTrue();
 
@@ -117,5 +117,29 @@ public class RedisBasketRepositoryTests
         (await Database.SetContainsAsync(IndexKey(product), userId)).Should().BeFalse();
         (await WithRepository(repository => repository.DeleteBasketAsync(userId))).Should().BeFalse(
             "deleting a basket that is already gone reports that nothing was deleted");
+    }
+
+    /// <summary>Basket audit S4 (H3): a save of a basket that changed since it was read writes nothing.</summary>
+    [Test]
+    public async Task SavingABasketThatChangedSinceItWasRead_WritesNothing()
+    {
+        var userId = NewUser();
+        var basket = ShoppingBasket.Create(userId);
+        basket.AddItem(Guid.NewGuid(), "Mug", 12.50m, 1);
+        (await WithRepository(repository => repository.TrySaveBasketAsync(basket))).Should().BeTrue();
+
+        var first = await WithRepository(repository => repository.GetBasketAsync(userId));
+        var second = await WithRepository(repository => repository.GetBasketAsync(userId));
+        var addedFirst = Guid.NewGuid();
+        first!.AddItem(addedFirst, "First writer", 1m, 1);
+        second!.AddItem(Guid.NewGuid(), "Second writer", 1m, 1);
+
+        (await WithRepository(repository => repository.TrySaveBasketAsync(first))).Should().BeTrue();
+        (await WithRepository(repository => repository.TrySaveBasketAsync(second))).Should().BeFalse(
+            "the second writer read a basket that is no longer stored");
+
+        var stored = await WithRepository(repository => repository.GetBasketAsync(userId));
+        stored!.Items.Select(i => i.ProductName).Should().BeEquivalentTo(new[] { "Mug", "First writer" });
+        (await Database.SetContainsAsync(IndexKey(addedFirst), userId)).Should().BeTrue();
     }
 }

@@ -35,24 +35,27 @@ public class UpdateBasketItemQuantityCommandHandler : IRequestHandler<UpdateBask
 
         try
         {
-            var basket = await _basketRepository.GetBasketAsync(request.UserId, cancellationToken);
-            if (basket == null)
+            return await BasketWrites.RunAsync(async ct =>
             {
-                return Result<Unit>.Failure(BasketErrors.BasketNotFound);
-            }
+                var basket = await _basketRepository.GetBasketAsync(request.UserId, ct);
+                if (basket == null)
+                {
+                    return Result<Unit>.Failure(BasketErrors.BasketNotFound);
+                }
 
-            basket.UpdateItemQuantity(request.ProductId, request.Quantity);
+                basket.UpdateItemQuantity(request.ProductId, request.Quantity);
 
-            if (basket.Items.Count == 0)
-            {
-                await _basketRepository.DeleteBasketAsync(request.UserId, cancellationToken);
-            }
-            else
-            {
-                await _basketRepository.SaveBasketAsync(basket, cancellationToken);
-            }
+                var written = basket.Items.Count == 0
+                    ? await _basketRepository.TryDeleteBasketAsync(basket, ct)
+                    : await _basketRepository.TrySaveBasketAsync(basket, ct);
 
-            return Result<Unit>.Success(Unit.Value);
+                if (!written)
+                {
+                    return null;
+                }
+
+                return BasketWrites.Done;
+            }, cancellationToken);
         }
         catch (Exception ex)
         {

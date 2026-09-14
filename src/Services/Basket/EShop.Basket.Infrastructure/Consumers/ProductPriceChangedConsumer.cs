@@ -1,12 +1,24 @@
 using EShop.Basket.Application.Abstractions;
+using EShop.Basket.Application.Common;
 using EShop.Basket.Domain.Interfaces;
 using EShop.Basket.Infrastructure.Idempotency;
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Messaging.Events;
 using MassTransit;
+using MediatR;
 using Microsoft.Extensions.Logging;
 
 namespace EShop.Basket.Infrastructure.Consumers;
 
+/// <summary>
+/// Re-prices the baskets that hold a product whose price changed.
+///
+/// <para><b>Each basket is written like any other basket write (Basket audit S4).</b> The save is conditioned on what
+/// was read and retried on a fresh read if the customer changed the basket meanwhile, so an item they add during the
+/// sync is kept, and their own later edit cannot put the old price back. A user the reverse index lists but whose
+/// basket no longer holds the product — it expired, or the product was removed — is dropped from the index (M8), and a
+/// basket already at the new price is not rewritten.</para>
+/// </summary>
 public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrationEvent>
 {
     private readonly IBasketRepository _basketRepository;
@@ -59,14 +71,17 @@ public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrat
 
             foreach (var userId in userIds)
             {
-                var basket = await _basketRepository.GetBasketAsync(userId, context.CancellationToken);
-                if (basket == null)
-                {
-                    continue;
-                }
+                var outcome = await BasketWrites.RunAsync(
+                    ct => RepriceAsync(userId, message, ct),
+                    context.CancellationToken);
 
-                basket.ApplyPriceChange(message.ProductId, message.NewPrice);
-                await _basketRepository.SaveBasketAsync(basket, context.CancellationToken);
+                if (outcome.IsFailure)
+                {
+                    // Not marked processed, so the message is redelivered and the whole fan-out re-run; re-pricing a
+                    // basket that already has the new price writes nothing.
+                    throw new InvalidOperationException(
+                        $"The basket of user '{userId}' kept changing while ProductId={message.ProductId} was re-priced.");
+                }
             }
 
             await _idempotencyStore.TryMarkProcessedAsync(messageId, TimeSpan.FromDays(7));
@@ -89,5 +104,36 @@ public class ProductPriceChangedConsumer : IConsumer<ProductPriceChangedIntegrat
         {
             await _idempotencyStore.CompleteProcessingAsync(messageId);
         }
+    }
+
+    /// <summary>One attempt for one basket; <c>null</c> when its conditional write lost a race.</summary>
+    private async Task<Result<Unit>?> RepriceAsync(
+        string userId,
+        ProductPriceChangedIntegrationEvent message,
+        CancellationToken cancellationToken)
+    {
+        var basket = await _basketRepository.GetBasketAsync(userId, cancellationToken);
+
+        if (basket == null || basket.Items.All(item => item.ProductId != message.ProductId))
+        {
+            if (!await _basketRepository.TryRemoveFromProductIndexAsync(message.ProductId, userId, basket, cancellationToken))
+            {
+                return null;
+            }
+
+            return BasketWrites.Done;
+        }
+
+        if (!basket.ApplyPriceChange(message.ProductId, message.NewPrice))
+        {
+            return BasketWrites.Done;
+        }
+
+        if (!await _basketRepository.TrySaveBasketAsync(basket, cancellationToken))
+        {
+            return null;
+        }
+
+        return BasketWrites.Done;
     }
 }

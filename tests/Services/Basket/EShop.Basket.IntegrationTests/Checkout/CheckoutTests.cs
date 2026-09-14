@@ -153,7 +153,7 @@ public class CheckoutTests
     [Test]
     public async Task ABasketThatChangesWhileBeingCheckedOut_IsLeftExactlyAsItNowIs_AndNothingIsQueued()
     {
-        await using var factory = new MidCheckoutChangeApiFactory();
+        await using var factory = new InterleavedWriteApiFactory();
         var original = factory.Catalog.Add("Mug", 12.50m);
         var addedMeanwhile = Guid.NewGuid();
         var userId = NewUser();

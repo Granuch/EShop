@@ -128,7 +128,7 @@ public class RedisBasketRepositoryTests
             options,
             Mock.Of<ILogger<RedisBasketRepository>>());
 
-        await repository.SaveBasketAsync(basket, CancellationToken.None);
+        Assert.That(await repository.TrySaveBasketAsync(basket, CancellationToken.None), Is.True);
 
         transaction.Verify(
             x => x.KeyExpireAsync(It.IsAny<RedisKey>(), It.IsAny<TimeSpan?>(), It.IsAny<ExpireWhen>(), It.IsAny<CommandFlags>()),

@@ -23,6 +23,12 @@ public class ShoppingBasket : AggregateRoot<string>
     /// </summary>
     public string? ConcurrencyToken { get; private set; }
 
+    /// <summary>
+    /// Records the stored state this basket now matches, after a successful write, so a later conditional write of the
+    /// same object is judged against what it itself stored. Called by the repository.
+    /// </summary>
+    public void MarkStored(string concurrencyToken) => ConcurrencyToken = concurrencyToken;
+
     public decimal TotalPrice => _items.Sum(i => i.SubTotal);
     public int TotalItems => _items.Sum(i => i.Quantity);
 
@@ -82,6 +88,9 @@ public class ShoppingBasket : AggregateRoot<string>
         var existingItem = _items.FirstOrDefault(i => i.ProductId == productId);
         if (existingItem != null)
         {
+            // Basket audit M1: the caller has just read Catalog, so these are the product's current name and price.
+            // Keeping the stored ones meant a missed or late price event was never repaired by adding the product again.
+            existingItem.Refresh(productName, price);
             existingItem.UpdateQuantity(existingItem.Quantity + quantity);
         }
         else
@@ -126,14 +135,16 @@ public class ShoppingBasket : AggregateRoot<string>
         LastModifiedAt = DateTime.UtcNow;
     }
 
-    public void ApplyPriceChange(Guid productId, decimal newPrice)
+    /// <returns>Whether the basket changed: false if it does not hold the product or already has that price.</returns>
+    public bool ApplyPriceChange(Guid productId, decimal newPrice)
     {
         var existingItem = _items.FirstOrDefault(i => i.ProductId == productId);
-        if (existingItem == null)
-            return;
+        if (existingItem == null || existingItem.Price == newPrice)
+            return false;
 
         existingItem.UpdatePrice(newPrice);
         LastModifiedAt = DateTime.UtcNow;
+        return true;
     }
 
     public void Checkout(ValueObjects.ShippingAddress shippingAddress, string paymentMethod)

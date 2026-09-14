@@ -114,4 +114,32 @@ public class ShoppingBasketTests
         Assert.That(basket.Items, Has.Count.EqualTo(1));
         Assert.That(basket.Items.Single().ProductId, Is.EqualTo(productId));
     }
+
+    /// <summary>Basket audit M1: adding a product again takes the name and price Catalog just gave.</summary>
+    [Test]
+    public void AddItem_WhenProductAlreadyExists_TakesTheCurrentNameAndPrice()
+    {
+        var productId = Guid.NewGuid();
+        var basket = ShoppingBasket.Create("user-1");
+        basket.AddItem(productId, "Old name", 10m, 1);
+
+        basket.AddItem(productId, "New name", 8m, 2);
+
+        var item = basket.Items.Single();
+        Assert.That(item.ProductName, Is.EqualTo("New name"));
+        Assert.That(item.Price, Is.EqualTo(8m));
+        Assert.That(item.Quantity, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void ApplyPriceChange_ReportsWhetherTheBasketChanged()
+    {
+        var productId = Guid.NewGuid();
+        var basket = ShoppingBasket.Create("user-1");
+        basket.AddItem(productId, "Product", 10m, 1);
+
+        Assert.That(basket.ApplyPriceChange(productId, 12m), Is.True);
+        Assert.That(basket.ApplyPriceChange(productId, 12m), Is.False, "already at that price");
+        Assert.That(basket.ApplyPriceChange(Guid.NewGuid(), 12m), Is.False, "not in the basket");
+    }
 }

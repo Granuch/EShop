@@ -51,11 +51,12 @@ public static class BasketEndpoints
 
             return result.Match(
                 _ => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, ConflictOr(error, StatusCodes.Status400BadRequest)));
         })
         .WithName("AddItemToBasket")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPut("/{userId}/items/{productId:guid}", async (
             string userId,
@@ -79,7 +80,8 @@ public static class BasketEndpoints
         .WithName("UpdateBasketItemQuantity")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapDelete("/{userId}/items/{productId:guid}", async (
             string userId,
@@ -99,7 +101,8 @@ public static class BasketEndpoints
         .WithName("RemoveBasketItem")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapDelete("/{userId}", async (string userId, IMediator mediator) =>
         {
@@ -127,7 +130,7 @@ public static class BasketEndpoints
 
             return result.Match(
                 checkoutId => Results.Ok(new { checkoutId }),
-                error => ProblemResults.For(error, CheckoutFailureStatus(error)));
+                error => ProblemResults.For(error, ConflictOr(error, StatusCodes.Status400BadRequest)));
         })
         .WithName("CheckoutBasket")
         .Produces<object>(StatusCodes.Status200OK)
@@ -136,19 +139,25 @@ public static class BasketEndpoints
     }
 
     /// <summary>
-    /// Basket audit D2. Another checkout holding the lock, and the basket changing while it was checked out, both mean
-    /// "not now — look again and retry", not a malformed request, so they are 409s.
+    /// Basket audit D2 and S4. A basket that kept changing while a write was being saved, a basket that changed while
+    /// it was checked out, and another checkout holding the lock all mean "not now — look again and retry", not a
+    /// malformed request, so they are 409s.
     /// </summary>
-    private static int CheckoutFailureStatus(Error error)
-        => error.Code == BasketErrors.CheckoutConflict.Code || error.Code == BasketErrors.CheckoutAlreadyInProgress.Code
-            ? StatusCodes.Status409Conflict
-            : StatusCodes.Status400BadRequest;
+    private static bool IsConflict(string errorCode)
+        => errorCode == BasketErrors.ConcurrentUpdate.Code
+           || errorCode == BasketErrors.CheckoutConflict.Code
+           || errorCode == BasketErrors.CheckoutAlreadyInProgress.Code;
+
+    private static int ConflictOr(Error error, int otherwise)
+        => IsConflict(error.Code) ? StatusCodes.Status409Conflict : otherwise;
 
     private static IResult ProblemFromError(string errorCode, string errorMessage)
     {
-        var statusCode = errorCode.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
-            ? StatusCodes.Status404NotFound
-            : StatusCodes.Status400BadRequest;
+        var statusCode = IsConflict(errorCode)
+            ? StatusCodes.Status409Conflict
+            : errorCode.Contains("NotFound", StringComparison.OrdinalIgnoreCase)
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest;
 
         return ProblemResults.For(errorCode, errorMessage, statusCode);
     }

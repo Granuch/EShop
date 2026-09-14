@@ -21,6 +21,9 @@ public sealed class FakeProductCatalog : IProductCatalogReader
         return id;
     }
 
+    /// <summary>Changes what Catalog reports for an existing product, as a later edit in Catalog would.</summary>
+    public void Update(Guid id, string name, decimal price) => _products[id] = new ProductCatalogSnapshot(id, name, price);
+
     public Task<ProductCatalogSnapshot?> GetByIdAsync(Guid productId, CancellationToken cancellationToken = default)
     {
         if (IsUnavailable)

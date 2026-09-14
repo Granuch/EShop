@@ -54,15 +54,28 @@ public class AddItemToBasketCommandHandler : IRequestHandler<AddItemToBasketComm
                 return Result<Unit>.Failure(BasketErrors.ProductNotFound);
             }
 
-            var basket = await _basketRepository.GetBasketAsync(request.UserId, cancellationToken)
-                ?? ShoppingBasket.Create(request.UserId);
+            // Catalog is read once; only the basket is re-read if the conditional save loses a race (S4).
+            var result = await BasketWrites.RunAsync(async ct =>
+            {
+                var basket = await _basketRepository.GetBasketAsync(request.UserId, ct)
+                    ?? ShoppingBasket.Create(request.UserId);
 
-            basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity);
+                basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity);
 
-            await _basketRepository.SaveBasketAsync(basket, cancellationToken);
+                if (!await _basketRepository.TrySaveBasketAsync(basket, ct))
+                {
+                    return null;
+                }
 
-            _metrics.RecordItemAdded("api");
-            return Result<Unit>.Success(Unit.Value);
+                return BasketWrites.Done;
+            }, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                _metrics.RecordItemAdded("api");
+            }
+
+            return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
