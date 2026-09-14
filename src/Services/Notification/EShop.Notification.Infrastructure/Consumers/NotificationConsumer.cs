@@ -27,7 +27,11 @@ namespace EShop.Notification.Infrastructure.Consumers;
 ///   <see cref="NotificationDelivery.AttemptLease"/> means another delivery is sending right now:
 ///   <see cref="NotificationDeliveryInProgressException"/>, retried later. An older one is taken over — its process is
 ///   assumed dead, and if it died after its send, this is the one duplicate D2 accepts.</item>
-///   <item>A failure to resolve or send is recorded (<c>Failed</c>, counted, reason kept) and rethrown for retry.</item>
+///   <item>A recipient that cannot exist — Identity says 404 or 400, has no usable address, or the event has no
+///   UserId — ends the notification as <see cref="NotificationStatus.Undeliverable"/>, and the message is acknowledged
+///   (S3, D3): a permanent failure no longer spends 16 attempts and trips the circuit breaker. A failure a later attempt
+///   may cure (Identity or SMTP down, or Identity refusing the API key, which is logged as an error) is recorded
+///   (<c>Failed</c>, counted, reason kept) and rethrown for retry.</item>
 ///   <item>Once the send has succeeded nothing rethrows: a failure to record <c>Sent</c> is logged, because rethrowing
 ///   would redeliver an email the customer already has.</item>
 /// </list>
@@ -87,11 +91,15 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
         }))
         using (AmbientCorrelation.Begin(correlationId))
         {
-            await DeliverAsync(message, correlationId, context.CancellationToken);
+            await DeliverAsync(message, correlationId, context.GetRetryAttempt(), context.CancellationToken);
         }
     }
 
-    private async Task DeliverAsync(TEvent message, string? correlationId, CancellationToken cancellationToken)
+    private async Task DeliverAsync(
+        TEvent message,
+        string? correlationId,
+        int retryAttempt,
+        CancellationToken cancellationToken)
     {
         var log = await ClaimAsync(message, correlationId, cancellationToken);
         if (log is null)
@@ -105,30 +113,47 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
             var userId = UserIdOf(message);
             if (string.IsNullOrWhiteSpace(userId))
             {
-                // Retrying cannot help, so the message is acknowledged (it was PaymentFailedConsumer's rule alone; M2).
+                // A publisher defect; retrying cannot supply the id (M2, D3).
                 Logger.LogError(
                     "{EventType} {EventId} carries no UserId. The notification cannot be delivered and is not retried.",
                     typeof(TEvent).Name, message.EventId);
-                await RecordFailureAsync(log, "UserId is missing from the event; the notification cannot be delivered.");
+                await RecordUndeliverableAsync(log, "UserId is missing from the event.");
                 return;
             }
 
+            RecipientLookup lookup;
             try
             {
-                recipient = await _userContactResolver.ResolveAsync(userId, cancellationToken);
+                lookup = await _userContactResolver.ResolveAsync(userId, cancellationToken);
+            }
+            catch (UserContactUnavailableException ex) when (ex.IsConfigurationError)
+            {
+                Logger.LogError(ex,
+                    "Identity refused the contact lookup for EventId={EventId}. Every notification fails until "
+                    + "IdentityService:ApiKey is fixed; the message is retried (retry attempt {RetryAttempt}).",
+                    message.EventId, retryAttempt);
+                await RecordFailureAsync(log, ex.Message);
+                throw;
             }
             catch (Exception ex)
             {
+                Logger.LogWarning(ex,
+                    "The recipient of EventId={EventId} could not be looked up (retry attempt {RetryAttempt}).",
+                    message.EventId, retryAttempt);
                 await RecordFailureAsync(log, ReasonOf(ex));
                 throw;
             }
 
-            if (recipient is null)
+            if (lookup.Recipient is null)
             {
-                Logger.LogWarning("Recipient email resolution failed for UserId={UserId}", userId);
-                await RecordFailureAsync(log, "Recipient email could not be resolved.");
-                throw new InvalidOperationException("Recipient email could not be resolved.");
+                Logger.LogWarning(
+                    "The notification for EventId={EventId} cannot be delivered and is not retried: {Reason}",
+                    message.EventId, lookup.UndeliverableReason);
+                await RecordUndeliverableAsync(log, lookup.UndeliverableReason!);
+                return;
             }
+
+            recipient = lookup.Recipient;
         }
 
         log.RecordRecipient(recipient.Email);
@@ -139,7 +164,9 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "The {TemplateName} email for EventId={EventId} could not be sent.", TemplateName, message.EventId);
+            Logger.LogWarning(ex,
+                "The {TemplateName} email for EventId={EventId} could not be sent (retry attempt {RetryAttempt}).",
+                TemplateName, message.EventId, retryAttempt);
             await RecordFailureAsync(log, ReasonOf(ex));
             throw;
         }
@@ -181,9 +208,10 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
                       $"The NotificationLog for event {message.EventId} was neither inserted nor found.");
         }
 
-        if (log.Status == NotificationStatus.Sent)
+        if (log.IsFinal)
         {
-            Logger.LogInformation("The notification for EventId={EventId} was already sent. Skipping.", message.EventId);
+            Logger.LogInformation(
+                "The notification for EventId={EventId} is already {Status}. Skipping.", message.EventId, log.Status);
             return null;
         }
 
@@ -212,6 +240,20 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
         catch (Exception ex)
         {
             Logger.LogError(ex, "The failure of the notification for EventId={EventId} could not be recorded.", log.EventId);
+        }
+    }
+
+    /// <summary>Ends the notification for good (D3), in its own commit, and acknowledges the message.</summary>
+    private async Task RecordUndeliverableAsync(NotificationLog log, string reason)
+    {
+        try
+        {
+            log.MarkUndeliverable(reason);
+            await _logs.SaveAsync(log, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "The undeliverable outcome of EventId={EventId} could not be recorded.", log.EventId);
         }
     }
 

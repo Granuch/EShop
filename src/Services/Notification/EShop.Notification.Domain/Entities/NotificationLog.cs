@@ -102,12 +102,15 @@ public sealed class NotificationLog
            && AttemptStartedAt is { } started
            && now - started < lease;
 
-    /// <summary>Claims the notification for one delivery attempt. A sent notification is never attempted again.</summary>
+    /// <summary>Sent or undeliverable: nothing will ever be attempted again.</summary>
+    public bool IsFinal => Status is NotificationStatus.Sent or NotificationStatus.Undeliverable;
+
+    /// <summary>Claims the notification for one delivery attempt. A final notification is never attempted again.</summary>
     public void BeginAttempt(DateTime now)
     {
-        if (Status == NotificationStatus.Sent)
+        if (IsFinal)
         {
-            throw new InvalidOperationException($"The notification for event {EventId} was already sent.");
+            throw new InvalidOperationException($"The notification for event {EventId} is {Status}; it is not attempted again.");
         }
 
         Status = NotificationStatus.Sending;
@@ -148,14 +151,37 @@ public sealed class NotificationLog
             throw new ArgumentException("Failure reason is required.", nameof(error));
         }
 
-        if (Status == NotificationStatus.Sent)
+        if (IsFinal)
         {
-            throw new InvalidOperationException($"The notification for event {EventId} was already sent.");
+            throw new InvalidOperationException($"The notification for event {EventId} is {Status}; it cannot fail again.");
         }
 
         Status = NotificationStatus.Failed;
         RetryCount++;
         LastError = SanitizeError(error);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Ends the attempt for good (Notification audit D3): the recipient cannot exist or has no address, so no retry can
+    /// help. Not counted as a failed attempt. The reason is EShop's own wording and is stored as it is;
+    /// <see cref="SanitizeError"/> is for provider exception text.
+    /// </summary>
+    public void MarkUndeliverable(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("A reason is required.", nameof(reason));
+        }
+
+        if (Status != NotificationStatus.Sending)
+        {
+            throw new InvalidOperationException(
+                $"The notification for event {EventId} is {Status}; only an attempt in progress can end undeliverable.");
+        }
+
+        Status = NotificationStatus.Undeliverable;
+        LastError = reason.Trim();
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -204,5 +230,8 @@ public enum NotificationStatus
     Failed = 2,
 
     /// <summary>An attempt holds the claim (Notification audit D5).</summary>
-    Sending = 3
+    Sending = 3,
+
+    /// <summary>Final: the recipient cannot exist or has no address, so no retry can help (Notification audit D3).</summary>
+    Undeliverable = 4
 }

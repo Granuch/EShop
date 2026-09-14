@@ -13,6 +13,7 @@ using EShop.Notification.Infrastructure.Data;
 using EShop.Notification.Infrastructure.HealthChecks;
 using EShop.Notification.Infrastructure.Repositories;
 using EShop.Notification.Infrastructure.Services;
+using MassTransit;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -117,17 +118,23 @@ public static class ServiceCollectionExtensions
             configuration,
             "notification",
             isDevelopment,
-            bus =>
-            {
-                bus.AddConsumer<OrderCreatedConsumer>();
-                bus.AddConsumer<OrderShippedConsumer>();
-                bus.AddConsumer<PaymentCreatedConsumer>();
-                bus.AddConsumer<PaymentCompletedConsumer>();
-                bus.AddConsumer<PaymentFailedConsumer>();
-                bus.AddConsumer<PaymentRefundedConsumer>();
-                bus.AddConsumer<PasswordResetRequestedConsumer>();
-            });
+            bus => bus.AddNotificationConsumers());
 
         return services;
+    }
+
+    /// <summary>
+    /// The seven consumers, with the password-reset endpoint's definition (Notification audit D6). Public so the tests
+    /// register exactly what production does.
+    /// </summary>
+    public static void AddNotificationConsumers(this IBusRegistrationConfigurator bus)
+    {
+        bus.AddConsumer<OrderCreatedConsumer>();
+        bus.AddConsumer<OrderShippedConsumer>();
+        bus.AddConsumer<PaymentCreatedConsumer>();
+        bus.AddConsumer<PaymentCompletedConsumer>();
+        bus.AddConsumer<PaymentFailedConsumer>();
+        bus.AddConsumer<PaymentRefundedConsumer>();
+        bus.AddConsumer<PasswordResetRequestedConsumer, PasswordResetRequestedConsumerDefinition>();
     }
 }

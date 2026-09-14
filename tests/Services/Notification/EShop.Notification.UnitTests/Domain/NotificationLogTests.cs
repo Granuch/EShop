@@ -74,6 +74,30 @@ public class NotificationLogTests
         });
     }
 
+    /// <summary>S3 (D3).</summary>
+    [Test]
+    public void AnUndeliverableNotification_IsFinal_Uncounted_AndKeepsItsReasonAsWritten()
+    {
+        var log = Pending();
+        log.BeginAttempt(Now);
+        log.MarkUndeliverable("Identity has no such user (404).");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(log.IsFinal, Is.True);
+            Assert.That(log.RetryCount, Is.Zero);
+            Assert.That(log.LastError, Is.EqualTo("Identity has no such user (404)."), "not rewritten by SanitizeError");
+            Assert.Throws<InvalidOperationException>(() => log.BeginAttempt(Now));
+            Assert.Throws<InvalidOperationException>(() => log.MarkFailed("late failure"));
+        });
+    }
+
+    [Test]
+    public void OnlyAnAttemptInProgress_CanEndUndeliverable()
+    {
+        Assert.Throws<InvalidOperationException>(() => Pending().MarkUndeliverable("no such user"));
+    }
+
     private static NotificationLog Pending()
         => NotificationLog.CreatePending(Guid.NewGuid(), "Event", null, "user", "template", "subject");
 }

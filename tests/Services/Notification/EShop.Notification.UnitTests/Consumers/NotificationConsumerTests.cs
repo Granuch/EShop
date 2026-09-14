@@ -119,28 +119,48 @@ public class NotificationConsumerTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// S3 (M1, D3). A user Identity does not know used to be retried 16 times, calling Identity up to 48 times and
+    /// counting toward the circuit breaker. It is now recorded as final and acknowledged.
+    /// </summary>
     [Test]
-    public void PaymentFailedConsumer_WhenResolverReturnsNull_RecordsFailedAndThrows()
+    public void PaymentFailedConsumer_WhenIdentityHasNoSuchUser_RecordsUndeliverable_AndIsNotRetried()
     {
         var evt = new PaymentFailedEvent
         {
             EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "user-4", Reason = "Card declined", FailedAt = DateTime.UtcNow
         };
-        _resolver.Setup(x => x.ResolveAsync("user-4", It.IsAny<CancellationToken>())).ReturnsAsync((RecipientAddress?)null);
+        _resolver.Setup(x => x.ResolveAsync("user-4", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(RecipientLookup.Undeliverable("Identity has no such user (404)."));
 
-        Assert.ThrowsAsync<InvalidOperationException>(() => PaymentFailed().Consume(Delivery(evt)));
+        Assert.DoesNotThrowAsync(() => PaymentFailed().Consume(Delivery(evt)));
 
         _email.Verify(x => x.SendPaymentFailedAsync(
             It.IsAny<RecipientAddress>(), It.IsAny<PaymentFailedEmailModel>(), It.IsAny<CancellationToken>()), Times.Never);
         var log = _logs.Single();
         Assert.Multiple(() =>
         {
-            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Failed));
-            Assert.That(log.RetryCount, Is.EqualTo(1));
-            // SanitizeError rewrites the reason by keyword ("recipient"); S8 (L13) changes that.
-            Assert.That(log.LastError, Is.EqualTo("Email request validation failed."));
+            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Undeliverable));
+            Assert.That(log.RetryCount, Is.Zero);
+            Assert.That(log.LastError, Is.EqualTo("Identity has no such user (404)."));
             Assert.That(log.RecipientEmail, Is.Null);
         });
+    }
+
+    [Test]
+    public async Task AnUndeliverableNotification_IsNotAttemptedAgain()
+    {
+        var evt = new OrderCreatedEvent { EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "user-4", TotalAmount = 1m };
+        var undeliverable = NotificationLog.CreatePending(evt.EventId, "Event", null, "user-4", "template", "subject");
+        undeliverable.BeginAttempt(DateTime.UtcNow);
+        undeliverable.MarkUndeliverable("Identity has no such user (404).");
+        _logs.Seed(undeliverable);
+        ResolveAs("user-4", "user4@test.com");
+
+        await OrderCreated().Consume(Delivery(evt));
+
+        _resolver.Verify(x => x.ResolveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.That(_logs.Saves, Is.Empty);
     }
 
     /// <summary>
@@ -148,7 +168,7 @@ public class NotificationConsumerTests
     /// message; only PaymentFailedConsumer used to, and the other six retried it 16 times.
     /// </summary>
     [Test]
-    public void OrderCreatedConsumer_WithoutAUserId_RecordsFailed_AndIsNotRetried()
+    public void OrderCreatedConsumer_WithoutAUserId_RecordsUndeliverable_AndIsNotRetried()
     {
         var evt = new OrderCreatedEvent { EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "  ", TotalAmount = 1m };
 
@@ -160,13 +180,14 @@ public class NotificationConsumerTests
         var log = _logs.Single();
         Assert.Multiple(() =>
         {
-            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Failed));
-            Assert.That(log.RetryCount, Is.EqualTo(1));
+            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Undeliverable));
+            Assert.That(log.LastError, Is.EqualTo("UserId is missing from the event."));
+            Assert.That(log.RetryCount, Is.Zero);
         });
     }
 
     [Test]
-    public void PaymentFailedConsumer_WithoutAUserId_RecordsFailed_AndIsNotRetried()
+    public void PaymentFailedConsumer_WithoutAUserId_RecordsUndeliverable_AndIsNotRetried()
     {
         var evt = new PaymentFailedEvent
         {
@@ -176,23 +197,26 @@ public class NotificationConsumerTests
         Assert.DoesNotThrowAsync(() => PaymentFailed().Consume(Delivery(evt)));
 
         _resolver.Verify(x => x.ResolveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        Assert.That(_logs.Single().Status, Is.EqualTo(NotificationStatus.Failed));
+        Assert.That(_logs.Single().Status, Is.EqualTo(NotificationStatus.Undeliverable));
     }
 
-    [Test]
-    public void OrderCreatedConsumer_WhenTheResolverThrows_RecordsFailedAndRethrows()
+    [TestCase(false)]
+    [TestCase(true)]
+    public void OrderCreatedConsumer_WhenIdentityIsUnavailable_RecordsFailedAndRethrows(bool isConfigurationError)
     {
         var evt = new OrderCreatedEvent { EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "user-5", TotalAmount = 1m };
         _resolver.Setup(x => x.ResolveAsync("user-5", It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new HttpRequestException("Connection refused"));
+            .ThrowsAsync(new UserContactUnavailableException("Identity answered 503. Gave up after 3 attempts.", isConfigurationError));
 
-        Assert.ThrowsAsync<HttpRequestException>(() => OrderCreated().Consume(Delivery(evt)));
+        Assert.ThrowsAsync<UserContactUnavailableException>(() => OrderCreated().Consume(Delivery(evt)));
 
+        _email.Verify(x => x.SendOrderConfirmationAsync(
+            It.IsAny<RecipientAddress>(), It.IsAny<OrderConfirmationEmailModel>(), It.IsAny<CancellationToken>()), Times.Never);
         var log = _logs.Single();
         Assert.Multiple(() =>
         {
-            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Failed));
-            Assert.That(log.LastError, Is.EqualTo("Email provider connectivity error."));
+            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Failed), "a later attempt may succeed, so it is retried");
+            Assert.That(log.RetryCount, Is.EqualTo(1));
         });
     }
 
@@ -424,7 +448,7 @@ public class NotificationConsumerTests
 
     private void ResolveAs(string userId, string email, string? displayName = null)
         => _resolver.Setup(x => x.ResolveAsync(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new RecipientAddress(email, displayName));
+            .ReturnsAsync(RecipientLookup.Found(new RecipientAddress(email, displayName)));
 
     private OrderCreatedConsumer OrderCreated()
         => new(_logs, _email.Object, _resolver.Object, TimeProvider.System, Mock.Of<ILogger<OrderCreatedConsumer>>());

@@ -200,6 +200,30 @@ public class ConsumerDeliveryRecordTests
         });
     }
 
+    /// <summary>
+    /// S3 (M1, D3). A permanent failure is acknowledged instead of being retried into the error queue and the circuit
+    /// breaker, and it stays final: a later copy of the event sends nothing even once Identity would answer.
+    /// </summary>
+    [Test]
+    public async Task ARecipientIdentityDoesNotKnow_IsRecordedUndeliverable_AndNeverRetried()
+    {
+        var email = new CountingEmailService();
+        var refund = Refund();
+
+        Assert.DoesNotThrowAsync(() => ConsumeAsync(
+            refund, email, lookup: RecipientLookup.Undeliverable("Identity has no such user (404).")));
+        await ConsumeAsync(refund, email);
+
+        var log = await SingleLogAsync(refund.EventId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(email.Sends, Is.Zero);
+            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Undeliverable));
+            Assert.That(log.LastError, Is.EqualTo("Identity has no such user (404)."));
+            Assert.That(log.RetryCount, Is.Zero);
+        });
+    }
+
     private NotificationDbContext NewContext() => new(new DbContextOptionsBuilder<NotificationDbContext>()
         .UseNpgsql(_connectionString)
         .Options);
@@ -207,7 +231,8 @@ public class ConsumerDeliveryRecordTests
     private async Task ConsumeAsync(
         PaymentRefundedEvent message,
         IEmailService email,
-        Func<INotificationLogRepository, INotificationLogRepository>? decorate = null)
+        Func<INotificationLogRepository, INotificationLogRepository>? decorate = null,
+        RecipientLookup? lookup = null)
     {
         await using var db = NewContext();
         INotificationLogRepository repository = new NotificationLogRepository(db);
@@ -219,7 +244,7 @@ public class ConsumerDeliveryRecordTests
         var consumer = new PaymentRefundedConsumer(
             repository,
             email,
-            new FixedResolver(),
+            new FixedResolver(lookup ?? RecipientLookup.Found(new RecipientAddress("user@test.com", "User"))),
             Options.Create(new SmtpSettings { FromEmail = "support@eshop.local" }),
             TimeProvider.System,
             NullLogger<PaymentRefundedConsumer>.Instance);
@@ -277,10 +302,9 @@ public class ConsumerDeliveryRecordTests
         return context.Object;
     }
 
-    private sealed class FixedResolver : IUserContactResolver
+    private sealed class FixedResolver(RecipientLookup lookup) : IUserContactResolver
     {
-        public Task<RecipientAddress?> ResolveAsync(string userId, CancellationToken ct = default)
-            => Task.FromResult<RecipientAddress?>(new RecipientAddress("user@test.com", "User"));
+        public Task<RecipientLookup> ResolveAsync(string userId, CancellationToken ct = default) => Task.FromResult(lookup);
     }
 
     /// <summary>Fails the first save of a <c>Sent</c> log, as a dropped connection after the SMTP send would.</summary>

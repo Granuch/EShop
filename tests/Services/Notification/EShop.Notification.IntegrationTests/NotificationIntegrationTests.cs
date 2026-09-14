@@ -98,19 +98,10 @@ public class NotificationIntegrationTests
         }
     }
 
-    private sealed class StubUserResolver : IUserContactResolver
+    private sealed class StubUserResolver(RecipientAddress recipient) : IUserContactResolver
     {
-        private readonly RecipientAddress? _recipient;
-
-        public StubUserResolver(RecipientAddress? recipient)
-        {
-            _recipient = recipient;
-        }
-
-        public Task<RecipientAddress?> ResolveAsync(string userId, CancellationToken ct = default)
-        {
-            return Task.FromResult(_recipient);
-        }
+        public Task<RecipientLookup> ResolveAsync(string userId, CancellationToken ct = default)
+            => Task.FromResult(RecipientLookup.Found(recipient));
     }
 
     private sealed class StubEmailService : IEmailService
