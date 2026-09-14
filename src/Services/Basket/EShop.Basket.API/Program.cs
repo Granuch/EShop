@@ -50,6 +50,10 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
 var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
+// Basket audit S10 (M11): Redis must be configured, and outside Development and Testing no Redis or RabbitMQ setting may
+// still be a placeholder. Before the messaging registration below, which accepts any non-empty RabbitMQ values.
+BasketConfigurationGuard.Validate(builder.Configuration, builder.Environment);
+
 // The pipeline is Validation -> Logging -> handler, both registered by AddBasketApplication. Basket has
 // no TransactionBehavior (there is no database) and, since Basket audit S5 (D5), no caching behaviors:
 // GetBasketQuery was cached as a second Redis copy of a Redis document, which cost the same round trip
@@ -73,10 +77,9 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JWT settings are required.");
 
-if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey) || jwtSettings.SecretKey.Length < 32)
-{
-    throw new InvalidOperationException("JWT SecretKey must be configured and at least 32 characters long.");
-}
+// Basket audit S10 (M11): the shared guard. The hand-rolled check here tested length only, so the tracked Development
+// placeholder (CHANGE_ME_..., longer than 32 characters) would have booted Basket in Sandbox or Production.
+JwtSecretGuard.Validate(jwtSettings.SecretKey, builder.Environment);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -101,9 +104,10 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
-    options.AddPolicy("SameUserOrAdmin", policy => policy.Requirements.Add(new SameUserOrAdminRequirement()));
+    // The owner for everything, an admin for reads only (Basket audit S10, D10).
+    options.AddPolicy(OwnerOrAdminReadRequirement.PolicyName, policy => policy.Requirements.Add(new OwnerOrAdminReadRequirement()));
 });
-builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
+builder.Services.AddSingleton<IAuthorizationHandler, OwnerOrAdminReadHandler>();
 
 // Validated here rather than inside AddPolicy: CORS builds its policies lazily on first use,
 // so a throw in the lambda is a request-time 500 on a host that already reported healthy.
@@ -219,26 +223,17 @@ app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthC
     ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
+// Anonymous, so it names no environment and no routes (Basket audit S10, L10) — Payment's shape. The route map lives
+// in the OpenAPI document, which Production does not expose.
 app.MapGet("/", () => Results.Ok(new
 {
     service = "EShop Basket API",
     version = "1.0.0",
-    environment = app.Environment.EnvironmentName,
     endpoints = new
     {
-        health = "/health",
         healthReady = "/health/ready",
         healthLive = "/health/live",
-        metrics = new { prometheus = "/prometheus", otel = "/metrics" },
-        basket = new
-        {
-            get = "GET /api/v1/basket/{userId}",
-            addItem = "POST /api/v1/basket/{userId}/items",
-            updateItem = "PUT /api/v1/basket/{userId}/items/{productId}",
-            removeItem = "DELETE /api/v1/basket/{userId}/items/{productId}",
-            clear = "DELETE /api/v1/basket/{userId}",
-            checkout = "POST /api/v1/basket/{userId}/checkout"
-        }
+        metrics = new { prometheus = "/prometheus", otel = "/metrics" }
     }
 }));
 

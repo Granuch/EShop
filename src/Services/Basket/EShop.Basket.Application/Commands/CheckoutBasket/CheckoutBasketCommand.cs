@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 
 namespace EShop.Basket.Application.Commands.CheckoutBasket;
 
@@ -13,7 +14,12 @@ public record CheckoutBasketCommand : IRequest<Result<Guid>>
     /// <summary>
     /// Nullable so an explicit JSON <c>null</c> reaches the validator (a 400 naming the field)
     /// instead of failing model binding.
+    ///
+    /// <para><b>Personal data, so <c>[SensitiveData]</c> (Basket audit S10, M5).</b> <c>LoggingBehavior</c> logs the whole
+    /// command at Information level, and none of street, city or zip code matches its redaction list, so every checkout
+    /// wrote a home address to Seq and to log files kept for 30 days.</para>
     /// </summary>
+    [SensitiveData]
     public CheckoutAddress? ShippingAddress { get; init; }
 
     public string PaymentMethod { get; init; } = string.Empty;

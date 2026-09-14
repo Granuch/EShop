@@ -52,7 +52,9 @@ public static class BasketEndpoints
     {
         var group = app.MapGroup("/api/v1/basket")
             .WithTags("Basket")
-            .RequireAuthorization("SameUserOrAdmin");
+            // The owner for everything; an admin may only read (S10, D10). Decided by method, so a new write here is
+            // owner-only by default.
+            .RequireAuthorization(OwnerOrAdminReadRequirement.PolicyName);
 
         group.MapGet("/{userId}", async (string userId, IMediator mediator, CancellationToken cancellationToken) =>
         {
