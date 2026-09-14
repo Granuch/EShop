@@ -209,8 +209,9 @@ public sealed class EmailService : IEmailService
 
         var response = await smtpClient.SendAsync(message, ct);
 
-        // Notification audit S2 (H3, D2). The server has accepted the message. A failed QUIT used to reach the consumer as
-        // a failed send and redeliver an email the customer already had; it is only a connection being closed.
+        // Notification audit S2 (H3, D2). The server has accepted the message, so nothing after this may fail the send, or
+        // the consumer records it Failed and the redelivery sends it again. MailKit already ignores a failed QUIT (S5 found
+        // this: EmailServiceSmtpTests stays green without this catch); the catch covers whatever else it may not.
         try
         {
             await smtpClient.DisconnectAsync(true, CancellationToken.None);

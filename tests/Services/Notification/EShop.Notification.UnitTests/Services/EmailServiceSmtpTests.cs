@@ -44,6 +44,9 @@ public class EmailServiceSmtpTests
     /// <summary>
     /// Notification audit S2 (H3, D2): once the server has accepted the message, a connection that dies on QUIT must not
     /// turn the send into a failure, or the consumer records it Failed and the redelivery sends it again.
+    /// <para>What this pins is MailKit's behaviour, not <c>EmailService</c>'s own catch: S5 removed that catch and this
+    /// test stayed green, because <c>SmtpClient.DisconnectAsync(quit: true)</c> already ignores a failed QUIT. D2 relies
+    /// on that; a MailKit upgrade that changed it would turn this red.</para>
     /// </summary>
     [Test]
     public async Task AServerThatDropsTheConnectionOnQuit_DoesNotFailAnAcceptedSend()
