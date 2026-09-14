@@ -24,14 +24,9 @@ public sealed class PasswordResetRequestedConsumer : NotificationConsumer<Passwo
         : base(notificationLogRepository, userContactResolver, timeProvider, logger)
     {
         _emailService = emailService;
+        // PasswordReset:ResetUrlBase is checked once, at startup, by NotificationConfigurationGuard (Notification audit
+        // S4, D4, L6). This constructor used to apply a second, looser rule of its own.
         _passwordResetSettings = passwordResetSettings.Value;
-
-        if (string.IsNullOrWhiteSpace(_passwordResetSettings.ResetUrlBase)
-            || !Uri.TryCreate(_passwordResetSettings.ResetUrlBase, UriKind.Absolute, out var parsedResetUri)
-            || (parsedResetUri.Scheme != Uri.UriSchemeHttp && parsedResetUri.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute HTTP/HTTPS URL.");
-        }
     }
 
     protected override string TemplateName => "password-reset";

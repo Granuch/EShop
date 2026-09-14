@@ -9,8 +9,6 @@ using EShop.Notification.Infrastructure.Repositories;
 using EShop.Notification.IntegrationTests.Fixtures;
 using MassTransit;
 using MassTransit.Testing;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,13 +26,31 @@ public class NotificationIntegrationTests
     [Test]
     public async Task HostBootsInTestingEnvironment()
     {
-        await using var factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder => builder.UseEnvironment("Testing"));
+        await using var factory = new NotificationApiFactory();
 
         var client = factory.CreateClient();
         var response = await client.GetAsync("/health/live");
 
         Assert.That((int)response.StatusCode, Is.EqualTo(200));
+    }
+
+    /// <summary>Notification audit S4 (L8): Basket's shape — the anonymous root names no environment.</summary>
+    [Test]
+    public async Task RootEndpoint_ReturnsServiceInfo_WithoutTheEnvironment()
+    {
+        await using var factory = new NotificationApiFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/");
+
+        Assert.That(response.IsSuccessStatusCode, Is.True);
+        var body = await response.Content.ReadAsStringAsync();
+        var root = System.Text.Json.JsonDocument.Parse(body).RootElement;
+        Assert.Multiple(() =>
+        {
+            Assert.That(root.GetProperty("service").GetString(), Is.EqualTo("EShop Notification API"));
+            Assert.That(root.TryGetProperty("environment", out _), Is.False, body);
+        });
     }
 
     /// <summary>On PostgreSQL, through the bus and the container's own registrations.</summary>

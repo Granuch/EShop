@@ -588,6 +588,10 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: connstr-notification-db
+        # Notification audit S4 (D4): required, with no tracked default. The local cluster's browser reaches the
+        # storefront on localhost:3000.
+        - name: PasswordReset__ResetUrlBase
+          value: "http://localhost:3000/reset-password"
         - name: RabbitMQ__Host
           value: "rabbitmq"
         - name: RabbitMQ__Port

@@ -2,7 +2,7 @@ using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.Infrastructure.Extensions;
-using EShop.Notification.Infrastructure.Configuration;
+using EShop.Notification.API.Configuration;
 using EShop.Notification.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using HealthChecks.UI.Client;
@@ -27,6 +27,10 @@ try
         $"appsettings.{builder.Environment.EnvironmentName}.Local.json",
         optional: true,
         reloadOnChange: true);
+
+    // Notification audit S4 (M9, M10, L6, L23; D4). Before anything is registered, so a misconfigured deploy never
+    // starts; the consumers used to find out one message at a time.
+    NotificationConfigurationGuard.Validate(builder.Configuration, builder.Environment);
 
     builder.Host.UseSerilog((context, services, configuration) => configuration
         .ReadFrom.Configuration(context.Configuration)
@@ -58,23 +62,6 @@ try
         serviceVersion: "1.0.0",
         environment: builder.Environment,
         additionalSources: "EShop.Notification");
-
-    var passwordResetSettings = builder.Configuration
-        .GetSection(PasswordResetSettings.SectionName)
-        .Get<PasswordResetSettings>() ?? new PasswordResetSettings();
-
-    if (!Uri.TryCreate(passwordResetSettings.ResetUrlBase, UriKind.Absolute, out var resetUri))
-    {
-        throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute URL.");
-    }
-
-    if (!builder.Environment.IsDevelopment()
-        && !builder.Environment.IsEnvironment("Testing")
-        && !string.Equals(resetUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-    {
-        throw new InvalidOperationException(
-            $"PasswordReset:ResetUrlBase must use HTTPS in {builder.Environment.EnvironmentName}.");
-    }
 
     var app = builder.Build();
 
@@ -150,11 +137,11 @@ try
     app.MapMetrics("/prometheus");
     app.UseEShopOpenTelemetryPrometheus();
 
+    // Notification audit S4 (L8): Basket's shape. An anonymous endpoint names no environment.
     app.MapGet("/", () => Results.Ok(new
     {
         service = "EShop Notification API",
         version = "1.0.0",
-        environment = app.Environment.EnvironmentName,
         endpoints = new
         {
             healthReady = "/health/ready",

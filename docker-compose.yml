@@ -887,6 +887,10 @@ services:
       Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:-noreply@eshop.local}
       Smtp__FromName: ${NOTIFICATION_SMTP_FROM_NAME:-EShop}
 
+      # Notification audit S4 (D4). Required, with no tracked default: the local stack's browser reaches the storefront
+      # on localhost:3000. docker-compose.override.production.yml requires PASSWORD_RESET_URL_BASE instead.
+      PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:-http://localhost:3000/reset-password}
+
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
       IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}

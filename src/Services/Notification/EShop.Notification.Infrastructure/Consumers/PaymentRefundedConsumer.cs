@@ -24,12 +24,7 @@ public sealed class PaymentRefundedConsumer : NotificationConsumer<PaymentRefund
         : base(notificationLogRepository, userContactResolver, timeProvider, logger)
     {
         _emailService = emailService;
-
-        if (string.IsNullOrWhiteSpace(smtpSettings.Value.FromEmail))
-        {
-            throw new InvalidOperationException("Smtp:FromEmail must be configured for refund support contact.");
-        }
-
+        // Smtp:FromEmail is checked once, at startup, by NotificationConfigurationGuard (Notification audit S4, M10).
         _supportEmail = smtpSettings.Value.FromEmail;
     }
 

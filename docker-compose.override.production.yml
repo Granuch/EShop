@@ -137,3 +137,4 @@ services:
       Smtp__Port: ${NOTIFICATION_SMTP_PORT:?NOTIFICATION_SMTP_PORT is required in production}
       Smtp__UseSsl: ${NOTIFICATION_SMTP_USE_SSL:?NOTIFICATION_SMTP_USE_SSL is required in production}
       Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:?NOTIFICATION_SMTP_FROM_EMAIL is required in production}
+      PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:?PASSWORD_RESET_URL_BASE is required in production}

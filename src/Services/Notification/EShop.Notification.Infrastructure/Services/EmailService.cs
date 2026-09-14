@@ -34,7 +34,7 @@ public sealed class EmailService : IEmailService
     {
         var subject = $"Order confirmation #{model.OrderId}";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "order-created",
+            NotificationTemplates.OrderCreated,
             new Dictionary<string, string>
             {
                 ["OrderId"] = model.OrderId.ToString(),
@@ -56,7 +56,7 @@ public sealed class EmailService : IEmailService
     {
         var subject = "Reset your EShop password";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "password-reset",
+            NotificationTemplates.PasswordReset,
             new Dictionary<string, string>
             {
                 ["CustomerName"] = model.CustomerName,
@@ -76,7 +76,7 @@ public sealed class EmailService : IEmailService
         // Payment audit Stage 8 (M5): nothing has been charged yet when this is sent, so it must not say "received".
         var subject = $"Payment started for order #{model.OrderId}";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "payment-created",
+            NotificationTemplates.PaymentCreated,
             new Dictionary<string, string>
             {
                 ["OrderId"] = model.OrderId.ToString(),
@@ -99,7 +99,7 @@ public sealed class EmailService : IEmailService
     {
         var subject = $"Payment successful for order #{model.OrderId}";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "payment-completed",
+            NotificationTemplates.PaymentCompleted,
             new Dictionary<string, string>
             {
                 ["OrderId"] = model.OrderId.ToString(),
@@ -122,7 +122,7 @@ public sealed class EmailService : IEmailService
     {
         var subject = $"Refund processed for order #{model.OrderId}";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "payment-refunded",
+            NotificationTemplates.PaymentRefunded,
             new Dictionary<string, string>
             {
                 ["OrderId"] = model.OrderId.ToString(),
@@ -145,7 +145,7 @@ public sealed class EmailService : IEmailService
     {
         var subject = $"Your order #{model.OrderId} has shipped";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "order-shipped",
+            NotificationTemplates.OrderShipped,
             new Dictionary<string, string>
             {
                 ["OrderId"] = model.OrderId.ToString(),
@@ -166,7 +166,7 @@ public sealed class EmailService : IEmailService
     {
         var subject = $"Payment failed for order #{model.OrderId}";
         var htmlBody = await _templateRenderer.RenderAsync(
-            "payment-failed",
+            NotificationTemplates.PaymentFailed,
             new Dictionary<string, string>
             {
                 ["OrderId"] = model.OrderId.ToString(),

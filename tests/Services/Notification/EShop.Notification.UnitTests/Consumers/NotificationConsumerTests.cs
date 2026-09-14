@@ -420,14 +420,6 @@ public class NotificationConsumerTests
     }
 
     [Test]
-    public void PasswordResetRequestedConsumer_WhenResetUrlIsNotAbsolute_ShouldThrowOnCreation()
-    {
-        var relative = Options.Create(new PasswordResetSettings { ResetUrlBase = "/reset-password" });
-
-        Assert.Throws<InvalidOperationException>(() => PasswordReset(relative));
-    }
-
-    [Test]
     public void PasswordResetRequestedConsumer_WhenEmailSendFails_ShouldStoreSanitizedError()
     {
         var evt = new PasswordResetRequestedIntegrationEvent { EventId = Guid.NewGuid(), UserId = "user-reset-failed", ResetToken = "token-value" };
