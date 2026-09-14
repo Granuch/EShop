@@ -48,7 +48,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         }
 
         // Check if user is still active
-        if (!user.IsActive || user.IsDeleted)
+        if (!user.IsActive)
         {
             _logger.LogWarning("Refresh token attempt for disabled user. UserId={UserId}, IsActive={IsActive}, IsDeleted={IsDeleted}",
                 user.Id, user.IsActive, user.IsDeleted);

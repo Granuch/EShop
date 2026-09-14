@@ -16,12 +16,19 @@ public sealed class TemplateRenderer : ITemplateRenderer, IDisposable
 
     public TemplateRenderer(IHostEnvironment environment)
     {
-        _templatesRoot = Path.Combine(environment.ContentRootPath, "src", "Services", "Notification", "EShop.Notification.Infrastructure", "Templates");
+        _templatesRoot = ResolveTemplatesRoot(environment.ContentRootPath);
+    }
 
-        if (!Directory.Exists(_templatesRoot))
-        {
-            _templatesRoot = Path.Combine(AppContext.BaseDirectory, "Templates");
-        }
+    /// <summary>
+    /// Where the templates are read from: the source tree when the content root is the repository, else the build
+    /// output. The startup guard checks this same directory (Notification audit S4).
+    /// </summary>
+    public static string ResolveTemplatesRoot(string contentRootPath)
+    {
+        var sourceTree = Path.Combine(
+            contentRootPath, "src", "Services", "Notification", "EShop.Notification.Infrastructure", "Templates");
+
+        return Directory.Exists(sourceTree) ? sourceTree : Path.Combine(AppContext.BaseDirectory, "Templates");
     }
 
     public async Task<string> RenderAsync(string templateName, IReadOnlyDictionary<string, string> tokens, CancellationToken ct = default)

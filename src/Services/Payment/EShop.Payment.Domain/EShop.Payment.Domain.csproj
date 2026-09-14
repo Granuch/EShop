@@ -6,4 +6,15 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/EShop.BuildingBlocks.Domain/EShop.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- Payment audit Stage 7 (H5). Production code changes a payment only through its methods; the tests may still
+       seed any state directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="EShop.Payment.UnitTests" />
+    <InternalsVisibleTo Include="EShop.Payment.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

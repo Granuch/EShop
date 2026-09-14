@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -61,15 +62,20 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
         }
 
         var messageId = context.MessageId.Value;
-        var correlationId = context.CorrelationId?.ToString();
+        var correlationId = ResolveCorrelationId(context);
         var messageType = typeof(TMessage).Name;
 
+        // M7, consumer half. Whatever this consumer writes — its own domain events, hence its own
+        // outbox rows — reads the correlation id from ICurrentUserContext, and a consumer's scope has
+        // no HttpContext either, so without this it minted a fresh one and the trace broke again on
+        // the receiving side of every hop.
         using (Logger.BeginScope(new Dictionary<string, object?>
         {
             ["MessageId"] = messageId,
             ["CorrelationId"] = correlationId,
             ["MessageType"] = messageType
         }))
+        using (AmbientCorrelation.Begin(correlationId))
         {
             var isRelational = DbContext.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory";
 
@@ -85,9 +91,50 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
     }
 
     /// <summary>
+    /// The payload's own <see cref="IntegrationEvent.CorrelationId"/> first, the transport header
+    /// second. The header is a <see cref="Guid"/>: the outbox processor parses the row's id into one
+    /// (formatting it differently from the original string) and substitutes a <i>new</i> GUID when the
+    /// id is not one, so it is at best a reformatted copy and at worst unrelated.
+    /// </summary>
+    private static string? ResolveCorrelationId(ConsumeContext<TMessage> context)
+        => context.Message is IntegrationEvent { CorrelationId: { } fromPayload }
+           && !string.IsNullOrWhiteSpace(fromPayload)
+            ? fromPayload
+            : context.CorrelationId?.ToString();
+
+    /// <summary>
     /// Implement the actual message handling logic in derived consumers.
     /// </summary>
     protected abstract Task HandleAsync(ConsumeContext<TMessage> context, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs once this message's writes are committed — the place for anything that must not happen
+    /// while the transaction could still roll back, cache invalidation above all. A consumer owns its
+    /// transaction, so <c>CacheInvalidationBehavior</c> inside it runs <i>before</i> the commit, and a
+    /// concurrent read in that window re-caches the old state for the full TTL (Ordering audit H4).
+    ///
+    /// <para>
+    /// Not called for a duplicate, nor when <see cref="HandleAsync"/> throws. A failure here is logged
+    /// and swallowed: the message is already consumed, and rethrowing would only redeliver it for the
+    /// claim to skip. On the in-memory test path "committed" means <see cref="HandleAsync"/> returned.
+    /// </para>
+    /// </summary>
+    protected virtual Task OnCommittedAsync(ConsumeContext<TMessage> context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    private async Task RunOnCommittedAsync(ConsumeContext<TMessage> context)
+    {
+        try
+        {
+            await OnCommittedAsync(context, context.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex,
+                "Post-commit step failed for {MessageType}. The message was consumed and is not retried.",
+                typeof(TMessage).Name);
+        }
+    }
 
     /// <summary>
     /// Relational database path: wraps claim + handling in a single transaction.
@@ -130,6 +177,9 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
 
             await transaction.CommitAsync(context.CancellationToken);
 
+            // Never throws (see RunOnCommittedAsync), so it cannot reach the rollback below.
+            await RunOnCommittedAsync(context);
+
             Logger.LogInformation(
                 "Message consumed successfully. MessageId={MessageId}, Type={MessageType}",
                 messageId, messageType);
@@ -170,6 +220,8 @@ public abstract class IdempotentConsumer<TMessage, TDbContext> : IConsumer<TMess
         try
         {
             await HandleAsync(context, context.CancellationToken);
+
+            await RunOnCommittedAsync(context);
 
             Logger.LogInformation(
                 "Message consumed successfully. MessageId={MessageId}, Type={MessageType}",

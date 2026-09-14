@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.Ordering.Domain.Interfaces;
 using EShop.Ordering.Infrastructure.Data;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -7,14 +8,17 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace EShop.Ordering.IntegrationTests.Fixtures;
 
 /// <summary>
-/// Custom WebApplicationFactory for Ordering Integration tests.
-/// Uses In-Memory database for testing.
+/// Custom WebApplicationFactory for Ordering integration tests. On its own it uses an InMemory
+/// database; <see cref="PostgresOrderingApiFactory"/>, the default for <see cref="IntegrationTestBase"/>,
+/// swaps in a real PostgreSQL database.
 /// </summary>
 public class OrderingApiFactory : WebApplicationFactory<Program>
 {
@@ -25,6 +29,9 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
     private readonly string _databaseName;
     private bool _databaseSeeded;
 
+    /// <summary>The products this host can price orders from. See <see cref="FakeProductCatalog"/>.</summary>
+    public FakeProductCatalog Catalog { get; } = new();
+
     public OrderingApiFactory()
     {
         _databaseName = $"OrderingTestDb_{Guid.NewGuid()}";
@@ -34,17 +41,18 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
-        builder.ConfigureAppConfiguration((_, configBuilder) =>
-        {
-            var jwtTestSettings = new Dictionary<string, string?>
-            {
-                ["JwtSettings:SecretKey"] = TestJwtSecretKey,
-                ["JwtSettings:Issuer"] = TestJwtIssuer,
-                ["JwtSettings:Audience"] = TestJwtAudience
-            };
+        // UseSetting, not ConfigureAppConfiguration. Program.cs reads JwtSettings in its
+        // top-level statements while composing the app and throws if SecretKey is blank;
+        // ConfigureAppConfiguration sources are only applied when the host is finally built,
+        // which is after that read. This appeared to work locally only because a developer shell
+        // exported JwtSettings__SecretKey — on a clean checkout (and in CI) the guard fired and
+        // every test in this assembly failed at SetUp.
+        builder.UseSetting("JwtSettings:SecretKey", TestJwtSecretKey);
+        builder.UseSetting("JwtSettings:Issuer", TestJwtIssuer);
+        builder.UseSetting("JwtSettings:Audience", TestJwtAudience);
 
-            configBuilder.AddInMemoryCollection(jwtTestSettings);
-        });
+        // Satisfies CatalogServiceOptions' startup validation; the reader itself is replaced below.
+        builder.UseSetting("CatalogService:BaseUrl", "http://catalog.test/");
 
         builder.ConfigureServices(services =>
         {
@@ -60,17 +68,17 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
             }
 
-            // Add InMemory database with unique name per factory instance
-            services.AddDbContext<OrderingDbContext>(options =>
-            {
-                options.UseInMemoryDatabase(_databaseName);
-            });
+            ConfigureDatabase(services);
 
             // Re-register IUnitOfWork with the new DbContext
             services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<OrderingDbContext>());
 
             // Re-register DbContext base type for OutboxProcessorService
             services.AddScoped<DbContext>(provider => provider.GetRequiredService<OrderingDbContext>());
+
+            // Catalog is an HTTP dependency; tests price from an in-process double instead.
+            services.RemoveAll<IProductCatalogReader>();
+            services.AddSingleton<IProductCatalogReader>(Catalog);
 
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
             {
@@ -93,9 +101,40 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
         });
     }
 
+    /// <summary>
+    /// Scope validation on, as <c>WebApplicationBuilder</c> does only in Development. The test host
+    /// runs as "Testing", where it is off by default, so a Singleton holding a scoped service was
+    /// resolved from the root provider here exactly as in Sandbox and Production — and every test
+    /// stayed green while <c>OrderOwnerOrAdminHandler</c> shared one <c>OrderingDbContext</c> across
+    /// all requests (Ordering audit H1). With this, any captive dependency fails host build, and so
+    /// fails every test in the assembly.
+    /// </summary>
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        builder.UseDefaultServiceProvider(options =>
+        {
+            options.ValidateScopes = true;
+            options.ValidateOnBuild = true;
+        });
+
+        return base.CreateHost(builder);
+    }
+
     protected virtual void ConfigureTestServices(IServiceCollection services)
     {
     }
+
+    /// <summary>
+    /// InMemory, one database per factory. <see cref="PostgresOrderingApiFactory"/> — the default for
+    /// <see cref="IntegrationTestBase"/> since Ordering audit M11 — replaces this with Npgsql.
+    /// </summary>
+    protected virtual void ConfigureDatabase(IServiceCollection services)
+    {
+        services.AddDbContext<OrderingDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+    }
+
+    /// <summary>InMemory has no migrations, so it needs <c>EnsureCreated</c>; the Postgres factory overrides this.</summary>
+    protected virtual Task EnsureSchemaAsync(OrderingDbContext db) => db.Database.EnsureCreatedAsync();
 
     public async Task InitializeDatabaseAsync()
     {
@@ -105,7 +144,7 @@ public class OrderingApiFactory : WebApplicationFactory<Program>
         var db = scope.ServiceProvider.GetRequiredService<OrderingDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<OrderingApiFactory>>();
 
-        await db.Database.EnsureCreatedAsync();
+        await EnsureSchemaAsync(db);
 
         try
         {

@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Identity.Infrastructure.Extensions;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Application.Extensions;
@@ -8,14 +9,18 @@ using EShop.Identity.API.Infrastructure.HealthChecks;
 using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
 using EShop.Identity.API.Infrastructure.Security;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Messaging.Events;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using System.Net;
@@ -60,37 +65,38 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Identity.API"));
 
-    var forwardedProxies = builder.Configuration
-        .GetSection("ForwardedHeaders:KnownProxies")
-        .Get<string[]>() ?? [];
+    // Shared across every service — see EShopForwardedHeaders for why KnownNetworks matters
+    // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
+    var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
-    if (forwardedProxies.Length > 0)
-    {
-        builder.Services.Configure<ForwardedHeadersOptions>(options =>
-        {
-            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            options.ForwardLimit = 1;
-            options.KnownNetworks.Clear();
-            options.KnownProxies.Clear();
-
-            foreach (var proxy in forwardedProxies)
-            {
-                if (IPAddress.TryParse(proxy, out var ipAddress))
-                {
-                    options.KnownProxies.Add(ipAddress);
-                }
-            }
-        });
-    }
-    else
-    {
-        Log.Warning("Forwarded headers are not configured with known proxies. X-Forwarded-For will be ignored.");
-    }
+    // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
+    // behaviors in DI registration order (first registered = outermost), so these three calls are
+    // what sets the pipeline:
+    //   CacheInvalidation -> Transaction -> Validation -> Logging -> Caching -> handler
+    // CacheInvalidationBehavior has to be outermost because it invalidates AFTER the handler
+    // returns: registered inside TransactionBehavior it drained keys before the write committed,
+    // so a concurrent read could repopulate the cache with pre-commit data for the full TTL.
+    // Application before Infrastructure is the older, separate fix: Infrastructure first produced
+    // Caching -> ... -> Transaction -> Validation, i.e. validation running after the transaction
+    // had already opened. All four services carrying these behaviors now agree — Basket, Catalog,
+    // Identity and Ordering; Payment has no caching behaviors at all. Both orderings are silent if
+    // broken — nothing fails, and neither is visible without reading all three extension methods.
+    builder.Services.AddEShopCacheInvalidation();
+    builder.Services.AddIdentityApplication();
 
     // Add Infrastructure services (DbContext, Identity, Token Service, etc.)
-    var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+    // Testing defaults to the InMemory provider, but a test host can opt into a real relational
+    // database with Testing:UseRelationalDatabase=true. That switch exists because the provider
+    // choice used to be hardcoded to the environment name, which made every relational-only code
+    // path — ExecuteUpdateAsync/ExecuteDeleteAsync, column limits, concurrency tokens —
+    // unreachable from any test, and left RefreshTokenRepository and TokenCleanupService carrying
+    // IsInMemory() forks so that production and tests ran different queries. Deliver it with
+    // builder.UseSetting (host configuration): ConfigureAppConfiguration lands after this read.
+    var useInMemoryDb = builder.Environment.IsEnvironment("Testing")
+        && !builder.Configuration.GetValue<bool>("Testing:UseRelationalDatabase");
     var suppressPendingModelChangesWarning = builder.Environment.IsDevelopment()
-        || builder.Environment.IsEnvironment("Sandbox");
+        || builder.Environment.IsEnvironment("Sandbox")
+        || builder.Environment.IsEnvironment("Testing");
 
     builder.Services.AddIdentityInfrastructure(
         builder.Configuration,
@@ -180,9 +186,6 @@ try
             options.ConfigurationOptions.ConnectRetry = 3;
             options.ConfigurationOptions.KeepAlive = 60;
             options.ConfigurationOptions.ReconnectRetryPolicy = new StackExchange.Redis.LinearRetry(5000);
-
-            // Enable command logging for troubleshooting (disable in production if not needed)
-            // options.ConfigurationOptions.ClientName = $"EShop_Identity_{Environment.MachineName}";
         });
 
         builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ =>
@@ -205,15 +208,32 @@ try
         Log.Warning("Using in-memory distributed cache for Testing environment");
         builder.Services.AddDistributedMemoryCache();
     }
-    else
+    else if (builder.Environment.IsDevelopment())
     {
-        // Redis connection string not found
-        Log.Warning("Redis connection string not configured. Using in-memory cache. NOT suitable for multi-instance!");
+        // Development keeps the in-memory fallback so the service runs without Redis locally.
+        // The brute-force counters are then single-process and non-atomic — fine for one
+        // developer, not fine anywhere else. See the throw below.
+        Log.Warning("Redis connection string not configured. Using in-memory cache. " +
+                    "Brute-force counters are non-atomic and single-process in this mode.");
         builder.Services.AddDistributedMemoryCache();
     }
-
-    // Add Application services (MediatR, FluentValidation, etc.)
-    builder.Services.AddIdentityApplication();
+    else
+    {
+        // Brute-force protection is the reason this is fatal rather than a warning.
+        // LoginAttemptTracker has two code paths: with IConnectionMultiplexer it uses Redis
+        // directly (atomic INCR, raw keys); without it, it falls back to IDistributedCache,
+        // where (a) the counter is a non-atomic read-modify-write, so concurrent failed logins
+        // undercount and the lockout does not fire under exactly the burst it exists to stop,
+        // and (b) the keys carry the "EShop_Identity_" InstanceName prefix, a different
+        // namespace from the Redis path — so an instance that silently fell back would see an
+        // empty counter set and start every attacker from zero.
+        // A silently-degrading lockout is worse than a startup failure, so outside
+        // Development and Testing this is a hard requirement.
+        throw new InvalidOperationException(
+            $"ConnectionStrings:Redis is required in {builder.Environment.EnvironmentName}. " +
+            "Brute-force protection depends on Redis for atomic counters; the in-memory " +
+            "fallback is single-process, non-atomic, and uses a different key namespace.");
+    }
 
     // Add MassTransit with RabbitMQ messaging
     builder.Services.AddIdentityMessaging(
@@ -277,7 +297,23 @@ try
             ValidIssuer = jwtSettings.Issuer,
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+
+            // API-12. Pin the algorithm and require a signature. Without ValidAlgorithms the
+            // handler accepts any algorithm the key can satisfy, which is the family of confusion
+            // attacks this setting exists to close; RequireSignedTokens makes an unsigned token an
+            // explicit rejection rather than something that depends on other settings lining up.
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+            RequireSignedTokens = true,
+
+            // MapInboundClaims (default true) is load-bearing here and was previously implicit:
+            // TokenService writes JwtRegisteredClaimNames.Sub, GetCurrentUserId() reads
+            // ClaimTypes.NameIdentifier, and the pair only agree because the default inbound
+            // mapper rewrites sub -> nameidentifier. Stating the claim types makes the dependency
+            // visible instead of accidental — turning MapInboundClaims off without also setting
+            // these would silently break every GetCurrentUserId() call.
+            NameClaimType = ClaimTypes.NameIdentifier,
+            RoleClaimType = ClaimTypes.Role
         };
     });
 
@@ -303,15 +339,39 @@ try
     var effectiveAuthRateLimit = enableRateLimiting ? authRateLimit : int.MaxValue;
     var effectiveLoginRateLimit = enableRateLimiting ? loginRateLimit : int.MaxValue;
 
+    // Every limiter below partitions on EShopForwardedHeaders.GetClientPartitionKey.
+    // UseForwardedHeaders (configured above) runs before UseRateLimiter, so RemoteIpAddress is the
+    // real client whenever a trusted proxy is configured.
+
     // Add Rate Limiting (Testing uses permissive limits by default, can be hardened for dedicated tests)
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+        // DOC-01. A rejected request used to return 429 with an EMPTY body: RejectionStatusCode
+        // sets the status and nothing writes a payload. So the one response a client is most
+        // likely to need to handle programmatically was the only one carrying no errorCode, and
+        // scripts/verify-all.sh could not assert on it at all. Emit the same envelope as every
+        // other error, and advertise Retry-After when the limiter can tell us the window.
+        options.OnRejected = async (context, cancellationToken) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)retryAfter.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            await EShopProblem.WriteAsync(context.HttpContext, EShopProblem.Create(
+                context.HttpContext,
+                StatusCodes.Status429TooManyRequests,
+                detail: "Too many requests. Please retry later.",
+                errorCode: "Request.RateLimited"));
+        };
+
         // Global rate limiter
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     AutoReplenishment = true,
@@ -319,40 +379,43 @@ try
                     Window = TimeSpan.FromSeconds(globalRateWindowSeconds)
                 }));
 
-        // Auth endpoints limiter
-        options.AddFixedWindowLimiter("auth", limiterOptions =>
-        {
-            limiterOptions.AutoReplenishment = true;
-            limiterOptions.PermitLimit = effectiveAuthRateLimit;
-            limiterOptions.Window = TimeSpan.FromSeconds(authRateWindowSeconds);
-        });
+        // Auth endpoints limiter. AddPolicy (not AddFixedWindowLimiter) - the latter builds a
+        // single unpartitioned bucket shared by every caller, which lets one client exhaust the
+        // auth/login allowance for the whole service.
+        options.AddPolicy<string>("auth", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = effectiveAuthRateLimit,
+                    Window = TimeSpan.FromSeconds(authRateWindowSeconds)
+                }));
 
         // Login-specific limiter
-        options.AddFixedWindowLimiter("login", limiterOptions =>
-        {
-            limiterOptions.AutoReplenishment = true;
-            limiterOptions.PermitLimit = effectiveLoginRateLimit;
-            limiterOptions.Window = TimeSpan.FromSeconds(loginRateWindowSeconds);
-        });
+        options.AddPolicy<string>("login", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = effectiveLoginRateLimit,
+                    Window = TimeSpan.FromSeconds(loginRateWindowSeconds)
+                }));
     });
 
     // Add CORS
+    // Validated here rather than inside AddPolicy: CORS builds its policies lazily on first
+    // use, so a throw in the lambda is a request-time 500 on a host that already reported
+    // healthy. The guard also rejects the placeholder origin shipped in the tracked
+    // appsettings.Production.json, which the old "is the array empty?" check accepted.
+    var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-            if (allowedOrigins.Length == 0 &&
-                !builder.Environment.IsDevelopment() &&
-                !builder.Environment.IsEnvironment("Testing"))
-            {
-                throw new InvalidOperationException(
-                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                    "Configure allowed origins before deploying to non-development environments.");
-            }
-
-            policy.WithOrigins(allowedOrigins)
+            policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
@@ -393,7 +456,33 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
+    // Identity has never mapped the DbUpdate* exceptions - preserved as-is.
+    builder.Services.AddEShopProblemDetails(options => options
+        .AddCommon()
+        .AddNotFound());
+
     var app = builder.Build();
+
+    // BUG-03 rail. Email confirmation is deliberately parked scaffolding: RegisterCommandHandler
+    // mints a confirmation token and immediately discards it — it is on neither RegisterResponse
+    // nor UserRegisteredIntegrationEvent — while the response still tells the caller to check
+    // their email. That is harmless only while SignIn.RequireConfirmedEmail is false. The first
+    // time it is turned on, every newly registered account is permanently unable to log in and
+    // there is no path to mint a token for it.
+    //
+    // This guard does not finish the feature; it makes the trap impossible to walk into
+    // silently. It disarms itself the moment the token is actually carried on the event, so
+    // whoever completes the feature does not have to know this check exists.
+    var identityOptions = app.Services.GetRequiredService<IOptions<IdentityOptions>>().Value;
+    if (identityOptions.SignIn.RequireConfirmedEmail && !EmailConfirmationTokenIsDelivered())
+    {
+        throw new InvalidOperationException(
+            "Identity:RequireConfirmedEmail is enabled but registration does not deliver the " +
+            "confirmation token: RegisterCommandHandler generates one and discards it, and " +
+            $"{nameof(UserRegisteredIntegrationEvent)} carries no token property, so no " +
+            "confirmation email can be sent and every new account would be permanently locked " +
+            "out. Wire the token into the integration event before enabling this.");
+    }
 
     // Apply database migrations automatically (Production/Development/Sandbox)
     // Skip for Testing environment (uses in-memory database)
@@ -441,7 +530,10 @@ try
                     maxMigrationAttempts,
                     migrationDelay);
 
-                await Task.Delay(migrationDelay);
+                // API-13. Honour shutdown: without a token this loop can hold a failing boot
+                // open for up to 40s (8 attempts x linear backoff) after Ctrl+C or a
+                // container stop, which reads as a hung process rather than a failed one.
+                await Task.Delay(migrationDelay, app.Lifetime.ApplicationStopping);
                 migrationDelay += TimeSpan.FromSeconds(5);
             }
             catch (Exception ex)
@@ -459,21 +551,9 @@ try
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
 
-    if (forwardedProxies.Length > 0)
-    {
-        app.UseForwardedHeaders();
-    }
-
-static bool IsPostgresStartupException(Exception exception)
-{
-    if (exception is PostgresException { SqlState: "57P03" })
-    {
-        return true;
-    }
-
-    return exception.InnerException is not null
-        && IsPostgresStartupException(exception.InnerException);
-}
+    // Same thing the other six components call — Identity hand-rolled the equivalent, which is
+    // functionally identical but means a change to the shared helper silently skips this service.
+    app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
     // Uniform Response Timing - prevents account enumeration through timing attacks
     // Must come early in pipeline to measure total response time
@@ -483,8 +563,9 @@ static bool IsPostgresStartupException(Exception exception)
 
 
     // Configure the HTTP request pipeline
-    // OpenAPI and Scalar UI - available in Development and Production (not in Testing)
-    if (!app.Environment.IsEnvironment("Testing"))
+    // OpenAPI and Scalar UI: every environment except Production, the one rule all services share
+    // (Ordering audit L10, EShopApiDocs). This used to exclude Testing and serve Production.
+    if (EShopApiDocs.IsExposedIn(app.Environment))
     {
         // OpenAPI JSON endpoint - must be mapped first
         app.MapOpenApi();
@@ -502,17 +583,24 @@ static bool IsPostgresStartupException(Exception exception)
         Log.Information("Scalar API documentation available at /scalar/v1");
     }
 
-    // Add Rate Limiting middleware
-    app.UseRateLimiter();
-
-    // Add CORS
-    app.UseCors("AllowFrontend");
-
+    // HTTPS redirection must run BEFORE the rate limiter and CORS. It sat after both, so a
+    // plain-HTTP request that was going to be redirected anyway still consumed a rate-limit
+    // permit and still had CORS headers computed for it — work done on a request that never
+    // reaches a handler, and a cheap way for an unauthenticated caller to spend another
+    // client's allowance. Note the redirect is conditional on ASPNETCORE_HTTPS_PORT/HTTPS_PORT,
+    // neither of which docker-compose sets, so **compose has no HTTPS redirect and no HSTS by
+    // design** — TLS is expected to terminate in front of the stack.
     var httpsPort = app.Configuration["ASPNETCORE_HTTPS_PORT"] ?? app.Configuration["HTTPS_PORT"];
     if (!string.IsNullOrWhiteSpace(httpsPort))
     {
         app.UseHttpsRedirection();
     }
+
+    // Add Rate Limiting middleware
+    app.UseRateLimiter();
+
+    // Add CORS
+    app.UseCors("AllowFrontend");
 
     // Add Prometheus HTTP metrics middleware (prometheus-net custom business metrics)
     app.UseHttpMetrics(options =>
@@ -526,34 +614,32 @@ static bool IsPostgresStartupException(Exception exception)
     app.MapControllers();
 
     // Map Prometheus metrics endpoints:
-    // /metrics/prom � prometheus-net custom business metrics (identity_login_attempts_total, etc.)
+    // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
     // In .NET 10, /metrics is auto-registered by the framework for OpenTelemetry metrics,
     // so custom prometheus-net metrics use a separate path to avoid being overridden.
+    // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+    // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+    app.UseEShopMetricsAccess(app.Configuration, app.Environment);
     app.MapMetrics("/prometheus");
-    // /metrics/otel � OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
+    // /metrics/otel — OpenTelemetry metrics (http.server.request.duration, process.runtime.*, etc.)
     app.UseEShopOpenTelemetryPrometheus();
 
     // Health check endpoints with detailed response
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("ready"),
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("live"),
-        ResponseWriter = (context, report) =>
-        {
-            context.Response.ContentType = "application/json";
-            return context.Response.WriteAsync(
-                System.Text.Json.JsonSerializer.Serialize(new { status = report.Status.ToString() }));
-        }
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     // Root endpoint - API info and available endpoints
@@ -564,8 +650,8 @@ static bool IsPostgresStartupException(Exception exception)
         environment = app.Environment.EnvironmentName,
         endpoints = new
         {
-            documentation = !app.Environment.IsEnvironment("Testing") ? "/scalar/v1" : "Not available in Testing",
-            openapi = !app.Environment.IsEnvironment("Testing") ? "/openapi/v1.json" : "Not available in Testing",
+            documentation = EShopApiDocs.IsExposedIn(app.Environment) ? "/scalar/v1" : "Not available in Production",
+            openapi = EShopApiDocs.IsExposedIn(app.Environment) ? "/openapi/v1.json" : "Not available in Production",
             health = "/health",
             healthReady = "/health/ready",
             healthLive = "/health/live",
@@ -574,8 +660,10 @@ static bool IsPostgresStartupException(Exception exception)
             {
                 register = "POST /api/v1/auth/register",
                 login = "POST /api/v1/auth/login",
-                refresh = "POST /api/v1/auth/refresh",
-                logout = "POST /api/v1/auth/logout"
+                // API-9. These advertised /auth/refresh and /auth/logout, neither of which
+                // exists — AuthController maps refresh-token and revoke-token.
+                refresh = "POST /api/v1/auth/refresh-token",
+                revoke = "POST /api/v1/auth/revoke-token"
             }
         }
     }))
@@ -589,8 +677,37 @@ static bool IsPostgresStartupException(Exception exception)
 catch (Exception ex)
 {
     Log.Fatal(ex, "Identity Service terminated unexpectedly");
+
+    // Rethrow so the process exits non-zero. Without this the host logs [FTL] and then reports
+    // success, so a config-guard rejection or an unreachable broker looks like a clean shutdown
+    // to anything checking exit status instead of parsing logs.
+    throw;
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+// API-10. These local functions used to sit between two app.Use* calls, which broke the
+// pipeline's top-to-bottom reading order — the one place in this file where order is the
+// meaning. Top-level local functions are in scope for the whole file regardless of where they
+// are declared, so the end is the right home.
+
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
+}
+
+// Reflection rather than a constant so the BUG-03 rail disarms itself when the parked
+// email-confirmation feature is finished, instead of becoming a stale flag someone has to
+// remember to flip. Any property on the event whose name ends in "ConfirmationToken" counts.
+static bool EmailConfirmationTokenIsDelivered() =>
+    typeof(UserRegisteredIntegrationEvent)
+        .GetProperties()
+        .Any(p => p.Name.EndsWith("ConfirmationToken", StringComparison.OrdinalIgnoreCase));

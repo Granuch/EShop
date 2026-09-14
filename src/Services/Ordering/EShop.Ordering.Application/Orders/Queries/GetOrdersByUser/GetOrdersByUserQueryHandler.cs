@@ -23,7 +23,6 @@ public sealed class GetOrdersByUserQueryHandler : IRequestHandler<GetOrdersByUse
             request.UserId,
             pageNumber,
             pageSize,
-            request.Cursor,
             cancellationToken);
 
         var pagedResult = PagedResult<OrderDto>.Create(dtos, pageNumber, pageSize, totalCount);

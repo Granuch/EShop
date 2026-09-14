@@ -1,7 +1,8 @@
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.Infrastructure.Extensions;
-using EShop.Notification.Infrastructure.Configuration;
+using EShop.Notification.API.Configuration;
 using EShop.Notification.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using HealthChecks.UI.Client;
@@ -27,6 +28,10 @@ try
         optional: true,
         reloadOnChange: true);
 
+    // Notification audit S4 (M9, M10, L6, L23; D4). Before anything is registered, so a misconfigured deploy never
+    // starts; the consumers used to find out one message at a time.
+    NotificationConfigurationGuard.Validate(builder.Configuration, builder.Environment);
+
     builder.Host.UseSerilog((context, services, configuration) => configuration
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
@@ -35,6 +40,10 @@ try
         .Enrich.WithMachineName()
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Notification.API"));
+
+    // Notification has almost no public HTTP surface, so this is for consistency rather than a
+    // live exposure — one implementation everywhere beats remembering which service is exempt.
+    var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
     builder.Services.AddNotificationApplication();
 
@@ -53,23 +62,6 @@ try
         serviceVersion: "1.0.0",
         environment: builder.Environment,
         additionalSources: "EShop.Notification");
-
-    var passwordResetSettings = builder.Configuration
-        .GetSection(PasswordResetSettings.SectionName)
-        .Get<PasswordResetSettings>() ?? new PasswordResetSettings();
-
-    if (!Uri.TryCreate(passwordResetSettings.ResetUrlBase, UriKind.Absolute, out var resetUri))
-    {
-        throw new InvalidOperationException("PasswordReset:ResetUrlBase must be configured as an absolute URL.");
-    }
-
-    if (!builder.Environment.IsDevelopment()
-        && !builder.Environment.IsEnvironment("Testing")
-        && !string.Equals(resetUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-    {
-        throw new InvalidOperationException(
-            $"PasswordReset:ResetUrlBase must use HTTPS in {builder.Environment.EnvironmentName}.");
-    }
 
     var app = builder.Build();
 
@@ -110,6 +102,8 @@ try
         }
     }
 
+    app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
+
     app.UseEShopRequestLogging();
 
     app.UseHttpMetrics(options =>
@@ -117,26 +111,37 @@ try
         options.AddCustomLabel("service", _ => "notification");
     });
 
+    // Notification previously had no /health, and its liveness predicate fell back to
+    // `Tags.Count == 0` because nothing was tagged "live" — it matched no check and so always
+    // reported Healthy. NotificationLivenessHealthCheck now gives it something real to report.
+    app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
+    });
+
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("ready"),
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
-        Predicate = check => check.Tags.Contains("live") || check.Tags.Count == 0,
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        Predicate = check => check.Tags.Contains("live"),
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
+    // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+    // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+    app.UseEShopMetricsAccess(app.Configuration, app.Environment);
     app.MapMetrics("/prometheus");
     app.UseEShopOpenTelemetryPrometheus();
 
+    // Notification audit S4 (L8): Basket's shape. An anonymous endpoint names no environment.
     app.MapGet("/", () => Results.Ok(new
     {
         service = "EShop Notification API",
         version = "1.0.0",
-        environment = app.Environment.EnvironmentName,
         endpoints = new
         {
             healthReady = "/health/ready",

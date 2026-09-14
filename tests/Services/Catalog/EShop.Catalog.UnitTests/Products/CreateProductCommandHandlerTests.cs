@@ -1,5 +1,6 @@
-using EShop.BuildingBlocks.Domain;
+﻿using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
+using EShop.Catalog.Application.Products;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -21,10 +22,30 @@ public class CreateProductCommandHandlerTests
         _productRepositoryMock = new Mock<IProductRepository>();
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
+        // No cache collaborator: the command declares the products:list family — which since
+        // Stage 6 also covers the paged per-category lists — and CacheInvalidationBehavior drains
+        // it after the transaction commits. See DeclaresItsOwnInvalidation below.
         _handler = new CreateProductCommandHandler(
             _productRepositoryMock.Object,
             _categoryRepositoryMock.Object,
             _unitOfWorkMock.Object);
+    }
+
+    /// <summary>
+    /// The handler no longer invalidates anything itself, so without this the declarations are
+    /// unguarded: deleting either one would leave every test here green while a created product
+    /// stayed invisible in cached lists for the full TTL — the exact DEBT-16 symptom.
+    /// </summary>
+    [Test]
+    public void DeclaresItsOwnInvalidation()
+    {
+        var categoryId = Guid.NewGuid();
+        var command = new CreateProductCommand { CategoryId = categoryId };
+
+        // No exact keys: an exact key for the category list would name an entry nobody writes
+        // now that it is paged — evicting it would remove nothing and log success.
+        Assert.That(command.CacheKeysToInvalidate, Is.Empty);
+        Assert.That(command.CacheFamiliesToInvalidate, Does.Contain(ProductCacheFamilies.ProductList));
     }
 
     [Test]
@@ -42,8 +63,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -90,8 +111,8 @@ public class CreateProductCommandHandlerTests
         Product? addedProduct = null;
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -137,8 +158,8 @@ public class CreateProductCommandHandlerTests
         Product? addedProduct = null;
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -181,8 +202,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))
@@ -209,8 +230,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Product.Create("Existing", "SKU-001", 19.99m, 50, categoryId));
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -236,8 +257,8 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.GetBySkuAsync(command.Sku, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Product?)null);
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         _categoryRepositoryMock
             .Setup(x => x.GetById(categoryId, It.IsAny<CancellationToken>()))

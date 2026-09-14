@@ -3,6 +3,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
 using EShop.Ordering.Application.Telemetry;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -36,7 +37,17 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, Res
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
-        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
+        // Checked here rather than left to Order.Cancel's DomainException so the caller gets a 409 with
+        // its own code: the request is well-formed, the order is simply past the point of cancelling.
+        if (order.Status != OrderStatus.Pending)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "not_cancellable");
+            return Result.Failure(new Error(
+                "Order.NotCancellable",
+                $"Only pending orders can be cancelled; this order is {order.Status.ToString().ToLowerInvariant()}."));
+        }
+
+        _cacheInvalidationContext?.AddFamily(OrderCacheKeys.UserOrders(order.UserId));
 
         order.Cancel(request.Reason);
 

@@ -14,46 +14,24 @@ public class OrderRepository : IOrderRepository
         _context = context;
     }
 
+    /// <summary>
+    /// One query. <c>AsSplitQuery</c> exists to avoid the row explosion of several collection includes;
+    /// with a single collection (the items) it only added a second round trip (audit L11).
+    /// </summary>
     public async Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Orders
             .Include(o => o.Items)
-            .AsSplitQuery()
             .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
-    public async Task<Order?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default)
+    public Task<string?> GetOwnerIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await _context.Orders
-            .Include(o => o.Items)
+        return _context.Orders
             .AsNoTracking()
-            .AsSplitQuery()
-            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
-    }
-
-    public async Task<IEnumerable<Order>> GetByUserIdAsync(string userId, CancellationToken cancellationToken = default)
-    {
-        // Legacy read method retained for backward compatibility.
-        // User-facing queries should use IOrderQueryService.GetOrdersByUserAsync for pagination.
-        return await _context.Orders
-            .Include(o => o.Items)
-            .Where(o => o.UserId == userId)
-            .OrderByDescending(o => o.CreatedAt)
-            .Take(200)
-            .AsNoTracking()
-            .AsSplitQuery()
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IEnumerable<Order>> GetByStatusAsync(OrderStatus status, CancellationToken cancellationToken = default)
-    {
-        return await _context.Orders
-            .Include(o => o.Items)
-            .Where(o => o.Status == status)
-            .OrderByDescending(o => o.CreatedAt)
-            .AsNoTracking()
-            .AsSplitQuery()
-            .ToListAsync(cancellationToken);
+            .Where(o => o.Id == id)
+            .Select(o => o.UserId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task AddAsync(Order order, CancellationToken cancellationToken = default)
@@ -61,7 +39,7 @@ public class OrderRepository : IOrderRepository
         await _context.Orders.AddAsync(order, cancellationToken);
     }
 
-    public async Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
+    public Task UpdateAsync(Order order, CancellationToken cancellationToken = default)
     {
         var trackedOrder = _context.Entry(order);
         if (trackedOrder.State == EntityState.Detached)
@@ -69,34 +47,33 @@ public class OrderRepository : IOrderRepository
             _context.Attach(order);
         }
 
+        // OrderItem.Id is mapped ValueGeneratedNever (see OrderingDbContext), so EF marks a
+        // newly added child under a loaded parent as Added on its own. No manual state fixup
+        // and no extra round-trip to fetch persisted item ids are needed here.
         _context.ChangeTracker.DetectChanges();
 
-        var persistedItemIds = await _context.OrderItems
-            .AsNoTracking()
-            .Where(i => i.OrderId == order.Id)
-            .Select(i => i.Id)
-            .ToHashSetAsync(cancellationToken);
-
-        // Ensure newly added items are marked as Added for insert.
-        foreach (var item in order.Items)
+        // Ordering audit L4. Version, the concurrency token, is bumped only when the Orders row itself is
+        // Modified (BaseDbContext.SetAuditFields). A change to the items alone that leaves every order
+        // column as it was — a zero-price line keeps the total — wrote no Orders row and so was checked
+        // against nothing: two concurrent adds of the same product could both commit, breaking the
+        // one-line-per-product rule. Any change to one of this order's items now marks the order
+        // Modified, so its Version is bumped and checked.
+        var orderEntry = _context.Entry(order);
+        if (orderEntry.State == EntityState.Unchanged
+            && _context.ChangeTracker.Entries<OrderItem>().Any(item => BelongsTo(item, order.Id)
+                && item.State is EntityState.Added or EntityState.Deleted or EntityState.Modified))
         {
-            var itemEntry = _context.Entry(item);
-            if (itemEntry.State == EntityState.Detached)
-            {
-                _context.Attach(item);
-                itemEntry = _context.Entry(item);
-            }
-
-            if (!persistedItemIds.Contains(item.Id)
-                && (itemEntry.State == EntityState.Modified || itemEntry.State == EntityState.Unchanged))
-            {
-                itemEntry.State = EntityState.Added;
-            }
+            orderEntry.State = EntityState.Modified;
         }
+
+        return Task.CompletedTask;
     }
 
-    public IQueryable<Order> Query()
-    {
-        return _context.Orders.AsNoTracking();
-    }
+    /// <summary>
+    /// Reads the foreign key through EF so it works whether <c>OrderId</c> is a CLR or a shadow property.
+    /// A removed item may keep the key only as its original value.
+    /// </summary>
+    private static bool BelongsTo(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<OrderItem> item, Guid orderId)
+        => Equals(item.Property("OrderId").CurrentValue, orderId)
+           || Equals(item.Property("OrderId").OriginalValue, orderId);
 }

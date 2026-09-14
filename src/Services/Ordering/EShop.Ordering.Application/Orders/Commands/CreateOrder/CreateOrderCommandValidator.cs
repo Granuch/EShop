@@ -13,30 +13,22 @@ public class CreateOrderCommandValidator : AbstractValidator<CreateOrderCommand>
             .NotEmpty().WithMessage("User ID is required");
 
         RuleFor(x => x.Items)
-            .NotEmpty().WithMessage("Order must have at least one item");
+            .NotEmpty().WithMessage("Order must have at least one item")
+            .Must(HaveDistinctProducts).WithMessage("Each product may appear only once; combine the quantities instead");
 
         RuleForEach(x => x.Items).ChildRules(item =>
         {
             item.RuleFor(i => i.ProductId)
                 .NotEmpty().WithMessage("Product ID is required");
 
-            item.RuleFor(i => i.ProductName)
-                .NotEmpty().WithMessage("Product name is required");
-
-            item.RuleFor(i => i.Price)
-                .GreaterThanOrEqualTo(0).WithMessage("Price cannot be negative");
-
             item.RuleFor(i => i.Quantity)
                 .GreaterThan(0).WithMessage("Quantity must be greater than 0");
         });
 
-        RuleFor(x => x.Street)
-            .NotEmpty().WithMessage("Street is required");
-
-        RuleFor(x => x.City)
-            .NotEmpty().WithMessage("City is required");
-
-        RuleFor(x => x.Country)
-            .NotEmpty().WithMessage("Country is required");
+        RuleFor(x => x).Custom((command, context) => ShippingAddressRules.Check(
+            context, command.Street, command.City, command.State, command.ZipCode, command.Country));
     }
+
+    private static bool HaveDistinctProducts(List<CreateOrderItemDto>? items)
+        => items is null || items.Select(i => i.ProductId).Distinct().Count() == items.Count;
 }

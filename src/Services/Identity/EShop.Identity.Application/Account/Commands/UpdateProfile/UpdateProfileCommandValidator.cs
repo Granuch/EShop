@@ -1,3 +1,4 @@
+using EShop.Identity.Application.Validation;
 using FluentValidation;
 
 namespace EShop.Identity.Application.Account.Commands.UpdateProfile;
@@ -12,15 +13,19 @@ public class UpdateProfileCommandValidator : AbstractValidator<UpdateProfileComm
         RuleFor(x => x.UserId)
             .NotEmpty().WithMessage("User ID is required");
 
+        // Shared with RegisterCommandValidator via PersonNameRules: a name that can be registered
+        // must remain editable, so these two must never disagree.
         RuleFor(x => x.FirstName)
             .NotEmpty().WithMessage("First name is required")
-            .MaximumLength(50).WithMessage("First name must not exceed 50 characters")
-            .Matches("^[a-zA-Z\\s'-]+$").WithMessage("First name can only contain letters, spaces, hyphens, and apostrophes");
+            .MaximumLength(PersonNameRules.MaxLength)
+                .WithMessage($"First name must not exceed {PersonNameRules.MaxLength} characters")
+            .Matches(PersonNameRules.Pattern).WithMessage($"First name {PersonNameRules.Message}");
 
         RuleFor(x => x.LastName)
             .NotEmpty().WithMessage("Last name is required")
-            .MaximumLength(50).WithMessage("Last name must not exceed 50 characters")
-            .Matches("^[a-zA-Z\\s'-]+$").WithMessage("Last name can only contain letters, spaces, hyphens, and apostrophes");
+            .MaximumLength(PersonNameRules.MaxLength)
+                .WithMessage($"Last name must not exceed {PersonNameRules.MaxLength} characters")
+            .Matches(PersonNameRules.Pattern).WithMessage($"Last name {PersonNameRules.Message}");
 
         RuleFor(x => x.ProfilePictureUrl)
             .MaximumLength(500).WithMessage("Profile picture URL must not exceed 500 characters")

@@ -32,52 +32,53 @@ public class UserRepository : IUserRepository
         return await _userManager.FindByEmailAsync(email);
     }
 
-    public async Task<ApplicationUser?> GetByOAuthProviderAsync(string provider, string providerId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// See <see cref="IUserRepository.UpdateLastLoginAsync"/> for why this deliberately does not
+    /// go through <c>UserManager.UpdateAsync</c>.
+    ///
+    /// <c>ExecuteUpdateAsync</c> emits one UPDATE with no <c>ConcurrencyStamp</c> predicate, so
+    /// concurrent logins cannot conflict, and it touches no tracked entity, so there is nothing
+    /// left for <c>TransactionBehavior</c>'s commit to retry. It still participates in the ambient
+    /// transaction the behavior opened.
+    ///
+    /// Note the query must ignore the soft-delete filter's counterpart explicitly? No — the global
+    /// filter on <c>!IsDeleted</c> applies here and that is correct: a deleted account should not
+    /// get login bookkeeping. A row that matches nothing simply updates 0 rows and, unlike the old
+    /// path, that is silent rather than fatal.
+    /// </summary>
+    public async Task UpdateLastLoginAsync(
+        string userId,
+        DateTime lastLoginAt,
+        string? lastLoginIp,
+        CancellationToken cancellationToken = default)
     {
-        return provider.ToLower() switch
-        {
-            "google" => await _userManager.Users.FirstOrDefaultAsync(u => u.GoogleId == providerId, cancellationToken),
-            "github" => await _userManager.Users.FirstOrDefaultAsync(u => u.GitHubId == providerId, cancellationToken),
-            _ => null
-        };
+        await _dbContext.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(u => u.LastLoginAt, lastLoginAt)
+                .SetProperty(u => u.LastLoginIp, lastLoginIp),
+                cancellationToken);
     }
 
-    public async Task<ApplicationUser> CreateAsync(ApplicationUser user, string password, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// The only coherent way to retire an account: <see cref="ApplicationUser.SoftDelete"/> moves
+    /// IsActive/IsDeleted/DeletedAt together, and the global query filter then hides the row from
+    /// every query including UserManager's.
+    ///
+    /// <para>
+    /// The persist step is inlined rather than delegated to a repository <c>UpdateAsync</c>, which
+    /// was deleted as unreferenced — this was its only caller.
+    /// </para>
+    /// </summary>
+    public async Task DeleteAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
-        var result = await _userManager.CreateAsync(user, password);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to create user: {errors}");
-        }
-        return user;
-    }
+        user.SoftDelete();
 
-    public async Task UpdateAsync(ApplicationUser user, CancellationToken cancellationToken = default)
-    {
         var result = await _userManager.UpdateAsync(user);
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to update user: {errors}");
-        }
-    }
-
-    public async Task DeleteAsync(ApplicationUser user, CancellationToken cancellationToken = default)
-    {
-        user.IsDeleted = true;
-        user.DeletedAt = DateTime.UtcNow;
-        user.IsActive = false;
-        await UpdateAsync(user, cancellationToken);
-    }
-
-    public async Task AddToRoleAsync(ApplicationUser user, string role, CancellationToken cancellationToken = default)
-    {
-        var result = await _userManager.AddToRoleAsync(user, role);
-        if (!result.Succeeded)
-        {
-            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new InvalidOperationException($"Failed to add role: {errors}");
+            throw new InvalidOperationException($"Failed to soft delete user: {errors}");
         }
     }
 

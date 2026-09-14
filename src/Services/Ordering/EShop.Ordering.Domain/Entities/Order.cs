@@ -1,3 +1,4 @@
+using System.Globalization;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Ordering.Domain.Events;
@@ -11,6 +12,12 @@ namespace EShop.Ordering.Domain.Entities;
 /// </summary>
 public class Order : AggregateRoot<Guid>
 {
+    /// <summary>
+    /// The currency every order is priced in: Ordering has no per-order currency, and its consumers refuse any other.
+    /// Published on <c>OrderCreatedEvent</c> since Notification audit S7 (D11), so the confirmation email can say it.
+    /// </summary>
+    public const string PricingCurrency = "USD";
+
     public string UserId { get; private set; } = string.Empty;
     public Address ShippingAddress { get; private set; } = null!;
     public decimal TotalPrice { get; private set; }
@@ -39,6 +46,13 @@ public class Order : AggregateRoot<Guid>
         if (itemList.Count == 0)
             throw new DomainException("Order must have at least one item.");
 
+        // AddItem already refused a second line for the same product; Create did not, so the same
+        // invariant held or not depending on how the order was built.
+        if (itemList.Select(i => i.ProductId).Distinct().Count() != itemList.Count)
+            throw new DomainException("Each product may appear only once in an order.");
+
+        EnsureStorable(itemList.Sum(i => i.SubTotal));
+
         var order = new Order
         {
             Id = Guid.NewGuid(),
@@ -58,7 +72,14 @@ public class Order : AggregateRoot<Guid>
         {
             OrderId = order.Id,
             UserId = order.UserId,
-            TotalAmount = order.TotalPrice
+            TotalAmount = order.TotalPrice,
+            Items = order._items.Select(i => new OrderCreatedLine
+            {
+                ProductId = i.ProductId,
+                ProductName = i.ProductName,
+                UnitPrice = i.UnitPrice,
+                Quantity = i.Quantity
+            }).ToList()
         });
 
         return order;
@@ -66,7 +87,7 @@ public class Order : AggregateRoot<Guid>
 
     public void AddItem(Guid productId, string productName, decimal unitPrice, int quantity)
     {
-        EnsureNotCompleted();
+        EnsurePending("Items can only be changed while the order is pending");
 
         if (quantity <= 0)
             throw new DomainException("Quantity must be greater than zero.");
@@ -79,13 +100,14 @@ public class Order : AggregateRoot<Guid>
             throw new DomainException($"Product '{productName}' already exists in this order.");
 
         var item = new OrderItem(productId, productName, unitPrice, quantity);
+        EnsureStorable(TotalPrice + item.SubTotal);
         _items.Add(item);
         RecalculateTotal();
     }
 
     public void RemoveItem(Guid itemId)
     {
-        EnsureNotCompleted();
+        EnsurePending("Items can only be changed while the order is pending");
 
         if (_items.Count == 1)
             throw new DomainException("Order must have at least one item.");
@@ -98,13 +120,25 @@ public class Order : AggregateRoot<Guid>
         RecalculateTotal();
     }
 
-    public void MarkAsPaid(string paymentIntentId)
+    /// <summary>
+    /// Records a successful payment. <paramref name="paidAmount"/> must equal <see cref="TotalPrice"/>:
+    /// Payment charges the total it was sent when the order was created, so a mismatch means the items
+    /// changed after the charge, or the charge was wrong — and marking the order paid anyway would
+    /// release goods nobody paid for. Both figures are compared at cent precision, rounding half away
+    /// from zero, because that is what the <c>numeric(18,2)</c> column does to the stored total.
+    /// </summary>
+    public void MarkAsPaid(string paymentIntentId, decimal paidAmount)
     {
         if (Status != OrderStatus.Pending)
             throw new DomainException("Only pending orders can be marked as paid.");
 
         if (string.IsNullOrWhiteSpace(paymentIntentId))
             throw new DomainException("Payment intent ID is required.");
+
+        if (ToCents(paidAmount) != ToCents(TotalPrice))
+            throw new DomainException(
+                $"Paid amount {ToCents(paidAmount).ToString("0.00", CultureInfo.InvariantCulture)} does not match "
+                + $"the order total {ToCents(TotalPrice).ToString("0.00", CultureInfo.InvariantCulture)}.");
 
         Status = OrderStatus.Paid;
         PaymentIntentId = paymentIntentId;
@@ -142,13 +176,18 @@ public class Order : AggregateRoot<Guid>
         DeliveredAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Only a pending order can be cancelled. A paid order used to be cancellable too, but nothing
+    /// refunds the payment, so cancelling it kept the customer's money against an order that no longer
+    /// existed. Payment consumes <c>OrderCancelledEvent</c> since Ordering audit Stage 9, but only to
+    /// cancel a payment that has not been captured — it never refunds.
+    /// </summary>
     public void Cancel(string reason)
     {
-        if (Status == OrderStatus.Shipped || Status == OrderStatus.Delivered)
-            throw new DomainException("Cannot cancel a shipped or delivered order.");
-
         if (Status == OrderStatus.Cancelled)
             throw new DomainException("Order is already cancelled.");
+
+        EnsurePending("Only pending orders can be cancelled");
 
         if (string.IsNullOrWhiteSpace(reason))
             throw new DomainException("Cancellation reason is required.");
@@ -165,16 +204,57 @@ public class Order : AggregateRoot<Guid>
         });
     }
 
+    /// <summary>
+    /// Records that Payment refunded this order's payment in full (Ordering audit Stage 11, driven by
+    /// <c>PaymentRefundedEvent</c>). Refunded is final: nothing moves an order out of it.
+    ///
+    /// <para>
+    /// Pending is allowed on purpose. A payment can succeed, and be refunded, before Ordering has processed
+    /// its success; left Pending, the order would be marked Paid by that late success and could then ship.
+    /// A cancelled order is refused: it is already final, and its refund only settles the payment side.
+    /// </para>
+    /// </summary>
+    public void Refund()
+    {
+        if (Status == OrderStatus.Refunded)
+            throw new DomainException("Order is already refunded.");
+
+        if (Status == OrderStatus.Cancelled)
+            throw new DomainException("A cancelled order cannot be refunded; its payment is settled in Payment.");
+
+        Status = OrderStatus.Refunded;
+    }
+
+    /// <summary>
+    /// The largest total the <c>numeric(18,2)</c> column holds (Ordering audit L1). Above it Postgres
+    /// refused the write with 22003, which nothing maps, so the request was a 500.
+    /// </summary>
+    public const decimal MaxTotal = 9_999_999_999_999_999.99m;
+
+    /// <summary>Checked before the order changes, so a refused line leaves the order as it was.</summary>
+    private static void EnsureStorable(decimal total)
+    {
+        if (total > MaxTotal)
+            throw new DomainException(
+                $"Order total must not exceed {MaxTotal.ToString("0.00", CultureInfo.InvariantCulture)}.");
+    }
+
     private void RecalculateTotal()
     {
         TotalPrice = _items.Sum(i => i.SubTotal);
     }
 
-    private void EnsureNotCompleted()
+    /// <summary>
+    /// Pending is the only state in which the total may still move. Once paid, the total is what the
+    /// customer was charged, so changing items afterwards made the order disagree with its payment.
+    /// </summary>
+    private void EnsurePending(string rule)
     {
-        if (Status is OrderStatus.Shipped or OrderStatus.Delivered or OrderStatus.Cancelled)
-            throw new DomainException("Cannot modify an order that is shipped, delivered, or cancelled.");
+        if (Status != OrderStatus.Pending)
+            throw new DomainException($"{rule}; this order is already {Status.ToString().ToLowerInvariant()}.");
     }
+
+    private static decimal ToCents(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
 }
 
 public enum OrderStatus

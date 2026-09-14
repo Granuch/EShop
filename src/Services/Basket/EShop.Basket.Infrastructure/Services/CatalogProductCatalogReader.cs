@@ -59,14 +59,20 @@ public sealed class CatalogProductCatalogReader : IProductCatalogReader
         }
 
         var effectivePrice = payload.DiscountPrice ?? payload.Price;
-        return new ProductCatalogSnapshot(payload.Id, payload.Name, effectivePrice);
+        return new ProductCatalogSnapshot(payload.Id, payload.Name, effectivePrice, payload.StockQuantity);
     }
 
+    /// <summary>
+    /// A private mirror of Catalog's <c>ProductDetailsDto</c>: a field renamed there binds to its default here rather
+    /// than breaking the build, which for <see cref="StockQuantity"/> would read every product as out of stock.
+    /// <c>CatalogProductCatalogReaderTests</c> pins the wire names for that reason.
+    /// </summary>
     private sealed record CatalogProductResponse
     {
         public Guid Id { get; init; }
         public string Name { get; init; } = string.Empty;
         public decimal Price { get; init; }
         public decimal? DiscountPrice { get; init; }
+        public int StockQuantity { get; init; }
     }
 }

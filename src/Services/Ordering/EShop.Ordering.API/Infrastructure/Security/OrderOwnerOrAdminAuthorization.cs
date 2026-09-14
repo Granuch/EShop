@@ -49,13 +49,13 @@ public sealed class OrderOwnerOrAdminHandler : AuthorizationHandler<OrderOwnerOr
             return;
         }
 
-        var order = await _orderRepository.GetByIdReadOnlyAsync(orderId, httpContext.RequestAborted);
-        if (order is null)
+        var ownerId = await _orderRepository.GetOwnerIdAsync(orderId, httpContext.RequestAborted);
+        if (ownerId is null)
         {
             return;
         }
 
-        if (string.Equals(order.UserId, subjectId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ownerId, subjectId, StringComparison.OrdinalIgnoreCase))
         {
             context.Succeed(requirement);
         }

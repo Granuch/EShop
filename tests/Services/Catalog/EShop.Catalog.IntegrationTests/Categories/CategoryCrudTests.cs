@@ -89,10 +89,12 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var result = await response.Content.ReadFromJsonAsync<List<ProductResponse>>();
+        // Paged since Stage 6 (D5) — see CategoryProductsPaginationTests for the paging itself.
+        var result = await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>();
         result.Should().NotBeNull();
-        result!.Count.Should().Be(2);
-        result.Should().OnlyContain(p => p.CategoryId == categoryId);
+        result!.TotalCount.Should().Be(2);
+        result.Items.Should().HaveCount(2);
+        result.Items.Should().OnlyContain(p => p.CategoryId == categoryId);
     }
 
     #endregion
@@ -277,7 +279,7 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Category.HasProducts");
+        problem!.ErrorCode.Should().Be("Category.HasProducts");
     }
 
     [Test]

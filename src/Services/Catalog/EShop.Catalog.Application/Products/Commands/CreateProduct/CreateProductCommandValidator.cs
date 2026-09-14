@@ -21,6 +21,11 @@ public class CreateProductCommandValidator : AbstractValidator<CreateProductComm
             .MaximumLength(50).WithMessage("SKU must not exceed 50 characters")
             .Matches(@"^[A-Za-z0-9\-_]+$").WithMessage("SKU must contain only alphanumeric characters, hyphens, and underscores");
 
+        // L23 (Stage 10). Same limit and message as the Category validators; the column is
+        // varchar(1000) to match.
+        RuleFor(x => x.Description)
+            .MaximumLength(1000).WithMessage("Description must not exceed 1000 characters");
+
         RuleFor(x => x.Price)
             .GreaterThan(0).WithMessage("Price must be greater than 0");
 

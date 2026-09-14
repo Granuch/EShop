@@ -17,7 +17,7 @@ namespace EShop.Identity.API.Controllers;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Authorize]
-public class AccountController : ControllerBase
+public class AccountController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly ILogger<AccountController> _logger;
@@ -34,20 +34,23 @@ public class AccountController : ControllerBase
     [HttpGet("profile")]
     [ProducesResponseType(typeof(UserProfileResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<UserProfileResponse>> GetProfile()
+    public async Task<ActionResult<UserProfileResponse>> GetProfile(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var query = new GetProfileQuery { UserId = userId };
-        var result = await _mediator.Send(query);
+        var result = await _mediator.Send(query, cancellationToken);
 
         if (result.IsFailure)
         {
-            return NotFound(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -59,12 +62,15 @@ public class AccountController : ControllerBase
     [HttpPut("profile")]
     [ProducesResponseType(typeof(UpdateProfileResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<UpdateProfileResponse>> UpdateProfile([FromBody] UpdateProfileRequest request)
+    public async Task<ActionResult<UpdateProfileResponse>> UpdateProfile([FromBody] UpdateProfileRequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new UpdateProfileCommand
@@ -75,11 +81,11 @@ public class AccountController : ControllerBase
             ProfilePictureUrl = request.ProfilePictureUrl
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -91,12 +97,15 @@ public class AccountController : ControllerBase
     [HttpPost("change-password")]
     [ProducesResponseType(typeof(ChangePasswordResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ChangePasswordResponse>> ChangePassword([FromBody] ChangePasswordRequest request)
+    public async Task<ActionResult<ChangePasswordResponse>> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new ChangePasswordCommand
@@ -106,11 +115,11 @@ public class AccountController : ControllerBase
             NewPassword = request.NewPassword
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -122,20 +131,23 @@ public class AccountController : ControllerBase
     [HttpPost("enable-2fa")]
     [ProducesResponseType(typeof(Enable2FAResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Enable2FAResponse>> Enable2FA()
+    public async Task<ActionResult<Enable2FAResponse>> Enable2FA(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new Enable2FACommand { UserId = userId };
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -147,12 +159,15 @@ public class AccountController : ControllerBase
     [HttpPost("verify-2fa")]
     [ProducesResponseType(typeof(Verify2FAResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Verify2FAResponse>> Verify2FA([FromBody] Verify2FARequest request)
+    public async Task<ActionResult<Verify2FAResponse>> Verify2FA([FromBody] Verify2FARequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new Verify2FACommand
@@ -161,11 +176,11 @@ public class AccountController : ControllerBase
             Code = request.Code
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -177,12 +192,15 @@ public class AccountController : ControllerBase
     [HttpPost("disable-2fa")]
     [ProducesResponseType(typeof(Disable2FAResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Disable2FAResponse>> Disable2FA([FromBody] Disable2FARequest request)
+    public async Task<ActionResult<Disable2FAResponse>> Disable2FA([FromBody] Disable2FARequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrEmpty(userId))
         {
-            return Unauthorized();
+            return ProblemForError(
+                "Auth.MissingSubjectClaim",
+                "User identifier not found in authentication claims.",
+                StatusCodes.Status401Unauthorized);
         }
 
         var command = new Disable2FACommand
@@ -191,11 +209,11 @@ public class AccountController : ControllerBase
             Code = request.Code
         };
 
-        var result = await _mediator.Send(command);
+        var result = await _mediator.Send(command, cancellationToken);
 
         if (result.IsFailure)
         {
-            return BadRequest(new { error = result.Error!.Code, message = result.Error.Message });
+            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);

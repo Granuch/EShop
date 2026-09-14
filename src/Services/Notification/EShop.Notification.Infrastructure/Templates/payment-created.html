@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Payment Received</title>
+    <title>Payment Started</title>
 </head>
 <body style="margin:0;padding:0;background:#f0fdf4;font-family:Arial,Helvetica,sans-serif;color:#14532d;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
@@ -15,13 +15,12 @@
                     </tr>
                     <tr>
                         <td style="padding:24px;">
-                            <h1 style="margin:0 0 12px;font-size:22px;color:#166534;">Payment received</h1>
-                            <p style="margin:0 0 16px;line-height:1.5;color:#14532d;">Hi {{CustomerName}}, we received your payment request and started processing it.</p>
+                            <h1 style="margin:0 0 12px;font-size:22px;color:#166534;">Payment started</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;color:#14532d;">Hi {{CustomerName}}, the payment for your order has started. Nothing has been charged yet; we will email you again once it is complete.</p>
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #bbf7d0;border-radius:6px;overflow:hidden;">
                                 <tr><td style="padding:12px 14px;background:#f0fdf4;width:45%;">Order ID</td><td style="padding:12px 14px;">{{OrderId}}</td></tr>
                                 <tr><td style="padding:12px 14px;background:#f0fdf4;">Amount</td><td style="padding:12px 14px;">{{Amount}} {{Currency}}</td></tr>
-                                <tr><td style="padding:12px 14px;background:#f0fdf4;">Status</td><td style="padding:12px 14px;">{{Status}}</td></tr>
-                                <tr><td style="padding:12px 14px;background:#f0fdf4;">Created At</td><td style="padding:12px 14px;">{{CreatedAt}}</td></tr>
+                                <tr><td style="padding:12px 14px;background:#f0fdf4;">Started at</td><td style="padding:12px 14px;">{{CreatedAt}}</td></tr>
                             </table>
                         </td>
                     </tr>

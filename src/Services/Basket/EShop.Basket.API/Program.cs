@@ -1,12 +1,12 @@
 using EShop.Basket.API.Endpoints;
 using EShop.Basket.API.Infrastructure.Configuration;
 using EShop.Basket.API.Infrastructure.HealthChecks;
-using EShop.Basket.API.Infrastructure.Middleware;
 using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Extensions;
-using EShop.Basket.Infrastructure.Caching;
 using EShop.Basket.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -17,12 +17,14 @@ using Prometheus;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
-using Microsoft.Extensions.Caching.StackExchangeRedis;
 using StackExchange.Redis;
 using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 
+// StackExchange.Redis's guidance for its "Timeout ... WORKER busy" failures: when a burst queues more work than the pool
+// has threads, the pool adds threads slowly and Redis replies wait behind them. Every Redis call here is asynchronous, so
+// this is headroom, not a fix for blocking code (Basket audit L8 — reviewed and kept; it had no comment saying why).
 ThreadPool.SetMinThreads(workerThreads: 100, completionPortThreads: 100);
 
 Log.Logger = new LoggerConfiguration()
@@ -47,29 +49,18 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .Enrich.WithThreadId()
     .Enrich.WithProperty("Application", "EShop.Basket.API"));
 
-var forwardedProxies = builder.Configuration
-    .GetSection("ForwardedHeaders:KnownProxies")
-    .Get<string[]>() ?? [];
+// Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
+// works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
+var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
-if (forwardedProxies.Length > 0)
-{
-    builder.Services.Configure<ForwardedHeadersOptions>(options =>
-    {
-        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-        options.ForwardLimit = 1;
-        options.KnownIPNetworks.Clear();
-        options.KnownProxies.Clear();
+// Basket audit S10 (M11): Redis must be configured, and outside Development and Testing no Redis or RabbitMQ setting may
+// still be a placeholder. Before the messaging registration below, which accepts any non-empty RabbitMQ values.
+BasketConfigurationGuard.Validate(builder.Configuration, builder.Environment);
 
-        foreach (var proxy in forwardedProxies)
-        {
-            if (IPAddress.TryParse(proxy, out var ipAddress))
-            {
-                options.KnownProxies.Add(ipAddress);
-            }
-        }
-    });
-}
-
+// The pipeline is Validation -> Logging -> handler, both registered by AddBasketApplication. Basket has
+// no TransactionBehavior (there is no database) and, since Basket audit S5 (D5), no caching behaviors:
+// GetBasketQuery was cached as a second Redis copy of a Redis document, which cost the same round trip
+// as the source and served old prices after a price sync. Don't add AddEShopCacheInvalidation() back.
 builder.Services.AddBasketApplication();
 builder.Services.AddBasketInfrastructure(builder.Configuration);
 builder.Services.AddBasketMessaging(
@@ -83,29 +74,12 @@ builder.Services.AddEShopOpenTelemetry(
     environment: builder.Environment,
     additionalSources: "EShop.Basket");
 
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
-    ?? throw new InvalidOperationException("Redis connection string is required.");
-
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    options.InstanceName = "EShop_Basket_";
-});
-
-builder.Services.AddOptions<RedisCacheOptions>()
-    .Configure<IConnectionMultiplexer>((options, mux) =>
-    {
-        options.ConnectionMultiplexerFactory = () => Task.FromResult(mux);
-    });
-
-builder.Services.AddCircuitBreakingCache(failureThreshold: 3, openDuration: TimeSpan.FromSeconds(30));
-
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JWT settings are required.");
 
-if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey) || jwtSettings.SecretKey.Length < 32)
-{
-    throw new InvalidOperationException("JWT SecretKey must be configured and at least 32 characters long.");
-}
+// Basket audit S10 (M11): the shared guard. The hand-rolled check here tested length only, so the tracked Development
+// placeholder (CHANGE_ME_..., longer than 32 characters) would have booted Basket in Sandbox or Production.
+JwtSecretGuard.Validate(jwtSettings.SecretKey, builder.Environment);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -130,26 +104,20 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
-    options.AddPolicy("SameUserOrAdmin", policy => policy.Requirements.Add(new SameUserOrAdminRequirement()));
+    // The owner for everything, an admin for reads only (Basket audit S10, D10).
+    options.AddPolicy(OwnerOrAdminReadRequirement.PolicyName, policy => policy.Requirements.Add(new OwnerOrAdminReadRequirement()));
 });
-builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
+builder.Services.AddSingleton<IAuthorizationHandler, OwnerOrAdminReadHandler>();
+
+// Validated here rather than inside AddPolicy: CORS builds its policies lazily on first use,
+// so a throw in the lambda is a request-time 500 on a host that already reported healthy.
+var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-        if (allowedOrigins.Length == 0 &&
-            !builder.Environment.IsDevelopment() &&
-            !builder.Environment.IsEnvironment("Testing"))
-        {
-            throw new InvalidOperationException(
-                $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                "Configure allowed origins before deploying to non-development environments.");
-        }
-
-        policy.WithOrigins(allowedOrigins)
+        policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
@@ -160,9 +128,12 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // Partition on GetClientPartitionKey, not on RemoteIpAddress directly: the helper normalises
+    // IPv4-mapped IPv6, so ::ffff:1.2.3.4 and 1.2.3.4 share one bucket instead of a dual-stack
+    // client silently getting two allowances. Basket had the same mismatch Catalog did.
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 AutoReplenishment = true,
@@ -172,7 +143,9 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddHealthChecks()
-    .AddRedis(redisConnectionString, name: "redis", tags: ["cache", "ready"])
+    // The application's own multiplexer (Basket audit L8): the connection-string overload opened a second connection
+    // just to be checked, so the check could pass while the one the basket actually uses was broken.
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>(), name: "redis", tags: ["cache", "ready"])
     .AddCheck<BasketOutboxHealthCheck>("basket-outbox", tags: ["outbox", "ready"])
     .AddCheck<BasketReadinessHealthCheck>("basket-readiness", tags: ["ready"])
     .AddCheck<BasketLivenessHealthCheck>("basket-liveness", tags: ["live"]);
@@ -181,11 +154,17 @@ builder.Services.AddHealthChecks()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
+// Basket has never had a NotFoundException branch - its 404s come from Result errors, mapped by
+// BasketEndpoints.StatusFor (Basket audit S8), not from exceptions. AddNotFound() is deliberately not registered.
+builder.Services.AddEShopProblemDetails(options => options.AddCommon());
+
 var app = builder.Build();
 
 app.UseGlobalExceptionHandler();
 
-if (app.Environment.IsDevelopment())
+// OpenAPI and Scalar UI: every environment except Production, the one rule all services share (Ordering
+// audit L10, EShopApiDocs). This was Development only.
+if (EShopApiDocs.IsExposedIn(app.Environment))
 {
     app.MapOpenApi();
 
@@ -199,10 +178,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-if (forwardedProxies.Length > 0)
-{
-    app.UseForwardedHeaders();
-}
+app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
 app.UseEShopRequestLogging();
 
@@ -224,51 +200,42 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapBasketEndpoints();
+app.MapBasketOutboxAdminEndpoints();
 
+// Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+// Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+app.UseEShopMetricsAccess(app.Configuration, app.Environment);
 app.MapMetrics("/prometheus");
 app.UseEShopOpenTelemetryPrometheus();
 
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("live"),
-    ResponseWriter = (context, report) =>
-    {
-        context.Response.ContentType = "application/json";
-        return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new { status = report.Status.ToString() }));
-    }
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
+// Anonymous, so it names no environment and no routes (Basket audit S10, L10) — Payment's shape. The route map lives
+// in the OpenAPI document, which Production does not expose.
 app.MapGet("/", () => Results.Ok(new
 {
     service = "EShop Basket API",
     version = "1.0.0",
-    environment = app.Environment.EnvironmentName,
     endpoints = new
     {
-        health = "/health",
         healthReady = "/health/ready",
         healthLive = "/health/live",
-        metrics = new { prometheus = "/prometheus", otel = "/metrics" },
-        basket = new
-        {
-            get = "GET /api/v1/basket/{userId}",
-            addItem = "POST /api/v1/basket/{userId}/items",
-            updateItem = "PUT /api/v1/basket/{userId}/items/{productId}",
-            removeItem = "DELETE /api/v1/basket/{userId}/items/{productId}",
-            clear = "DELETE /api/v1/basket/{userId}",
-            checkout = "POST /api/v1/basket/{userId}/checkout"
-        }
+        metrics = new { prometheus = "/prometheus", otel = "/metrics" }
     }
 }));
 

@@ -51,6 +51,15 @@ public record UpdateProductRequest
     public int StockQuantity { get; init; }
 }
 
+/// <summary>
+/// Body of PUT /api/v1/products/{id}/discount. The route owns the product id, so the body carries
+/// only the price — the endpoint overwrites ProductId after binding.
+/// </summary>
+public record SetProductDiscountRequest
+{
+    public decimal DiscountPrice { get; init; }
+}
+
 public record ProductResponse
 {
     public Guid Id { get; init; }
@@ -108,13 +117,18 @@ public record CreateCategoryRequest
     public string Name { get; init; } = string.Empty;
     public string? Slug { get; init; }
     public Guid? ParentCategoryId { get; init; }
+    public string? Description { get; init; }
+    public int? DisplayOrder { get; init; }
 }
 
 public record UpdateCategoryRequest
 {
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
-    public string Description { get; init; } = string.Empty;
+
+    /// <summary>Null (omitted) leaves the stored description; "" clears it (Stage 8, M10).</summary>
+    public string? Description { get; init; }
+    public int? DisplayOrder { get; init; }
 }
 
 public record CategoryResponse
@@ -124,6 +138,7 @@ public record CategoryResponse
     public string? Description { get; init; }
     public string Slug { get; init; } = string.Empty;
     public Guid? ParentCategoryId { get; init; }
+    public string? ParentCategoryName { get; init; }
     public int DisplayOrder { get; init; }
     public bool IsActive { get; init; }
     public List<CategoryResponse>? ChildCategories { get; init; }
@@ -145,12 +160,29 @@ public record PagedResponse<T>
     public bool HasNextPage { get; init; }
 }
 
+public record CursorPagedResponse<T>
+{
+    public IEnumerable<T> Items { get; init; } = Enumerable.Empty<T>();
+    public int PageSize { get; init; }
+    public string? NextCursor { get; init; }
+    public string? PreviousCursor { get; init; }
+    public bool HasNextPage { get; init; }
+    public bool HasPreviousPage { get; init; }
+}
+
 public record ProblemDetailsResponse
 {
     public string? Type { get; init; }
     public string? Title { get; init; }
     public string? Detail { get; init; }
     public int Status { get; init; }
+
+    /// <summary>
+    /// The machine-readable discriminator. Previously these assertions read <see cref="Title"/>,
+    /// which under RFC 7807 is a human-readable summary of the status, not an error code.
+    /// </summary>
+    public string? ErrorCode { get; init; }
+
     public string? TraceId { get; init; }
     public Dictionary<string, string[]>? Errors { get; init; }
 }

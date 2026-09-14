@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Application.Behaviors;
 
 namespace EShop.Identity.Application.Account.Commands.ChangePassword;
@@ -10,7 +11,9 @@ namespace EShop.Identity.Application.Account.Commands.ChangePassword;
 public record ChangePasswordCommand : IRequest<Result<ChangePasswordResponse>>, ITransactionalCommand
 {
     public string UserId { get; init; } = string.Empty;
+    [SensitiveData]
     public string CurrentPassword { get; init; } = string.Empty;
+    [SensitiveData]
     public string NewPassword { get; init; } = string.Empty;
 }
 

@@ -1,18 +1,18 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
-using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Interfaces;
+using EShop.Notification.Infrastructure.BackgroundServices;
 using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Consumers;
 using EShop.Notification.Infrastructure.Data;
 using EShop.Notification.Infrastructure.HealthChecks;
 using EShop.Notification.Infrastructure.Repositories;
 using EShop.Notification.Infrastructure.Services;
+using MassTransit;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -51,6 +51,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<NotificationDbContext>());
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<NotificationDbContext>());
 
+        // The consumers date their delivery attempts with it (Notification audit D5).
+        services.TryAddSingleton(TimeProvider.System);
+
         services.AddScoped<IEmailService, EmailService>();
         services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
         services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
@@ -74,32 +77,21 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds);
         });
 
-        services.AddSingleton(new OutboxProcessorOptions
-        {
-            BatchSize = 20,
-            PollingIntervalMs = 1000,
-            MaxRetries = 5,
-            ErrorRetryDelayMs = 5000
-        });
-        services.AddHostedService<OutboxProcessorService>();
+        // Notification audit S6 (debt 4, L11, D9). Notification publishes nothing, so it runs no outbox processor, no
+        // outbox cleanup (processed_messages has not been written here since S2) and no outbox health check. The two
+        // tables stay in the schema because BaseDbContext maps them; they are empty.
 
-        services.AddSingleton(new OutboxCleanupOptions
-        {
-            RetentionDays = 7,
-            CleanupIntervalHours = 6
-        });
-        services.AddHostedService<OutboxCleanupService>();
+        // Notification audit S5 (M8, D8): NotificationLogs rows are deleted 90 days after their last update.
+        services.Configure<NotificationLogRetentionSettings>(
+            configuration.GetSection(NotificationLogRetentionSettings.SectionName));
+        services.AddHostedService<NotificationLogRetentionService>();
 
-        services.AddSingleton(new OutboxHealthCheckOptions
-        {
-            DeadLetterWarningThreshold = 10,
-            PendingWarningThreshold = 100
-        });
-
+        // Readiness is what the consumers need: this database, and RabbitMQ (registered by AddEShopBus). SMTP is on
+        // /health only (S6, M11): an outage there is recorded per message and retried, and readiness gates no traffic here.
         services.AddHealthChecks()
-            .AddCheck<OutboxHealthCheck>("outbox", tags: ["ready", "outbox"])
             .AddCheck<NotificationDbHealthCheck>("notification-db", tags: ["db", "ready"])
-            .AddCheck<SmtpHealthCheck>("smtp", tags: ["smtp", "ready"]);
+            .AddCheck<SmtpHealthCheck>("smtp", tags: ["smtp"])
+            .AddCheck<NotificationLivenessHealthCheck>("notification-liveness", tags: ["live"]);
 
         return services;
     }
@@ -109,20 +101,25 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        services.AddMessaging<NotificationDbContext>(
-            configuration,
-            isDevelopment,
-            bus =>
-            {
-                bus.AddConsumer<OrderCreatedConsumer>();
-                bus.AddConsumer<OrderShippedConsumer>();
-                bus.AddConsumer<PaymentCreatedConsumer>();
-                bus.AddConsumer<PaymentCompletedConsumer>();
-                bus.AddConsumer<PaymentFailedConsumer>();
-                bus.AddConsumer<PaymentRefundedConsumer>();
-                bus.AddConsumer<PasswordResetRequestedConsumer>();
-            });
+        // The bus alone (Notification audit S6, debt 4): AddMessaging would also register an integration event outbox,
+        // and Notification publishes nothing.
+        services.AddEShopBus(configuration, "notification", isDevelopment, bus => bus.AddNotificationConsumers());
 
         return services;
+    }
+
+    /// <summary>
+    /// The seven consumers, with the password-reset endpoint's definition (Notification audit D6). Public so the tests
+    /// register exactly what production does.
+    /// </summary>
+    public static void AddNotificationConsumers(this IBusRegistrationConfigurator bus)
+    {
+        bus.AddConsumer<OrderCreatedConsumer>();
+        bus.AddConsumer<OrderShippedConsumer>();
+        bus.AddConsumer<PaymentCreatedConsumer>();
+        bus.AddConsumer<PaymentCompletedConsumer>();
+        bus.AddConsumer<PaymentFailedConsumer>();
+        bus.AddConsumer<PaymentRefundedConsumer>();
+        bus.AddConsumer<PasswordResetRequestedConsumer, PasswordResetRequestedConsumerDefinition>();
     }
 }

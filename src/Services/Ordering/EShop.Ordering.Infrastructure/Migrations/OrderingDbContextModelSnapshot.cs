@@ -171,7 +171,8 @@ namespace EShop.Ordering.Infrastructure.Migrations
 
                     b.HasIndex("Status");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "CreatedAt", "Id")
+                        .IsDescending(false, true, true);
 
                     b.ToTable("Orders", (string)null);
                 });
@@ -179,7 +180,6 @@ namespace EShop.Ordering.Infrastructure.Migrations
             modelBuilder.Entity("EShop.Ordering.Domain.Entities.OrderItem", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")

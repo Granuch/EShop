@@ -3,6 +3,8 @@ using EShop.ApiGateway.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
+using static EShop.ApiGateway.UnitTests.Middleware.ProxyGuardAssertions;
+
 namespace EShop.ApiGateway.UnitTests.Middleware;
 
 [TestFixture]
@@ -20,14 +22,14 @@ public class IdentityProxyGuardMiddlewareTests
             },
             maxBodySizeBytes: 10);
 
-        var context = new DefaultHttpContext();
-        context.Request.Path = "/api/v1/auth/register";
+        var context = CreateContext("/api/v1/auth/register");
         context.Request.ContentLength = 11;
 
         await middleware.InvokeAsync(context);
 
         Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status413PayloadTooLarge));
         Assert.That(wasCalled, Is.False);
+        await AssertProblemBodyAsync(context, "Request.PayloadTooLarge");
     }
 
     [Test]
@@ -41,13 +43,13 @@ public class IdentityProxyGuardMiddlewareTests
             },
             retryAfterSeconds: 7);
 
-        var context = new DefaultHttpContext();
-        context.Request.Path = "/api/v1/auth/login";
+        var context = CreateContext("/api/v1/auth/login");
 
         await middleware.InvokeAsync(context);
 
         Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status503ServiceUnavailable));
         Assert.That(context.Response.Headers["Retry-After"].ToString(), Is.EqualTo("7"));
+        await AssertProblemBodyAsync(context, "Gateway.UpstreamUnavailable");
     }
 
     [Test]

@@ -51,6 +51,18 @@ public class OrderTests
         Assert.That(domainEvent.TotalAmount, Is.EqualTo(45.50m));
     }
 
+    /// <summary>Audit M5: the lines travel with the event, so OrderCreatedEvent.Items can carry them.</summary>
+    [Test]
+    public void Create_OrderCreatedEvent_CarriesEveryLine()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+
+        var lines = ((OrderCreatedDomainEvent)order.DomainEvents[0]).Items;
+
+        Assert.That(lines.Select(l => (l.ProductId, l.ProductName, l.UnitPrice, l.Quantity)),
+            Is.EqualTo(_validItems.Select(i => (i.ProductId, i.ProductName, i.UnitPrice, i.Quantity))));
+    }
+
     [Test]
     public void Create_WithEmptyUserId_ShouldThrowDomainException()
     {
@@ -138,6 +150,20 @@ public class OrderTests
             order.AddItem(Guid.NewGuid(), "Widget C", 5.00m, 1));
     }
 
+    /// <summary>The total of a paid order is what was charged; adding to it would be unpaid goods.</summary>
+    [Test]
+    public void AddItem_ToPaidOrder_ShouldThrowAndLeaveTotalUnchanged()
+    {
+        var order = CreatePaidOrder();
+        var totalBefore = order.TotalPrice;
+
+        Assert.Throws<DomainException>(() =>
+            order.AddItem(Guid.NewGuid(), "Widget C", 5.00m, 1));
+
+        Assert.That(order.TotalPrice, Is.EqualTo(totalBefore));
+        Assert.That(order.Items, Has.Count.EqualTo(2));
+    }
+
     #endregion
 
     #region RemoveItem
@@ -175,6 +201,18 @@ public class OrderTests
             order.RemoveItem(Guid.NewGuid()));
     }
 
+    [Test]
+    public void RemoveItem_FromPaidOrder_ShouldThrowAndLeaveItemsUnchanged()
+    {
+        var order = CreatePaidOrder();
+
+        Assert.Throws<DomainException>(() =>
+            order.RemoveItem(order.Items.First().Id));
+
+        Assert.That(order.Items, Has.Count.EqualTo(2));
+        Assert.That(order.TotalPrice, Is.EqualTo(45.50m));
+    }
+
     #endregion
 
     #region MarkAsPaid
@@ -184,7 +222,7 @@ public class OrderTests
     {
         var order = Order.Create("user-1", _validAddress, _validItems);
 
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
 
         Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
         Assert.That(order.PaymentIntentId, Is.EqualTo("pi_123456"));
@@ -197,7 +235,7 @@ public class OrderTests
         var order = Order.Create("user-1", _validAddress, _validItems);
         order.ClearDomainEvents();
 
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
 
         Assert.That(order.DomainEvents, Has.Count.EqualTo(1));
         var domainEvent = order.DomainEvents[0] as OrderPaidDomainEvent;
@@ -212,7 +250,7 @@ public class OrderTests
         var order = CreatePaidOrder();
 
         Assert.Throws<DomainException>(() =>
-            order.MarkAsPaid("pi_another"));
+            order.MarkAsPaid("pi_another", order.TotalPrice));
     }
 
     [Test]
@@ -221,8 +259,30 @@ public class OrderTests
         var order = Order.Create("user-1", _validAddress, _validItems);
 
         var ex = Assert.Throws<DomainException>(() =>
-            order.MarkAsPaid(""));
+            order.MarkAsPaid("", order.TotalPrice));
         Assert.That(ex!.Message, Does.Contain("Payment intent"));
+    }
+
+    [Test]
+    public void MarkAsPaid_WithAmountDifferentFromTotal_ShouldThrowAndStayPending()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems); // total 45.50
+
+        var ex = Assert.Throws<DomainException>(() => order.MarkAsPaid("pi_short", 40.00m));
+
+        Assert.That(ex!.Message, Does.Contain("40.00").And.Contain("45.50"));
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Pending));
+        Assert.That(order.PaymentIntentId, Is.Null);
+    }
+
+    [Test]
+    public void MarkAsPaid_ComparesAtCentPrecision()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems); // total 45.50
+
+        order.MarkAsPaid("pi_cents", 45.5000m);
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
     }
 
     #endregion
@@ -317,14 +377,19 @@ public class OrderTests
         Assert.That(domainEvent.Reason, Is.EqualTo("Changed my mind"));
     }
 
+    /// <summary>
+    /// Reversed from "ShouldSucceed": nothing refunds a cancelled paid order, so cancelling one kept
+    /// the customer's money against an order that no longer existed.
+    /// </summary>
     [Test]
-    public void Cancel_PaidOrder_ShouldSucceed()
+    public void Cancel_PaidOrder_ShouldThrowDomainException()
     {
         var order = CreatePaidOrder();
 
-        order.Cancel("Refund requested");
+        var ex = Assert.Throws<DomainException>(() => order.Cancel("Refund requested"));
 
-        Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
+        Assert.That(ex!.Message, Does.Contain("paid"));
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Paid));
     }
 
     [Test]
@@ -368,6 +433,104 @@ public class OrderTests
 
     #endregion
 
+    #region Money (audit L1)
+
+    /// <summary>
+    /// The columns are numeric(18,2). A sub-cent price used to be stored rounded while the in-memory
+    /// total, and the TotalAmount Payment charges, kept the extra digits.
+    /// </summary>
+    [Test]
+    public void Create_RoundsUnitPricesToCents_SoTheTotalIsWhatTheColumnStores()
+    {
+        var order = Order.Create("user-1", _validAddress, [new OrderItem(Guid.NewGuid(), "Bolt", 0.335m, 3)]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(order.Items.Single().UnitPrice, Is.EqualTo(0.34m));
+            Assert.That(order.TotalPrice, Is.EqualTo(1.02m));
+        });
+    }
+
+    [Test]
+    public void Create_WithATotalTheColumnCannotHold_Throws()
+    {
+        var items = new List<OrderItem> { new(Guid.NewGuid(), "Yacht", Order.MaxTotal, 2) };
+
+        Assert.Throws<DomainException>(() => Order.Create("user-1", _validAddress, items));
+    }
+
+    [Test]
+    public void AddItem_PastTheColumnsLimit_ThrowsAndLeavesTheOrderUnchanged()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+        var totalBefore = order.TotalPrice;
+
+        Assert.Throws<DomainException>(() => order.AddItem(Guid.NewGuid(), "Yacht", Order.MaxTotal, 1));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(order.Items, Has.Count.EqualTo(_validItems.Count));
+            Assert.That(order.TotalPrice, Is.EqualTo(totalBefore));
+        });
+    }
+
+    #endregion
+
+    #region Refund
+
+    [TestCase(OrderStatus.Pending)]
+    [TestCase(OrderStatus.Paid)]
+    [TestCase(OrderStatus.Shipped)]
+    [TestCase(OrderStatus.Delivered)]
+    public void Refund_FromAnyLiveState_SetsRefunded(OrderStatus from)
+    {
+        var order = OrderIn(from);
+
+        order.Refund();
+
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Refunded));
+    }
+
+    [Test]
+    public void Refund_CancelledOrder_ShouldThrowAndStayCancelled()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+        order.Cancel("Changed my mind");
+
+        Assert.Throws<DomainException>(() => order.Refund());
+        Assert.That(order.Status, Is.EqualTo(OrderStatus.Cancelled));
+    }
+
+    [Test]
+    public void Refund_AlreadyRefundedOrder_ShouldThrowDomainException()
+    {
+        var order = CreatePaidOrder();
+        order.Refund();
+
+        Assert.Throws<DomainException>(() => order.Refund());
+    }
+
+    /// <summary>
+    /// Why a pending order may be refunded: a payment success that arrives after the refund must not mark
+    /// the order Paid, which would let a refunded order ship.
+    /// </summary>
+    [Test]
+    public void RefundedOrder_IsFinal_ALateSuccessCannotMarkItPaid()
+    {
+        var order = Order.Create("user-1", _validAddress, _validItems);
+        order.Refund();
+
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<DomainException>(() => order.MarkAsPaid("pi_late", order.TotalPrice));
+            Assert.Throws<DomainException>(() => order.Ship());
+            Assert.Throws<DomainException>(() => order.Cancel("too late"));
+            Assert.That(order.Status, Is.EqualTo(OrderStatus.Refunded));
+        });
+    }
+
+    #endregion
+
     #region ClearDomainEvents
 
     [Test]
@@ -388,7 +551,7 @@ public class OrderTests
     private Order CreatePaidOrder()
     {
         var order = Order.Create("user-1", _validAddress, _validItems);
-        order.MarkAsPaid("pi_123456");
+        order.MarkAsPaid("pi_123456", order.TotalPrice);
         return order;
     }
 
@@ -405,6 +568,15 @@ public class OrderTests
         order.Deliver();
         return order;
     }
+
+    private Order OrderIn(OrderStatus status) => status switch
+    {
+        OrderStatus.Pending => Order.Create("user-1", _validAddress, _validItems),
+        OrderStatus.Paid => CreatePaidOrder(),
+        OrderStatus.Shipped => CreateShippedOrder(),
+        OrderStatus.Delivered => CreateDeliveredOrder(),
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
+    };
 
     #endregion
 }

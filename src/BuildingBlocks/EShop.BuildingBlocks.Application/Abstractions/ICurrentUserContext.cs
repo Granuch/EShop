@@ -43,5 +43,11 @@ public sealed class SystemUserContext : ICurrentUserContext
     public string? UserId => "system";
     public string? UserName => "System";
     public bool IsAuthenticated => false;
-    public string CorrelationId { get; } = $"system-{Guid.NewGuid():N}";
+    private readonly string _fallbackCorrelationId = $"system-{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// The ambient id when an enclosing operation set one (<see cref="AmbientCorrelation"/>),
+    /// otherwise a per-process "system-…" id.
+    /// </summary>
+    public string CorrelationId => AmbientCorrelation.Current ?? _fallbackCorrelationId;
 }

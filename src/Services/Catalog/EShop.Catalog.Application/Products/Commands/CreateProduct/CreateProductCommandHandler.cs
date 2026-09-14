@@ -2,6 +2,7 @@ using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
+using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Telemetry;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -33,8 +34,11 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         activity?.SetTag("product.sku", request.Sku);
         activity?.SetTag("product.category_id", request.CategoryId.ToString());
 
-        var existingProduct = await _productRepository.GetBySkuAsync(request.Sku, cancellationToken);
-        if (existingProduct != null)
+        // Read-then-write, so it cannot be the whole answer: two concurrent creates both pass this
+        // and only the partial unique index IX_Products_Sku stops the second. That loss surfaces as
+        // a 409 Product.SkuConflict via CatalogProblemDetailsExtensions, not as a 400 like this
+        // branch — the distinction is real, since a race is retryable and a plain duplicate is not.
+        if (await _productRepository.SkuExistsAsync(request.Sku, cancellationToken))
         {
             activity?.SetStatus(ActivityStatusCode.Error, "sku_conflict");
             return Result<Guid>.Failure(new Error("Product.SkuConflict", $"Product with SKU '{request.Sku}' already exists."));
@@ -64,6 +68,15 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
         await _productRepository.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // No invalidation code here on purpose. CreateProductCommand knows its own CategoryId, so
+        // it declares both the exact key and the products:list family, and CacheInvalidationBehavior
+        // drains them after the transaction commits. This handler used to do the same work a second
+        // time through ICacheInvalidator while the command already declared the category key — two
+        // mechanisms for one effect, and the hand-rolled half ran pre-commit.
+        // (It invalidated nothing at all before DEBT-16, which was the most visible instance of the
+        // stale-list problem: a newly created product did not appear in any cached list for up to
+        // five minutes, so the POST looked like it had silently failed.)
 
         activity?.SetTag("product.id", product.Id.ToString());
 

@@ -31,6 +31,13 @@ data:
   Cors__AllowedOrigins__0: "http://localhost:3000"
   Cors__AllowedOrigins__1: "https://localhost:3000"
 
+  # Trusted reverse proxy (api-gateway). Pod IPs are ephemeral, so trust the pod CIDR
+  # rather than a fixed address - without this X-Forwarded-For is ignored and rate
+  # limiting / brute-force protection see the gateway pod instead of the real client.
+  ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+  ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+  ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
   # Identity settings
   Identity__RequireConfirmedEmail: "false"
 
@@ -41,7 +48,8 @@ data:
   # SMTP (Mailpit в k8s)
   Smtp__Host: "mailpit"
   Smtp__Port: "1025"
-  Smtp__UseSsl: "false"
+  # Notification audit S5 (D7): None, StartTls or SslOnConnect; Mailpit takes plaintext without credentials.
+  Smtp__Security: "None"
   Smtp__FromEmail: "noreply@eshop.local"
   Smtp__FromName: "EShop"
 
@@ -51,10 +59,11 @@ data:
   PaymentSimulation__SuccessRatePercent: "80"
   PaymentSimulation__RefundDelaySeconds: "2"
 
-  # Stripe (disabled by default)
+  # Stripe (disabled by default). Payment audit Stage 4 (H3, D5): webhook signatures are always checked.
+  # A bypass would accept a forged payment_intent.succeeded from anything that can reach payment-api.
   Stripe__Enabled: "false"
-  Stripe__SkipWebhookSignatureVerification: "true"
-  Stripe__AllowMissingSignatureHeaderInBypassMode: "true"
+  Stripe__SkipWebhookSignatureVerification: "false"
+  Stripe__AllowMissingSignatureHeaderInBypassMode: "false"
 
   # RabbitMQ delayed exchange
   RabbitMQ__RetryCount: "3"

@@ -52,6 +52,17 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: internal-service-api-key-header
+        # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
+        # before the last attempt), which is far longer than a readiness initialDelay should
+        # cover. A startupProbe gives that its own budget: while it is pending Kubernetes
+        # suspends the readiness and liveness probes, so a slow first boot cannot be killed
+        # by the liveness probe before it has finished migrating.
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health/ready

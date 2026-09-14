@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
@@ -7,36 +8,9 @@ using Microsoft.Extensions.Logging;
 namespace EShop.Identity.Infrastructure.Services;
 
 /// <summary>
-/// Provides cached access to user roles to reduce database queries.
-/// 
-/// Cache Strategy:
-/// - Key format: "user_roles:{userId}"
-/// - TTL: 5 minutes (absolute expiration)
-/// - Invalidation: On role assignment/removal, or when user logs out
-/// 
-/// Thread Safety: Uses cache stampede prevention from DistributedCacheExtensions.
-/// </summary>
-public interface ICachedUserRolesService
-{
-    /// <summary>
-    /// Gets the roles for a user, using cache when available.
-    /// </summary>
-    Task<IList<string>> GetRolesAsync(ApplicationUser user, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets the roles for a user by ID, using cache when available.
-    /// </summary>
-    Task<IList<string>> GetRolesByUserIdAsync(string userId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Invalidates the cached roles for a user.
-    /// Call this after role assignment or removal.
-    /// </summary>
-    Task InvalidateRolesCacheAsync(string userId, CancellationToken cancellationToken = default);
-}
-
-/// <summary>
 /// Implementation of cached user roles service using Redis distributed cache.
+/// The interface lives in <c>EShop.Identity.Domain.Interfaces</c> so the Application layer's
+/// role handlers can invalidate this cache without Application referencing Infrastructure.
 /// </summary>
 public class CachedUserRolesService : ICachedUserRolesService
 {

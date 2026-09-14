@@ -29,13 +29,19 @@ public class UniformResponseTimingMiddleware
     private readonly RequestDelegate _next;
     private readonly BruteForceProtectionSettings _settings;
 
-    // Endpoints that should have uniform timing
+    // Endpoints that should have uniform timing.
+    // confirm-email and refresh-token were missing: confirm-email reveals whether a UserId
+    // exists (a hit does token validation work, a miss returns immediately), and refresh-token
+    // reveals whether a presented token matched a row. Both are the same enumeration oracle the
+    // other four are padded against.
     private static readonly string[] TimedEndpoints =
     [
         "/api/v1/auth/login",
         "/api/v1/auth/register",
         "/api/v1/auth/forgot-password",
-        "/api/v1/auth/reset-password"
+        "/api/v1/auth/reset-password",
+        "/api/v1/auth/confirm-email",
+        "/api/v1/auth/refresh-token"
     ];
 
     public UniformResponseTimingMiddleware(
@@ -81,7 +87,22 @@ public class UniformResponseTimingMiddleware
                 if (actualResponseTime < targetResponseTime)
                 {
                     var delayMs = targetResponseTime - actualResponseTime;
-                    await Task.Delay(delayMs);
+
+                    // Honour disconnection. Without the token this holds a request thread for up
+                    // to ~1.2s per request after the client has already gone, which is both waste
+                    // and a cheap way to pin resources. The padding exists to hide *response*
+                    // timing from a client that is still listening; there is nothing to hide from
+                    // one that has hung up.
+                    try
+                    {
+                        await Task.Delay(delayMs, context.RequestAborted);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Client disconnected mid-delay. Swallowed deliberately: this runs in a
+                        // finally block, and letting it propagate would replace the real response
+                        // (or a real exception) with a cancellation.
+                    }
                 }
 
                 // Note: If actual time exceeds minimum, we don't add delay

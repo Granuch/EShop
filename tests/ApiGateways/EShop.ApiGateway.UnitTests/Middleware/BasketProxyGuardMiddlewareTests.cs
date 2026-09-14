@@ -3,6 +3,8 @@ using EShop.ApiGateway.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
+using static EShop.ApiGateway.UnitTests.Middleware.ProxyGuardAssertions;
+
 namespace EShop.ApiGateway.UnitTests.Middleware;
 
 [TestFixture]
@@ -20,14 +22,14 @@ public class BasketProxyGuardMiddlewareTests
             },
             maxBodySizeBytes: 10);
 
-        var context = new DefaultHttpContext();
-        context.Request.Path = "/api/v1/basket/user-1/items";
+        var context = CreateContext("/api/v1/basket/user-1/items");
         context.Request.ContentLength = 11;
 
         await middleware.InvokeAsync(context);
 
         Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status413PayloadTooLarge));
         Assert.That(called, Is.False);
+        await AssertProblemBodyAsync(context, "Request.PayloadTooLarge");
     }
 
     [Test]
@@ -41,13 +43,14 @@ public class BasketProxyGuardMiddlewareTests
             },
             retryAfterSeconds: 7);
 
-        var context = new DefaultHttpContext();
-        context.Request.Path = "/api/v1/basket/user-1";
+        var context = CreateContext("/api/v1/basket/user-1");
 
         await middleware.InvokeAsync(context);
 
         Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status503ServiceUnavailable));
-        Assert.That(context.Response.Headers["Retry-After"].ToString(), Is.EqualTo("7"));
+        Assert.That(context.Response.Headers["Retry-After"].ToString(), Is.EqualTo("7"),
+            "Retry-After must survive the problem body being written after it");
+        await AssertProblemBodyAsync(context, "Gateway.UpstreamUnavailable");
     }
 
     [Test]

@@ -120,6 +120,39 @@ Security-relevant diagnostics are supported through:
 
 This enables detection and investigation of auth failures, policy rejections, and runtime anomalies.
 
+### Diagnostic endpoint exposure
+
+All three health endpoints (`/health`, `/health/ready`, `/health/live`) are anonymous in every
+component, because a probe cannot present a credential. To keep that safe, their response bodies
+carry **only the overall status, the total duration, and a name/status pair per check** — no
+check description, no data dictionary, and no exception message. The shared
+`EShopHealthResponseWriter` enforces this, and the checks themselves also refrain from attaching
+exceptions to their results; the failure detail is written to the server log instead. This
+replaced `UIResponseWriter.WriteHealthCheckUIResponse`, which serialised all of it and therefore
+returned database hostnames, usernames and raw connection errors to any caller, precisely when a
+service was failing.
+
+The Prometheus scrape endpoints (`/prometheus`, `/metrics`) are likewise anonymous but are
+restricted by network. With nothing configured they answer only loopback and private ranges
+(RFC 1918 and IPv6 unique-local), which covers the compose bridge network, a Kubernetes pod CIDR
+and localhost — every scrape path this platform actually uses. `Metrics:AllowedNetworks` (a list
+of CIDRs) replaces that default when a deployment needs something narrower or wider. A rejected
+request receives 404 rather than 403, so the response does not confirm the endpoint exists. The
+`Testing` environment is exempt in full, because `TestServer` has no socket and therefore no
+remote address to evaluate.
+
+### Accepted risk: OpenAPI in production
+
+Identity, Catalog and Ordering serve their OpenAPI document and Scalar UI in **every environment
+except `Testing`**, so the full API schema is published in Production. The gateway, Basket and
+Payment gate the same endpoints on `IsDevelopment()`.
+
+This inconsistency is **known and accepted, not an oversight**: the three permissive services do
+it deliberately, and changing it would alter published behaviour. It is recorded here so the
+divergence is a stated decision rather than something rediscovered during a review. Revisit it
+before any public deployment — a published schema is reconnaissance material, and the split means
+consumers cannot rely on the document being reachable for a given service.
+
 ---
 
 ## Threat Focus Areas

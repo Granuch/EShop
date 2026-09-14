@@ -15,23 +15,22 @@
                     </tr>
                     <tr>
                         <td style="padding:24px;">
-                            <h1 style="margin:0 0 12px;font-size:22px;">Good news, {{CustomerName}}!</h1>
-                            <p style="margin:0 0 16px;line-height:1.5;">Your order has been shipped and is on the way.</p>
+                            <h1 style="margin:0 0 12px;font-size:22px;">Your order is on its way</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;">Hi {{CustomerName}}, your order has been shipped.</p>
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
                                 <tr>
                                     <td style="padding:12px 14px;background:#f9fafb;width:45%;">Order ID</td>
                                     <td style="padding:12px 14px;">{{OrderId}}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding:12px 14px;background:#f9fafb;">Tracking Number</td>
-                                    <td style="padding:12px 14px;">{{TrackingNumber}}</td>
+                                    <td style="padding:12px 14px;background:#f9fafb;">Shipped on</td>
+                                    <td style="padding:12px 14px;">{{ShippedAt}}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding:12px 14px;background:#f9fafb;">Estimated Delivery</td>
-                                    <td style="padding:12px 14px;">{{EstimatedDelivery}}</td>
+                                    <td style="padding:12px 14px;background:#f9fafb;">Tracking number</td>
+                                    <td style="padding:12px 14px;">{{TrackingNumber}}</td>
                                 </tr>
                             </table>
-                            <p style="margin:20px 0 0;line-height:1.5;">Track your package with the tracking number above.</p>
                         </td>
                     </tr>
                 </table>

@@ -54,6 +54,17 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
 
             entity.HasIndex(u => u.GoogleId).IsUnique().HasFilter("\"GoogleId\" IS NOT NULL");
             entity.HasIndex(u => u.GitHubId).IsUnique().HasFilter("\"GitHubId\" IS NOT NULL");
+
+            // Soft delete is enforced here rather than re-checked by hand in every handler.
+            // Without it, `IsDeleted` was advisory: six handlers tested it and five did not, so
+            // whether a deleted account could act depended on which code path it reached.
+            // The filter applies to UserManager too, since UserStore queries this DbSet — so a
+            // soft-deleted user is simply not found, and handlers return their not-found answer.
+            // Note it hides *deleted* users only: a deactivated-but-not-deleted account is still
+            // found and still gets the explicit Auth.AccountDisabled response, which is why the
+            // handlers' `!user.IsActive` checks stay.
+            // Use IgnoreQueryFilters() for an admin/audit query that must see deleted rows.
+            entity.HasQueryFilter(u => !u.IsDeleted);
         });
 
         // Configure ApplicationRole entity
@@ -68,17 +79,21 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
         {
             entity.ToTable("refresh_tokens");
             entity.HasKey(t => t.Id);
-            entity.Property(t => t.Token).HasMaxLength(500).IsRequired();
+            // Fixed-width: the hash is always a 64-character lowercase hex SHA-256 digest, so
+            // char(64) is exact rather than a guess, and it keeps the unique index compact.
+            entity.Property(t => t.TokenHash)
+                .HasColumnType("char(64)")
+                .IsRequired();
             entity.Property(t => t.UserId).IsRequired();
             entity.Property(t => t.CreatedByIp).HasMaxLength(50);
             entity.Property(t => t.RevokedByIp).HasMaxLength(50);
-            entity.Property(t => t.ReplacedByToken).HasMaxLength(500);
+            entity.Property(t => t.ReplacedByTokenHash).HasColumnType("char(64)");
             entity.Property(t => t.RevokeReason).HasMaxLength(250);
 
             // Optimistic concurrency token for token rotation race condition protection
             entity.Property(t => t.Version).IsRowVersion();
 
-            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasIndex(t => t.TokenHash).IsUnique();
             entity.HasIndex(t => t.UserId);
             entity.HasIndex(t => new { t.UserId, t.ExpiresAt });
 

@@ -1,10 +1,13 @@
 using System.Net;
 using System.Text;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
-using EShop.Ordering.API.Infrastructure.Middleware;
+using EShop.BuildingBlocks.Infrastructure.Http;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.Security;
 using EShop.Ordering.Application.Extensions;
 using EShop.Ordering.Infrastructure.Data;
@@ -54,39 +57,34 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Ordering.API"));
 
-    var forwardedProxies = builder.Configuration
-        .GetSection("ForwardedHeaders:KnownProxies")
-        .Get<string[]>() ?? [];
+    // Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
+    // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
+    // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
+    var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
-    if (forwardedProxies.Length > 0)
-    {
-        builder.Services.Configure<ForwardedHeadersOptions>(options =>
-        {
-            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            options.ForwardLimit = 1;
-            options.KnownNetworks.Clear();
-            options.KnownProxies.Clear();
-
-            foreach (var proxy in forwardedProxies)
-            {
-                if (IPAddress.TryParse(proxy, out var ipAddress))
-                {
-                    options.KnownProxies.Add(ipAddress);
-                }
-            }
-        });
-    }
-    else
-    {
-        Log.Warning("Forwarded headers are not configured with known proxies. X-Forwarded-For will be ignored.");
-    }
+    // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
+    // behaviors in DI registration order (first registered = outermost), so these three calls are
+    // what sets the pipeline:
+    //   CacheInvalidation -> Transaction -> Validation -> Logging -> Caching -> handler
+    // CacheInvalidationBehavior has to be outermost because it invalidates AFTER the handler
+    // returns: registered inside TransactionBehavior, the keys AddOrderItem, CancelOrder,
+    // RemoveOrderItem and ShipOrder add to ICacheInvalidationContext were drained before the write
+    // committed, so a concurrent read could repopulate the cache with pre-commit data.
+    // Application before Infrastructure is the older, separate fix: Infrastructure first produced
+    // Caching -> ... -> Transaction -> Validation, i.e. validation running after the transaction
+    // had already opened. Both orderings are silent if broken — nothing fails, and neither is
+    // visible without reading all three extension methods.
+    builder.Services.AddEShopCacheInvalidation();
+    builder.Services.AddOrderingApplication();
 
     // Add Infrastructure services (DbContext, Repositories, IUnitOfWork, etc.)
-    var useInMemoryDb = builder.Environment.IsEnvironment("Testing");
+    // Testing defaults to the InMemory provider, but a test host opts into real PostgreSQL with
+    // Testing:UseRelationalDatabase=true (Ordering audit M11) — the same switch, for the same reason, as
+    // Identity and Catalog. It must arrive through UseSetting: this line runs while the app is composed,
+    // so a ConfigureAppConfiguration source is too late and InMemory would silently win.
+    var useInMemoryDb = builder.Environment.IsEnvironment("Testing")
+        && !builder.Configuration.GetValue<bool>("Testing:UseRelationalDatabase");
     builder.Services.AddOrderingInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
-
-    // Add Application services (MediatR, FluentValidation, Pipeline Behaviors)
-    builder.Services.AddOrderingApplication();
 
     // Add MassTransit with RabbitMQ messaging
     builder.Services.AddOrderingMessaging(
@@ -142,17 +140,9 @@ try
             options.ConfigurationOptions.ReconnectRetryPolicy = new LinearRetry(5000);
         });
 
-        builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-        {
-            var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
-            redisOptions.AbortOnConnectFail = false;
-            redisOptions.ConnectTimeout = 5000;
-            redisOptions.SyncTimeout = 5000;
-            redisOptions.ConnectRetry = 3;
-            redisOptions.KeepAlive = 60;
-            redisOptions.ReconnectRetryPolicy = new LinearRetry(5000);
-            return ConnectionMultiplexer.Connect(redisOptions);
-        });
+        // No IConnectionMultiplexer is registered any more: its only user was PaymentSuccessConsumer's
+        // SCAN over the whole keyspace, replaced by versioned-family invalidation (audit M8). It was a
+        // second Redis connection beside the one IDistributedCache already holds.
 
         Log.Information("Redis distributed cache configured successfully");
     }
@@ -170,31 +160,12 @@ try
     // Configure JWT Authentication
     var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()!;
 
-    if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey))
-    {
-        throw new InvalidOperationException(
-            "JWT SecretKey is not configured. Set JwtSettings:SecretKey in configuration or environment variables.");
-    }
-
-    if (jwtSettings.SecretKey.Length < 32)
-    {
-        throw new InvalidOperationException(
-            $"JWT SecretKey must be at least 32 characters (256 bits) for HS256. Current length: {jwtSettings.SecretKey.Length}.");
-    }
-
-    // Detect placeholder patterns that must be replaced before deployment
-    var placeholderPatterns = new[] { "#{", "CHANGE_ME", "YOUR_", "TestKey", "placeholder" };
-    if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
-    {
-        foreach (var pattern in placeholderPatterns)
-        {
-            if (jwtSettings.SecretKey.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    $"JWT SecretKey contains placeholder pattern '{pattern}'. Replace with a secure secret before deploying to {builder.Environment.EnvironmentName}.");
-            }
-        }
-    }
+    // Audit M7, decision D18: the shared JwtSecretGuard. A missing or short key fails everywhere; a
+    // placeholder (the seven patterns Identity checks) fails outside Development and Testing. Ordering's
+    // own copy of this list once had five patterns and omitted LOCAL_ and REPLACE_WITH_, so the exact
+    // placeholder that crash-loops Identity booted Ordering cleanly on the same shared key.
+    // Configuration/StartupGuardTests boots this file as Production to prove the call is still here.
+    JwtSecretGuard.Validate(jwtSettings.SecretKey, builder.Environment);
 
     builder.Services.AddAuthentication(options =>
     {
@@ -226,30 +197,57 @@ try
             policy.Requirements.Add(new SameUserOrAdminRequirement()));
     });
 
-    builder.Services.AddSingleton<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
+    // Scoped, not Singleton: the owner check reads the database through the scoped IOrderRepository.
+    // As a Singleton it captured one root-scoped OrderingDbContext shared by every request (audit H1);
+    // outside Development nothing validates scopes, so that failed only under concurrent load.
+    builder.Services.AddScoped<IAuthorizationHandler, OrderOwnerOrAdminHandler>();
     builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
-    // Add CORS
+    // Add CORS. Audit M7: the shared CorsOriginGuard, as Basket, Identity and Catalog use. It runs
+    // HERE, while the host is composed — the old check sat inside the AddPolicy lambda, which CORS
+    // builds lazily, so a misconfigured deploy started healthy and threw on its first cross-origin
+    // request — and it also rejects placeholder origins, not only an empty list.
+    var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-            if (allowedOrigins.Length == 0 &&
-                !builder.Environment.IsDevelopment() &&
-                !builder.Environment.IsEnvironment("Testing"))
-            {
-                throw new InvalidOperationException(
-                    $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                    "Configure allowed origins before deploying to non-development environments.");
-            }
-
-            policy.WithOrigins(allowedOrigins)
+            policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
         });
+    });
+
+    // Audit L9. Ordering relied on the gateway's limiter alone, which anything reaching ordering-api
+    // directly bypasses. This is Catalog's global limiter ported as-is: partitioned per client (never
+    // AddFixedWindowLimiter(name, ...), which is one bucket shared by every caller), off under Testing
+    // unless RateLimiting:EnableInTesting, and read from the same RateLimiting:* keys as Catalog and
+    // Identity so a test host can make it assertable.
+    var rateLimitingEnabled = !builder.Environment.IsEnvironment("Testing")
+        || builder.Configuration.GetValue<bool>("RateLimiting:EnableInTesting");
+    var globalPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+    var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Global:WindowSeconds") ?? 60;
+
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        if (rateLimitingEnabled)
+        {
+            // GetClientPartitionKey normalises IPv4-mapped IPv6, so a dual-stack client cannot claim two
+            // allowances, and it reads the address UseForwardedHeaders has already rewritten.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        AutoReplenishment = true,
+                        PermitLimit = globalPermitLimit,
+                        Window = TimeSpan.FromSeconds(globalWindowSeconds)
+                    }));
+        }
     });
 
     // Add Health Checks
@@ -282,6 +280,22 @@ try
     // Add OpenAPI
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
+
+    // Audit L8. Without this, minimal-API body binding swallows a JsonException and writes a bare 400
+    // with an empty body. Throwing routes it to AddMalformedJsonBody below, which returns problem+json
+    // naming the offending member. Unknown properties are deliberately still ignored (no
+    // UnmappedMemberHandling.Disallow, unlike Catalog): the C1 contract is that a client still sending
+    // the old ProductName/Price fields gets them ignored in favour of Catalog's, not rejected.
+    builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+
+    // AddEfConcurrency must precede AddEfDuplicateKey: DbUpdateConcurrencyException derives
+    // from DbUpdateException, so the broader mapper would otherwise swallow it.
+    builder.Services.AddEShopProblemDetails(options => options
+        .AddCommon()
+        .AddNotFound()
+        .AddEfConcurrency()
+        .AddEfDuplicateKey()
+        .AddMalformedJsonBody());
 
     var app = builder.Build();
 
@@ -326,26 +340,12 @@ try
     // Global Exception Handler - must be first middleware
     app.UseGlobalExceptionHandler();
 
-    if (forwardedProxies.Length > 0)
-    {
-        app.UseForwardedHeaders();
-    }
-
-static bool IsPostgresStartupException(Exception exception)
-{
-    if (exception is PostgresException { SqlState: "57P03" })
-    {
-        return true;
-    }
-
-    return exception.InnerException is not null
-        && IsPostgresStartupException(exception.InnerException);
-}
+    app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
     app.UseEShopRequestLogging();
 
-    // OpenAPI and Scalar UI
-    if (!app.Environment.IsEnvironment("Testing"))
+    // OpenAPI and Scalar UI: every environment except Production, the one rule all services share (L10).
+    if (EShopApiDocs.IsExposedIn(app.Environment))
     {
         app.MapOpenApi();
 
@@ -369,6 +369,10 @@ static bool IsPostgresStartupException(Exception exception)
         app.UseHttpsRedirection();
     }
 
+    // Audit L9. After HTTPS redirection, so a request that is only going to be redirected does not spend a
+    // permit (Identity's order; Catalog's differs), and before authentication and the endpoints.
+    app.UseRateLimiter();
+
     // Add Prometheus HTTP metrics middleware
     app.UseHttpMetrics(options =>
     {
@@ -385,6 +389,9 @@ static bool IsPostgresStartupException(Exception exception)
     // /prometheus — prometheus-net custom business metrics
     // In .NET 10, /metrics is auto-registered by the framework for OpenTelemetry metrics,
     // so custom prometheus-net metrics use a separate path to avoid being overridden.
+    // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+    // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+    app.UseEShopMetricsAccess(app.Configuration, app.Environment);
     app.MapMetrics("/prometheus");
     // /metrics — OpenTelemetry metrics
     app.UseEShopOpenTelemetryPrometheus();
@@ -392,24 +399,19 @@ static bool IsPostgresStartupException(Exception exception)
     // Health check endpoints with detailed response
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("ready"),
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("live"),
-        ResponseWriter = (context, report) =>
-        {
-            context.Response.ContentType = "application/json";
-            return context.Response.WriteAsync(
-                System.Text.Json.JsonSerializer.Serialize(new { status = report.Status.ToString() }));
-        }
+        ResponseWriter = EShopHealthResponseWriter.WriteAsync
     });
 
     // Root endpoint - API info and available endpoints
@@ -420,8 +422,8 @@ static bool IsPostgresStartupException(Exception exception)
         environment = app.Environment.EnvironmentName,
         endpoints = new
         {
-            documentation = !app.Environment.IsEnvironment("Testing") ? "/scalar/v1" : "Not available in Testing",
-            openapi = !app.Environment.IsEnvironment("Testing") ? "/openapi/v1.json" : "Not available in Testing",
+            documentation = EShopApiDocs.IsExposedIn(app.Environment) ? "/scalar/v1" : "Not available in Production",
+            openapi = EShopApiDocs.IsExposedIn(app.Environment) ? "/openapi/v1.json" : "Not available in Production",
             health = "/health",
             healthReady = "/health/ready",
             healthLive = "/health/live",
@@ -435,7 +437,8 @@ static bool IsPostgresStartupException(Exception exception)
                 addItem = "POST /api/v1/orders/{id}/items",
                 removeItem = "DELETE /api/v1/orders/{id}/items/{itemId}",
                 cancel = "POST /api/v1/orders/{id}/cancel",
-                ship = "POST /api/v1/orders/{id}/ship (Admin)"
+                ship = "POST /api/v1/orders/{id}/ship (Admin)",
+                deliver = "POST /api/v1/orders/{id}/deliver (Admin)"
             }
         }
     }))
@@ -447,11 +450,30 @@ static bool IsPostgresStartupException(Exception exception)
 
     app.Run();
 }
-catch (Exception ex)
+catch (Exception ex) when (ex is not HostAbortedException)
 {
+    // Log, then rethrow. This used to swallow the exception, so a service that failed to start
+    // (a bad migration, an invalid CatalogService:BaseUrl) exited with code 0 and its reason
+    // existed only in the log — and a test host saw an ObjectDisposedException instead of the
+    // cause. HostAbortedException is excluded because EF design-time tooling uses it to stop the
+    // host on purpose.
     Log.Fatal(ex, "Application terminated unexpectedly");
+    throw;
 }
 finally
 {
     Log.CloseAndFlush();
+}
+
+// Used by the startup migration loop. It sat between two middleware registrations (audit L10); a local
+// function declared at top level is in scope for all the statements above.
+static bool IsPostgresStartupException(Exception exception)
+{
+    if (exception is PostgresException { SqlState: "57P03" })
+    {
+        return true;
+    }
+
+    return exception.InnerException is not null
+        && IsPostgresStartupException(exception.InnerException);
 }

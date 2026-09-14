@@ -1,9 +1,8 @@
+using System.Globalization;
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Payment.Application.Payments.Abstractions;
 using EShop.Payment.Application.Payments.Common;
+using EShop.Payment.Application.Payments.Refunds;
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using MediatR;
@@ -14,24 +13,18 @@ namespace EShop.Payment.Application.Payments.Commands.RefundPayment;
 public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentCommand, Result<PaymentDto>>
 {
     private readonly IPaymentRepository _paymentRepository;
-    private readonly IPaymentProcessor _paymentProcessor;
-    private readonly IStripePaymentService _stripePaymentService;
-    private readonly IIntegrationEventOutbox _integrationEventOutbox;
+    private readonly IPaymentRefunder _paymentRefunder;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<RefundPaymentCommandHandler> _logger;
 
     public RefundPaymentCommandHandler(
         IPaymentRepository paymentRepository,
-        IPaymentProcessor paymentProcessor,
-        IStripePaymentService stripePaymentService,
-        IIntegrationEventOutbox integrationEventOutbox,
+        IPaymentRefunder paymentRefunder,
         IUnitOfWork unitOfWork,
         ILogger<RefundPaymentCommandHandler> logger)
     {
         _paymentRepository = paymentRepository;
-        _paymentProcessor = paymentProcessor;
-        _stripePaymentService = stripePaymentService;
-        _integrationEventOutbox = integrationEventOutbox;
+        _paymentRefunder = paymentRefunder;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -46,76 +39,59 @@ public sealed class RefundPaymentCommandHandler : IRequestHandler<RefundPaymentC
                 "Payment not found."));
         }
 
+        // Payment audit Stage 12 (D16). Each refusal names its cause. Every payment but a Success one used to be
+        // PAYMENT_ALREADY_PROCESSED, a Pending one included, which nothing had processed.
+        if (payment.Status == PaymentStatus.Refunded)
+        {
+            return Result<PaymentDto>.Failure(new Error(
+                "PAYMENT_ALREADY_REFUNDED",
+                "The payment has already been refunded."));
+        }
+
         if (payment.Status != PaymentStatus.Success)
         {
             return Result<PaymentDto>.Failure(new Error(
-                "PAYMENT_ALREADY_PROCESSED",
-                "Only successful payments can be refunded."));
+                "PAYMENT_NOT_CAPTURED",
+                $"Only a captured payment can be refunded. This one is {payment.Status}."));
         }
 
-        var refundAmount = request.Amount ?? payment.Amount;
-        if (refundAmount <= 0 || refundAmount > payment.Amount)
+        // Ordering audit Stage 11. Full refunds only. A partial refund used to mark the whole payment
+        // Refunded, which blocked any further refund and told Ordering all the money had been returned.
+        if (request.Amount is { } requested && requested != payment.Amount)
         {
             return Result<PaymentDto>.Failure(new Error(
-                "INVALID_REFUND_AMOUNT",
-                "Refund amount must be greater than 0 and less than or equal to original amount."));
+                "PARTIAL_REFUND_NOT_SUPPORTED",
+                $"Only a full refund of {payment.Amount.ToString("0.00", CultureInfo.InvariantCulture)} {payment.Currency} is supported."));
         }
 
-        var refundResult = string.Equals(payment.PaymentMethod, "Stripe", StringComparison.OrdinalIgnoreCase)
-            ? await RefundStripePaymentAsync(payment, refundAmount, cancellationToken)
-            : await _paymentProcessor.RefundPaymentAsync(payment.PaymentIntentId, refundAmount, cancellationToken);
-
-        if (!refundResult.Success)
+        // Ordering audit Stage 19: the refund itself is shared with OrderCancelledConsumer's automatic
+        // refund. The endpoint reports every failure as REFUND_FAILED; the provider's own message for an
+        // unexpected exception stays in the log.
+        try
         {
+            await _paymentRefunder.RefundInFullAsync(payment, cancellationToken);
+        }
+        catch (PaymentRefundRefusedException ex)
+        {
+            return Result<PaymentDto>.Failure(new Error("REFUND_FAILED", ex.Reason));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Refund failed for payment {PaymentId} (intent {PaymentIntentId})", payment.Id, payment.PaymentIntentId);
             return Result<PaymentDto>.Failure(new Error(
                 "REFUND_FAILED",
-                refundResult.ErrorMessage ?? "Refund failed."));
+                "An error occurred while processing the refund. Please try again later."));
         }
 
-        payment.Status = PaymentStatus.Refunded;
-        payment.UpdatedAt = DateTime.UtcNow;
-        payment.ProcessedAt = DateTime.UtcNow;
-
-        await _paymentRepository.UpdateAsync(payment, cancellationToken);
-        _integrationEventOutbox.Enqueue(new PaymentRefundedEvent
+        // Payment audit Stage 12 (D15). The admin's reason becomes the refund's note, as OrderCancelledConsumer notes a
+        // cancelled order's automatic refund. It used to be accepted and discarded.
+        if (!string.IsNullOrWhiteSpace(request.Reason))
         {
-            OrderId = payment.OrderId,
-            UserId = payment.UserId,
-            PaymentIntentId = payment.PaymentIntentId,
-            Amount = refundAmount,
-            RefundedAt = payment.ProcessedAt ?? DateTime.UtcNow
-        });
+            payment.AnnotateRefund(request.Reason.Trim());
+        }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<PaymentDto>.Success(payment.ToDto());
-    }
-
-    private async Task<PaymentResult> RefundStripePaymentAsync(
-        PaymentTransaction payment,
-        decimal refundAmount,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var stripeRefund = await _stripePaymentService.CreateRefundAsync(
-                payment.PaymentIntentId,
-                refundAmount,
-                payment.Currency,
-                cancellationToken);
-
-            if (string.Equals(stripeRefund.Status, "failed", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(stripeRefund.Status, "canceled", StringComparison.OrdinalIgnoreCase))
-            {
-                return PaymentResult.Failed($"Stripe refund failed with status '{stripeRefund.Status}'.");
-            }
-
-            return PaymentResult.Successful(payment.PaymentIntentId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Stripe refund failed for payment {PaymentId} (intent {PaymentIntentId})", payment.Id, payment.PaymentIntentId);
-            return PaymentResult.Failed("An error occurred while processing the refund. Please try again later.");
-        }
     }
 }

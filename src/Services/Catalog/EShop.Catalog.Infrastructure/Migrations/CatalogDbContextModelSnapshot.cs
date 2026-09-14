@@ -123,7 +123,8 @@ namespace EShop.Catalog.Infrastructure.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<string>("Description")
-                        .HasColumnType("text");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("integer");
@@ -159,12 +160,13 @@ namespace EShop.Catalog.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("Slug")
+                    b.HasIndex(new[] { "ParentCategoryId", "Slug" }, "IX_Categories_ParentCategoryId_Slug")
                         .IsUnique()
-                        .HasFilter("\"ParentCategoryId\" IS NULL");
+                        .HasFilter("\"IsActive\"");
 
-                    b.HasIndex("ParentCategoryId", "Slug")
-                        .IsUnique();
+                    b.HasIndex(new[] { "Slug" }, "IX_Categories_Slug")
+                        .IsUnique()
+                        .HasFilter("\"ParentCategoryId\" IS NULL AND \"IsActive\"");
 
                     b.ToTable("Categories", (string)null);
                 });
@@ -189,7 +191,8 @@ namespace EShop.Catalog.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Description")
-                        .HasColumnType("text");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<decimal?>("DiscountPrice")
                         .HasColumnType("decimal(18,2)");
@@ -231,8 +234,6 @@ namespace EShop.Catalog.Infrastructure.Migrations
 
                     b.HasIndex("CategoryId");
 
-                    b.HasIndex("CreatedAt");
-
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_Products_Name_Trgm");
 
@@ -245,13 +246,20 @@ namespace EShop.Catalog.Infrastructure.Migrations
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Sku"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Sku"), new[] { "gin_trgm_ops" });
 
+                    b.HasIndex(new[] { "CreatedAt", "Id" }, "IX_Products_CreatedAt_Id");
+
+                    b.HasIndex(new[] { "Name" }, "IX_Products_Name");
+
+                    b.HasIndex(new[] { "Sku" }, "IX_Products_Sku")
+                        .IsUnique()
+                        .HasFilter("NOT \"IsDeleted\"");
+
                     b.ToTable("Products", (string)null);
                 });
 
             modelBuilder.Entity("EShop.Catalog.Domain.Entities.ProductAttribute", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
@@ -289,7 +297,6 @@ namespace EShop.Catalog.Infrastructure.Migrations
             modelBuilder.Entity("EShop.Catalog.Domain.Entities.ProductImage", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("AltText")

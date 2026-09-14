@@ -54,15 +54,36 @@ public class AddItemToBasketCommandHandler : IRequestHandler<AddItemToBasketComm
                 return Result<Unit>.Failure(BasketErrors.ProductNotFound);
             }
 
-            var basket = await _basketRepository.GetBasketAsync(request.UserId, cancellationToken)
-                ?? ShoppingBasket.Create(request.UserId);
+            // Catalog is read once; only the basket is re-read if the conditional save loses a race (S4).
+            var result = await BasketWrites.RunAsync(async ct =>
+            {
+                var basket = await _basketRepository.GetBasketAsync(request.UserId, ct)
+                    ?? ShoppingBasket.Create(request.UserId);
 
-            basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity);
+                // Basket audit S6 (H5): what the line would hold after this add, against what Catalog has in stock.
+                // Checked again at checkout, where it is authoritative; this only stops an obvious over-add early.
+                var alreadyInBasket = basket.Items.FirstOrDefault(i => i.ProductId == product.ProductId)?.Quantity ?? 0;
+                if ((long)alreadyInBasket + request.Quantity > product.StockQuantity)
+                {
+                    return Result<Unit>.Failure(BasketErrors.InsufficientStock);
+                }
 
-            await _basketRepository.SaveBasketAsync(basket, cancellationToken);
+                basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity);
 
-            _metrics.RecordItemAdded("api");
-            return Result<Unit>.Success(Unit.Value);
+                if (!await _basketRepository.TrySaveBasketAsync(basket, ct))
+                {
+                    return null;
+                }
+
+                return BasketWrites.Done;
+            }, cancellationToken);
+
+            if (result.IsSuccess)
+            {
+                _metrics.RecordItemAdded("api");
+            }
+
+            return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -81,6 +102,17 @@ public class AddItemToBasketCommandHandler : IRequestHandler<AddItemToBasketComm
         {
             _logger.LogError(ex,
                 "Catalog lookup failed while adding item to basket. UserId={UserId}, ProductId={ProductId}",
+                request.UserId,
+                request.ProductId);
+
+            return Result<Unit>.Failure(BasketErrors.ProductVerificationFailed);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Basket audit S8 (L5): HttpClient reports its own timeout as a TaskCanceledException, not an
+            // HttpRequestException, so a slow Catalog used to land in the generic branch below.
+            _logger.LogError(ex,
+                "Catalog lookup timed out while adding item to basket. UserId={UserId}, ProductId={ProductId}",
                 request.UserId,
                 request.ProductId);
 

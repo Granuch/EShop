@@ -387,6 +387,10 @@ SKILL.md
 # Stray full-repo mirror, not part of the real source tree
 .audit-base-worktree/
 
+# Working audit document, deliberately local. It was committed once by accident
+# via `git add -A -- docs`; this rule makes that mistake impossible to repeat.
+/docs/09-appendix/known-issues-register.md
+
 # Build output in directories whose name contains a U+F05C look-alike backslash
 # (e.g. "bin<U+F05C>Debug" — a SINGLE directory, so the normal [Bb]in/ and
 # [Dd]ebug/ rules above do not match it).

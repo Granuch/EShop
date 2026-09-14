@@ -14,6 +14,7 @@ public record LoginCommand : IRequest<Result<LoginResponse>>, ITransactionalComm
 
     [SensitiveData]
     public string Password { get; init; } = string.Empty;
+    [SensitiveData]
     public string? TwoFactorCode { get; init; }
     public string? IpAddress { get; init; }
 }

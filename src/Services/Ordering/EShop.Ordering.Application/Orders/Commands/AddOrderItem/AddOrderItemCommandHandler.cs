@@ -2,7 +2,9 @@ using System.Diagnostics;
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Domain;
+using EShop.Ordering.Application.Orders;
 using EShop.Ordering.Application.Telemetry;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -12,15 +14,18 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProductCatalogReader _catalog;
     private readonly ICacheInvalidationContext? _cacheInvalidationContext;
 
     public AddOrderItemCommandHandler(
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
+        IProductCatalogReader catalog,
         ICacheInvalidationContext? cacheInvalidationContext = null)
     {
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
+        _catalog = catalog;
         _cacheInvalidationContext = cacheInvalidationContext;
     }
 
@@ -37,9 +42,26 @@ public class AddOrderItemCommandHandler : IRequestHandler<AddOrderItemCommand, R
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
-        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
+        if (order.Status != OrderStatus.Pending)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "not_modifiable");
+            return Result.Failure(OrderItemErrors.NotModifiable(order.Status));
+        }
 
-        order.AddItem(request.ProductId, request.ProductName, request.UnitPrice, request.Quantity);
+        var priced = await CatalogPricing.PriceAsync(
+            _catalog, [(request.ProductId, request.Quantity)], cancellationToken);
+
+        if (priced.IsFailure)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, priced.Error!.Code);
+            return Result.Failure(priced.Error!);
+        }
+
+        var line = priced.Value![0];
+
+        _cacheInvalidationContext?.AddFamily(OrderCacheKeys.UserOrders(order.UserId));
+
+        order.AddItem(line.ProductId, line.ProductName, line.UnitPrice, line.Quantity);
 
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

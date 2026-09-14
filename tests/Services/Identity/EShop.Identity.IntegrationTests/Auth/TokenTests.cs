@@ -6,10 +6,16 @@ using FluentAssertions;
 namespace EShop.Identity.IntegrationTests.Auth;
 
 /// <summary>
-/// Integration tests for Token Refresh and Revocation endpoints
+/// Integration tests for Token Refresh and Revocation endpoints.
+///
+/// Runs on real PostgreSQL: rotation and revocation go through
+/// <c>RefreshTokenRepository.RevokeTokenByHashAtomicallyAsync</c>, whose atomicity comes from a
+/// server-side UPDATE's WHERE clause. That used to be forked so tests ran a tracked read-modify
+/// loop instead — meaning the exact guarantee these tests exist to check was never actually
+/// exercised. The fork is gone, so InMemory can no longer run these at all.
 /// </summary>
 [TestFixture]
-public class TokenTests : IntegrationTestBase
+public class TokenTests : PostgresIntegrationTestBase
 {
     private const string LoginEndpoint = "/api/v1/auth/login";
     private const string RefreshEndpoint = "/api/v1/auth/refresh-token";

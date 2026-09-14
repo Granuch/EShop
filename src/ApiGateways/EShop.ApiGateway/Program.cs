@@ -7,6 +7,7 @@ using EShop.ApiGateway.Middleware;
 using EShop.ApiGateway.Notifications;
 using EShop.ApiGateway.Simulation;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -51,28 +52,9 @@ builder.Services.Configure<CatalogProxyOptions>(builder.Configuration.GetSection
 builder.Services.Configure<OrderingProxyOptions>(builder.Configuration.GetSection(OrderingProxyOptions.SectionName));
 builder.Services.Configure<BasketProxyOptions>(builder.Configuration.GetSection(BasketProxyOptions.SectionName));
 
-var forwardedProxies = builder.Configuration
-    .GetSection("ForwardedHeaders:KnownProxies")
-    .Get<string[]>() ?? [];
-
-if (forwardedProxies.Length > 0)
-{
-    builder.Services.Configure<ForwardedHeadersOptions>(options =>
-    {
-        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-        options.ForwardLimit = 1;
-        options.KnownIPNetworks.Clear();
-        options.KnownProxies.Clear();
-
-        foreach (var proxy in forwardedProxies)
-        {
-            if (IPAddress.TryParse(proxy, out var ipAddress))
-            {
-                options.KnownProxies.Add(ipAddress);
-            }
-        }
-    });
-}
+// Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
+// works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
+var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var jwtSecretKey = jwtSettings["SecretKey"];
@@ -146,7 +128,7 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            partitionKey: EShopForwardedHeaders.GetClientPartitionKey(context),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = settings.GlobalPermitLimit,
@@ -154,12 +136,20 @@ builder.Services.AddRateLimiter(options =>
                 AutoReplenishment = true
             }));
 
-    options.AddFixedWindowLimiter("simulation", limiterOptions =>
-    {
-        limiterOptions.PermitLimit = settings.SimulationPermitLimit;
-        limiterOptions.Window = TimeSpan.FromSeconds(settings.SimulationWindowSeconds);
-        limiterOptions.AutoReplenishment = true;
-    });
+    // AddFixedWindowLimiter(name, ...) has no partition key, so this was one bucket shared by
+    // every caller. It is currently declared but unattached — no route calls RequireRateLimiting
+    // or EnableRateLimiting("simulation") — so it has never actually throttled anything. Kept and
+    // partitioned rather than deleted so that wiring it up later is safe by default; if it is
+    // still unattached when the simulation feature is finished, delete it instead.
+    options.AddPolicy<string>("simulation", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: EShopForwardedHeaders.GetClientPartitionKey(context),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.SimulationPermitLimit,
+                Window = TimeSpan.FromSeconds(settings.SimulationWindowSeconds),
+                AutoReplenishment = true
+            }));
 });
 
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
@@ -207,14 +197,16 @@ builder.Services.AddHealthChecks()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
+// Fallback-only: the gateway proxies rather than executing domain logic, so it has never
+// mapped ValidationException/DomainException/UnauthorizedAccessException itself. Registering
+// AddCommon() here would silently reclassify a proxied UnauthorizedAccessException from 500.
+builder.Services.AddEShopProblemDetails();
+
 var app = builder.Build();
 
 app.UseGlobalExceptionHandler();
 
-if (forwardedProxies.Length > 0)
-{
-    app.UseForwardedHeaders();
-}
+app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
 app.UseEShopRequestLogging();
 app.UseMiddleware<CorrelationIdMiddleware>();
@@ -238,35 +230,36 @@ app.UseMiddleware<BasketProxyGuardMiddleware>();
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();
 
-if (app.Environment.IsDevelopment())
+// OpenAPI: every environment except Production, the one rule all services share (Ordering audit L10,
+// EShopApiDocs). This was Development only.
+if (EShopApiDocs.IsExposedIn(app.Environment))
 {
     app.MapOpenApi();
 }
 
 app.MapReverseProxy();
 
+// Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
+// Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).
+app.UseEShopMetricsAccess(app.Configuration, app.Environment);
 app.MapMetrics("/prometheus");
 app.UseEShopOpenTelemetryPrometheus();
 
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("live"),
-    ResponseWriter = (context, report) =>
-    {
-        context.Response.ContentType = "application/json";
-        return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new { status = report.Status.ToString() }));
-    }
+    ResponseWriter = EShopHealthResponseWriter.WriteAsync
 });
 
 app.MapGet("/", () => Results.Ok(new

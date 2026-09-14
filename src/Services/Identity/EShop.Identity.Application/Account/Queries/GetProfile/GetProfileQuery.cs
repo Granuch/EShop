@@ -8,7 +8,8 @@ namespace EShop.Identity.Application.Account.Queries.GetProfile;
 /// Query to get user profile with automatic caching.
 /// Cache key: "profile:{userId}"
 /// Cache duration: 5 minutes (absolute)
-/// Invalidated by: UpdateProfileCommand, Enable2FACommand, Disable2FACommand
+/// Invalidated by: UpdateProfileCommand, Verify2FACommand, Disable2FACommand
+/// (Verify2FA, not Enable2FA — Enable2FA only issues the shared key and changes nothing cached.)
 /// </summary>
 public record GetProfileQuery : IRequest<Result<UserProfileResponse>>, ICacheableQuery
 {

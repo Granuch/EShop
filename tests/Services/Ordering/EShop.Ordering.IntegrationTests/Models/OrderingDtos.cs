@@ -17,11 +17,10 @@ public record CreateOrderRequest
     public List<CreateOrderItemRequest> Items { get; init; } = new();
 }
 
+/// <summary>No name or price: both come from Catalog (audit C1).</summary>
 public record CreateOrderItemRequest
 {
     public Guid ProductId { get; init; }
-    public string ProductName { get; init; } = string.Empty;
-    public decimal Price { get; init; }
     public int Quantity { get; init; }
 }
 
@@ -29,8 +28,6 @@ public record AddOrderItemRequest
 {
     public Guid OrderId { get; init; }
     public Guid ProductId { get; init; }
-    public string ProductName { get; init; } = string.Empty;
-    public decimal UnitPrice { get; init; }
     public int Quantity { get; init; }
 }
 
@@ -86,6 +83,10 @@ public record ProblemDetailsResponse
     public string? Title { get; init; }
     public string? Detail { get; init; }
     public int Status { get; init; }
+
+    /// <summary>The machine-readable discriminator; see the canonical error envelope.</summary>
+    public string? ErrorCode { get; init; }
+
     public string? TraceId { get; init; }
     public Dictionary<string, string[]>? Errors { get; init; }
 }

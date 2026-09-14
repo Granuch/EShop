@@ -57,6 +57,7 @@ public class PaymentDbContext : BaseDbContext
                 .IsRequired();
 
             entity.Property(x => x.PaymentMethod)
+                .HasConversion<string>()
                 .HasMaxLength(50)
                 .IsRequired();
 
@@ -74,10 +75,6 @@ public class PaymentDbContext : BaseDbContext
             entity.Property(x => x.ErrorMessage)
                 .HasMaxLength(500);
 
-            entity.Property(x => x.RetryCount)
-                .HasDefaultValue(0)
-                .IsRequired();
-
             entity.Property(x => x.CreatedAt)
                 .HasColumnType("timestamp with time zone")
                 .IsRequired();
@@ -92,7 +89,12 @@ public class PaymentDbContext : BaseDbContext
                 .IsRowVersion();
 
             entity.HasIndex(x => x.OrderId).IsUnique();
-            entity.HasIndex(x => x.PaymentIntentId);
+            // Payment audit Stage 10 (M11). Unique among payments that have an intent. The webhook finds its payment by
+            // intent id, and with two rows sharing one it would update whichever came first. Payments with no intent yet
+            // hold '', so they are left out of the index.
+            entity.HasIndex(x => x.PaymentIntentId)
+                .IsUnique()
+                .HasFilter("\"PaymentIntentId\" <> ''");
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });
             entity.HasIndex(x => new { x.Status, x.CreatedAt });
         });

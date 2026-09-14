@@ -1,5 +1,6 @@
 using EShop.Basket.Application.Abstractions;
 using EShop.Basket.Domain.Interfaces;
+using EShop.Basket.Infrastructure.Checkout;
 using EShop.Basket.Infrastructure.Configuration;
 using EShop.Basket.Infrastructure.Consumers;
 using EShop.Basket.Infrastructure.Idempotency;
@@ -12,6 +13,7 @@ using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using MassTransit;
@@ -33,7 +35,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
         services.Configure<RedisBasketOptions>(configuration.GetSection(RedisBasketOptions.SectionName));
-        services.Configure<CatalogServiceOptions>(configuration.GetSection(CatalogServiceOptions.SectionName));
+        // Catalog is where every added item gets its name and price. ValidateOnStart so a deployment
+        // without CatalogService:BaseUrl fails to boot rather than failing every add-to-basket with a
+        // 400; the tracked appsettings.json deliberately carries no URL to fall back on (Basket audit
+        // C1, D1 — its old localhost default pointed at Basket's own container).
+        services.AddOptions<CatalogServiceOptions>()
+            .Bind(configuration.GetSection(CatalogServiceOptions.SectionName))
+            .Validate(
+                o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out _),
+                $"{CatalogServiceOptions.SectionName}:BaseUrl must be an absolute URI.")
+            .ValidateOnStart();
 
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
@@ -48,20 +59,25 @@ public static class ServiceCollectionExtensions
             options.KeepAlive = 60;
             options.ReconnectRetryPolicy = new LinearRetry(5000);
 
+            // Synchronous, once, on first resolve (Basket audit L8 — reviewed, kept). With AbortOnConnectFail=false it
+            // returns after the first attempt (at most ConnectTimeout) whether or not Redis answered, and keeps
+            // reconnecting in the background, so Redis being down makes requests answer 503 rather than the host fail.
             return ConnectionMultiplexer.Connect(options);
         });
 
         services.AddScoped<IBasketRepository, RedisBasketRepository>();
         services.AddHttpClient<IProductCatalogReader, CatalogProductCatalogReader>();
-        services.AddScoped<IIntegrationEventOutbox, BasketRedisOutbox>();
         services.AddSingleton<IBasketMetrics, BasketMetrics>();
-        services.AddSingleton<ICheckoutIdempotencyStore, RedisCheckoutIdempotencyStore>();
+        // Checkout's lock, completed marker and atomic commit, which also writes the outbox entry. There is no
+        // IIntegrationEventOutbox here: its synchronous Enqueue was a fire-and-forget push (Basket audit H1, S3).
+        services.AddSingleton<IBasketCheckoutStore, RedisBasketCheckoutStore>();
+        // The admin replay endpoint needs it whether or not messaging is configured (Basket audit S7, D7).
+        services.AddSingleton<BasketOutboxDeadLetters>();
         services.AddSingleton<RedisMessageIdempotencyStore>();
+        // Price sync's record of the newest price change per product, so an older event cannot undo it (Basket audit M10).
+        services.AddSingleton<PriceChangeWatermark>();
 
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
-
+        // No CachingBehavior: Basket reads its baskets straight from Redis (Basket audit S5, D5).
         return services;
     }
 
@@ -70,109 +86,24 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        var settings = configuration.GetSection(RabbitMqSettings.SectionName).Get<RabbitMqSettings>();
-        services.Configure<RabbitMqSettings>(configuration.GetSection(RabbitMqSettings.SectionName));
+        // Basket audit S11 (debt 5): the shared bus, the one every AddMessaging service gets — transport, retries, circuit
+        // breaker, the "basket" queue prefix, host options and the RabbitMQ health check. Basket has no DbContext, so it
+        // takes the bus without the EF outbox; its own outbox is the Redis one below. A hand-written copy of that block
+        // stood here, identical option for option, and could only drift.
+        var busConfigured = services.AddEShopBus(
+            configuration,
+            "basket",
+            isDevelopment,
+            bus => bus.AddConsumer<ProductPriceChangedConsumer>());
 
-        if (settings == null || !settings.IsValid)
+        if (!busConfigured)
         {
-            if (!isDevelopment)
-            {
-                throw new InvalidOperationException(
-                    $"RabbitMQ configuration is invalid or missing in {RabbitMqSettings.SectionName} section.");
-            }
-
+            services.AddHostedService<OutboxNotDrainedWarning>();
             return services;
         }
 
-        services.AddMassTransit(bus =>
-        {
-            bus.AddConsumer<ProductPriceChangedConsumer>();
-            bus.SetEndpointNameFormatter(new SnakeCaseEndpointNameFormatter(includeNamespace: false));
-
-            bus.UsingRabbitMq((context, cfg) =>
-            {
-                cfg.Host(settings.Host, (ushort)settings.Port, settings.VirtualHost, h =>
-                {
-                    h.Username(settings.Username);
-                    h.Password(settings.Password);
-                    h.PublisherConfirmation = true;
-                    h.Heartbeat(TimeSpan.FromSeconds(settings.HeartbeatIntervalSeconds));
-
-                    if (settings.UseSsl)
-                    {
-                        h.UseSsl(ssl =>
-                        {
-                            ssl.Protocol = System.Security.Authentication.SslProtocols.Tls12
-                                           | System.Security.Authentication.SslProtocols.Tls13;
-                        });
-                    }
-
-                    if (settings.ClusterNodes.Length > 0)
-                    {
-                        h.UseCluster(c =>
-                        {
-                            foreach (var node in settings.ClusterNodes)
-                            {
-                                c.Node(node);
-                            }
-                        });
-                    }
-                });
-
-                cfg.Durable = true;
-                cfg.PrefetchCount = settings.PrefetchCount;
-                cfg.ConcurrentMessageLimit = settings.ConcurrencyLimit;
-
-                if (settings.UseDelayedRedelivery
-                    && settings.UseDelayedExchangePlugin
-                    && settings.DelayedRedeliveryIntervalsMinutes.Length > 0)
-                {
-                    cfg.UseDelayedRedelivery(r =>
-                    {
-                        r.Intervals(settings.DelayedRedeliveryIntervalsMinutes
-                            .Select(m => TimeSpan.FromMinutes(m))
-                            .ToArray());
-
-                        r.Ignore<ArgumentException>();
-                        r.Ignore<FormatException>();
-                        r.Ignore<NotSupportedException>();
-                    });
-                }
-
-                cfg.UseMessageRetry(r =>
-                {
-                    r.Incremental(
-                        settings.RetryCount,
-                        TimeSpan.FromSeconds(settings.RetryIntervalSeconds),
-                        TimeSpan.FromSeconds(settings.RetryIncrementSeconds));
-
-                    r.Ignore<ArgumentException>();
-                    r.Ignore<FormatException>();
-                    r.Ignore<NotSupportedException>();
-                });
-
-                cfg.UseCircuitBreaker(cb =>
-                {
-                    cb.TrackingPeriod = TimeSpan.FromMinutes(1);
-                    cb.TripThreshold = settings.CircuitBreakerThreshold;
-                    cb.ActiveThreshold = settings.CircuitBreakerActiveThreshold;
-                    cb.ResetInterval = TimeSpan.FromSeconds(settings.CircuitBreakerDurationSeconds);
-                });
-
-                cfg.ConfigureEndpoints(context);
-            });
-        });
-
-        services.Configure<MassTransitHostOptions>(options =>
-        {
-            options.WaitUntilStarted = settings.WaitUntilStarted;
-            options.StartTimeout = TimeSpan.FromSeconds(Math.Max(5, settings.StartTimeoutSeconds));
-            options.StopTimeout = TimeSpan.FromSeconds(30);
-        });
-
-        services.AddHealthChecks()
-            .AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: ["messaging", "ready"]);
-
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<BasketOutboxOptions>();
         services.AddHostedService<BasketRedisOutboxProcessorService>();
 
         return services;

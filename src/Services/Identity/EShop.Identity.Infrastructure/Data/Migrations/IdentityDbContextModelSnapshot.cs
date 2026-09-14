@@ -274,9 +274,8 @@ namespace EShop.Identity.Infrastructure.Data.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("ReplacedByToken")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                    b.Property<string>("ReplacedByTokenHash")
+                        .HasColumnType("char(64)");
 
                     b.Property<string>("RevokeReason")
                         .HasMaxLength(250)
@@ -289,10 +288,9 @@ namespace EShop.Identity.Infrastructure.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<string>("Token")
+                    b.Property<string>("TokenHash")
                         .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .HasColumnType("char(64)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -306,7 +304,7 @@ namespace EShop.Identity.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Token")
+                    b.HasIndex("TokenHash")
                         .IsUnique();
 
                     b.HasIndex("UserId");

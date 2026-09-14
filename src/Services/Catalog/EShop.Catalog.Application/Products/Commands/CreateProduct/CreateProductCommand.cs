@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
@@ -31,8 +31,13 @@ public record CreateProductCommand : IRequest<Result<Guid>>, ICacheInvalidatingC
     /// </summary>
     public IReadOnlyList<CreateProductAttributeRequest>? Attributes { get; init; }
 
-    public IEnumerable<string> CacheKeysToInvalidate =>
-    [
-        $"products:category:{CategoryId}"
-    ];
+    // Nothing to evict by exact key: a new product has no detail entry yet, and its category's
+    // product list is paged since Stage 6 and so lives in the family below.
+    public IEnumerable<string> CacheKeysToInvalidate => [];
+
+    // DEBT-16. The list keys embed every filter/sort/page parameter, so they cannot be named for
+    // exact-key invalidation; bumping the family version makes all of them — the per-category
+    // pages included — unreachable in one operation. Declared here rather than called from the
+    // handler so it is drained by CacheInvalidationBehavior — i.e. after the transaction commits.
+    public IEnumerable<string> CacheFamiliesToInvalidate => [ProductCacheFamilies.ProductList];
 }

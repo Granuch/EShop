@@ -84,9 +84,11 @@ public class LoginTests : IntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
-        error.Should().NotBeNull();
-        error!.error.Should().Be("Auth.InvalidCredentials");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem.Should().NotBeNull();
+        problem!.ErrorCode.Should().Be("Auth.InvalidCredentials");
+        problem.Status.Should().Be(401);
+        problem.TraceId.Should().NotBeNullOrEmpty();
     }
 
     [Test]
@@ -105,9 +107,11 @@ public class LoginTests : IntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         
-        var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
-        error.Should().NotBeNull();
-        error!.error.Should().Be("Auth.InvalidCredentials");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem.Should().NotBeNull();
+        problem!.ErrorCode.Should().Be("Auth.InvalidCredentials");
+        problem.Status.Should().Be(401);
+        problem.TraceId.Should().NotBeNullOrEmpty();
     }
 
     [Test]
@@ -126,9 +130,11 @@ public class LoginTests : IntegrationTestBase
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         
-        var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
-        error.Should().NotBeNull();
-        error!.error.Should().Be("Auth.InvalidCredentials");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem.Should().NotBeNull();
+        problem!.ErrorCode.Should().Be("Auth.InvalidCredentials");
+        problem.Status.Should().Be(401);
+        problem.TraceId.Should().NotBeNullOrEmpty();
     }
 
     [Test]

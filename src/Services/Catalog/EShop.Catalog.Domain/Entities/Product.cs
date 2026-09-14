@@ -31,6 +31,20 @@ public class Product : AggregateRoot<Guid>
     public bool IsDeleted { get; private set; }
     public DateTime? DeletedAt { get; private set; }
 
+    /// <summary>
+    /// What a customer actually pays: <see cref="DiscountPrice"/> when one is active, otherwise
+    /// <see cref="Price"/>.
+    ///
+    /// <para>
+    /// This existed already, but only in Basket, as an inline
+    /// <c>payload.DiscountPrice ?? payload.Price</c> in <c>CatalogProductCatalogReader</c> — a
+    /// pricing rule owned by the consuming context rather than by the aggregate that owns the
+    /// prices. Naming it here is what lets <see cref="ProductPriceChangedEvent"/> carry the price
+    /// the customer sees rather than the list price; see <see cref="UpdatePrice"/>.
+    /// </para>
+    /// </summary>
+    public decimal EffectivePrice => DiscountPrice ?? Price;
+
     private Product() { }
     
     /// <param name="description">
@@ -74,30 +88,134 @@ public class Product : AggregateRoot<Guid>
         return product;
     }
     
+    /// <summary>
+    /// Changes the list price.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Rejects a price at or below an active discount rather than silently dropping the discount.
+    /// Both alternatives are worse: leaving it would make <see cref="EffectivePrice"/> exceed
+    /// <see cref="Price"/> — Basket charging more than the catalog displays — and clearing it
+    /// automatically is the "PUT silently wipes a field the caller never mentioned" shape this repo
+    /// already carries as BUG-09. An admin lowering a price past a promotion clears the promotion
+    /// first, explicitly.
+    /// </para>
+    /// <para>
+    /// The event carries <see cref="EffectivePrice"/>, not <see cref="Price"/>, and is raised only
+    /// when that value moves. Basket's <c>ProductPriceChangedConsumer</c> writes
+    /// <c>NewPrice</c> straight onto a basket item whose price came from the effective price at
+    /// add time, so publishing the list price here would reprice a discounted item up to full
+    /// price. A consequence worth knowing: while a discount is active a list-price change moves
+    /// nothing customer-facing (the discount is always strictly lower, so it still wins) and
+    /// therefore raises no event at all.
+    /// </para>
+    /// </remarks>
     public void UpdatePrice(decimal newPrice)
     {
+        // L21. Every other mutator refuses a deleted product; this one did not. Unreachable through
+        // the API today (the !IsDeleted query filter hides deleted products from every load), which
+        // is exactly why the invariant belongs here rather than relying on that.
+        if (IsDeleted)
+        {
+            throw new DomainException("Cannot update the price of a deleted product.");
+        }
+
         if (newPrice <= 0)
         {
             throw new DomainException("Price must be greater than zero.");
+        }
+
+        if (DiscountPrice.HasValue && newPrice <= DiscountPrice.Value)
+        {
+            throw new DomainException(
+                "Price must be greater than the active discount price. Clear the discount first.");
         }
 
         if (newPrice == Price)
         {
             return;
         }
-        var oldPrice = this.Price;
-        
-        AddDomainEvent(new ProductPriceChangedEvent
-        {
-            NewPrice =  newPrice,
-            OldPrice = oldPrice,
-            ProductId = Id
-        });
-        
+
+        var oldEffectivePrice = EffectivePrice;
+
         Price = newPrice;
+
+        RaisePriceChangedIfEffectivePriceMoved(oldEffectivePrice);
     }
 
-    
+    /// <summary>
+    /// Sets a promotional price below the list price (H5b / D3).
+    /// </summary>
+    /// <remarks>
+    /// Until this existed <see cref="DiscountPrice"/> had no mutator at all, so it was permanently
+    /// <c>null</c> while still being projected into both DTOs and consumed by Basket — a field
+    /// another bounded context priced against and Catalog could not populate.
+    /// </remarks>
+    public void SetDiscountPrice(decimal discountPrice)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot set the discount price of a deleted product.");
+
+        if (discountPrice <= 0)
+            throw new DomainException("Discount price must be greater than zero.");
+
+        // Strictly below, not "at most": a discount equal to the price is not a discount, and
+        // allowing it would let UpdatePrice's guard reject a no-op price change.
+        if (discountPrice >= Price)
+            throw new DomainException("Discount price must be less than the product price.");
+
+        var oldEffectivePrice = EffectivePrice;
+
+        DiscountPrice = discountPrice;
+
+        RaisePriceChangedIfEffectivePriceMoved(oldEffectivePrice);
+    }
+
+    /// <summary>
+    /// Ends a promotion, returning the customer-facing price to <see cref="Price"/>. Idempotent:
+    /// clearing an absent discount is a no-op, so a retried request does not fail.
+    /// </summary>
+    public void ClearDiscountPrice()
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot clear the discount price of a deleted product.");
+
+        if (DiscountPrice is null)
+            return;
+
+        var oldEffectivePrice = EffectivePrice;
+
+        DiscountPrice = null;
+
+        RaisePriceChangedIfEffectivePriceMoved(oldEffectivePrice);
+    }
+
+    /// <summary>
+    /// Raises <see cref="ProductPriceChangedEvent"/> when the customer-facing price has moved.
+    /// Call after mutating <see cref="Price"/> or <see cref="DiscountPrice"/>, never before.
+    /// </summary>
+    private void RaisePriceChangedIfEffectivePriceMoved(decimal oldEffectivePrice)
+    {
+        if (EffectivePrice == oldEffectivePrice)
+            return;
+
+        AddDomainEvent(new ProductPriceChangedEvent
+        {
+            ProductId = Id,
+            OldPrice = oldEffectivePrice,
+            NewPrice = EffectivePrice
+        });
+    }
+
+
+    /// <summary>
+    /// Sets the stock level. Deliberately raises no event. The out-of-stock / back-in-stock domain
+    /// events this used to raise had no handler in Catalog and no consumer anywhere — nothing outside
+    /// Catalog reads stock — so each transition wrote an outbox row that was dispatched to nobody.
+    /// They were deleted in Catalog audit Stage 7 (M6) rather than wired to integration events,
+    /// because an integration event with no consumer is the same dead weight D6 removed. A domain
+    /// event is cheap to re-add once something actually needs to hear about stock.
+    /// </summary>
     public void UpdateStock(int quantity)
     {
         if (IsDeleted)
@@ -106,28 +224,14 @@ public class Product : AggregateRoot<Guid>
         if (quantity < 0)
             throw new DomainException("Stock quantity cannot be negative.");
 
-        if (quantity == StockQuantity)
-            return;
-
-        var previousQuantity = StockQuantity;
         StockQuantity = quantity;
-
-        if (quantity == 0 && previousQuantity > 0)
-        {
-            AddDomainEvent(new ProductOutOfStockEvent
-            {
-                ProductId = Id,
-            });
-        }
-        else if (previousQuantity == 0 && quantity > 0)
-        {
-            AddDomainEvent(new ProductBackInStockEvent
-            {
-                ProductId = Id,
-            });
-        }
     }
     
+    /// <summary>
+    /// Makes the product publicly visible. Until Stage 4 this had no production caller, so every
+    /// product was permanently <see cref="ProductStatus.Draft"/> and the public catalog served
+    /// nothing but drafts — the enum existed and was unit-tested, which is what made it look done.
+    /// </summary>
     public void Publish()
     {
         if (IsDeleted)
@@ -137,6 +241,28 @@ public class Product : AggregateRoot<Guid>
             throw new DomainException("Cannot publish a non-draft product.");
 
         Status = ProductStatus.Active;
+    }
+
+    /// <summary>
+    /// Withdraws a published product from the public catalog, returning it to
+    /// <see cref="ProductStatus.Draft"/>.
+    ///
+    /// <para>
+    /// Deliberately not reachable from <see cref="ProductStatus.Discontinued"/>: that state is set
+    /// only by <see cref="SoftDelete"/>, and a soft-deleted product is already hidden by the
+    /// <c>!p.IsDeleted</c> global query filter. Allowing Discontinued → Draft would resurrect a
+    /// deleted product through a side door.
+    /// </para>
+    /// </summary>
+    public void Unpublish()
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot unpublish a deleted product.");
+
+        if (Status != ProductStatus.Active)
+            throw new DomainException("Cannot unpublish a product that is not active.");
+
+        Status = ProductStatus.Draft;
     }
 
     public void SoftDelete()

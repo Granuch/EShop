@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Ordering.Domain.Entities;
 
 namespace EShop.Ordering.UnitTests.Domain;
@@ -20,39 +21,26 @@ public class OrderItemTests
         Assert.That(item.SubTotal, Is.EqualTo(30.00m));
     }
 
-    [Test]
-    public void Constructor_WithZeroQuantity_ShouldThrowArgumentException()
+    /// <summary>Audit M1: DomainException maps to 400; these were ArgumentExceptions, i.e. 500s.</summary>
+    [TestCase("Widget A", 10.00, 0)]
+    [TestCase("Widget A", 10.00, -1)]
+    [TestCase("Widget A", -5.00, 1)]
+    [TestCase("", 10.00, 1)]
+    [TestCase("   ", 10.00, 1)]
+    public void Constructor_WithAnInvalidLine_ThrowsDomainException(string name, decimal price, int quantity)
     {
-        Assert.Throws<ArgumentException>(() =>
-            new OrderItem(Guid.NewGuid(), "Widget A", 10.00m, 0));
+        Assert.Throws<DomainException>(() => new OrderItem(Guid.NewGuid(), name, price, quantity));
     }
 
+    /// <summary>The column is varchar(200); past it the insert failed at the database, as a 500.</summary>
     [Test]
-    public void Constructor_WithNegativeQuantity_ShouldThrowArgumentException()
+    public void Constructor_WithANameLongerThanTheColumn_ThrowsDomainException()
     {
-        Assert.Throws<ArgumentException>(() =>
-            new OrderItem(Guid.NewGuid(), "Widget A", 10.00m, -1));
-    }
+        Assert.Throws<DomainException>(() =>
+            new OrderItem(Guid.NewGuid(), new string('x', OrderItem.MaxProductNameLength + 1), 1m, 1));
 
-    [Test]
-    public void Constructor_WithNegativePrice_ShouldThrowArgumentException()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            new OrderItem(Guid.NewGuid(), "Widget A", -5.00m, 1));
-    }
-
-    [Test]
-    public void Constructor_WithEmptyProductName_ShouldThrowArgumentException()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            new OrderItem(Guid.NewGuid(), "", 10.00m, 1));
-    }
-
-    [Test]
-    public void Constructor_WithWhitespaceProductName_ShouldThrowArgumentException()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            new OrderItem(Guid.NewGuid(), "   ", 10.00m, 1));
+        Assert.DoesNotThrow(() =>
+            new OrderItem(Guid.NewGuid(), new string('x', OrderItem.MaxProductNameLength), 1m, 1));
     }
 
     [Test]

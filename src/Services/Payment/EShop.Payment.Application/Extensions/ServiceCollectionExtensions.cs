@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.Payment.Application.Payments.Commands.CreatePayment;
+using EShop.Payment.Application.Payments.Refunds;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,8 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddValidatorsFromAssembly(assembly);
+
+        services.AddScoped<IPaymentRefunder, PaymentRefunder>();
 
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(TransactionBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));

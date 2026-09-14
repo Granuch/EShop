@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Payment Failed</title>
+    <title>Order Cancelled</title>
 </head>
 <body style="margin:0;padding:0;background:#fef2f2;font-family:Arial,Helvetica,sans-serif;color:#7f1d1d;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 0;">
@@ -15,8 +15,8 @@
                     </tr>
                     <tr>
                         <td style="padding:24px;">
-                            <h1 style="margin:0 0 12px;font-size:22px;color:#991b1b;">Payment could not be completed</h1>
-                            <p style="margin:0 0 16px;line-height:1.5;color:#7f1d1d;">Hi {{CustomerName}}, we were unable to process payment for your order.</p>
+                            <h1 style="margin:0 0 12px;font-size:22px;color:#991b1b;">Your order was cancelled</h1>
+                            <p style="margin:0 0 16px;line-height:1.5;color:#7f1d1d;">Hi {{CustomerName}}, the payment for your order could not be completed, so the order was cancelled. Nothing was charged.</p>
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #fecaca;border-radius:6px;overflow:hidden;">
                                 <tr>
                                     <td style="padding:12px 14px;background:#fff1f2;width:45%;">Order ID</td>
@@ -28,7 +28,7 @@
                                 </tr>
                             </table>
                             <p style="margin:20px 0 0;line-height:1.5;color:#7f1d1d;">
-                                Please update your payment method and try again. Need help? Contact us at
+                                You can place a new order at any time. Need help? Contact us at
                                 <a href="mailto:{{SupportEmail}}" style="color:#991b1b;">{{SupportEmail}}</a>.
                             </p>
                         </td>

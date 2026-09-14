@@ -1,9 +1,13 @@
+using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Application.Categories.Commands.CreateCategory;
+using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Catalog.Application.Categories.Commands.DeleteCategory;
 using EShop.Catalog.Application.Categories.Commands.UpdateCategory;
 using EShop.Catalog.Application.Categories.Queries.GetCategories;
 using EShop.Catalog.Application.Categories.Queries.GetCategoryById;
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Catalog.Application.Products.Queries.GetProductByCategory;
+using EShop.Catalog.Application.Products.Queries.GetProducts;
 using MediatR;
 
 namespace EShop.Catalog.API.Endpoints;
@@ -27,13 +31,10 @@ public static class CategoryEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("GetCategories")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<List<CategoryDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/categories/{id}
@@ -43,29 +44,32 @@ public static class CategoryEndpoints
 
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("GetCategoryById")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<CategoryDto>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // GET /api/v1/categories/{id}/products
-        group.MapGet("/{id:guid}/products", async (Guid id, IMediator mediator) =>
+        // GET /api/v1/categories/{id}/products — paged like GET /api/v1/products (D5).
+        // The paging parameters are nullable so they stay optional query-string parameters.
+        group.MapGet("/{id:guid}/products", async (Guid id, int? pageNumber, int? pageSize, IMediator mediator) =>
         {
-            var result = await mediator.Send(new GetProductByCategoryQuery { CategoryId = id });
+            var result = await mediator.Send(new GetProductByCategoryQuery
+            {
+                CategoryId = id,
+                PageNumber = pageNumber,
+                PageSize = pageSize
+            });
 
+            // Discriminates: an out-of-range page size is a Validation.Failed Result and owes a
+            // 400. The blanket 404 mapping this replaced would have reported it as a missing category.
             return result.Match(
                 value => Results.Ok(value),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                ProductEndpoints.ProblemForError);
         })
         .WithName("GetProductsByCategory")
-        .Produces<object>(StatusCodes.Status200OK)
+        .Produces<PagedResult<ProductDto>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/categories (admin only)
@@ -74,34 +78,28 @@ public static class CategoryEndpoints
             var result = await mediator.Send(command);
 
             return result.Match(
-                value => Results.Created($"/api/v1/categories/{value}", new { id = value }),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                value => Results.Created($"/api/v1/categories/{value}", new CreatedResourceResponse(value)),
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("CreateCategory")
         .RequireAuthorization("Admin")
-        .Produces<object>(StatusCodes.Status201Created)
+        .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // PUT /api/v1/categories/{id} (admin only)
         group.MapPut("/{id:guid}", async (Guid id, UpdateCategoryCommand command, IMediator mediator) =>
         {
             if (id != command.Id)
-                return Results.Problem(
-                    detail: "Route ID does not match command ID.",
-                    title: "Validation.IdMismatch",
-                    statusCode: StatusCodes.Status400BadRequest);
+                return ProblemResults.For(
+                    "Validation.IdMismatch",
+                    "Route ID does not match command ID.",
+                    StatusCodes.Status400BadRequest);
 
             var result = await mediator.Send(command);
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
         })
         .WithName("UpdateCategory")
         .RequireAuthorization("Admin")
@@ -115,10 +113,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                error => Results.Problem(
-                    detail: error.Message,
-                    title: error.Code,
-                    statusCode: StatusCodes.Status404NotFound));
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
         })
         .WithName("DeleteCategory")
         .RequireAuthorization("Admin")

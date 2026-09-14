@@ -1,6 +1,9 @@
+using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
-using EShop.Ordering.Application.Orders.Commands.CreateOrder;
+using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
+using EShop.Ordering.Infrastructure.Caching;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
 using MediatR;
@@ -11,19 +14,40 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 /// <summary>
 /// Idempotent consumer for BasketCheckedOutEvent.
 /// Creates an order from the checked-out basket.
+///
+/// <para>
+/// Every way this can fail ends in the error queue with the message intact — never in an
+/// acknowledged message with only a log line behind it. By the time this runs, Basket has already
+/// cleared the basket, so the message is the only remaining record of what the customer bought.
+/// </para>
 /// </summary>
 public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent, OrderingDbContext>
 {
     private readonly IMediator _mediator;
+    private readonly OrderCacheInvalidator _cacheInvalidator;
+
+    /// <summary>Set once the order exists; read after commit to invalidate the user's list.</summary>
+    private (Guid OrderId, string UserId)? _created;
 
     public BasketCheckedOutConsumer(
         OrderingDbContext dbContext,
         IMediator mediator,
+        OrderCacheInvalidator cacheInvalidator,
         ILogger<BasketCheckedOutConsumer> logger)
         : base(dbContext, logger)
     {
         _mediator = mediator;
+        _cacheInvalidator = cacheInvalidator;
     }
+
+    /// <summary>
+    /// After commit — CreateCheckedOutOrderCommand deliberately does not invalidate through the
+    /// pipeline, because that would run inside this consumer's still-open transaction.
+    /// </summary>
+    protected override Task OnCommittedAsync(ConsumeContext<BasketCheckedOutEvent> context, CancellationToken cancellationToken)
+        => _created is { } created
+            ? _cacheInvalidator.InvalidateAsync(created.OrderId, created.UserId, cancellationToken)
+            : Task.CompletedTask;
 
     protected override async Task HandleAsync(ConsumeContext<BasketCheckedOutEvent> context, CancellationToken cancellationToken)
     {
@@ -34,54 +58,69 @@ public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent
             message.UserId,
             message.TotalPrice);
 
-        // Prefer structured shipping address; fallback to legacy string format for backward compatibility.
-        var addressParts = message.ShippingAddressDetails is not null
-            ? (
-                Street: message.ShippingAddressDetails.Street,
-                City: message.ShippingAddressDetails.City,
-                State: message.ShippingAddressDetails.State,
-                ZipCode: message.ShippingAddressDetails.ZipCode,
-                Country: message.ShippingAddressDetails.Country
-            )
-            : ParseAddress(message.ShippingAddress);
+        // Audit C2. The free-text ShippingAddress used to be comma-split here, with "Unknown" and
+        // "00000" filling missing parts — values Address rejects — so most real checkouts failed every
+        // retry and dead-lettered. Basket always sends the structured form now; a message without it
+        // cannot become a correct order, and guessing an address means shipping to the wrong place.
+        var address = message.ShippingAddressDetails
+            ?? throw new InvalidCheckoutEventException(
+                $"BasketCheckedOutEvent {message.EventId} for UserId={message.UserId} has no ShippingAddressDetails.");
 
-        var command = new CreateOrderCommand
+        // Basket audit S11 (debt 7): orders are priced in USD, as payments are (Payment audit S8), and Basket now says
+        // which currency its prices are in. A message queued before it did reads as USD. Any other currency would become
+        // an order in the wrong unit, so it goes to the error queue like any checkout that can never be a correct order.
+        if (!string.Equals(message.Currency, PaymentSuccessConsumer.OrderCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidCheckoutEventException(
+                $"BasketCheckedOutEvent {message.EventId} is priced in {message.Currency}; orders are priced in {PaymentSuccessConsumer.OrderCurrency}.");
+        }
+
+        // CreateCheckedOutOrderCommand, not CreateOrderCommand: Basket priced these lines from Catalog
+        // on the server, and they are what the customer saw. The HTTP path reprices from Catalog.
+        var command = new CreateCheckedOutOrderCommand
         {
             UserId = message.UserId,
-            Street = addressParts.Street,
-            City = addressParts.City,
-            State = addressParts.State,
-            ZipCode = addressParts.ZipCode,
-            Country = addressParts.Country,
-            Items = message.Items.Select(i => new CreateOrderItemDto
+            Street = address.Street,
+            City = address.City,
+            State = address.State,
+            ZipCode = address.ZipCode,
+            Country = address.Country,
+            Items = message.Items.Select(i => new CheckedOutOrderItem
             {
                 ProductId = i.ProductId,
                 ProductName = i.ProductName,
-                Price = i.Price,
+                UnitPrice = i.Price,
                 Quantity = i.Quantity
             }).ToList()
         };
 
-        var result = await _mediator.Send(command, cancellationToken);
+        Result<Guid> result;
+        try
+        {
+            result = await _mediator.Send(command, cancellationToken);
+        }
+        catch (DomainException ex)
+        {
+            // e.g. the same product on two lines, or an address or line Address/OrderItem refuse (the
+            // validator mirrors both, so normally that arrives as a failed Result instead). Deterministic,
+            // so retrying is pointless.
+            throw new InvalidCheckoutEventException(
+                $"BasketCheckedOutEvent {message.EventId} was rejected by the order domain: {ex.Message}", ex);
+        }
 
-        result.Switch(
-            orderId => Logger.LogInformation(
-                "Order {OrderId} created from BasketCheckedOutEvent for UserId={UserId}",
-                orderId, message.UserId),
-            error => Logger.LogError(
-                "Failed to create order from BasketCheckedOutEvent for UserId={UserId}: {Error}",
-                message.UserId, error.Message));
-    }
+        // Audit H5. Validation failures come back as a Result, not an exception. This used to log the
+        // failure and return — so IdempotentConsumer committed the claim, the message was acknowledged,
+        // and the checkout was gone.
+        if (result.IsFailure)
+        {
+            throw new InvalidCheckoutEventException(
+                $"BasketCheckedOutEvent {message.EventId} was rejected: {result.Error!.Code}: {result.Error.Message}");
+        }
 
-    private static (string Street, string City, string State, string ZipCode, string Country) ParseAddress(string address)
-    {
-        var parts = address.Split(',', StringSplitOptions.TrimEntries);
-        return (
-            Street: parts.Length > 0 ? parts[0] : "Unknown",
-            City: parts.Length > 1 ? parts[1] : "Unknown",
-            State: parts.Length > 2 ? parts[2] : "Unknown",
-            ZipCode: parts.Length > 3 ? parts[3] : "00000",
-            Country: parts.Length > 4 ? parts[4] : "Unknown"
-        );
+        _created = (result.Value, message.UserId);
+
+        Logger.LogInformation(
+            "Order {OrderId} created from BasketCheckedOutEvent for UserId={UserId}",
+            result.Value, message.UserId);
     }
 }

@@ -42,29 +42,29 @@ public class TokenCleanupService : ITokenCleanupService
             // Delete tokens that are either:
             // 1. Expired and older than retention period
             // 2. Revoked and older than retention period
-
-            // Note: ExecuteDeleteAsync is more efficient for real databases (PostgreSQL),
-            // but we use ToListAsync + RemoveRange for compatibility with InMemory provider in tests
-            var tokensToDelete = await _context.RefreshTokens
+            //
+            // One server-side DELETE. This used to be a ToListAsync + RemoveRange loop with a
+            // comment admitting the shape was chosen for InMemory test compatibility — i.e. the
+            // production query was dictated by the test provider, and loaded every expired token
+            // into memory to delete it. TokenCleanupServicePostgresTests covers this on a real
+            // database, so the compatibility constraint is gone.
+            var deletedCount = await _context.RefreshTokens
                 .Where(t => t.ExpiresAt < cutoffDate ||
                            (t.RevokedAt != null && t.RevokedAt < cutoffDate))
-                .ToListAsync(cancellationToken);
+                .ExecuteDeleteAsync(cancellationToken);
 
-            if (tokensToDelete.Count > 0)
+            if (deletedCount > 0)
             {
-                _context.RefreshTokens.RemoveRange(tokensToDelete);
-                await _context.SaveChangesAsync(cancellationToken);
-
                 _logger.LogInformation(
                     "Successfully cleaned up {DeletedCount} expired/revoked refresh tokens",
-                    tokensToDelete.Count);
+                    deletedCount);
             }
             else
             {
                 _logger.LogInformation("No expired refresh tokens found for cleanup");
             }
 
-            return tokensToDelete.Count;
+            return deletedCount;
         }
         catch (Exception ex)
         {

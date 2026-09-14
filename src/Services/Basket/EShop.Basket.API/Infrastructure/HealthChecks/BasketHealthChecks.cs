@@ -49,15 +49,19 @@ public class BasketOutboxHealthCheck : IHealthCheck
 
             var pending = await database.ListLengthAsync(BasketOutboxKeys.Pending);
             var processing = await database.ListLengthAsync(BasketOutboxKeys.Processing);
+            var retrying = await database.SortedSetLengthAsync(BasketOutboxKeys.Retry);
             var deadLetter = await database.ListLengthAsync(BasketOutboxKeys.DeadLetter);
 
             var data = new Dictionary<string, object>
             {
                 ["outbox_pending_count"] = pending,
                 ["outbox_processing_count"] = processing,
+                ["outbox_retry_count"] = retrying,
                 ["outbox_dead_letter_count"] = deadLetter
             };
 
+            // Each dead letter is an order Ordering never received. Degraded until an admin replays them
+            // (POST /api/v1/basket/admin/outbox/dead-letters/replay, Basket audit S7, D7) — they are never expired.
             if (deadLetter > 0)
             {
                 return HealthCheckResult.Degraded("Basket outbox has dead-lettered messages", data: data);

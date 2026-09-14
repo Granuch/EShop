@@ -35,20 +35,21 @@ public class ProductRepository : IProductRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
-    public async Task<Product?> GetBySkuAsync(string sku, CancellationToken cancellationToken = default)
+    public async Task<bool> SkuExistsAsync(string sku, CancellationToken cancellationToken = default)
     {
+        // AnyAsync, not FirstOrDefaultAsync: the only caller asks an existence question, and the
+        // old form materialised and tracked a whole Product to answer it. AsNoTracking keeps the
+        // result out of the change tracker even if EF's translation ever stops eliding it.
         return await _context.Products
-            .FirstOrDefaultAsync(s => s.Sku == sku, cancellationToken);
+            .AsNoTracking()
+            .AnyAsync(p => p.Sku == sku, cancellationToken);
     }
 
-    public async Task<IEnumerable<Product>> GetByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
+    public async Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
     {
         return await _context.Products
-            .Where(c => c.CategoryId == categoryId)
-            .OrderBy(p => p.Name)
-            .Take(200)
             .AsNoTracking()
-            .ToListAsync(cancellationToken);
+            .AnyAsync(p => p.CategoryId == categoryId, cancellationToken);
     }
 
     public async Task AddAsync(Product product, CancellationToken cancellationToken = default)
@@ -68,10 +69,5 @@ public class ProductRepository : IProductRepository
     {
         _context.Products.Remove(product);
         return Task.CompletedTask;
-    }
-
-    public IQueryable<Product> Query()
-    {
-        return _context.Products.AsNoTracking();
     }
 }

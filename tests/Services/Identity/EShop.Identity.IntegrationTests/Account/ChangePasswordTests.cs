@@ -7,11 +7,16 @@ using FluentAssertions;
 namespace EShop.Identity.IntegrationTests.Account;
 
 /// <summary>
-/// Integration tests for Password Change endpoint
+/// Integration tests for Password Change endpoint.
+///
+/// Runs on real PostgreSQL: a successful change revokes every active refresh token through
+/// <c>RefreshTokenRepository.RevokeAllUserTokensAsync</c>, which is a server-side UPDATE. Stage 3
+/// (SEC-06) made that revocation fail-closed — the password change rolls back if it fails — so
+/// exercising the real query here is what gives that guarantee teeth.
 /// </summary>
 [TestFixture]
 [Category("Integration")]
-public class ChangePasswordTests : IntegrationTestBase
+public class ChangePasswordTests : PostgresIntegrationTestBase
 {
     private const string ChangePasswordEndpoint = "/api/v1/account/change-password";
     private const string RefreshEndpoint = "/api/v1/auth/refresh-token";

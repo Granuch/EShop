@@ -53,7 +53,7 @@ public class SecurityTests : IntegrationTestBase
             Country = "US",
             Items = new List<CreateOrderItemRequest>
             {
-                new() { ProductId = Guid.NewGuid(), ProductName = "Widget", Price = 10.00m, Quantity = 1 }
+                new() { ProductId = Guid.NewGuid(), Quantity = 1 }
             }
         };
 

@@ -1,20 +1,14 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Basket.Application.Commands.AddItemToBasket;
 
 /// <summary>
 /// Command to add item to basket
 /// </summary>
-public record AddItemToBasketCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand
+public record AddItemToBasketCommand : IRequest<Result<Unit>>
 {
     public string UserId { get; init; } = string.Empty;
     public Guid ProductId { get; init; }
     public int Quantity { get; init; }
-
-    public IEnumerable<string> CacheKeysToInvalidate =>
-    [
-        $"basket:user:{UserId}"
-    ];
 }

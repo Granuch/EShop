@@ -211,6 +211,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # Database
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -228,7 +240,7 @@ services:
       Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
 
       # Internal service authorization
-      InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       InternalServiceAuth__HeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
       # JWT
@@ -302,6 +314,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # JWT
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
       JwtSettings__Issuer: ${JWT_ISSUER}
@@ -314,7 +338,7 @@ services:
       # Internal identity resolver for email recipients
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
       # Email notifications via Mailpit in local profiles
@@ -372,6 +396,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
 
@@ -403,6 +439,10 @@ services:
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
+
+      # Catalog: every item added to a basket is named and priced from it. Validated at startup, so a
+      # missing value stops basket-api from booting; without it every add-to-basket failed with a 400.
+      CatalogService__BaseUrl: http://catalog-api:8080/
     volumes:
       - basket-logs:/app/logs
     networks:
@@ -438,6 +478,18 @@ services:
       # ASP.NET Core
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
+
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
 
       # Database
       ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -536,6 +588,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       # Database
       ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
 
@@ -570,6 +634,10 @@ services:
       # Serilog
       Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Information}
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
+
+      # Catalog: orders created over HTTP are priced from it, never from the request body.
+      # Validated at startup, so a missing value stops ordering-api from booting.
+      CatalogService__BaseUrl: http://catalog-api:8080/
     volumes:
       - ordering-logs:/app/logs
     networks:
@@ -629,6 +697,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
       RabbitMQ__Host: rabbitmq
@@ -645,9 +725,17 @@ services:
       PaymentSimulation__SuccessRatePercent: ${PAYMENT_SUCCESS_RATE_PERCENT:-80}
       PaymentSimulation__RefundDelaySeconds: ${PAYMENT_REFUND_DELAY_SECONDS:-2}
 
+      # A cancelled order whose money was already taken: false (default) sends it to
+      # payment_order_cancelled_error for a manual refund; true refunds it in full automatically.
+      CancelledOrders__AutoRefund: ${PAYMENT_AUTO_REFUND_CANCELLED_ORDERS:-false}
+
       Stripe__Enabled: ${STRIPE_ENABLED:-false}
-      Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-true}
-      Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-true}
+      # Payment audit Stage 4 (H3, D5). Both default to false. With them on, anyone who can reach payment-api
+      # can POST a hand-written payment_intent.succeeded and have an order marked paid. Signed local delivery
+      # comes from stripe-listener (--profile stripe): set STRIPE_WEBHOOK_SECRET to the whsec_ it prints at start
+      # (docker logs eshop-stripe-listener), then recreate payment-api.
+      Stripe__SkipWebhookSignatureVerification: ${STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION:-false}
+      Stripe__AllowMissingSignatureHeaderInBypassMode: ${STRIPE_ALLOW_MISSING_SIGNATURE_HEADER_IN_BYPASS_MODE:-false}
       Stripe__SecretKey: ${STRIPE_SECRET_KEY:-}
       Stripe__PublishableKey: ${STRIPE_PUBLISHABLE_KEY:-}
       Stripe__WebhookSecret: ${STRIPE_WEBHOOK_SECRET:-}
@@ -662,7 +750,9 @@ services:
       Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
       Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection: Error
     ports:
-      - "${PAYMENT_API_PORT:-7008}:8080"
+      # Payment audit Stage 4 (H3, D5): loopback only. Other containers reach payment-api by name, and
+      # stripe-listener forwards webhooks to it inside eshop-network, so nothing needs it on a public interface.
+      - "127.0.0.1:${PAYMENT_API_PORT:-7008}:8080"
     volumes:
       - payment-logs:/app/logs
     networks:
@@ -681,17 +771,30 @@ services:
   # ============================================
   # Stripe CLI Listener (Sandbox webhook bridge)
   # ============================================
+  # OPS-03. Two fixes here.
+  #
+  # (1) The tag was `stripe/stripe-cli:v1`, which no longer exists on Docker Hub. Because Compose
+  #     resolves images for the whole profile before starting anything, that one missing tag
+  #     aborted the entire `--profile sandbox` bring-up with `failed to resolve reference ... not
+  #     found` — nothing started, and the error named only the listener. It is pinned to a real
+  #     release below, and moved to its own `stripe` profile so a future tag problem can only take
+  #     down the webhook bridge rather than the whole stack. Start it with
+  #     `docker compose --profile sandbox --profile stripe up -d`.
+  #
+  # (2) The API key was passed as a command argument, so it was readable to anyone who could run
+  #     `docker inspect` or `ps` on the host, and it landed in shell history. The Stripe CLI reads
+  #     STRIPE_API_KEY from the environment, so it goes there instead.
   stripe-listener:
-    image: stripe/stripe-cli:v1
+    image: stripe/stripe-cli:v1.19.4
     container_name: eshop-stripe-listener
     restart: unless-stopped
     depends_on:
       payment-api:
         condition: service_healthy
+    environment:
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-}
     command:
       - listen
-      - --api-key
-      - ${STRIPE_SECRET_KEY:-}
       - --forward-to
       - http://payment-api:8080/webhooks/stripe
       - --events
@@ -699,7 +802,7 @@ services:
     networks:
       - eshop-network
     profiles:
-      - sandbox
+      - stripe
 
   # ============================================
   # PostgreSQL Database for Notification
@@ -750,6 +853,18 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Sandbox}
       ASPNETCORE_HTTP_PORTS: "8080"
 
+      # Forwarded headers. Without these every IP-derived control — rate-limit partitions,
+      # brute-force tracking, LastLoginIp — sees the gateway's bridge address instead of the
+      # real client, so one caller can exhaust the whole allowance for everyone.
+      # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
+      # set, and the middleware is then not registered at all, which is why the omission was
+      # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
+      # address comes from Docker's bridge pool and is not stable. These are the same three
+      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
+      ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
+      ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+
       ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
       RabbitMQ__Host: rabbitmq
@@ -768,13 +883,19 @@ services:
       Smtp__Port: ${NOTIFICATION_SMTP_PORT:-1025}
       Smtp__Username: ${NOTIFICATION_SMTP_USERNAME:-}
       Smtp__Password: ${NOTIFICATION_SMTP_PASSWORD:-}
-      Smtp__UseSsl: ${NOTIFICATION_SMTP_USE_SSL:-false}
+      # Notification audit S5 (D7): None (Mailpit, no credentials), StartTls or SslOnConnect. Credentials over None are
+      # refused outside Development, and Production requires TLS.
+      Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:-None}
       Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:-noreply@eshop.local}
       Smtp__FromName: ${NOTIFICATION_SMTP_FROM_NAME:-EShop}
 
+      # Notification audit S4 (D4). Required, with no tracked default: the local stack's browser reaches the storefront
+      # on localhost:3000. docker-compose.override.production.yml requires PASSWORD_RESET_URL_BASE instead.
+      PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:-http://localhost:3000/reset-password}
+
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:-LOCAL_internal_service_api_key}
+      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
       OpenTelemetry__Enabled: "true"

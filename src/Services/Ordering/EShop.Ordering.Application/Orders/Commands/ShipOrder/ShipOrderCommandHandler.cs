@@ -37,7 +37,7 @@ public class ShipOrderCommandHandler : IRequestHandler<ShipOrderCommand, Result>
             return Result.Failure(new Error("Order.NotFound", $"Order with ID '{request.OrderId}' was not found."));
         }
 
-        _cacheInvalidationContext?.AddKey($"orders:user:{order.UserId}");
+        _cacheInvalidationContext?.AddFamily(OrderCacheKeys.UserOrders(order.UserId));
 
         if (order.Status != OrderStatus.Paid)
         {

@@ -34,11 +34,6 @@ public interface IRevokedTokenCache
     /// <param name="expiresAt">The original expiration time of the token</param>
     Task AddRevokedTokenAsync(string token, DateTime expiresAt, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Removes a token from the revoked cache (if it was incorrectly added).
-    /// Rarely needed.
-    /// </summary>
-    Task RemoveFromRevokedCacheAsync(string token, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -132,25 +127,6 @@ public class RevokedTokenCache : IRevokedTokenCache
         }
     }
 
-    public async Task RemoveFromRevokedCacheAsync(string token, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return;
-        }
-
-        var cacheKey = GetCacheKey(token);
-
-        try
-        {
-            await _cache.RemoveAsync(cacheKey, cancellationToken);
-            _logger.LogDebug("Removed token from revoked cache");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to remove token from revoked cache");
-        }
-    }
 
     /// <summary>
     /// Creates a cache key using a hash of the token.

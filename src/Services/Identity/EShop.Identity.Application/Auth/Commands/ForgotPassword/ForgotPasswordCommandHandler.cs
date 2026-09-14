@@ -19,20 +19,17 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IIntegrationEventOutbox _outbox;
     private readonly ICurrentUserContext _currentUserContext;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ForgotPasswordCommandHandler> _logger;
 
     public ForgotPasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IIntegrationEventOutbox outbox,
         ICurrentUserContext currentUserContext,
-        IUnitOfWork unitOfWork,
         ILogger<ForgotPasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _outbox = outbox;
         _currentUserContext = currentUserContext;
-        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -41,8 +38,21 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
         var user = await _userManager.FindByEmailAsync(request.Email);
 
         // Always return success to prevent email enumeration attacks
-        if (user == null || !user.IsActive || user.IsDeleted)
+        if (user == null || !user.IsActive)
         {
+            // The response body is identical either way, but the *work* was not: the found path
+            // generates a reset token and writes to the outbox, the not-found path returned
+            // immediately. That timing difference is itself the enumeration oracle the identical
+            // message is meant to close. Do comparable work here, the same defence
+            // LoginCommandHandler applies with its dummy hash verification.
+            await _userManager.GeneratePasswordResetTokenAsync(new ApplicationUser
+            {
+                Id = Guid.Empty.ToString(),
+                Email = request.Email,
+                UserName = request.Email,
+                SecurityStamp = Guid.Empty.ToString()
+            });
+
             _logger.LogInformation("Password reset requested for non-existent or inactive email. HashedEmail={HashedEmail}",
                 IdentifierHasher.HashShort(request.Email));
             IdentityTelemetry.RecordForgotPassword();
@@ -62,8 +72,9 @@ public class ForgotPasswordCommandHandler : IRequestHandler<ForgotPasswordComman
             ResetToken = token,
             CorrelationId = _currentUserContext.CorrelationId
         }, _currentUserContext.CorrelationId);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        // No SaveChangesAsync here: the command is ITransactionalCommand now, so
+        // TransactionBehavior's CommitTransactionAsync is what persists the outbox row.
         _logger.LogInformation("Password reset token generated. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordForgotPassword();
 

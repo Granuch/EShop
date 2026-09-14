@@ -3,6 +3,7 @@ using EShop.Basket.Application.Common;
 using EShop.Basket.Application.Telemetry;
 using EShop.Basket.Domain.Interfaces;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -35,24 +36,47 @@ public class UpdateBasketItemQuantityCommandHandler : IRequestHandler<UpdateBask
 
         try
         {
-            var basket = await _basketRepository.GetBasketAsync(request.UserId, cancellationToken);
-            if (basket == null)
+            return await BasketWrites.RunAsync(async ct =>
             {
-                return Result<Unit>.Failure(BasketErrors.BasketNotFound);
-            }
+                var basket = await _basketRepository.GetBasketAsync(request.UserId, ct);
+                if (basket == null)
+                {
+                    return Result<Unit>.Failure(BasketErrors.BasketNotFound);
+                }
 
-            basket.UpdateItemQuantity(request.ProductId, request.Quantity);
+                // Basket audit S8 (M4): a product that is not in the basket is a 404. It used to reach the domain's
+                // DomainException, which the generic catch below reported as a 400 and logged as an error.
+                if (basket.Items.All(item => item.ProductId != request.ProductId))
+                {
+                    return Result<Unit>.Failure(BasketErrors.ItemNotFound);
+                }
 
-            if (basket.Items.Count == 0)
-            {
-                await _basketRepository.DeleteBasketAsync(request.UserId, cancellationToken);
-            }
-            else
-            {
-                await _basketRepository.SaveBasketAsync(basket, cancellationToken);
-            }
+                basket.UpdateItemQuantity(request.ProductId, request.Quantity);
 
-            return Result<Unit>.Success(Unit.Value);
+                var written = basket.Items.Count == 0
+                    ? await _basketRepository.TryDeleteBasketAsync(basket, ct)
+                    : await _basketRepository.TrySaveBasketAsync(basket, ct);
+
+                if (!written)
+                {
+                    return null;
+                }
+
+                return BasketWrites.Done;
+            }, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (DomainException ex)
+        {
+            _logger.LogWarning(ex,
+                "Invalid basket quantity update. UserId={UserId}, ProductId={ProductId}",
+                request.UserId,
+                request.ProductId);
+
+            return Result<Unit>.Failure(new Error("Basket.ValidationFailed", ex.Message));
         }
         catch (Exception ex)
         {

@@ -17,7 +17,7 @@ public sealed class GetUserContactQueryHandler : IRequestHandler<GetUserContactQ
     {
         var user = await _userRepository.GetByIdAsync(request.UserId, cancellationToken);
 
-        if (user is null || user.IsDeleted || !user.IsActive || string.IsNullOrWhiteSpace(user.Email))
+        if (user is null || !user.IsActive || string.IsNullOrWhiteSpace(user.Email))
         {
             return Result<UserContactResponse>.Failure(
                 new Error("Users.ContactNotFound", "User contact not found"));
@@ -25,7 +25,7 @@ public sealed class GetUserContactQueryHandler : IRequestHandler<GetUserContactQ
 
         return Result<UserContactResponse>.Success(new UserContactResponse
         {
-            UserId = user.Id,
+            Id = user.Id,
             Email = user.Email,
             FirstName = user.FirstName,
             LastName = user.LastName

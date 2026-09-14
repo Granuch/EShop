@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master ]
   push:
-    branches: [ feature/**, main, develop ]
+    branches: [ master, feature/**, bug/** ]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,9 +31,24 @@ jobs:
         run: dotnet build EShop.slnx -c Release --no-restore
 
       - name: Test
+        # StripeSandboxTests run against the real Stripe sandbox, with a test-mode (sk_test_) key held in
+        # the STRIPE_SANDBOX_SECRET_KEY repository secret. Pushes and same-repository pull requests must
+        # run them: STRIPE_SANDBOX_REQUIRED makes a missing key fail the fixture instead of skipping it, so
+        # a deleted secret turns CI red. GitHub gives fork and Dependabot pull requests no secrets, so
+        # there the tests are skipped.
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SANDBOX_SECRET_KEY }}
+          STRIPE_SANDBOX_REQUIRED: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: dotnet test EShop.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
       - name: Validate docker compose config
+        # This step checks that the compose file parses and interpolates, nothing more — it
+        # never starts a container. INTERNAL_SERVICE_API_KEY is declared with ${VAR:?...}
+        # rather than a ${VAR:-default} so a real bring-up cannot silently fall back to a
+        # well-known key, which means interpolation now needs *some* value here. The value
+        # below is not a secret and is not used to authenticate anything.
+        env:
+          INTERNAL_SERVICE_API_KEY: ci-compose-config-validation-only
         run: docker compose config > /tmp/docker-compose.resolved.yml
 
       - name: Upload test results

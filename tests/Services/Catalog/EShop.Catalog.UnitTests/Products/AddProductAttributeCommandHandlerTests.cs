@@ -1,6 +1,5 @@
-using EShop.BuildingBlocks.Domain;
+﻿using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Domain.Exceptions;
-using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
@@ -13,7 +12,6 @@ public class AddProductAttributeCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidator> _cacheInvalidatorMock = null!;
     private AddProductAttributeCommandHandler _handler = null!;
 
     [SetUp]
@@ -21,11 +19,9 @@ public class AddProductAttributeCommandHandlerTests
     {
         _productRepositoryMock = new Mock<IProductRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
-        _cacheInvalidatorMock = new Mock<ICacheInvalidator>();
         _handler = new AddProductAttributeCommandHandler(
             _productRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _cacheInvalidatorMock.Object);
+            _unitOfWorkMock.Object);
     }
 
     [Test]
@@ -61,8 +57,6 @@ public class AddProductAttributeCommandHandlerTests
         Assert.That(product.Attributes.Single().Value, Is.EqualTo("Red"));
         _productRepositoryMock.Verify(x => x.UpdateAsync(product, It.IsAny<CancellationToken>()), Times.Once);
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _cacheInvalidatorMock.Verify(
-            x => x.InvalidateAsync($"products:category:{categoryId}", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -96,7 +90,7 @@ public class AddProductAttributeCommandHandlerTests
         // Arrange — uniqueness used to be enforced only within a single create request, so this
         // path let the same Name through twice. The cap and dedupe now live in
         // Product.AddAttribute, which is the only place that can see the already-persisted rows.
-        // DomainException is correct here: GlobalExceptionHandlerMiddleware maps it to 400.
+        // DomainException is correct here: ProblemDetailsExceptionMiddleware maps it to 400.
         var product = Product.Create("Test Product", "SKU-001", 29.99m, 100, Guid.NewGuid());
         product.AddAttribute("Color", "Red");
 

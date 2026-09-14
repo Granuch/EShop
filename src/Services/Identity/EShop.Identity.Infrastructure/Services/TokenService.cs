@@ -5,6 +5,7 @@ using System.Text;
 using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -25,25 +26,33 @@ public class TokenService : ITokenService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICachedUserRolesService? _cachedUserRolesService;
-    private readonly IRevokedTokenCache? _revokedTokenCache;
+    private readonly ICachedUserRolesService _cachedUserRolesService;
+    private readonly IRevokedTokenCache _revokedTokenCache;
     private readonly ILogger<TokenService>? _logger;
 
+    /// <summary>
+    /// <c>ICachedUserRolesService</c> and <c>IRevokedTokenCache</c> are required, not optional.
+    /// They used to default to null, and both are registered — so the defaults never applied in
+    /// practice and only served to make a *dropped* registration silent: the revoked-token check
+    /// would have been skipped entirely (`_revokedTokenCache != null` guards it), turning a
+    /// wiring mistake into a security hole that no test would catch. Fail at resolution instead.
+    /// The logger stays optional so the unit tests can construct the service directly.
+    /// </summary>
     public TokenService(
-        IOptions<JwtSettings> jwtSettings, 
+        IOptions<JwtSettings> jwtSettings,
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
         IUnitOfWork unitOfWork,
-        ICachedUserRolesService? cachedUserRolesService = null,
-        IRevokedTokenCache? revokedTokenCache = null,
+        ICachedUserRolesService cachedUserRolesService,
+        IRevokedTokenCache revokedTokenCache,
         ILogger<TokenService>? logger = null)
     {
         _jwtSettings = jwtSettings.Value;
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
         _unitOfWork = unitOfWork;
-        _cachedUserRolesService = cachedUserRolesService;
-        _revokedTokenCache = revokedTokenCache;
+        _cachedUserRolesService = cachedUserRolesService ?? throw new ArgumentNullException(nameof(cachedUserRolesService));
+        _revokedTokenCache = revokedTokenCache ?? throw new ArgumentNullException(nameof(revokedTokenCache));
         _logger = logger;
     }
 
@@ -52,16 +61,10 @@ public class TokenService : ITokenService
 
     public async Task<string> GenerateAccessTokenAsync(ApplicationUser user, CancellationToken cancellationToken = default)
     {
-        // Use cached roles service if available, otherwise fallback to UserManager
-        IList<string> roles;
-        if (_cachedUserRolesService != null)
-        {
-            roles = await _cachedUserRolesService.GetRolesAsync(user, cancellationToken);
-        }
-        else
-        {
-            roles = await _userManager.GetRolesAsync(user);
-        }
+        // The service is required now, so there is no UserManager fallback branch to take.
+        // CachedUserRolesService already falls back to the database internally when the cache
+        // is unreachable, so the old branch was a second, redundant fallback.
+        var roles = await _cachedUserRolesService.GetRolesAsync(user, cancellationToken);
 
         var claims = new List<Claim>
         {
@@ -92,18 +95,30 @@ public class TokenService : ITokenService
         return await GenerateRefreshTokenInternalAsync(userId, ipAddress, saveChanges: true, cancellationToken);
     }
 
-    private async Task<string> GenerateRefreshTokenInternalAsync(string userId, string ipAddress, bool saveChanges, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Mints a refresh token, returning the plaintext to hand to the client and the hash to
+    /// persist. This was duplicated verbatim in <see cref="RotateRefreshTokenAsync"/>, which is
+    /// exactly the shape that lets one of the two sites keep storing plaintext after the other
+    /// is fixed.
+    /// </summary>
+    private static (string Plaintext, string Hash) CreateRefreshToken()
     {
         var randomBytes = new byte[64];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
 
-        var tokenString = Convert.ToBase64String(randomBytes);
+        var plaintext = Convert.ToBase64String(randomBytes);
+        return (plaintext, RefreshTokenHasher.Hash(plaintext));
+    }
+
+    private async Task<string> GenerateRefreshTokenInternalAsync(string userId, string ipAddress, bool saveChanges, CancellationToken cancellationToken = default)
+    {
+        var (tokenString, tokenHash) = CreateRefreshToken();
 
         var refreshToken = new RefreshTokenEntity
         {
             Id = Guid.NewGuid(),
-            Token = tokenString,
+            TokenHash = tokenHash,
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationDays),
@@ -120,33 +135,6 @@ public class TokenService : ITokenService
         return tokenString;
     }
 
-    public Task<bool> ValidateTokenAsync(string token, CancellationToken cancellationToken = default)
-    {
-        var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.UTF8.GetBytes(_jwtSettings.SecretKey);
-
-        try
-        {
-            tokenHandler.ValidateToken(token, new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = true,
-                ValidIssuer = _jwtSettings.Issuer,
-                ValidateAudience = true,
-                ValidAudience = _jwtSettings.Audience,
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.Zero
-            }, out _);
-
-            return Task.FromResult(true);
-        }
-        catch
-        {
-            return Task.FromResult(false);
-        }
-    }
-
     public async Task RevokeTokenAsync(string token, string ipAddress, CancellationToken cancellationToken = default)
     {
         var refreshToken = await _refreshTokenRepository.GetByTokenAsync(token, cancellationToken);
@@ -161,10 +149,7 @@ public class TokenService : ITokenService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // Add to revoked token cache for faster validation
-            if (_revokedTokenCache != null)
-            {
-                await _revokedTokenCache.AddRevokedTokenAsync(token, refreshToken.ExpiresAt, cancellationToken);
-            }
+            await _revokedTokenCache.AddRevokedTokenAsync(token, refreshToken.ExpiresAt, cancellationToken);
 
             _logger?.LogInformation("Refresh token revoked and added to cache. UserId={UserId}", refreshToken.UserId);
         }
@@ -177,15 +162,13 @@ public class TokenService : ITokenService
     public async Task<(bool IsValid, ApplicationUser? User, RefreshTokenEntity? Token)> ValidateRefreshTokenAsync(
         string token, CancellationToken cancellationToken = default)
     {
-        // Check revoked token cache first for faster validation
-        if (_revokedTokenCache != null)
+        // Check revoked token cache first for faster validation. This is the check that a
+        // dropped registration used to skip silently — see the constructor.
+        var isRevoked = await _revokedTokenCache.IsTokenRevokedAsync(token, cancellationToken);
+        if (isRevoked == true)
         {
-            var isRevoked = await _revokedTokenCache.IsTokenRevokedAsync(token, cancellationToken);
-            if (isRevoked == true)
-            {
-                _logger?.LogDebug("Token found in revoked cache, rejecting without DB lookup");
-                return (false, null, null);
-            }
+            _logger?.LogDebug("Token found in revoked cache, rejecting without DB lookup");
+            return (false, null, null);
         }
 
         var refreshToken = await _refreshTokenRepository.GetByTokenAsync(token, cancellationToken);
@@ -212,11 +195,7 @@ public class TokenService : ITokenService
     {
         var now = DateTime.UtcNow;
 
-        // Generate new token string
-        var randomBytes = new byte[64];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(randomBytes);
-        var newTokenString = Convert.ToBase64String(randomBytes);
+        var (newTokenString, newTokenHash) = CreateRefreshToken();
 
         // Only manage our own transaction if one isn't already active
         // (e.g., TransactionBehavior may have started one at the pipeline level)
@@ -228,11 +207,11 @@ public class TokenService : ITokenService
         try
         {
             // Step 1: Atomically revoke the old token (with race condition protection)
-            var affectedRows = await _refreshTokenRepository.RevokeTokenAtomicallyAsync(
-                oldToken.Token,
+            var affectedRows = await _refreshTokenRepository.RevokeTokenByHashAtomicallyAsync(
+                oldToken.TokenHash,
                 now,
                 ipAddress,
-                newTokenString,
+                newTokenHash,
                 "Rotated",
                 cancellationToken);
 
@@ -247,7 +226,7 @@ public class TokenService : ITokenService
             var newRefreshToken = new RefreshTokenEntity
             {
                 Id = Guid.NewGuid(),
-                Token = newTokenString,
+                TokenHash = newTokenHash,
                 UserId = oldToken.UserId,
                 CreatedAt = now,
                 ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenExpirationDays),

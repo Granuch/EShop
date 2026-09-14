@@ -5,9 +5,9 @@ using MediatR;
 
 namespace EShop.Payment.Application.Payments.Commands.CreatePayment;
 
-public sealed record CreatePaymentCommand(
-    Guid OrderId,
-    string UserId,
-    decimal Amount,
-    string? Currency,
-    string? PaymentMethod) : IRequest<Result<PaymentDto>>, ITransactionalCommand;
+/// <summary>
+/// An admin settles an order's recorded Pending payment through the simulator. Payment audit Stage 3 (H4, D2): this
+/// was a customer endpoint that created a payment with whatever user, amount, currency and method the request
+/// named. The payment now comes from Payment's record of the order, so only the order is named.
+/// </summary>
+public sealed record CreatePaymentCommand(Guid OrderId) : IRequest<Result<PaymentDto>>, ITransactionalCommand;

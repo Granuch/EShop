@@ -85,7 +85,10 @@ public class OrderingDbContext : BaseDbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Indexes
-            entity.HasIndex(o => o.UserId);
+            // Audit L12. The per-user list filters on UserId and orders by (CreatedAt, Id) descending; this
+            // one index serves both and replaces the single-column UserId index, whose lookups it covers.
+            entity.HasIndex(o => new { o.UserId, o.CreatedAt, o.Id })
+                .IsDescending(false, true, true);
             entity.HasIndex(o => o.Status);
             entity.HasIndex(o => o.CreatedAt);
         });
@@ -95,6 +98,14 @@ public class OrderingDbContext : BaseDbContext
             entity.ToTable("OrderItems");
 
             entity.HasKey(i => i.Id);
+
+            // The aggregate assigns child ids (OrderItem's constructor sets Id = Guid.NewGuid()),
+            // so the key is NOT store-generated. Leaving it ValueGeneratedOnAdd makes EF treat an
+            // item added to an already-loaded order as an existing row — it issues an UPDATE that
+            // matches nothing and throws DbUpdateConcurrencyException. Same reasoning as
+            // CatalogDbContext's ProductImage/ProductAttribute keys.
+            entity.Property(i => i.Id)
+                .ValueGeneratedNever();
 
             entity.Property(i => i.ProductId).IsRequired();
 

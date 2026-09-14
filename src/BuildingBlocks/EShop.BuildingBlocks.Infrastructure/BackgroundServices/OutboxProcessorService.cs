@@ -210,9 +210,16 @@ public class OutboxProcessorService : BackgroundService
 
         foreach (var message in messages)
         {
+            // Resolved before the try so the dead-letter paths below can honour it too. False
+            // when the type cannot be resolved — nothing is known about the payload then, and
+            // the retention window is the only remaining bound.
+            var redactPayload = false;
+
             try
             {
                 var eventType = ResolveType(message.Type);
+                redactPayload = eventType != null && typeof(ISensitivePayloadEvent).IsAssignableFrom(eventType);
+
                 if (eventType == null)
                 {
                     _logger.LogError(
@@ -230,7 +237,7 @@ public class OutboxProcessorService : BackgroundService
                         "Failed to deserialize event {Type} for message {MessageId}. Dead-lettering",
                         message.Type,
                         message.Id);
-                    message.MarkAsDeadLettered("Deserialization returned null");
+                    message.MarkAsDeadLettered("Deserialization returned null", redactPayload);
                     continue;
                 }
 
@@ -264,7 +271,16 @@ public class OutboxProcessorService : BackgroundService
                 }
                 else if (deserialized is IDomainEvent domainEvent)
                 {
-                    await mediator.Publish(domainEvent, cancellationToken);
+                    // M7. The handlers run in this background scope, which has no HttpContext, so
+                    // ICurrentUserContext used to mint a fresh correlation id here and every
+                    // integration event they enqueued lost the originating request's id — while
+                    // this row still held it. Make it ambient for exactly this one dispatch: the
+                    // whole batch shares one DI scope, so anything coarser than per-message would
+                    // leak one message's id into the next.
+                    using (AmbientCorrelation.Begin(message.CorrelationId))
+                    {
+                        await mediator.Publish(domainEvent, cancellationToken);
+                    }
 
                     _logger.LogDebug(
                         "Published domain event {MessageId} of type {Type} via MediatR",
@@ -277,11 +293,11 @@ public class OutboxProcessorService : BackgroundService
                         "Outbox message {MessageId} of type {Type} is neither IDomainEvent nor IIntegrationEvent. Dead-lettering.",
                         message.Id,
                         eventType.Name);
-                    message.MarkAsDeadLettered($"Unknown event category: {eventType.Name}");
+                    message.MarkAsDeadLettered($"Unknown event category: {eventType.Name}", redactPayload);
                     continue;
                 }
 
-                message.MarkAsProcessed();
+                message.MarkAsProcessed(redactPayload);
                 processedCount++;
             }
             catch (Exception ex) when (IsNonTransient(ex))
@@ -289,7 +305,7 @@ public class OutboxProcessorService : BackgroundService
                 _logger.LogError(ex,
                     "Non-transient error processing outbox message {MessageId}. Dead-lettering",
                     message.Id);
-                message.MarkAsDeadLettered(ex.Message);
+                message.MarkAsDeadLettered(ex.Message, redactPayload);
             }
             catch (Exception ex)
             {
@@ -307,7 +323,7 @@ public class OutboxProcessorService : BackgroundService
                         "Outbox message {MessageId} exceeded max retries ({MaxRetries}). Dead-lettering",
                         message.Id,
                         _options.MaxRetries);
-                    message.MarkAsDeadLettered(ex.Message);
+                    message.MarkAsDeadLettered(ex.Message, redactPayload);
                 }
             }
         }

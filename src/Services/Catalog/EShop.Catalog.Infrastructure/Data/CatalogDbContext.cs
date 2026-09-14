@@ -53,6 +53,12 @@ public class CatalogDbContext : BaseDbContext
                 .IsRequired()
                 .HasMaxLength(50);
 
+            // L23 (Stage 10). Capped at 1000, the limit the Category validators already enforced, so
+            // schema and validator agree the way they do for Name and Sku. Was unbounded `text` with
+            // no validator rule at all.
+            entity.Property(p => p.Description)
+                .HasMaxLength(1000);
+
             entity.Property(p => p.Price)
                 .HasColumnType("decimal(18,2)");
 
@@ -69,12 +75,36 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(p => p.UpdatedAt);
             entity.Property(p => p.UpdatedBy).HasMaxLength(100);
 
-            entity.HasIndex(p => p.Sku).IsUnique();
-            entity.HasIndex(p => p.Name);
+            // The B-tree indexes MUST be declared with an explicit name. An unnamed
+            // HasIndex(p => p.Sku) and the trigram HasIndex(p => p.Sku) below are the SAME index
+            // builder — EF keys indexes by property set, not by database name — so the later call
+            // silently reconfigured this one into a non-unique GIN index. There was no warning and
+            // no duplicate-index error: for five migrations `Products.Sku` simply had no unique
+            // constraint at all, and `Name` had no B-tree, while a comment here claimed otherwise.
+            // Naming them makes them distinct index builders, which is what lets both survive.
+            //
+            // The Sku index is deliberately PARTIAL. `GetBySkuAsync` runs under the
+            // `!p.IsDeleted` global query filter below, so a soft-deleted product's SKU is already
+            // invisible to the application's duplicate check; a total unique index would let the
+            // database reject a SKU the application had just told the caller was free. Filtering
+            // on the same predicate makes the two agree, and makes a soft-deleted product's SKU
+            // reusable, which is the intended behaviour.
+            entity.HasIndex(p => p.Sku, "IX_Products_Sku")
+                .IsUnique()
+                .HasFilter("NOT \"IsDeleted\"");
+            entity.HasIndex(p => p.Name, "IX_Products_Name");
             entity.HasIndex(p => p.CategoryId);
-            entity.HasIndex(p => p.CreatedAt);
 
-            // Trigram indexes for ILIKE search performance (requires pg_trgm extension)
+            // H4. The keyset index for GET /products/newest. (CreatedAt, Id) is exactly the row
+            // value the cursor compares against, so a page is one backward range scan from the
+            // cursor at any depth. It replaces the single-column IX_Products_CreatedAt, every use
+            // of which this one also serves as its leftmost prefix.
+            entity.HasIndex(p => new { p.CreatedAt, p.Id }, "IX_Products_CreatedAt_Id");
+
+            // Trigram indexes for ILIKE search performance (requires pg_trgm extension).
+            // These stay non-unique: Postgres cannot build a unique GIN index at all, which is why
+            // migration 20260217000731_UpdateProductModel2 exists — the fix taken there was to drop
+            // the uniqueness rather than to split the indexes, and that is what lost the constraint.
             entity.HasIndex(p => p.Name)
                 .HasDatabaseName("IX_Products_Name_Trgm")
                 .HasMethod("gin")
@@ -83,7 +113,6 @@ public class CatalogDbContext : BaseDbContext
                 .HasDatabaseName("IX_Products_Sku_Trgm")
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops")
-                // Trigram index must stay non-unique; SKU uniqueness is enforced by the dedicated B-tree index above.
                 .IsUnique(false);
 
             entity.HasMany(p => p.Images)
@@ -113,6 +142,11 @@ public class CatalogDbContext : BaseDbContext
                 .IsRequired()
                 .HasMaxLength(200);
 
+            // L23 (Stage 10). Both Category validators have capped Description at 1000 since Stage 8
+            // while the column was unbounded `text`; now they agree.
+            entity.Property(c => c.Description)
+                .HasMaxLength(1000);
+
             // Optimistic concurrency token
             entity.Property(c => c.Version)
                 .IsConcurrencyToken();
@@ -128,10 +162,17 @@ public class CatalogDbContext : BaseDbContext
                 .HasForeignKey(c => c.ParentCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }).IsUnique();
-            entity.HasIndex(c => c.Slug)
+            // M12. Both slug indexes are filtered on IsActive, so a soft-deleted category no longer
+            // holds its slug — the category analogue of D2. Two indexes because Postgres treats NULLs
+            // as distinct: the composite one cannot see two roots (ParentCategoryId NULL) sharing a
+            // slug, so the second covers roots. Names are explicit (and equal to EF's defaults, so no
+            // rename) because CatalogProblemDetailsExtensions.AddCategorySlugConflict matches on them.
+            entity.HasIndex(c => new { c.ParentCategoryId, c.Slug }, "IX_Categories_ParentCategoryId_Slug")
                 .IsUnique()
-                .HasFilter("\"ParentCategoryId\" IS NULL");
+                .HasFilter("\"IsActive\"");
+            entity.HasIndex(c => c.Slug, "IX_Categories_Slug")
+                .IsUnique()
+                .HasFilter("\"ParentCategoryId\" IS NULL AND \"IsActive\"");
             entity.HasIndex(c => c.CreatedAt);
 
             entity.HasQueryFilter(c => c.IsActive);

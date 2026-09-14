@@ -1,7 +1,9 @@
 using EShop.BuildingBlocks.Application.Abstractions;
+using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
@@ -9,7 +11,6 @@ using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
-using EShop.Identity.Infrastructure.Consumers;
 using EShop.Identity.Infrastructure.Data;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
@@ -42,9 +43,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
-        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
+        // CachingBehavior only — it must be in Infrastructure for the IDistributedCache wiring, and
+        // its position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior and ICacheInvalidationContext moved to
+        // AddEShopCacheInvalidation() in Program.cs: registered here, after AddIdentityApplication,
+        // the behavior sat inside TransactionBehavior and drained keys before the write committed.
+        // (Note ICacheInvalidationContext was once missing here entirely — it is an optional
+        // constructor dependency, so it bound to null and every runtime-discovered invalidation key
+        // silently became a no-op. The shared registration removes that failure mode for good.)
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 
         // Add DbContext
         if (useInMemoryDatabase)
@@ -161,14 +168,11 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        services.AddMessaging<IdentityDbContext>(
-            configuration,
-            isDevelopment,
-            bus =>
-            {
-                // Register consumers from this assembly
-                bus.AddConsumer<ProductCreatedConsumer>();
-            });
+        // No consumers (D6, Catalog audit Stage 7). ProductCreatedConsumer was a log-and-return stub,
+        // the copy-paste twin of Catalog's deleted UserRegisteredConsumer, and it still cost a
+        // processed_messages write per product created. The bus itself stays — Identity publishes
+        // UserRegistered and PasswordResetRequested through the outbox.
+        services.AddMessaging<IdentityDbContext>(configuration, "identity", isDevelopment);
 
         return services;
     }

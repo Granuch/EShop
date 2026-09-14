@@ -10,7 +10,6 @@ using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.Catalog.Application.Abstractions;
 using EShop.Catalog.Domain.Interfaces;
 using EShop.Catalog.Infrastructure.Caching;
-using EShop.Catalog.Infrastructure.Consumers;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.Infrastructure.QueryServices;
 using EShop.Catalog.Infrastructure.Repositories;
@@ -38,10 +37,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
-        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
+        // CachingBehavior only — it must be in Infrastructure for the IDistributedCache wiring, and
+        // its position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior deliberately does NOT belong here: registering it after
+        // AddCatalogApplication puts it inside TransactionBehavior, so it would evict and bump
+        // family versions before the write commits. It is registered by AddEShopCacheInvalidation()
+        // in Program.cs instead — see that method for why.
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
 
         // Add DbContext
         if (useInMemoryDatabase)
@@ -63,8 +65,11 @@ public static class ServiceCollectionExtensions
         // Add query services (keeps EF Core query composition in Infrastructure)
         services.AddScoped<IProductQueryService, ProductQueryService>();
 
-        // Add cache invalidation abstraction
-        services.AddScoped<ICacheInvalidator, CacheInvalidator>();
+        // DEBT-16. Backs IVersionedCacheKey, which is how the products:list family is invalidated:
+        // its keys embed every filter/sort/page parameter, so they cannot be enumerated and cannot
+        // be deleted by exact key. Without this registration CachingBehavior silently falls back to
+        // unversioned keys and list results go stale for their full TTL again.
+        services.AddScoped<ICacheKeyVersionProvider, DistributedCacheKeyVersionProvider>();
 
         // Register IUnitOfWork (implemented by CatalogDbContext via BaseDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<CatalogDbContext>());
@@ -112,14 +117,10 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        services.AddMessaging<CatalogDbContext>(
-            configuration,
-            isDevelopment,
-            bus =>
-            {
-                // Register consumers from this assembly
-                bus.AddConsumer<UserRegisteredConsumer>();
-            });
+        // No consumers (D6, Catalog audit Stage 7). UserRegisteredConsumer was a log-and-return stub:
+        // Catalog holds no user-scoped data, yet IdempotentConsumer still wrote a processed_messages
+        // row for every registration. The bus itself stays — Catalog publishes through the outbox.
+        services.AddMessaging<CatalogDbContext>(configuration, "catalog", isDevelopment);
 
         return services;
     }

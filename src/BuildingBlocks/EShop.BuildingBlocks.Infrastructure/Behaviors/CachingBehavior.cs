@@ -17,7 +17,10 @@ namespace EShop.BuildingBlocks.Infrastructure.Behaviors;
 /// - Only caches requests that implement ICacheableQuery
 /// - Uses distributed cache (Redis in production, in-memory for testing)
 /// - Configurable expiration (absolute and sliding)
-/// - Cache stampede prevention via locking
+/// - <b>No</b> stampede protection: concurrent misses on one key each run the handler and each
+///   write the entry. <c>DistributedCacheExtensions.GetOrSetAsync</c> has a lock for that; this
+///   behavior reads and writes through <c>GetAsync</c>/<c>SetAsync</c> and does not use it. (This
+///   line used to advertise "stampede prevention via locking", which nothing here implemented.)
 /// - Versioned cache keys for easy invalidation
 /// - Safe serialization with proper error handling
 /// - Smart Result<T> unwrapping: caches only payload, not the wrapper
@@ -41,15 +44,21 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     private readonly IDistributedCache _cache;
     private readonly ILogger<CachingBehavior<TRequest, TResponse>> _logger;
     private readonly CachingBehaviorOptions _options;
+    private readonly ICacheKeyVersionProvider? _versionProvider;
 
     public CachingBehavior(
         IDistributedCache cache,
         ILogger<CachingBehavior<TRequest, TResponse>> logger,
-        IOptions<CachingBehaviorOptions>? options = null)
+        IOptions<CachingBehaviorOptions>? options = null,
+        ICacheKeyVersionProvider? versionProvider = null)
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? new CachingBehaviorOptions();
+
+        // Optional so a service that caches nothing versioned needs no extra registration; a
+        // query marked IVersionedCacheKey in a host without one simply keys as it did before.
+        _versionProvider = versionProvider;
     }
 
     public async Task<TResponse> Handle(
@@ -63,7 +72,7 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
             return await next();
         }
 
-        var cacheKey = BuildCacheKey(cacheableQuery);
+        var cacheKey = await BuildCacheKeyAsync(cacheableQuery, cancellationToken);
         var requestName = typeof(TRequest).Name;
 
         // Check if TResponse is Result<T>
@@ -182,16 +191,24 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
         return response;
     }
 
-    private string BuildCacheKey(ICacheableQuery query)
+    /// <summary>
+    /// Composes the stored key. The optional family segment (DEBT-16) is what makes a query family
+    /// whose keys cannot be enumerated still invalidatable — see <see cref="IVersionedCacheKey"/>.
+    /// A query that does not implement it, or a host with no
+    /// <see cref="ICacheKeyVersionProvider"/> registered, keys exactly as before.
+    /// </summary>
+    private async Task<string> BuildCacheKeyAsync(ICacheableQuery query, CancellationToken cancellationToken)
     {
         var baseKey = query.CacheKey;
 
-        if (_options.UseVersioning)
+        if (query is IVersionedCacheKey versioned && _versionProvider is not null)
         {
-            return $"{_options.KeyPrefix}{_options.Version}:{baseKey}";
+            var familyVersion = await _versionProvider.GetVersionAsync(
+                versioned.CacheKeyFamily, cancellationToken);
+            baseKey = $"{versioned.CacheKeyFamily}@{familyVersion}:{baseKey}";
         }
 
-        return $"{_options.KeyPrefix}{baseKey}";
+        return _options.StorageKeyFor(baseKey);
     }
 
     /// <summary>
@@ -284,9 +301,32 @@ public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
 /// <summary>
 /// MediatR pipeline behavior that invalidates cache entries when commands execute.
 /// Works in conjunction with CachingBehavior.
-/// 
-/// Usage: Implement ICacheInvalidatingCommand on your command and specify
-/// which cache keys should be invalidated.
+///
+/// <para>
+/// Usage: implement <see cref="ICacheInvalidatingCommand"/> on your command and declare the exact
+/// keys and/or the versioned key families it must evict, or add them to
+/// <see cref="ICacheInvalidationContext"/> from the handler when they are only known after loading
+/// domain data.
+/// </para>
+///
+/// <para>
+/// <b>This behavior must be registered OUTSIDE <c>TransactionBehavior</c>, and that is the whole
+/// point of <c>AddEShopCacheInvalidation()</c>.</b> It invalidates after <c>await next()</c>
+/// returns, so when it sits inside the transaction it evicts — and bumps family versions — while
+/// the write is still uncommitted and invisible to everyone else. A concurrent read landing in
+/// that window repopulates the cache with pre-commit data, under the *new* family version, where
+/// it survives the full TTL. That is strictly worse than not invalidating at all, because the
+/// bump that was supposed to fix staleness is what makes the stale entry addressable. Registering
+/// this behavior before <c>Add&lt;Service&gt;Application()</c> puts it outside, so it runs after
+/// the commit.
+/// </para>
+///
+/// <para>
+/// Two consequences of being outside, both intended: a handler that <i>throws</i> skips
+/// invalidation entirely (correct — nothing committed), while a handler returning a
+/// <c>Result</c> failure still commits, per <c>TransactionBehavior</c>'s documented behaviour, and
+/// therefore still invalidates (also correct).
+/// </para>
 /// </summary>
 public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
@@ -295,17 +335,22 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
     private readonly ILogger<CacheInvalidationBehavior<TRequest, TResponse>> _logger;
     private readonly CachingBehaviorOptions _options;
     private readonly ICacheInvalidationContext? _cacheInvalidationContext;
+    private readonly ICacheKeyVersionProvider? _versionProvider;
 
     public CacheInvalidationBehavior(
         IDistributedCache cache,
         ILogger<CacheInvalidationBehavior<TRequest, TResponse>> logger,
         IOptions<CachingBehaviorOptions>? options = null,
-        ICacheInvalidationContext? cacheInvalidationContext = null)
+        ICacheInvalidationContext? cacheInvalidationContext = null,
+        ICacheKeyVersionProvider? versionProvider = null)
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? new CachingBehaviorOptions();
         _cacheInvalidationContext = cacheInvalidationContext;
+        // Optional: only services using IVersionedCacheKey register a provider. Declaring a family
+        // without one is a no-op plus a warning, matching how a wildcard key behaves.
+        _versionProvider = versionProvider;
     }
 
     public async Task<TResponse> Handle(
@@ -330,11 +375,20 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
             keysToInvalidate.UnionWith(invalidatingCommand.CacheKeysToInvalidate);
         }
 
+        var familiesToInvalidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (invalidatingCommand.CacheFamiliesToInvalidate is not null)
+        {
+            familiesToInvalidate.UnionWith(invalidatingCommand.CacheFamiliesToInvalidate);
+        }
+
         if (_cacheInvalidationContext is not null)
         {
             keysToInvalidate.UnionWith(_cacheInvalidationContext.GetKeys());
+            familiesToInvalidate.UnionWith(_cacheInvalidationContext.GetFamilies());
             _cacheInvalidationContext.Clear();
         }
+
+        await InvalidateFamiliesAsync(familiesToInvalidate, requestName, cancellationToken);
 
         if (keysToInvalidate.Count == 0)
         {
@@ -345,7 +399,8 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         {
             try
             {
-                var fullKey = $"{_options.KeyPrefix}{_options.Version}:{keyPattern}";
+                // L33. Same builder CachingBehavior writes with, so the two cannot disagree.
+                var fullKey = _options.StorageKeyFor(keyPattern);
                 
                 // For exact keys, remove directly
                 if (!keyPattern.Contains('*'))
@@ -376,5 +431,49 @@ public class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBehavior<
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// Bumps each declared family's version, making every key currently in it unreachable in one
+    /// operation. Nothing is deleted — entries lapse on their own TTL — so a bump is not observable
+    /// as absent keys; check the version entry instead.
+    /// </summary>
+    private async Task InvalidateFamiliesAsync(
+        HashSet<string> families,
+        string requestName,
+        CancellationToken cancellationToken)
+    {
+        if (families.Count == 0)
+        {
+            return;
+        }
+
+        if (_versionProvider is null)
+        {
+            _logger.LogWarning(
+                "Cache families {Families} requested by {RequestName} but no ICacheKeyVersionProvider "
+                + "is registered — nothing was invalidated. Register one in the service's "
+                + "Infrastructure extension.",
+                string.Join(", ", families), requestName);
+            return;
+        }
+
+        foreach (var family in families)
+        {
+            try
+            {
+                await _versionProvider.BumpVersionAsync(family, cancellationToken);
+                _logger.LogDebug(
+                    "Invalidated cache family {Family} after {RequestName}", family, requestName);
+            }
+            catch (Exception ex)
+            {
+                // Same posture as an exact key below: a cache failure must not fail a write that
+                // has already committed. The cost is a stale family for up to its TTL.
+                _logger.LogWarning(ex,
+                    "Failed to invalidate cache family {Family} after {RequestName}",
+                    family, requestName);
+            }
+        }
     }
 }

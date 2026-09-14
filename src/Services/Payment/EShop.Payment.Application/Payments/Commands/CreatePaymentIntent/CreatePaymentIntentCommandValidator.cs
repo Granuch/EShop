@@ -9,14 +9,16 @@ public sealed class CreatePaymentIntentCommandValidator : AbstractValidator<Crea
         RuleFor(x => x.OrderId)
             .NotEmpty().WithMessage("OrderId is required.");
 
-        RuleFor(x => x.UserId)
-            .NotEmpty().WithMessage("UserId is required.");
+        RuleFor(x => x.RequesterId)
+            .NotEmpty().WithMessage("The requesting user is required.")
+            .When(x => !x.RequesterIsAdmin);
 
-        RuleFor(x => x.Amount)
-            .GreaterThan(0).WithMessage("Amount must be greater than 0.");
-
-        RuleFor(x => x.Currency)
-            .Must(static currency => string.IsNullOrWhiteSpace(currency) || currency.Length == 3)
-            .WithMessage("Currency must be a 3-letter ISO code.");
+        // Payment audit Stage 10 (M6). The e-mail goes to Stripe, which refuses a malformed or overlong one with a 400.
+        // That became our 500. 254 characters is the longest address SMTP allows. Omitted or blank means none, which the
+        // trailing When keeps valid: it guards the whole chain.
+        RuleFor(x => x.Email)
+            .MaximumLength(254).WithMessage("Email must not exceed 254 characters.")
+            .EmailAddress().WithMessage("Email is not a valid e-mail address.")
+            .When(x => !string.IsNullOrWhiteSpace(x.Email));
     }
 }

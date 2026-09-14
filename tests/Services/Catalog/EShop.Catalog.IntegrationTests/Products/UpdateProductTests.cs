@@ -66,7 +66,7 @@ public class UpdateProductTests : AuthenticatedIntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Product.NotFound");
+        problem!.ErrorCode.Should().Be("Product.NotFound");
     }
 
     [Test]
@@ -90,7 +90,7 @@ public class UpdateProductTests : AuthenticatedIntegrationTestBase
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
-        problem!.Title.Should().Contain("IdMismatch");
+        problem!.ErrorCode.Should().Be("Validation.IdMismatch");
     }
 
     [Test]

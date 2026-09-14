@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EShop.BuildingBlocks.Infrastructure.Http;
 
 namespace EShop.ApiGateway.Simulation;
 
@@ -63,31 +64,39 @@ public sealed class SimulationResponseFactory : ISimulationResponseFactory
         return modes[Random.Shared.Next(0, modes.Count)];
     }
 
+    /// <summary>
+    /// Emits the same RFC 7807 envelope as a real gateway failure.
+    ///
+    /// <para>
+    /// This used to write its own <c>{ status, code, mode }</c> shape, which defeated the purpose:
+    /// a client exercising its error handling against the simulator was handling a body it would
+    /// never actually receive. The <c>errorCode</c> is what still distinguishes a synthetic failure
+    /// from a real one, and <c>mode</c> is carried in the detail so the injected variant stays
+    /// visible in logs.
+    /// </para>
+    /// </summary>
     private static async Task WriteFailureAsync(HttpContext context, string mode, CancellationToken cancellationToken)
     {
-        context.Response.ContentType = "application/json";
+        int status;
 
         if (mode.Equals("timeout", StringComparison.OrdinalIgnoreCase))
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-            context.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
+            status = StatusCodes.Status504GatewayTimeout;
         }
         else if (mode.Equals("503", StringComparison.OrdinalIgnoreCase))
         {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            status = StatusCodes.Status503ServiceUnavailable;
         }
         else
         {
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            status = StatusCodes.Status500InternalServerError;
         }
 
-        var payload = new
-        {
-            status = "simulated-error",
-            code = context.Response.StatusCode,
-            mode
-        };
-
-        await JsonSerializer.SerializeAsync(context.Response.Body, payload, JsonOptions, cancellationToken);
+        await EShopProblem.WriteAsync(context, EShopProblem.Create(
+            context,
+            status,
+            detail: $"Simulated gateway failure (mode: {mode}).",
+            errorCode: ProblemErrorCodes.SimulatedFailure));
     }
 }

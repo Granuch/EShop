@@ -1,5 +1,8 @@
+using System.Linq.Expressions;
 using EShop.Catalog.Application.Abstractions;
+using EShop.Catalog.Application.Products.Queries.GetNewestProducts;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
+using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,7 +10,7 @@ namespace EShop.Catalog.Infrastructure.QueryServices;
 
 /// <summary>
 /// Infrastructure implementation of IProductQueryService.
-/// Contains all provider-specific query composition (EF.Functions.ILike, etc.).
+/// Contains all provider-specific query composition (EF.Functions.ILike, row-value comparison, etc.).
 /// </summary>
 public class ProductQueryService : IProductQueryService
 {
@@ -19,27 +22,98 @@ public class ProductQueryService : IProductQueryService
     }
 
     public async Task<(List<ProductDto> Items, int TotalCount)> GetFilteredProductsAsync(
-        Guid? categoryId,
-        string? searchTerm,
-        decimal? minPrice,
-        decimal? maxPrice,
+        ProductListFilter filter,
         ProductSortBy sortBy,
         bool isDescending,
         int pageNumber,
         int pageSize,
-        DateTime? cursor = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _context.Products.AsNoTracking();
+        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
 
-        // Filtering
-        if (categoryId.HasValue)
-            query = query.Where(p => p.CategoryId == categoryId.Value);
+        var totalCount = await query.CountAsync(cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(searchTerm))
+        // Id is the tiebreaker on every sort. Name, Price and CreatedAt all repeat, and without a
+        // unique final key Postgres may order tied rows differently on each execution — so OFFSET
+        // paging could repeat one row on two pages and never show another.
+        //
+        // The Price sort orders by the EFFECTIVE price (DiscountPrice ?? Price) — see ApplyFilter.
+        query = sortBy switch
+        {
+            ProductSortBy.Price => isDescending
+                ? query.OrderByDescending(p => p.DiscountPrice ?? p.Price).ThenBy(p => p.Id)
+                : query.OrderBy(p => p.DiscountPrice ?? p.Price).ThenBy(p => p.Id),
+            ProductSortBy.CreatedAt => isDescending
+                ? query.OrderByDescending(p => p.CreatedAt).ThenBy(p => p.Id)
+                : query.OrderBy(p => p.CreatedAt).ThenBy(p => p.Id),
+            _ => isDescending
+                ? query.OrderByDescending(p => p.Name).ThenBy(p => p.Id)
+                : query.OrderBy(p => p.Name).ThenBy(p => p.Id),
+        };
+
+        var dtos = await query
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ToDto)
+            .ToListAsync(cancellationToken);
+
+        return (dtos, totalCount);
+    }
+
+    public async Task<List<ProductDto>> GetNewestProductsAsync(
+        ProductListFilter filter,
+        ProductCursor? after,
+        int take,
+        CancellationToken cancellationToken = default)
+    {
+        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+
+        if (after is { } cursor)
+        {
+            // H4. A row-value comparison, `("CreatedAt", "Id") < (@createdAt, @id)`, rather than the
+            // equivalent `CreatedAt < c OR (CreatedAt = c AND Id < id)`: Postgres serves the tuple
+            // form as a single range scan on IX_Products_CreatedAt_Id, which is what makes a deep
+            // page cost the same as the first. The old predicate was `CreatedAt < c` alone, which
+            // skipped every product sharing the boundary timestamp.
+            //
+            // Both sides of the comparison — and the ORDER BY below — run in SQL, so Postgres's own
+            // uuid ordering is used throughout. It differs from System.Guid's CompareTo, which is
+            // why no part of this may move to the client.
+            var createdAt = cursor.CreatedAt;
+            var id = cursor.Id;
+            query = query.Where(p => EF.Functions.LessThan(
+                ValueTuple.Create(p.CreatedAt, p.Id),
+                ValueTuple.Create(createdAt, id)));
+        }
+
+        return await query
+            .OrderByDescending(p => p.CreatedAt)
+            .ThenByDescending(p => p.Id)
+            .Take(take)
+            .Select(ToDto)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The filters every list read applies. Status first, and before any count: TotalCount must
+    /// describe what the caller can actually reach, or it reports pages that come back empty.
+    /// </summary>
+    private static IQueryable<Product> ApplyFilter(IQueryable<Product> query, ProductListFilter filter)
+    {
+        // D1 / H5a. Public callers see published products only.
+        if (!filter.IncludeUnpublished)
+            query = query.Where(p => p.Status == ProductStatus.Active);
+
+        if (filter.CategoryId.HasValue)
+        {
+            var categoryId = filter.CategoryId.Value;
+            query = query.Where(p => p.CategoryId == categoryId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
         {
             // Escape LIKE special characters to prevent wildcard injection
-            var escaped = searchTerm.Trim()
+            var escaped = filter.SearchTerm.Trim()
                 .Replace("\\", "\\\\")
                 .Replace("%", "\\%")
                 .Replace("_", "\\_");
@@ -49,108 +123,54 @@ public class ProductQueryService : IProductQueryService
                 EF.Functions.ILike(p.Sku, term, "\\"));
         }
 
-        if (minPrice.HasValue)
-            query = query.Where(p => p.Price >= minPrice.Value);
-
-        if (maxPrice.HasValue)
-            query = query.Where(p => p.Price <= maxPrice.Value);
-
-        // Cursor-based pagination: when cursor is provided and sorting by CreatedAt DESC,
-        // use keyset pagination for constant-time performance regardless of page depth.
-        var useCursorPagination = cursor.HasValue && sortBy == ProductSortBy.CreatedAt && isDescending;
-
-        // Count against the pre-cursor filter so TotalPages/HasNextPage are accurate
-        // even when keyset pagination is in use.
-        var totalCount = await query.CountAsync(cancellationToken);
-
-        if (useCursorPagination)
+        // Price filters (and the Price sort above) use the EFFECTIVE price, DiscountPrice ?? Price —
+        // decided in Catalog audit Stage 10. Since D3 / Stage 5 that is the price the customer pays:
+        // Basket charges it, and ProductPriceChangedIntegrationEvent carries it. Filtering on the
+        // list price hid a product discounted from 100 to 79.99 from a MaxPrice=80 shopper, and
+        // showed it to a MinPrice=90 one who could not buy it at that price. Written inline rather
+        // than through Product.EffectivePrice because that property is unmapped (get-only, no
+        // backing field), so EF cannot translate it; the inline coalesce becomes SQL COALESCE.
+        if (filter.MinPrice.HasValue)
         {
-            query = query.Where(p => p.CreatedAt < cursor!.Value);
+            var minPrice = filter.MinPrice.Value;
+            query = query.Where(p => (p.DiscountPrice ?? p.Price) >= minPrice);
         }
 
-        // Sorting
-        query = sortBy switch
+        if (filter.MaxPrice.HasValue)
         {
-            ProductSortBy.Price => isDescending ? query.OrderByDescending(p => p.Price) : query.OrderBy(p => p.Price),
-            ProductSortBy.CreatedAt => isDescending ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt),
-            _ => isDescending ? query.OrderByDescending(p => p.Name) : query.OrderBy(p => p.Name),
-        };
-
-        // Select projection — only fetch columns needed for DTO (avoids over-fetching).
-        // MainImageUrl is a correlated subquery, not a join: EF translates it to a scalar
-        // subselect per row, bounded by page size (page size is capped at 100 by
-        // GetProductsQueryValidator). It relies on the composite
-        // IX_ProductImages_ProductId (ProductId, IsMain, DisplayOrder) INCLUDE (Url) index
-        // for an index-only scan — see catalog-images-variant-a-plan.md §2.
-        var dtosQuery = query
-            .Select(p => new ProductDto
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Description = p.Description,
-                Sku = p.Sku,
-                Price = p.Price,
-                DiscountPrice = p.DiscountPrice,
-                StockQuantity = p.StockQuantity,
-                Status = p.Status,
-                CategoryId = p.CategoryId,
-                MainImageUrl = p.Images
-                    .OrderByDescending(i => i.IsMain)
-                    .ThenBy(i => i.DisplayOrder)
-                    .ThenBy(i => i.CreatedAt)
-                    .Select(i => i.Url)
-                    .FirstOrDefault(),
-                CreatedAt = p.CreatedAt
-            });
-
-        // Use cursor-based Take when cursor is provided, otherwise OFFSET pagination
-        List<ProductDto> dtos;
-        if (useCursorPagination)
-        {
-            dtos = await dtosQuery
-                .Take(pageSize)
-                .ToListAsync(cancellationToken);
-        }
-        else
-        {
-            dtos = await dtosQuery
-                .Skip((pageNumber - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync(cancellationToken);
+            var maxPrice = filter.MaxPrice.Value;
+            query = query.Where(p => (p.DiscountPrice ?? p.Price) <= maxPrice);
         }
 
-        return (dtos, totalCount);
+        return query;
     }
 
-    public async Task<List<ProductDto>> GetProductsByCategoryAsync(
-        Guid categoryId,
-        int maxResults = 200,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// The one list projection. There used to be two copies of it (list and by-category), and a
+    /// field added to ProductDto had to be added to both.
+    ///
+    /// MainImageUrl is a correlated subquery, not a join: EF translates it to a scalar subselect per
+    /// row, bounded by page size (capped at 100 by every list validator). It relies on the composite
+    /// IX_ProductImages_ProductId (ProductId, IsMain, DisplayOrder) INCLUDE (Url) index for an
+    /// index-only scan — see catalog-images-variant-a-plan.md §2.
+    /// </summary>
+    private static readonly Expression<Func<Product, ProductDto>> ToDto = p => new ProductDto
     {
-        return await _context.Products
-            .AsNoTracking()
-            .Where(p => p.CategoryId == categoryId)
-            .OrderBy(p => p.Name)
-            .Take(maxResults)
-            .Select(p => new ProductDto
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Description = p.Description,
-                Sku = p.Sku,
-                Price = p.Price,
-                DiscountPrice = p.DiscountPrice,
-                StockQuantity = p.StockQuantity,
-                Status = p.Status,
-                CategoryId = p.CategoryId,
-                MainImageUrl = p.Images
-                    .OrderByDescending(i => i.IsMain)
-                    .ThenBy(i => i.DisplayOrder)
-                    .ThenBy(i => i.CreatedAt)
-                    .Select(i => i.Url)
-                    .FirstOrDefault(),
-                CreatedAt = p.CreatedAt
-            })
-            .ToListAsync(cancellationToken);
-    }
+        Id = p.Id,
+        Name = p.Name,
+        Description = p.Description,
+        Sku = p.Sku,
+        Price = p.Price,
+        DiscountPrice = p.DiscountPrice,
+        StockQuantity = p.StockQuantity,
+        Status = p.Status,
+        CategoryId = p.CategoryId,
+        MainImageUrl = p.Images
+            .OrderByDescending(i => i.IsMain)
+            .ThenBy(i => i.DisplayOrder)
+            .ThenBy(i => i.CreatedAt)
+            .Select(i => i.Url)
+            .FirstOrDefault(),
+        CreatedAt = p.CreatedAt
+    };
 }

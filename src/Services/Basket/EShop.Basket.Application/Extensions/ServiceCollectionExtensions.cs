@@ -1,6 +1,5 @@
 using EShop.Basket.Application.Commands.AddItemToBasket;
 using EShop.BuildingBlocks.Application.Behaviors;
-using EShop.BuildingBlocks.Application.Caching;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,14 +15,8 @@ public static class ServiceCollectionExtensions
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(assembly));
         services.AddValidatorsFromAssembly(assembly);
 
-        services.Configure<CachingBehaviorOptions>(options =>
-        {
-            options.KeyPrefix = "basket:";
-            options.Version = "v1";
-            options.UseVersioning = true;
-            options.DefaultDuration = TimeSpan.FromMinutes(2);
-        });
-
+        // The whole pipeline: Validation -> Logging -> handler. No Transaction (there is no database) and no caching
+        // behaviors — the cache was a second Redis copy of a Redis document (Basket audit S5, D5).
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
 

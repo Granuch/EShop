@@ -1,46 +1,47 @@
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.Ordering.Infrastructure.Caching;
 using EShop.Ordering.Infrastructure.Data;
 using MassTransit;
-using Microsoft.Extensions.Caching.Distributed;
-using EShop.BuildingBlocks.Application.Caching;
 using Microsoft.Extensions.Logging;
-using StackExchange.Redis;
+using Microsoft.Extensions.Options;
 
 namespace EShop.Ordering.Infrastructure.Consumers;
 
 /// <summary>
 /// Idempotent consumer for PaymentSuccessEvent.
-/// Marks the order as paid and immediately ships it.
+/// Marks the order as paid, and also ships it only when
+/// <see cref="PaymentSuccessProcessingOptions.AutoShipOnPaymentSuccess"/> is on (off by default).
 /// </summary>
 public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, OrderingDbContext>
 {
-    private readonly IDistributedCache _cache;
-    private readonly CachingBehaviorOptions _cachingOptions;
+    /// <summary>The currency every order is priced in. Ordering has no per-order currency.</summary>
+    internal const string OrderCurrency = Order.PricingCurrency;
+
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IConnectionMultiplexer? _redis;
+    private readonly OrderCacheInvalidator _cacheInvalidator;
     private readonly PaymentSuccessProcessingOptions _processingOptions;
+
+    /// <summary>Set once the order has been changed; read after commit to invalidate its caches.</summary>
+    private (Guid OrderId, string UserId)? _changed;
 
     public PaymentSuccessConsumer(
         OrderingDbContext dbContext,
-        IDistributedCache cache,
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
-        Microsoft.Extensions.Options.IOptions<CachingBehaviorOptions> cachingOptions,
-        Microsoft.Extensions.Options.IOptions<PaymentSuccessProcessingOptions>? processingOptions,
-        ILogger<PaymentSuccessConsumer> logger,
-        IConnectionMultiplexer? redis = null)
+        OrderCacheInvalidator cacheInvalidator,
+        IOptions<PaymentSuccessProcessingOptions>? processingOptions,
+        ILogger<PaymentSuccessConsumer> logger)
         : base(dbContext, logger)
     {
-        _cache = cache;
-        _cachingOptions = cachingOptions.Value;
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
-        _redis = redis;
+        _cacheInvalidator = cacheInvalidator;
         _processingOptions = processingOptions?.Value ?? new PaymentSuccessProcessingOptions();
     }
 
@@ -68,6 +69,20 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
             return;
         }
 
+        if (order.Status == OrderStatus.Cancelled)
+        {
+            // The customer was charged for an order that was cancelled while the payment was in flight.
+            // Nothing refunds that automatically — there is no refund flow — so it needs a person, and a
+            // retry would change nothing. Logged at Error so it is not lost among routine skips.
+            Logger.LogError(
+                "PaymentSuccessEvent for cancelled OrderId={OrderId}: PaymentIntentId={PaymentIntentId}, "
+                + "Amount={Amount} was captured but the order is cancelled. Manual refund required.",
+                message.OrderId,
+                message.PaymentIntentId,
+                message.Amount);
+            return;
+        }
+
         if (order.Status != OrderStatus.Pending)
         {
             Logger.LogWarning(
@@ -77,7 +92,20 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
             return;
         }
 
-        order.MarkAsPaid(message.PaymentIntentId);
+        // Payment audit Stage 8 (M5, the rest of C2). Orders are priced in USD, and MarkAsPaid compares only the number,
+        // so a charge of 100 JPY would pass for a $100.00 order. Payment charges USD only (its D4); this makes Ordering
+        // check that rather than trust it. A message published before the event carried a currency reads as USD.
+        // Refused the same way as a wrong amount, and for the same reason (below).
+        if (!string.Equals(message.Currency, OrderCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainException(
+                $"Payment for order {message.OrderId} was made in {message.Currency}; orders are priced in {OrderCurrency}.");
+        }
+
+        // Throws DomainException when message.Amount differs from the order total. That is deliberate:
+        // the message retries and then lands in the error queue with its payload intact for
+        // reconciliation, rather than being acknowledged and forgotten.
+        order.MarkAsPaid(message.PaymentIntentId, message.Amount);
 
         if (_processingOptions.AutoShipOnPaymentSuccess)
         {
@@ -87,7 +115,7 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
         await _orderRepository.UpdateAsync(order, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await InvalidateUserOrdersCacheAsync(order.UserId, cancellationToken);
+        _changed = (order.Id, order.UserId);
 
         Logger.LogInformation(
             _processingOptions.AutoShipOnPaymentSuccess
@@ -96,69 +124,25 @@ public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, Or
             message.OrderId);
     }
 
-public sealed class PaymentSuccessProcessingOptions
-{
-    public const string SectionName = "PaymentSuccessProcessing";
+    /// <summary>
+    /// After commit, so a concurrent read cannot re-cache the pre-payment state. This replaces a Redis
+    /// SCAN over the whole keyspace on every payment (audit M8), which also left GET /orders/{id}
+    /// showing "Pending" for up to five minutes, because it never evicted that key.
+    /// </summary>
+    protected override Task OnCommittedAsync(ConsumeContext<PaymentSuccessEvent> context, CancellationToken cancellationToken)
+        => _changed is { } changed
+            ? _cacheInvalidator.InvalidateAsync(changed.OrderId, changed.UserId, cancellationToken)
+            : Task.CompletedTask;
 
-    public bool AutoShipOnPaymentSuccess { get; init; } = true;
-}
-
-    private async Task InvalidateUserOrdersCacheAsync(string userId, CancellationToken cancellationToken)
+    public sealed class PaymentSuccessProcessingOptions
     {
-        if (_redis != null)
-        {
-            try
-            {
-                var database = _redis.GetDatabase();
-                var dbNumber = database.Database;
-                var keyPattern = $"*orders:user:{userId}:*";
-                var deletedCount = 0L;
+        public const string SectionName = "PaymentSuccessProcessing";
 
-                foreach (var endpoint in _redis.GetEndPoints(configuredOnly: true))
-                {
-                    var server = _redis.GetServer(endpoint);
-                    if (!server.IsConnected || server.IsReplica)
-                    {
-                        continue;
-                    }
-
-                    foreach (var key in server.Keys(dbNumber, keyPattern, pageSize: 250))
-                    {
-                        if (await database.KeyDeleteAsync(key))
-                        {
-                            deletedCount++;
-                        }
-                    }
-                }
-
-                if (deletedCount > 0)
-                {
-                    Logger.LogDebug("Invalidated {Count} user order cache entries for UserId={UserId}", deletedCount, userId);
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex,
-                    "Prefix cache invalidation failed for UserId={UserId}. Falling back to known keys.",
-                    userId);
-            }
-        }
-
-        var baseUserOrdersKey = $"orders:user:{userId}:";
-        int[] knownPageSizes = [5, 10, 20, 25, 50];
-        foreach (var ps in knownPageSizes)
-        {
-            await InvalidateCacheAsync($"{baseUserOrdersKey}p=1:ps={ps}:cur=", cancellationToken);
-        }
-    }
-
-    private Task InvalidateCacheAsync(string keyPattern, CancellationToken cancellationToken)
-    {
-        var fullKey = _cachingOptions.UseVersioning
-            ? $"{_cachingOptions.KeyPrefix}{_cachingOptions.Version}:{keyPattern}"
-            : $"{_cachingOptions.KeyPrefix}{keyPattern}";
-
-        return _cache.RemoveAsync(fullKey, cancellationToken);
+        /// <summary>
+        /// Off by default: a paid order stays Paid until an admin ships it. When on, payment success
+        /// ships the order in the same transaction, so the Paid state and POST /orders/{id}/ship are
+        /// effectively skipped.
+        /// </summary>
+        public bool AutoShipOnPaymentSuccess { get; init; }
     }
 }

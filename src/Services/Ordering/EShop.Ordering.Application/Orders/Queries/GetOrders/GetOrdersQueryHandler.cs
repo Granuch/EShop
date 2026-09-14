@@ -9,7 +9,7 @@ namespace EShop.Ordering.Application.Orders.Queries.GetOrders;
 /// <summary>
 /// Handler for getting orders with filtering and pagination.
 /// Delegates query composition to IOrderQueryService (Infrastructure).
-/// Caching is handled by CachingBehavior via ICacheableQuery.
+/// Not cached: this is the admin view and should always be current.
 /// </summary>
 public sealed class GetOrdersQueryHandler : IRequestHandler<GetOrdersQuery, Result<PagedResult<OrderDto>>>
 {
@@ -25,11 +25,11 @@ public sealed class GetOrdersQueryHandler : IRequestHandler<GetOrdersQuery, Resu
         var pageNumber = request.EffectivePageNumber;
         var pageSize = request.EffectivePageSize;
 
-        OrderStatus? status = null;
-        if (!string.IsNullOrEmpty(request.Status) && Enum.TryParse<OrderStatus>(request.Status, true, out var parsedStatus))
-        {
-            status = parsedStatus;
-        }
+        // GetOrdersQueryValidator has already rejected anything but a status name, so this cannot fail.
+        // It used to TryParse and fall back to "no filter", answering a typo with every order.
+        OrderStatus? status = string.IsNullOrEmpty(request.Status)
+            ? null
+            : Enum.Parse<OrderStatus>(request.Status, ignoreCase: true);
 
         var (dtos, totalCount) = await _orderQueryService.GetOrdersAsync(
             status, pageNumber, pageSize, cancellationToken);

@@ -1,5 +1,6 @@
 using EShop.Identity.Application.Auth.Commands.RefreshToken;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Domain.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -63,8 +64,9 @@ public class RefreshTokenCommandHandlerTests
     {
         // Arrange
         var command = new RefreshTokenCommand { RefreshToken = "valid-token" };
-        var user = new ApplicationUser { Id = "1", IsActive = false };
-        var token = new RefreshTokenEntity { Token = "valid-token", UserId = "1" };
+        var user = new ApplicationUser { Id = "1" };
+        user.Deactivate();
+        var token = new RefreshTokenEntity { TokenHash = RefreshTokenHasher.Hash("valid-token"), UserId = "1" };
 
         _tokenServiceMock.Setup(x => x.ValidateRefreshTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, user, token));
@@ -82,8 +84,8 @@ public class RefreshTokenCommandHandlerTests
     {
         // Arrange
         var command = new RefreshTokenCommand { RefreshToken = "valid-token", IpAddress = "127.0.0.1" };
-        var user = new ApplicationUser { Id = "1", IsActive = true, IsDeleted = false, Email = "test@test.com" };
-        var token = new RefreshTokenEntity { Token = "valid-token", UserId = "1" };
+        var user = new ApplicationUser { Id = "1", Email = "test@test.com" };
+        var token = new RefreshTokenEntity { TokenHash = RefreshTokenHasher.Hash("valid-token"), UserId = "1" };
 
         _tokenServiceMock.Setup(x => x.ValidateRefreshTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, user, token));

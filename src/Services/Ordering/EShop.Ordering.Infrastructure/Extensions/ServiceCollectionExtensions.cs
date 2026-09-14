@@ -9,16 +9,20 @@ using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.BuildingBlocks.Infrastructure.Caching;
 using EShop.Ordering.Application.Abstractions;
 using EShop.Ordering.Domain.Interfaces;
+using EShop.Ordering.Infrastructure.Caching;
+using EShop.Ordering.Infrastructure.Configuration;
 using EShop.Ordering.Infrastructure.Consumers;
 using EShop.Ordering.Infrastructure.Data;
 using EShop.Ordering.Infrastructure.QueryServices;
 using EShop.Ordering.Infrastructure.Repositories;
+using EShop.Ordering.Infrastructure.Services;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace EShop.Ordering.Infrastructure.Extensions;
 
@@ -39,10 +43,21 @@ public static class ServiceCollectionExtensions
         services.Configure<PaymentSuccessConsumer.PaymentSuccessProcessingOptions>(
             configuration.GetSection(PaymentSuccessConsumer.PaymentSuccessProcessingOptions.SectionName));
 
-        // Add caching behaviors (must be in Infrastructure due to IDistributedCache dependency)
-        services.AddScoped<ICacheInvalidationContext, CacheInvalidationContext>();
+        // CachingBehavior only — it must be in Infrastructure for the IDistributedCache wiring, and
+        // its position inside the transaction is immaterial because queries are not transactional.
+        // CacheInvalidationBehavior deliberately does NOT belong here: registering it after
+        // AddOrderingApplication puts it inside TransactionBehavior, so the keys AddOrderItem,
+        // CancelOrder, RemoveOrderItem and ShipOrder add to ICacheInvalidationContext would be
+        // drained before the write commits. It is registered by AddEShopCacheInvalidation() in
+        // Program.cs instead — see that method for why.
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CachingBehavior<,>));
-        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(CacheInvalidationBehavior<,>));
+
+        // Backs IVersionedCacheKey. Without it CachingBehavior keys the user order list unversioned
+        // and every family bump is a logged no-op — the list would stay uninvalidatable (audit H4).
+        services.AddScoped<ICacheKeyVersionProvider, DistributedCacheKeyVersionProvider>();
+
+        // Consumers only: they invalidate after IdempotentConsumer commits. See the class.
+        services.AddScoped<OrderCacheInvalidator>();
 
         // Add DbContext
         if (useInMemoryDatabase)
@@ -62,6 +77,25 @@ public static class ServiceCollectionExtensions
 
         // Add query services (keeps EF Core query composition in Infrastructure)
         services.AddScoped<IOrderQueryService, OrderQueryService>();
+
+        // Catalog is where order lines get their name and price (audit C1). ValidateOnStart so a
+        // deployment without CatalogService:BaseUrl fails to boot rather than failing every order.
+        services.AddOptions<CatalogServiceOptions>()
+            .Bind(configuration.GetSection(CatalogServiceOptions.SectionName))
+            .Validate(
+                o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out _),
+                $"{CatalogServiceOptions.SectionName}:BaseUrl must be an absolute URI.")
+            .ValidateOnStart();
+
+        services.AddHttpClient<IProductCatalogReader, CatalogProductCatalogReader>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<CatalogServiceOptions>>().Value;
+
+            // The reader requests a relative path; without a trailing slash the base's last segment
+            // would be replaced rather than extended.
+            client.BaseAddress = new Uri(options.BaseUrl.EndsWith('/') ? options.BaseUrl : options.BaseUrl + "/");
+            client.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds));
+        });
 
         // Register IUnitOfWork
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<OrderingDbContext>());
@@ -111,12 +145,14 @@ public static class ServiceCollectionExtensions
     {
         services.AddMessaging<OrderingDbContext>(
             configuration,
+            "ordering",
             isDevelopment,
             bus =>
             {
                 bus.AddConsumer<BasketCheckedOutConsumer>();
                 bus.AddConsumer<PaymentSuccessConsumer>();
                 bus.AddConsumer<PaymentFailedConsumer>();
+                bus.AddConsumer<PaymentRefundedConsumer>();
             });
 
         return services;

@@ -5,6 +5,14 @@ as input to the "Variant A" (URL-based images and key/value attributes) effort.
 
 Audit only — no source under `src/` was modified.
 
+> **DOC-02: this is a point-in-time record, not a live index. Do not cite its counts.**
+> Several figures were already stale when written and have drifted further since — §7 (`:431-432`)
+> gives test counts for the `#region Images` and `#region Attributes` blocks that were wrong at the
+> time and have grown again, and §8 labels gap #2 "Still open" while its own table row reads
+> "Mostly closed" (the 12 + 2 + 5 = 19 arithmetic is consistent; it is the label that disagrees).
+> §4.2's "3.2M unnecessary index scans" is unverified, as §9 says itself. Re-count against the
+> source before quoting any number from this document.
+
 > **This audit describes the code as of 2026-09-05, before Variant A was implemented.**
 > The Variant A work (T1–T9 of
 > [catalog-images-variant-a-plan.md](catalog-images-variant-a-plan.md)) has since shipped
