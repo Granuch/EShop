@@ -70,7 +70,8 @@ public class RedisBasketRepository : IBasketRepository
             lastModifiedAt,
             document.Items
                 .Select(item => (item.ProductId, item.ProductName, item.Price, item.Quantity))
-                .ToArray());
+                .ToArray(),
+            concurrencyToken: value.ToString());
     }
 
     public async Task<ShoppingBasket> SaveBasketAsync(ShoppingBasket basket, CancellationToken cancellationToken = default)
@@ -160,9 +161,9 @@ public class RedisBasketRepository : IBasketRepository
             .ToArray();
     }
 
-    private string GetBasketKey(string userId) => $"{_options.BasketKeyPrefix}{userId}";
+    private string GetBasketKey(string userId) => _options.BasketKey(userId);
 
-    private string GetProductUsersKey(Guid productId) => $"{_options.ProductUsersKeyPrefix}{productId}:users";
+    private string GetProductUsersKey(Guid productId) => _options.ProductUsersKey(productId);
 
     private BasketDocument? TryDeserialize(string payload, string userId)
     {

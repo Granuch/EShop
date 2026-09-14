@@ -16,6 +16,13 @@ public class ShoppingBasket : AggregateRoot<string>
 
     public DateTime LastModifiedAt { get; private set; }
 
+    /// <summary>
+    /// The stored state this basket was read from, opaque to the domain; <c>null</c> for a basket that was never
+    /// persisted. A write conditioned on it succeeds only if nothing has changed the stored basket since the read —
+    /// checkout's atomic commit is (Basket audit S3).
+    /// </summary>
+    public string? ConcurrencyToken { get; private set; }
+
     public decimal TotalPrice => _items.Sum(i => i.SubTotal);
     public int TotalItems => _items.Sum(i => i.Quantity);
 
@@ -38,14 +45,16 @@ public class ShoppingBasket : AggregateRoot<string>
         string userId,
         DateTime createdAt,
         DateTime lastModifiedAt,
-        IReadOnlyCollection<(Guid ProductId, string ProductName, decimal Price, int Quantity)> items)
+        IReadOnlyCollection<(Guid ProductId, string ProductName, decimal Price, int Quantity)> items,
+        string? concurrencyToken = null)
     {
         var basket = new ShoppingBasket
         {
             Id = userId,
             UserId = userId,
             CreatedAt = createdAt,
-            LastModifiedAt = lastModifiedAt
+            LastModifiedAt = lastModifiedAt,
+            ConcurrencyToken = concurrencyToken
         };
 
         foreach (var item in items)

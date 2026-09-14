@@ -1,5 +1,6 @@
 using EShop.Basket.Application.Abstractions;
 using EShop.Basket.Domain.Interfaces;
+using EShop.Basket.Infrastructure.Checkout;
 using EShop.Basket.Infrastructure.Configuration;
 using EShop.Basket.Infrastructure.Consumers;
 using EShop.Basket.Infrastructure.Idempotency;
@@ -62,9 +63,10 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IBasketRepository, RedisBasketRepository>();
         services.AddHttpClient<IProductCatalogReader, CatalogProductCatalogReader>();
-        services.AddScoped<IIntegrationEventOutbox, BasketRedisOutbox>();
         services.AddSingleton<IBasketMetrics, BasketMetrics>();
-        services.AddSingleton<ICheckoutIdempotencyStore, RedisCheckoutIdempotencyStore>();
+        // Checkout's lock, completed marker and atomic commit, which also writes the outbox entry. There is no
+        // IIntegrationEventOutbox here: its synchronous Enqueue was a fire-and-forget push (Basket audit H1, S3).
+        services.AddSingleton<IBasketCheckoutStore, RedisBasketCheckoutStore>();
         services.AddSingleton<RedisMessageIdempotencyStore>();
 
         // CachingBehavior only — it needs the IDistributedCache wiring configured here, and its

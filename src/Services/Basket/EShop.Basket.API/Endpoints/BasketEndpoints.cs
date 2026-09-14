@@ -6,6 +6,8 @@ using EShop.Basket.Application.Commands.RemoveBasketItem;
 using EShop.Basket.Application.Commands.UpdateBasketItemQuantity;
 using EShop.Basket.Application.Queries.GetBasket;
 using EShop.Basket.API.Infrastructure.Security;
+using EShop.Basket.Application.Common;
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Infrastructure.Http;
 
 namespace EShop.Basket.API.Endpoints;
@@ -125,12 +127,22 @@ public static class BasketEndpoints
 
             return result.Match(
                 checkoutId => Results.Ok(new { checkoutId }),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(error, CheckoutFailureStatus(error)));
         })
         .WithName("CheckoutBasket")
         .Produces<object>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict);
     }
+
+    /// <summary>
+    /// Basket audit D2. Another checkout holding the lock, and the basket changing while it was checked out, both mean
+    /// "not now — look again and retry", not a malformed request, so they are 409s.
+    /// </summary>
+    private static int CheckoutFailureStatus(Error error)
+        => error.Code == BasketErrors.CheckoutConflict.Code || error.Code == BasketErrors.CheckoutAlreadyInProgress.Code
+            ? StatusCodes.Status409Conflict
+            : StatusCodes.Status400BadRequest;
 
     private static IResult ProblemFromError(string errorCode, string errorMessage)
     {
