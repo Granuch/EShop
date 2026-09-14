@@ -1,38 +1,28 @@
-using EShop.BuildingBlocks.Infrastructure.Consumers;
 using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Notification.Application.Abstractions;
-using EShop.Notification.Domain.Entities;
 using EShop.Notification.Domain.Interfaces;
 using EShop.Notification.Domain.Models;
+using EShop.Notification.Domain.ValueObjects;
 using EShop.Notification.Infrastructure.Configuration;
-using EShop.Notification.Infrastructure.Data;
-using MassTransit;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace EShop.Notification.Infrastructure.Consumers;
 
-public sealed class PasswordResetRequestedConsumer : IdempotentConsumer<PasswordResetRequestedIntegrationEvent, NotificationDbContext>
+public sealed class PasswordResetRequestedConsumer : NotificationConsumer<PasswordResetRequestedIntegrationEvent>
 {
-    private const string TemplateName = "password-reset";
-
-    private readonly INotificationLogRepository _notificationLogRepository;
-    private readonly IUserContactResolver _userContactResolver;
     private readonly IEmailService _emailService;
     private readonly PasswordResetSettings _passwordResetSettings;
 
     public PasswordResetRequestedConsumer(
-        NotificationDbContext dbContext,
         INotificationLogRepository notificationLogRepository,
-        IUserContactResolver userContactResolver,
         IEmailService emailService,
+        IUserContactResolver userContactResolver,
         IOptions<PasswordResetSettings> passwordResetSettings,
+        TimeProvider timeProvider,
         ILogger<PasswordResetRequestedConsumer> logger)
-        : base(dbContext, logger)
+        : base(notificationLogRepository, userContactResolver, timeProvider, logger)
     {
-        _notificationLogRepository = notificationLogRepository;
-        _userContactResolver = userContactResolver;
         _emailService = emailService;
         _passwordResetSettings = passwordResetSettings.Value;
 
@@ -44,74 +34,24 @@ public sealed class PasswordResetRequestedConsumer : IdempotentConsumer<Password
         }
     }
 
-    protected override async Task HandleAsync(ConsumeContext<PasswordResetRequestedIntegrationEvent> context, CancellationToken cancellationToken)
-    {
-        var message = context.Message;
-        var correlationId = context.CorrelationId?.ToString() ?? message.CorrelationId;
+    protected override string TemplateName => "password-reset";
 
-        if (await _notificationLogRepository.FindByEventIdAsync(message.EventId, cancellationToken) is not null)
-        {
-            Logger.LogInformation("Notification already processed for EventId={EventId}", message.EventId);
-            return;
-        }
+    protected override string SubjectFor(PasswordResetRequestedIntegrationEvent message) => "Password reset request";
 
-        var recipient = await _userContactResolver.ResolveAsync(message.UserId, cancellationToken);
-        var notificationLog = NotificationLog.CreatePending(
-            message.EventId,
-            nameof(PasswordResetRequestedIntegrationEvent),
-            correlationId,
-            message.UserId,
-            recipient?.Email ?? "unresolved@local",
-            TemplateName,
-            "Password reset request");
+    protected override string? UserIdOf(PasswordResetRequestedIntegrationEvent message) => message.UserId;
 
-        try
-        {
-            await _notificationLogRepository.AddAsync(notificationLog, cancellationToken);
-        }
-        catch (DbUpdateException)
-        {
-            if (await _notificationLogRepository.FindByEventIdAsync(message.EventId, cancellationToken) is not null)
+    protected override Task SendAsync(
+        PasswordResetRequestedIntegrationEvent message,
+        RecipientAddress recipient,
+        CancellationToken cancellationToken)
+        => _emailService.SendPasswordResetAsync(
+            recipient,
+            new PasswordResetEmailModel
             {
-                Logger.LogInformation("Notification already processed (concurrent duplicate) for EventId={EventId}", message.EventId);
-                return;
-            }
-
-            throw;
-        }
-
-        if (recipient is null)
-        {
-            notificationLog.IncrementRetry();
-            notificationLog.MarkFailed("Recipient email could not be resolved.");
-            await _notificationLogRepository.UpdateAsync(notificationLog, cancellationToken);
-            throw new InvalidOperationException("Recipient email could not be resolved.");
-        }
-
-        var resetLink = BuildResetLink(message.UserId, message.ResetToken);
-
-        try
-        {
-            await _emailService.SendPasswordResetAsync(
-                recipient,
-                new PasswordResetEmailModel
-                {
-                    CustomerName = recipient.DisplayName ?? message.UserId,
-                    ResetLink = resetLink
-                },
-                cancellationToken);
-
-            notificationLog.MarkSent(providerMessageId: null);
-            await _notificationLogRepository.UpdateAsync(notificationLog, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            notificationLog.IncrementRetry();
-            notificationLog.MarkFailed(ex.Message);
-            await _notificationLogRepository.UpdateAsync(notificationLog, cancellationToken);
-            throw;
-        }
-    }
+                CustomerName = recipient.DisplayName ?? message.UserId,
+                ResetLink = BuildResetLink(message.UserId, message.ResetToken)
+            },
+            cancellationToken);
 
     private string BuildResetLink(string userId, string token)
     {

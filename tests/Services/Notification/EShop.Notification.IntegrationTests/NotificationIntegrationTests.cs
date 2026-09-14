@@ -13,15 +13,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Moq;
 
 namespace EShop.Notification.IntegrationTests;
 
 /// <summary>
-/// The failure-path and duplicate tests that used to live here ran on EF InMemory, where <c>IdempotentConsumer</c>
-/// has no transaction, and asserted a persisted <c>Failed</c> row that PostgreSQL rolls back (Notification audit H2).
-/// They were replaced by <c>Persistence/ConsumerDeliveryRecordTests</c>, which run on a real database.
+/// The failure-path and duplicate tests that used to live here ran on EF InMemory and asserted a persisted <c>Failed</c>
+/// row that PostgreSQL rolled back (Notification audit H2). They were replaced by
+/// <c>Persistence/ConsumerDeliveryRecordTests</c>, which run on a real database; so, since S2, were the two InMemory
+/// success-path tests, which the unit tests also cover.
 /// </summary>
 [TestFixture]
 public class NotificationIntegrationTests
@@ -38,7 +37,7 @@ public class NotificationIntegrationTests
         Assert.That((int)response.StatusCode, Is.EqualTo(200));
     }
 
-    /// <summary>On PostgreSQL, so the bus drives the consumer through the relational claim and transaction.</summary>
+    /// <summary>On PostgreSQL, through the bus and the container's own registrations.</summary>
     [Test]
     public async Task OrderCreatedConsumer_FromHarness_PersistsSentLog()
     {
@@ -47,6 +46,7 @@ public class NotificationIntegrationTests
         {
             var services = new ServiceCollection();
             services.AddLogging();
+            services.AddSingleton(TimeProvider.System);
             services.AddDbContext<NotificationDbContext>(o => o.UseNpgsql(connectionString));
             services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
             services.AddScoped<IUserContactResolver>(_ => new StubUserResolver(new RecipientAddress("user@test.com", "User")));
@@ -98,103 +98,6 @@ public class NotificationIntegrationTests
         }
     }
 
-    [Test]
-    public async Task OrderCreatedConsumer_SuccessPath_CallsEmailService()
-    {
-        await using var dbContext = CreateDbContext();
-        var repository = new NotificationLogRepository(dbContext);
-        var resolver = new StubUserResolver(new RecipientAddress("user@test.com", "User"));
-        var email = new StubEmailService();
-
-        var consumer = new OrderCreatedConsumer(
-            dbContext,
-            repository,
-            email,
-            resolver,
-            new LoggerFactory().CreateLogger<OrderCreatedConsumer>());
-
-        var evt = new OrderCreatedEvent
-        {
-            EventId = Guid.NewGuid(),
-            OrderId = Guid.NewGuid(),
-            UserId = "user-10",
-            TotalAmount = 44m
-        };
-
-        var context = BuildContext(evt, Guid.NewGuid());
-
-        await consumer.Consume(context.Object);
-
-        Assert.That(email.OrderConfirmationCalls, Is.EqualTo(1));
-    }
-
-    [Test]
-    public async Task PaymentRefundedConsumer_SuccessPath_CallsEmailService()
-    {
-        await using var dbContext = CreateDbContext();
-        var repository = new NotificationLogRepository(dbContext);
-        var resolver = new StubUserResolver(new RecipientAddress("user@test.com", "User"));
-        var email = new StubEmailService();
-
-        var smtpSettings = Microsoft.Extensions.Options.Options.Create(new EShop.Notification.Infrastructure.Configuration.SmtpSettings
-        {
-            FromEmail = "support@eshop.local"
-        });
-
-        var consumer = new PaymentRefundedConsumer(
-            dbContext,
-            repository,
-            email,
-            resolver,
-            smtpSettings,
-            new LoggerFactory().CreateLogger<PaymentRefundedConsumer>());
-
-        var evt = new PaymentRefundedEvent
-        {
-            EventId = Guid.NewGuid(),
-            OrderId = Guid.NewGuid(),
-            UserId = "user-20",
-            PaymentIntentId = "pi_ref_it_1",
-            Amount = 25m,
-            RefundedAt = DateTime.UtcNow
-        };
-
-        var context = BuildContext(evt, Guid.NewGuid());
-
-        await consumer.Consume(context.Object);
-
-        Assert.That(email.PaymentRefundedCalls, Is.EqualTo(1));
-    }
-
-    private static NotificationDbContext CreateDbContext()
-    {
-        var options = new DbContextOptionsBuilder<NotificationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-
-        return new NotificationDbContext(options);
-    }
-
-    private static Mock<ConsumeContext<OrderCreatedEvent>> BuildContext(OrderCreatedEvent evt, Guid messageId)
-    {
-        var context = new Mock<ConsumeContext<OrderCreatedEvent>>();
-        context.SetupGet(x => x.Message).Returns(evt);
-        context.SetupGet(x => x.MessageId).Returns(messageId);
-        context.SetupGet(x => x.CorrelationId).Returns(Guid.NewGuid());
-        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
-        return context;
-    }
-
-    private static Mock<ConsumeContext<PaymentRefundedEvent>> BuildContext(PaymentRefundedEvent evt, Guid messageId)
-    {
-        var context = new Mock<ConsumeContext<PaymentRefundedEvent>>();
-        context.SetupGet(x => x.Message).Returns(evt);
-        context.SetupGet(x => x.MessageId).Returns(messageId);
-        context.SetupGet(x => x.CorrelationId).Returns(Guid.NewGuid());
-        context.SetupGet(x => x.CancellationToken).Returns(CancellationToken.None);
-        return context;
-    }
-
     private sealed class StubUserResolver : IUserContactResolver
     {
         private readonly RecipientAddress? _recipient;
@@ -212,44 +115,25 @@ public class NotificationIntegrationTests
 
     private sealed class StubEmailService : IEmailService
     {
-        public int OrderConfirmationCalls { get; private set; }
-        public int PaymentRefundedCalls { get; private set; }
-
         public Task SendOrderConfirmationAsync(RecipientAddress recipient, OrderConfirmationEmailModel model, CancellationToken ct = default)
-        {
-            OrderConfirmationCalls++;
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
 
         public Task SendOrderShippedAsync(RecipientAddress recipient, OrderShippedEmailModel model, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
 
         public Task SendPaymentCreatedAsync(RecipientAddress recipient, PaymentCreatedEmailModel model, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
 
         public Task SendPaymentCompletedAsync(RecipientAddress recipient, PaymentCompletedEmailModel model, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
 
         public Task SendPaymentFailedAsync(RecipientAddress recipient, PaymentFailedEmailModel model, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
 
         public Task SendPaymentRefundedAsync(RecipientAddress recipient, PaymentRefundedEmailModel model, CancellationToken ct = default)
-        {
-            PaymentRefundedCalls++;
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
 
         public Task SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
+            => Task.CompletedTask;
     }
 }

@@ -49,9 +49,10 @@ public sealed class NotificationDbContext : BaseDbContext
             entity.Property(x => x.UserId)
                 .HasMaxLength(100);
 
+            // Null until the recipient is resolved: since Notification audit S2 the row is created, as the claim, before
+            // the Identity lookup. It used to hold the sentinel "unresolved@local".
             entity.Property(x => x.RecipientEmail)
-                .HasMaxLength(320)
-                .IsRequired();
+                .HasMaxLength(320);
 
             entity.Property(x => x.TemplateName)
                 .HasMaxLength(100)
@@ -84,6 +85,15 @@ public sealed class NotificationDbContext : BaseDbContext
 
             entity.Property(x => x.UpdatedAt)
                 .HasColumnType("timestamp with time zone");
+
+            entity.Property(x => x.AttemptStartedAt)
+                .HasColumnType("timestamp with time zone");
+
+            // Notification audit S2 (D5). Mapped to PostgreSQL's xmin, as Payment's is: two deliveries that read the same
+            // state cannot both start an attempt, because the second one's UPDATE matches no row. It adds no column, so
+            // no schema check notices it missing — only ConsumerDeliveryRecordTests does.
+            entity.Property(x => x.Version)
+                .IsRowVersion();
 
             entity.HasIndex(x => x.EventId).IsUnique();
             entity.HasIndex(x => new { x.Status, x.CreatedAt });

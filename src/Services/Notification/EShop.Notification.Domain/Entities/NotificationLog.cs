@@ -1,5 +1,12 @@
 namespace EShop.Notification.Domain.Entities;
 
+/// <summary>
+/// One notification for one integration event, and the durable record of its delivery (Notification audit D1).
+/// <para>Since Notification audit S2 (D5) the row, unique on <see cref="EventId"/>, is also the claim that stops one
+/// event being emailed twice. A delivery moves it Pending → Sending → Sent, or Sending → Failed, from which a retry
+/// starts a new attempt. <see cref="Version"/> (the row version) stops two deliveries that read the same state from both
+/// starting an attempt.</para>
+/// </summary>
 public sealed class NotificationLog
 {
     private NotificationLog()
@@ -11,7 +18,6 @@ public sealed class NotificationLog
         string eventType,
         string? correlationId,
         string? userId,
-        string recipientEmail,
         string templateName,
         string subject)
     {
@@ -20,7 +26,6 @@ public sealed class NotificationLog
         EventType = eventType;
         CorrelationId = correlationId;
         UserId = userId;
-        RecipientEmail = recipientEmail;
         TemplateName = templateName;
         Subject = subject;
         Status = NotificationStatus.Pending;
@@ -33,34 +38,40 @@ public sealed class NotificationLog
     public string EventType { get; private set; } = string.Empty;
     public string? CorrelationId { get; private set; }
     public string? UserId { get; private set; }
-    public string RecipientEmail { get; private set; } = string.Empty;
+
+    /// <summary>The address the email went, or was going, to. Null until the recipient is known.</summary>
+    public string? RecipientEmail { get; private set; }
+
     public string TemplateName { get; private set; } = string.Empty;
     public string Subject { get; private set; } = string.Empty;
     public NotificationStatus Status { get; private set; }
+
+    /// <summary>How many attempts have failed.</summary>
     public int RetryCount { get; private set; }
+
     public string? LastError { get; private set; }
     public string? ProviderMessageId { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? SentAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
+    /// <summary>When the latest attempt started. With <see cref="NotificationStatus.Sending"/>, it dates the claim.</summary>
+    public DateTime? AttemptStartedAt { get; private set; }
+
+    /// <summary>The row version (PostgreSQL <c>xmin</c>).</summary>
+    public uint Version { get; private set; }
+
     public static NotificationLog CreatePending(
         Guid eventId,
         string eventType,
         string? correlationId,
         string? userId,
-        string recipientEmail,
         string templateName,
         string subject)
     {
         if (string.IsNullOrWhiteSpace(eventType))
         {
             throw new ArgumentException("Event type is required.", nameof(eventType));
-        }
-
-        if (string.IsNullOrWhiteSpace(recipientEmail))
-        {
-            throw new ArgumentException("Recipient email is required.", nameof(recipientEmail));
         }
 
         if (string.IsNullOrWhiteSpace(templateName))
@@ -78,13 +89,50 @@ public sealed class NotificationLog
             eventType,
             correlationId,
             userId,
-            recipientEmail,
             templateName,
             subject);
     }
 
+    /// <summary>
+    /// Whether another delivery holds a live attempt: the row is <see cref="NotificationStatus.Sending"/> and the attempt
+    /// started less than <paramref name="lease"/> ago. An older attempt is taken to have died with its process.
+    /// </summary>
+    public bool IsAttemptInProgress(DateTime now, TimeSpan lease)
+        => Status == NotificationStatus.Sending
+           && AttemptStartedAt is { } started
+           && now - started < lease;
+
+    /// <summary>Claims the notification for one delivery attempt. A sent notification is never attempted again.</summary>
+    public void BeginAttempt(DateTime now)
+    {
+        if (Status == NotificationStatus.Sent)
+        {
+            throw new InvalidOperationException($"The notification for event {EventId} was already sent.");
+        }
+
+        Status = NotificationStatus.Sending;
+        AttemptStartedAt = now;
+        UpdatedAt = now;
+    }
+
+    public void RecordRecipient(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            throw new ArgumentException("Recipient email is required.", nameof(email));
+        }
+
+        RecipientEmail = email;
+    }
+
     public void MarkSent(string? providerMessageId)
     {
+        if (Status != NotificationStatus.Sending)
+        {
+            throw new InvalidOperationException(
+                $"The notification for event {EventId} is {Status}; only an attempt in progress can be marked sent.");
+        }
+
         Status = NotificationStatus.Sent;
         ProviderMessageId = providerMessageId;
         LastError = null;
@@ -92,6 +140,7 @@ public sealed class NotificationLog
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>Ends the current attempt as failed, and counts it.</summary>
     public void MarkFailed(string error)
     {
         if (string.IsNullOrWhiteSpace(error))
@@ -99,14 +148,14 @@ public sealed class NotificationLog
             throw new ArgumentException("Failure reason is required.", nameof(error));
         }
 
-        Status = NotificationStatus.Failed;
-        LastError = SanitizeError(error);
-        UpdatedAt = DateTime.UtcNow;
-    }
+        if (Status == NotificationStatus.Sent)
+        {
+            throw new InvalidOperationException($"The notification for event {EventId} was already sent.");
+        }
 
-    public void IncrementRetry()
-    {
+        Status = NotificationStatus.Failed;
         RetryCount++;
+        LastError = SanitizeError(error);
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -152,5 +201,8 @@ public enum NotificationStatus
 {
     Pending = 0,
     Sent = 1,
-    Failed = 2
+    Failed = 2,
+
+    /// <summary>An attempt holds the claim (Notification audit D5).</summary>
+    Sending = 3
 }

@@ -208,7 +208,17 @@ public sealed class EmailService : IEmailService
         }
 
         var response = await smtpClient.SendAsync(message, ct);
-        await smtpClient.DisconnectAsync(true, ct);
+
+        // Notification audit S2 (H3, D2). The server has accepted the message. A failed QUIT used to reach the consumer as
+        // a failed send and redeliver an email the customer already had; it is only a connection being closed.
+        try
+        {
+            await smtpClient.DisconnectAsync(true, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "The SMTP connection could not be closed cleanly after a successful send.");
+        }
 
         _logger.LogInformation(
             "Email sent to {Recipient}. Subject={Subject}. ProviderResponse={ProviderResponse}",

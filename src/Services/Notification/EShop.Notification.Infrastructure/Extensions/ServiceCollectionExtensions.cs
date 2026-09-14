@@ -51,6 +51,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<NotificationDbContext>());
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<NotificationDbContext>());
 
+        // The consumers date their delivery attempts with it (Notification audit D5).
+        services.TryAddSingleton(TimeProvider.System);
+
         services.AddScoped<IEmailService, EmailService>();
         services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
         services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
