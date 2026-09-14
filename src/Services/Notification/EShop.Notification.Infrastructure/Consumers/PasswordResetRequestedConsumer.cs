@@ -35,7 +35,7 @@ public sealed class PasswordResetRequestedConsumer : NotificationConsumer<Passwo
 
     protected override string? UserIdOf(PasswordResetRequestedIntegrationEvent message) => message.UserId;
 
-    protected override Task SendAsync(
+    protected override Task<string> SendAsync(
         PasswordResetRequestedIntegrationEvent message,
         RecipientAddress recipient,
         CancellationToken cancellationToken)
@@ -43,7 +43,7 @@ public sealed class PasswordResetRequestedConsumer : NotificationConsumer<Passwo
             recipient,
             new PasswordResetEmailModel
             {
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 ResetLink = BuildResetLink(message.UserId, message.ResetToken)
             },
             cancellationToken);

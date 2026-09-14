@@ -81,6 +81,7 @@ public class OrderCreatedDomainEventHandlerTests
 
         Assert.That(enqueued, Is.Not.Null);
         Assert.That(enqueued!.OccurredOn, Is.EqualTo(placedAt));
+        Assert.That(enqueued.Currency, Is.EqualTo("USD"), "Notification audit D11: the order confirmation email shows it");
         Assert.That(enqueued.Items, Has.Count.EqualTo(1));
         var item = enqueued.Items[0];
         Assert.That((item.ProductId, item.ProductName, item.Price, item.Quantity, item.SubTotal),

@@ -30,16 +30,15 @@ public sealed class PaymentCreatedConsumer : NotificationConsumer<PaymentCreated
 
     protected override string? UserIdOf(PaymentCreatedEvent message) => message.UserId;
 
-    protected override Task SendAsync(PaymentCreatedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
+    protected override Task<string> SendAsync(PaymentCreatedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
         => _emailService.SendPaymentCreatedAsync(
             recipient,
             new PaymentCreatedEmailModel
             {
                 OrderId = message.OrderId,
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 Amount = message.Amount,
                 Currency = message.Currency,
-                Status = message.Status,
                 CreatedAt = message.CreatedAt
             },
             cancellationToken);

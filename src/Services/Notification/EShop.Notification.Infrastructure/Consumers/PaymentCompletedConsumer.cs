@@ -28,16 +28,15 @@ public sealed class PaymentCompletedConsumer : NotificationConsumer<PaymentCompl
 
     protected override string? UserIdOf(PaymentCompletedEvent message) => message.UserId;
 
-    protected override Task SendAsync(PaymentCompletedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
+    protected override Task<string> SendAsync(PaymentCompletedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
         => _emailService.SendPaymentCompletedAsync(
             recipient,
             new PaymentCompletedEmailModel
             {
                 OrderId = message.OrderId,
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 Amount = message.Amount,
                 Currency = message.Currency,
-                PaymentIntentId = message.PaymentIntentId,
                 CompletedAt = message.CompletedAt
             },
             cancellationToken);

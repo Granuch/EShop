@@ -344,7 +344,7 @@ public class NotificationConsumerTests
         _email.Setup(x => x.SendPaymentRefundedAsync(
                 It.IsAny<RecipientAddress>(), It.IsAny<PaymentRefundedEmailModel>(), It.IsAny<CancellationToken>()))
             .Callback<RecipientAddress, PaymentRefundedEmailModel, CancellationToken>((_, model, _) => sent = model)
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync("refund@test.local");
 
         await PaymentRefunded().Consume(Delivery(evt));
 
@@ -436,6 +436,81 @@ public class NotificationConsumerTests
             Assert.That(log.Status, Is.EqualTo(NotificationStatus.Failed));
             Assert.That(log.LastError, Is.EqualTo("Email provider timeout."));
         });
+    }
+
+    /// <summary>Notification audit S7 (L17, D11): the total's currency comes from the event, and the count is units.</summary>
+    [Test]
+    public async Task OrderCreatedConsumer_EmailsTheEventsCurrency_AndCountsUnitsNotLines()
+    {
+        var evt = new OrderCreatedEvent
+        {
+            EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "user-20", TotalAmount = 30m, Currency = "EUR",
+            Items =
+            [
+                new OrderEventItem { ProductName = "Widget", Price = 10m, Quantity = 2, SubTotal = 20m },
+                new OrderEventItem { ProductName = "Gadget", Price = 10m, Quantity = 1, SubTotal = 10m }
+            ]
+        };
+        ResolveAs("user-20", "user20@test.com", "Ada");
+
+        var sent = await OrderConfirmationFor(evt);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sent.Currency, Is.EqualTo("EUR"));
+            Assert.That(sent.ItemCount, Is.EqualTo(3), "two lines, three units");
+            Assert.That(sent.CustomerName, Is.EqualTo("Ada"));
+        });
+    }
+
+    /// <summary>D11: an OrderCreatedEvent published before the field existed still reads as USD, which it was.</summary>
+    [Test]
+    public async Task OrderCreatedConsumer_AMessagePublishedBeforeTheCurrencyExisted_EmailsUsd()
+    {
+        var json = $$"""{"eventId":"{{Guid.NewGuid()}}","orderId":"{{Guid.NewGuid()}}","userId":"user-21","totalAmount":12.5,"items":[]}""";
+        var evt = JsonSerializer.Deserialize<OrderCreatedEvent>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        ResolveAs("user-21", "user21@test.com");
+
+        var sent = await OrderConfirmationFor(evt);
+
+        Assert.That(sent.Currency, Is.EqualTo("USD"));
+    }
+
+    /// <summary>S7 (L16): a customer Identity has no name for was greeted with their user id, a GUID.</summary>
+    [Test]
+    public async Task WithoutADisplayName_TheGreetingIsThere_NotTheUserId()
+    {
+        var evt = new OrderCreatedEvent { EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "3fa85f64-5717-4562-b3fc-2c963f66afa6", TotalAmount = 1m };
+        ResolveAs(evt.UserId, "nameless@test.com");
+
+        var sent = await OrderConfirmationFor(evt);
+
+        Assert.That(sent.CustomerName, Is.EqualTo("there"));
+    }
+
+    /// <summary>S7 (L21): the sender's Message-ID is kept, so the log row can be matched to the mail server's.</summary>
+    [Test]
+    public async Task TheMessageIdTheSenderReturns_IsRecordedAsTheProviderMessageId()
+    {
+        var evt = new OrderCreatedEvent { EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "user-22", TotalAmount = 1m };
+        ResolveAs("user-22", "user22@test.com");
+
+        await OrderConfirmationFor(evt, messageId: "20260914.abc@eshop.local");
+
+        Assert.That(_logs.Single().ProviderMessageId, Is.EqualTo("20260914.abc@eshop.local"));
+    }
+
+    private async Task<OrderConfirmationEmailModel> OrderConfirmationFor(OrderCreatedEvent evt, string messageId = "msg@test.local")
+    {
+        OrderConfirmationEmailModel? sent = null;
+        _email.Setup(x => x.SendOrderConfirmationAsync(
+                It.IsAny<RecipientAddress>(), It.IsAny<OrderConfirmationEmailModel>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientAddress, OrderConfirmationEmailModel, CancellationToken>((_, model, _) => sent = model)
+            .ReturnsAsync(messageId);
+
+        await OrderCreated().Consume(Delivery(evt));
+
+        return sent ?? throw new AssertionException("No order confirmation was sent.");
     }
 
     private void ResolveAs(string userId, string email, string? displayName = null)

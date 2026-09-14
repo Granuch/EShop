@@ -12,6 +12,13 @@ public record OrderCreatedEvent : IntegrationEvent
     public decimal TotalAmount { get; init; }
 
     /// <summary>
+    /// The currency <see cref="TotalAmount"/> is in. Added in Notification audit S7 (D11): the confirmation email printed a
+    /// hard-coded dollar sign. Ordering prices every order in USD. A message published before the field existed has none,
+    /// and reads as that default — which is what every such order was.
+    /// </summary>
+    public string Currency { get; init; } = "USD";
+
+    /// <summary>
     /// Every line of the order. Filled since Ordering audit Stage 8; before that it was always empty,
     /// so a consumer counting it (Notification's order-confirmation item count) always saw zero.
     /// </summary>

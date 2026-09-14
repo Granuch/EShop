@@ -34,13 +34,13 @@ public sealed class PaymentRefundedConsumer : NotificationConsumer<PaymentRefund
 
     protected override string? UserIdOf(PaymentRefundedEvent message) => message.UserId;
 
-    protected override Task SendAsync(PaymentRefundedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
+    protected override Task<string> SendAsync(PaymentRefundedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
         => _emailService.SendPaymentRefundedAsync(
             recipient,
             new PaymentRefundedEmailModel
             {
                 OrderId = message.OrderId,
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 Amount = message.Amount,
                 // Payment audit Stage 8b: the event says which currency was refunded; this used to hard-code USD.
                 Currency = message.Currency,

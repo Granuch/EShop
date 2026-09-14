@@ -30,17 +30,18 @@ public sealed class PaymentFailedConsumer : NotificationConsumer<PaymentFailedEv
 
     protected override string TemplateName => "payment-failed";
 
-    protected override string SubjectFor(PaymentFailedEvent message) => $"Payment failed for order #{message.OrderId}";
+    // Notification audit S7 (M12, D10): Ordering cancels a pending order when its payment fails, so the email says so.
+    protected override string SubjectFor(PaymentFailedEvent message) => $"Your order #{message.OrderId} was cancelled";
 
     protected override string? UserIdOf(PaymentFailedEvent message) => message.UserId;
 
-    protected override Task SendAsync(PaymentFailedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
+    protected override Task<string> SendAsync(PaymentFailedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
         => _emailService.SendPaymentFailedAsync(
             recipient,
             new PaymentFailedEmailModel
             {
                 OrderId = message.OrderId,
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 FailureReason = message.Reason,
                 SupportEmail = _supportEmail
             },

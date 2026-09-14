@@ -29,6 +29,9 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
 
     public ConcurrentQueue<string> Recipients { get; } = new();
 
+    /// <summary>Every message received after DATA, as sent (dot-stuffing undone).</summary>
+    public ConcurrentQueue<string> Messages { get; } = new();
+
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
 
     /// <param name="dropOnQuit">Close the connection on QUIT without answering it.</param>
@@ -76,6 +79,7 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
 
             await writer.WriteLineAsync("220 fake.smtp ESMTP");
             var inData = false;
+            var data = new StringBuilder();
 
             while (await reader.ReadLineAsync() is { } line)
             {
@@ -84,7 +88,12 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
                     if (line == ".")
                     {
                         inData = false;
+                        Messages.Enqueue(data.ToString());
                         await writer.WriteLineAsync("250 2.0.0 Ok: queued");
+                    }
+                    else
+                    {
+                        data.Append(line.StartsWith("..", StringComparison.Ordinal) ? line[1..] : line).Append("\r\n");
                     }
 
                     continue;
@@ -105,6 +114,7 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
                         break;
                     case "DATA":
                         inData = true;
+                        data.Clear();
                         await writer.WriteLineAsync("354 End data with <CR><LF>.<CR><LF>");
                         break;
                     case "QUIT":

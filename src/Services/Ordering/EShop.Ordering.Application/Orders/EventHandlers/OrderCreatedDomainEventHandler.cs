@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Messaging.Events;
+using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.Events;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,8 @@ public class OrderCreatedDomainEventHandler : INotificationHandler<OrderCreatedD
             OrderId = notification.OrderId,
             UserId = notification.UserId,
             TotalAmount = notification.TotalAmount,
+            // Notification audit S7 (D11): the confirmation email shows the currency instead of assuming dollars.
+            Currency = Order.PricingCurrency,
             // Audit M5: never filled before, so Notification's ItemCount was always 0.
             Items = notification.Items.Select(i => new OrderEventItem
             {

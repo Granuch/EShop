@@ -12,6 +12,12 @@ namespace EShop.Ordering.Domain.Entities;
 /// </summary>
 public class Order : AggregateRoot<Guid>
 {
+    /// <summary>
+    /// The currency every order is priced in: Ordering has no per-order currency, and its consumers refuse any other.
+    /// Published on <c>OrderCreatedEvent</c> since Notification audit S7 (D11), so the confirmation email can say it.
+    /// </summary>
+    public const string PricingCurrency = "USD";
+
     public string UserId { get; private set; } = string.Empty;
     public Address ShippingAddress { get; private set; } = null!;
     public decimal TotalPrice { get; private set; }

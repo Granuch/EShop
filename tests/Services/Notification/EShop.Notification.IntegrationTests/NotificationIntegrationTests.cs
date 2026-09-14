@@ -122,25 +122,25 @@ public class NotificationIntegrationTests
 
     private sealed class StubEmailService : IEmailService
     {
-        public Task SendOrderConfirmationAsync(RecipientAddress recipient, OrderConfirmationEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendOrderConfirmationAsync(RecipientAddress recipient, OrderConfirmationEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
 
-        public Task SendOrderShippedAsync(RecipientAddress recipient, OrderShippedEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendOrderShippedAsync(RecipientAddress recipient, OrderShippedEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
 
-        public Task SendPaymentCreatedAsync(RecipientAddress recipient, PaymentCreatedEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendPaymentCreatedAsync(RecipientAddress recipient, PaymentCreatedEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
 
-        public Task SendPaymentCompletedAsync(RecipientAddress recipient, PaymentCompletedEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendPaymentCompletedAsync(RecipientAddress recipient, PaymentCompletedEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
 
-        public Task SendPaymentFailedAsync(RecipientAddress recipient, PaymentFailedEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendPaymentFailedAsync(RecipientAddress recipient, PaymentFailedEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
 
-        public Task SendPaymentRefundedAsync(RecipientAddress recipient, PaymentRefundedEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendPaymentRefundedAsync(RecipientAddress recipient, PaymentRefundedEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
 
-        public Task SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
-            => Task.CompletedTask;
+        public Task<string> SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
     }
 }

@@ -32,15 +32,16 @@ public sealed class OrderShippedConsumer : NotificationConsumer<OrderShippedEven
     protected override RecipientAddress? RecipientFromEvent(OrderShippedEvent message)
         => string.IsNullOrWhiteSpace(message.UserEmail) ? null : new RecipientAddress(message.UserEmail);
 
-    protected override Task SendAsync(OrderShippedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
+    protected override Task<string> SendAsync(OrderShippedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
         => _emailService.SendOrderShippedAsync(
             recipient,
             new OrderShippedEmailModel
             {
                 OrderId = message.OrderId,
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 TrackingNumber = message.TrackingNumber,
-                EstimatedDelivery = message.ShippedAt.AddDays(5).ToString("yyyy-MM-dd")
+                // Notification audit S7 (L18): the ship date the event carries, instead of an invented delivery date.
+                ShippedAt = message.ShippedAt
             },
             cancellationToken);
 }

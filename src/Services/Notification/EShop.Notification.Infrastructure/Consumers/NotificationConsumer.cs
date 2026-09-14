@@ -66,7 +66,14 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
     /// <summary>A recipient the event carries itself, so no Identity lookup is needed. None by default.</summary>
     protected virtual RecipientAddress? RecipientFromEvent(TEvent message) => null;
 
-    protected abstract Task SendAsync(TEvent message, RecipientAddress recipient, CancellationToken cancellationToken);
+    /// <returns>The sent message's Message-ID, recorded as the notification's provider message id (S7, L21).</returns>
+    protected abstract Task<string> SendAsync(TEvent message, RecipientAddress recipient, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The name an email greets the recipient by: Identity's display name, else "there" ("Hi there,"). It used to fall back
+    /// to the user id, so a customer without a name was greeted with a GUID (Notification audit S7, L16).
+    /// </summary>
+    protected static string GreetingName(RecipientAddress recipient) => recipient.DisplayName ?? "there";
 
     public async Task Consume(ConsumeContext<TEvent> context)
     {
@@ -158,9 +165,10 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
 
         log.RecordRecipient(recipient.Email);
 
+        string providerMessageId;
         try
         {
-            await SendAsync(message, recipient, cancellationToken);
+            providerMessageId = await SendAsync(message, recipient, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -174,7 +182,7 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
         // D2: the email is out. Nothing below may throw, or the redelivery would send it a second time.
         try
         {
-            log.MarkSent(providerMessageId: null);
+            log.MarkSent(providerMessageId);
             await _logs.SaveAsync(log, CancellationToken.None);
             Logger.LogInformation("The {TemplateName} email for EventId={EventId} was sent.", TemplateName, message.EventId);
         }

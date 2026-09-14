@@ -28,16 +28,19 @@ public sealed class OrderCreatedConsumer : NotificationConsumer<OrderCreatedEven
 
     protected override string? UserIdOf(OrderCreatedEvent message) => message.UserId;
 
-    protected override Task SendAsync(OrderCreatedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
+    protected override Task<string> SendAsync(OrderCreatedEvent message, RecipientAddress recipient, CancellationToken cancellationToken)
         => _emailService.SendOrderConfirmationAsync(
             recipient,
             new OrderConfirmationEmailModel
             {
                 OrderId = message.OrderId,
-                CustomerName = recipient.DisplayName ?? message.UserId,
+                CustomerName = GreetingName(recipient),
                 OrderDate = message.OccurredOn,
                 TotalAmount = message.TotalAmount,
-                ItemCount = message.Items.Count
+                // Notification audit S7 (D11): the event names the currency (USD for a message published before it did).
+                Currency = message.Currency,
+                // S7 (L17): the units ordered, not the number of order lines.
+                ItemCount = message.Items.Sum(item => item.Quantity)
             },
             cancellationToken);
 }

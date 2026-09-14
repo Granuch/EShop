@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Models;
 using EShop.Notification.Domain.ValueObjects;
@@ -8,6 +9,7 @@ using EShop.Notification.UnitTests.TestDoubles;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MimeKit;
 using Moq;
 
 namespace EShop.Notification.UnitTests.Services;
@@ -71,12 +73,37 @@ public class EmailServiceSmtpTests
     public void TheEffectiveSecurity_IsSecurity_ElseTheLegacyUseSsl(bool useSsl, SmtpSecurity? security, SmtpSecurity expected)
         => Assert.That(new SmtpSettings { UseSsl = useSsl, Security = security }.EffectiveSecurity, Is.EqualTo(expected));
 
-    private static EmailService Service(int port, ILogger<EmailService> logger)
+    /// <summary>
+    /// Notification audit S7 (L21): the email carries a plain-text part beside the HTML, with the reset link's target
+    /// readable, and the id the sender returns is the message's own Message-ID.
+    /// </summary>
+    [Test]
+    public async Task TheEmail_HasAPlainTextPartWithTheLink_AndTheReturnedIdIsItsMessageId()
+    {
+        await using var server = FakeSmtpServer.Start();
+        const string html =
+            "<p>Hi there,</p><p><a href=\"https://shop.test/reset?userId=u1&amp;token=t1\">Reset password</a></p>";
+
+        var messageId = await Service(server.Port, new ListLogger<EmailService>(), html).SendPasswordResetAsync(
+            new RecipientAddress("customer@test.com"),
+            new PasswordResetEmailModel { CustomerName = "there", ResetLink = "https://shop.test/reset?userId=u1&token=t1" });
+
+        var sent = MimeMessage.Load(new MemoryStream(Encoding.UTF8.GetBytes(server.Messages.Single())));
+        Assert.Multiple(() =>
+        {
+            Assert.That(sent.MessageId, Is.EqualTo(messageId));
+            Assert.That(sent.HtmlBody, Does.Contain("<a href="));
+            Assert.That(sent.TextBody, Does.Contain("Reset password (https://shop.test/reset?userId=u1&token=t1)"));
+            Assert.That(sent.TextBody, Does.Not.Contain("<"));
+        });
+    }
+
+    private static EmailService Service(int port, ILogger<EmailService> logger, string html = "<p>Hello</p>")
     {
         var renderer = new Mock<ITemplateRenderer>();
         renderer.Setup(x => x.RenderAsync(
                 It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("<p>Hello</p>");
+            .ReturnsAsync(html);
 
         var settings = Options.Create(new SmtpSettings
         {

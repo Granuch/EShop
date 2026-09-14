@@ -20,7 +20,7 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 public class PaymentSuccessConsumer : IdempotentConsumer<PaymentSuccessEvent, OrderingDbContext>
 {
     /// <summary>The currency every order is priced in. Ordering has no per-order currency.</summary>
-    internal const string OrderCurrency = "USD";
+    internal const string OrderCurrency = Order.PricingCurrency;
 
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
