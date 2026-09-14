@@ -1,12 +1,10 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Models;
 using EShop.Notification.Domain.ValueObjects;
 using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Services;
+using EShop.Notification.UnitTests.TestDoubles;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -91,115 +89,6 @@ public class EmailServiceSmtpTests
         });
 
         return new EmailService(settings, renderer.Object, logger);
-    }
-
-    /// <summary>
-    /// Just enough SMTP for MailKit on a plaintext connection: greeting, EHLO, MAIL, RCPT (recorded), DATA, QUIT. No
-    /// STARTTLS or AUTH is advertised.
-    /// </summary>
-    private sealed class FakeSmtpServer : IAsyncDisposable
-    {
-        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
-        private readonly CancellationTokenSource _stop = new();
-        private readonly bool _dropOnQuit;
-        private readonly Task _acceptLoop;
-
-        private FakeSmtpServer(bool dropOnQuit)
-        {
-            _dropOnQuit = dropOnQuit;
-            _listener.Start();
-            _acceptLoop = Task.Run(AcceptAsync);
-        }
-
-        public ConcurrentQueue<string> Recipients { get; } = new();
-
-        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
-
-        public static FakeSmtpServer Start(bool dropOnQuit = false) => new(dropOnQuit);
-
-        private async Task AcceptAsync()
-        {
-            while (!_stop.IsCancellationRequested)
-            {
-                TcpClient client;
-                try
-                {
-                    client = await _listener.AcceptTcpClientAsync(_stop.Token);
-                }
-                catch (Exception)
-                {
-                    return;
-                }
-
-                _ = Task.Run(() => ServeAsync(client));
-            }
-        }
-
-        private async Task ServeAsync(TcpClient client)
-        {
-            using (client)
-            {
-                var stream = client.GetStream();
-                using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-                await using var writer = new StreamWriter(stream, Encoding.ASCII, leaveOpen: true)
-                {
-                    NewLine = "\r\n",
-                    AutoFlush = true
-                };
-
-                await writer.WriteLineAsync("220 fake.smtp ESMTP");
-                var inData = false;
-
-                while (await reader.ReadLineAsync() is { } line)
-                {
-                    if (inData)
-                    {
-                        if (line == ".")
-                        {
-                            inData = false;
-                            await writer.WriteLineAsync("250 2.0.0 Ok: queued");
-                        }
-
-                        continue;
-                    }
-
-                    switch (line.Length >= 4 ? line[..4].ToUpperInvariant() : line.ToUpperInvariant())
-                    {
-                        case "EHLO":
-                        case "HELO":
-                            await writer.WriteLineAsync("250 fake.smtp");
-                            break;
-                        case "RCPT":
-                            var start = line.IndexOf('<') + 1;
-                            Recipients.Enqueue(line[start..line.IndexOf('>')]);
-                            await writer.WriteLineAsync("250 2.1.5 Ok");
-                            break;
-                        case "DATA":
-                            inData = true;
-                            await writer.WriteLineAsync("354 End data with <CR><LF>.<CR><LF>");
-                            break;
-                        case "QUIT":
-                            if (!_dropOnQuit)
-                            {
-                                await writer.WriteLineAsync("221 2.0.0 Bye");
-                            }
-
-                            return;
-                        default:
-                            await writer.WriteLineAsync("250 Ok");
-                            break;
-                    }
-                }
-            }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await _stop.CancelAsync();
-            _listener.Stop();
-            await _acceptLoop;
-            _stop.Dispose();
-        }
     }
 
     private sealed class ListLogger<T> : ILogger<T>

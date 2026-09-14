@@ -1,9 +1,7 @@
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
-using EShop.BuildingBlocks.Infrastructure.BackgroundServices;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
-using EShop.BuildingBlocks.Infrastructure.HealthChecks;
 using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Interfaces;
@@ -79,37 +77,20 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds);
         });
 
-        services.AddSingleton(new OutboxProcessorOptions
-        {
-            BatchSize = 20,
-            PollingIntervalMs = 1000,
-            MaxRetries = 5,
-            ErrorRetryDelayMs = 5000
-        });
-        services.AddHostedService<OutboxProcessorService>();
-
-        services.AddSingleton(new OutboxCleanupOptions
-        {
-            RetentionDays = 7,
-            CleanupIntervalHours = 6
-        });
-        services.AddHostedService<OutboxCleanupService>();
+        // Notification audit S6 (debt 4, L11, D9). Notification publishes nothing, so it runs no outbox processor, no
+        // outbox cleanup (processed_messages has not been written here since S2) and no outbox health check. The two
+        // tables stay in the schema because BaseDbContext maps them; they are empty.
 
         // Notification audit S5 (M8, D8): NotificationLogs rows are deleted 90 days after their last update.
         services.Configure<NotificationLogRetentionSettings>(
             configuration.GetSection(NotificationLogRetentionSettings.SectionName));
         services.AddHostedService<NotificationLogRetentionService>();
 
-        services.AddSingleton(new OutboxHealthCheckOptions
-        {
-            DeadLetterWarningThreshold = 10,
-            PendingWarningThreshold = 100
-        });
-
+        // Readiness is what the consumers need: this database, and RabbitMQ (registered by AddEShopBus). SMTP is on
+        // /health only (S6, M11): an outage there is recorded per message and retried, and readiness gates no traffic here.
         services.AddHealthChecks()
-            .AddCheck<OutboxHealthCheck>("outbox", tags: ["ready", "outbox"])
             .AddCheck<NotificationDbHealthCheck>("notification-db", tags: ["db", "ready"])
-            .AddCheck<SmtpHealthCheck>("smtp", tags: ["smtp", "ready"])
+            .AddCheck<SmtpHealthCheck>("smtp", tags: ["smtp"])
             .AddCheck<NotificationLivenessHealthCheck>("notification-liveness", tags: ["live"]);
 
         return services;
@@ -120,11 +101,9 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        services.AddMessaging<NotificationDbContext>(
-            configuration,
-            "notification",
-            isDevelopment,
-            bus => bus.AddNotificationConsumers());
+        // The bus alone (Notification audit S6, debt 4): AddMessaging would also register an integration event outbox,
+        // and Notification publishes nothing.
+        services.AddEShopBus(configuration, "notification", isDevelopment, bus => bus.AddNotificationConsumers());
 
         return services;
     }
