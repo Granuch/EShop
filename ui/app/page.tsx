@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Item from "@/components/Item/item";
+import { getSession } from "@/lib/session";
 
 export default function Home() {
   return (

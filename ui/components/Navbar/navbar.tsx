@@ -1,11 +1,11 @@
 import { Menu, User, ShoppingCart, Search } from "lucide-react";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { getSession } from "@/lib/session";
 
 
-function Navbar() {
-
-  const isAutorized: boolean = false
+async function Navbar() {
+  const session = await getSession()
   
   return (
     <nav className="">
@@ -26,7 +26,7 @@ function Navbar() {
           />
           </div>
           <div className="flex gap-5">
-            {!isAutorized ? (
+            {!session ? (
               <Link
                 href="/autorization"
                 className="flex gap-1 text-base hover:cursor-pointer hover:underline"
@@ -35,7 +35,13 @@ function Navbar() {
                 <div>Acount</div>
               </Link>
             ) : (
-              <div></div>
+              <Link
+                href="/profile"
+                className="flex gap-1 text-base hover:cursor-pointer hover:underline"
+              >
+                <User />
+                <div>Acount</div>
+              </Link>
             )}
             <Link
               href="/"
