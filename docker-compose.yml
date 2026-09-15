@@ -199,6 +199,8 @@ services:
       dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
     container_name: eshop-identity-api-1
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${IDENTITY_API_PORT_1:-7001}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -386,6 +388,8 @@ services:
       dockerfile: src/Services/Basket/EShop.Basket.API/Dockerfile
     container_name: eshop-basket-api
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BASKET_API_PORT:-7006}:8080"
     depends_on:
       redis:
         condition: service_healthy
@@ -467,6 +471,8 @@ services:
       dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
     container_name: eshop-catalog-api
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CATALOG_API_PORT:-7004}:8080"
     depends_on:
       catalog-postgres:
         condition: service_healthy
@@ -576,6 +582,8 @@ services:
       dockerfile: src/Services/Ordering/EShop.Ordering.API/Dockerfile
     container_name: eshop-ordering-api
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ORDERING_API_PORT:-7005}:8080"
     depends_on:
       ordering-postgres:
         condition: service_healthy
@@ -1074,7 +1082,7 @@ services:
   # Redis Commander (Web UI for Redis - alternative)
   # ============================================
   redis-commander:
-    image: rediscommander/redis-commander:0.8.0
+    image: rediscommander/redis-commander:latest
     container_name: eshop-redis-commander
     restart: unless-stopped
     depends_on:
