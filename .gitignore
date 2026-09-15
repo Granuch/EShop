@@ -395,3 +395,6 @@ SKILL.md
 # (e.g. "bin<U+F05C>Debug" — a SINGLE directory, so the normal [Bb]in/ and
 # [Dd]ebug/ rules above do not match it).
 **/bin*Debug/
+docs/audits/ordering/AUDIT.md
+docs/audits/ordering/DECISIONS.md
+docs/audits/ordering/PROGRESS.md
