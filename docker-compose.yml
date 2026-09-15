@@ -1074,7 +1074,7 @@ services:
   # Redis Commander (Web UI for Redis - alternative)
   # ============================================
   redis-commander:
-    image: rediscommander/redis-commander:0.8.0
+    image: rediscommander/redis-commander:latest
     container_name: eshop-redis-commander
     restart: unless-stopped
     depends_on:
