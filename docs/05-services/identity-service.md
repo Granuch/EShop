@@ -44,6 +44,19 @@ Identity service follows layered architecture:
 
 ## Runtime Characteristics
 
+### Seed Data
+
+On startup, after migrations, Identity seeds baseline data via `SeedData`
+(`EShop.Identity.Infrastructure/Data/SeedData.cs`):
+
+- **Roles** (`Admin`, `User`) are seeded in every non-Testing environment via `SeedRolesAsync`.
+- **Admin user** is additionally seeded in Development and Sandbox via `SeedRolesAndAdminAsync`, using:
+  - `Identity:SeedAdminEmail` (env: `IDENTITY_SEED_ADMIN_EMAIL`, default `admin@eshop.com`)
+  - `Identity:SeedAdminPassword` (env: `IDENTITY_SEED_ADMIN_PASSWORD`, default `Admin123!`) — if unset, admin
+    seeding is skipped with a warning log; roles are still seeded regardless.
+- Idempotent: existing roles/admin user are matched by name/email and left untouched on
+  subsequent startups.
+
 ### Security Configuration Guards
 
 Identity startup validates critical configuration, including:
@@ -106,5 +119,5 @@ Identity service exposes health endpoints and emits:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-16

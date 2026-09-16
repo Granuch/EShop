@@ -43,6 +43,20 @@ Catalog service follows layered architecture:
 
 ## Runtime Characteristics
 
+### Seed Data
+
+On startup, after migrations, Catalog seeds a small baseline catalog via `CatalogSeedData`
+(`EShop.Catalog.Infrastructure/Data/CatalogSeedData.cs`), gated to Development and Sandbox only.
+
+- Creates a couple of categories (parent/child) and several products covering key edge
+  cases: multiple images with explicit ordering, key/value attributes, an active discount,
+  a product with no images, and one left in `Draft` status.
+- Idempotent: skipped entirely if any category already exists.
+- Goes through the same domain factory methods + `SaveChangesAsync` path as
+  `CreateProductCommandHandler`, so seeded products raise `ProductCreatedEvent` → outbox →
+  integration events, same as if created through the API (visible to downstream read
+  models, e.g. Basket).
+
 ### Startup Validation
 
 Catalog startup validates critical configuration in non-local environments, including database and JWT settings.
@@ -149,5 +163,5 @@ Catalog service exposes health endpoints and emits:
 
 ---
 
-**Version**: 2.1  
-**Last Updated**: 2026-09-06
+**Version**: 2.2  
+**Last Updated**: 2026-09-16

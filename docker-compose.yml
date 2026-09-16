@@ -257,7 +257,7 @@ services:
 
       # Seed Admin (Development/Sandbox only)
       Identity__SeedAdminEmail: ${IDENTITY_SEED_ADMIN_EMAIL:-admin@eshop.com}
-      Identity__SeedAdminPassword: ${IDENTITY_SEED_ADMIN_PASSWORD:-}
+      Identity__SeedAdminPassword: ${IDENTITY_SEED_ADMIN_PASSWORD:-Admin123!}
 
       # CORS
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}

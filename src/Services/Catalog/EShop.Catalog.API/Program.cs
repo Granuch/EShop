@@ -384,8 +384,14 @@ try
                 var dbContext = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
 
                 await dbContext.Database.MigrateAsync();
-
                 Log.Information("Database schema ensured successfully");
+
+                if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Sandbox"))
+                {
+                    Log.Information("Seeding catalog test data...");
+                    await CatalogSeedData.SeedAsync(dbContext, Log.Logger);
+                }
+                
                 break;
             }
             catch (Exception ex) when (IsPostgresStartupException(ex) && attempt < maxMigrationAttempts)
