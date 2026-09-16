@@ -127,6 +127,23 @@ Common local URLs (default values from `.env.example`):
 - Grafana: `http://localhost:3000`
 - Jaeger: `http://localhost:16686`
 - Mailpit UI: `http://localhost:8025`
+
+## Seeded Test Data
+
+In Development and Sandbox, each service seeds baseline data on startup (after
+migrations), so the stack is usable right away without manual setup.
+
+**Identity** — default admin account (see `identity-service.md` → Seed Data):
+- Email: `IDENTITY_SEED_ADMIN_EMAIL` (default `admin@eshop.com`)
+- Password: `IDENTITY_SEED_ADMIN_PASSWORD` (default `Admin123!`) — must be set in `.env`, otherwise admin
+  seeding is skipped (roles are seeded regardless)
+
+**Catalog** — a handful of categories and products for manual testing (see
+`catalog-service.md` → Seed Data), covering multi-image, attributes, discount and
+draft-status edge cases.
+
+Seeding is idempotent (safe to restart the stack) and never runs in Production.
+
 ### API Documentation (Scalar / OpenAPI)
  
 Each service exposes its own Scalar UI and OpenAPI document directly (not proxied through the gateway). This is available in every environment except Production (`EShopApiDocs.IsExposedIn`), so it works under Sandbox, Development, and Testing.
