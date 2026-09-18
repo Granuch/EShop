@@ -10,7 +10,12 @@ public sealed class CatalogProxyGuardMiddleware
     public static readonly string[] CatalogPathPrefixes =
     [
         "/api/v1/products",
-        "/api/v1/categories"
+        "/api/v1/categories",
+        // G6 (Admin panel S4). Must be added alongside any new /api/v1/admin/catalog route: this
+        // array is what applies the request-body cap and turns a bare 502 into a ProblemDetails
+        // body, and it is matched by prefix only — a route the gateway proxies but this list does
+        // not name is guarded by nothing, silently. ProxyGuardCoverageTests is what catches it.
+        "/api/v1/admin/catalog"
     ];
 
     private readonly RequestDelegate _next;

@@ -42,6 +42,9 @@ public class BlindSkuCheckApiFactory : PostgresCatalogApiFactory
         public Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
             => inner.GetByIdAsync(id, cancellationToken);
 
+        public Task<Product?> GetByIdIncludingDeletedAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.GetByIdIncludingDeletedAsync(id, cancellationToken);
+
         public Task<Product?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default)
             => inner.GetByIdReadOnlyAsync(id, cancellationToken);
 

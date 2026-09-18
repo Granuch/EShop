@@ -75,6 +75,21 @@ public record ReplaceProductAttributeItem
     public string Value { get; init; } = string.Empty;
 }
 
+// Admin panel S4. Exactly one of Delta and Absolute is sent; both nullable so a request can omit
+// the one it does not mean, which is what the command's exactly-one rule checks.
+public record AdjustProductStockRequest
+{
+    public int? Delta { get; init; }
+    public int? Absolute { get; init; }
+    public string? Reason { get; init; }
+}
+
+public record ProductStockResponse
+{
+    public Guid ProductId { get; init; }
+    public int StockQuantity { get; init; }
+}
+
 public record UpdateProductRequest
 {
     public Guid ProductId { get; init; }

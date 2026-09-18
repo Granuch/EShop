@@ -471,6 +471,7 @@ try
     // Map Minimal API endpoints
     app.MapProductEndpoints();
     app.MapCategoryEndpoints();
+    app.MapAdminCatalogEndpoints();
 
     // Map Prometheus metrics endpoints:
     // /prometheus — prometheus-net custom business metrics (http_requests_received_total, etc.)

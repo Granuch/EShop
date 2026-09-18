@@ -65,6 +65,9 @@ public class BlindAttributeCheckApiFactory : PostgresCatalogApiFactory
                 .AsSplitQuery()
                 .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
+        public Task<Product?> GetByIdIncludingDeletedAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.GetByIdIncludingDeletedAsync(id, cancellationToken);
+
         public Task<Product?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default)
             => inner.GetByIdReadOnlyAsync(id, cancellationToken);
 

@@ -101,6 +101,17 @@ public class CatalogDbContext : BaseDbContext
             // of which this one also serves as its leftmost prefix.
             entity.HasIndex(p => new { p.CreatedAt, p.Id }, "IX_Products_CreatedAt_Id");
 
+            // M2/M3 (Admin panel S4). Both are composites led by Status, not single-column indexes
+            // on Status and StockQuantity, because every list read already filters on Status first
+            // (the published-only rule in ProductQueryService.ApplyFilter applies to every caller
+            // that is not an admin) — so a lone StockQuantity index would be a second access path
+            // Postgres has to combine rather than one it can range-scan.
+            //
+            // Status is low-cardinality (three values) and would be a poor leading column on its
+            // own; it earns the position by being the one predicate that is always present.
+            entity.HasIndex(p => new { p.Status, p.StockQuantity }, "IX_Products_Status_StockQuantity");
+            entity.HasIndex(p => new { p.Status, p.CategoryId }, "IX_Products_Status_CategoryId");
+
             // Trigram indexes for ILIKE search performance (requires pg_trgm extension).
             // These stay non-unique: Postgres cannot build a unique GIN index at all, which is why
             // migration 20260217000731_UpdateProductModel2 exists — the fix taken there was to drop

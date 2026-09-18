@@ -24,6 +24,17 @@ public class ProductRepository : IProductRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
+    public async Task<Product?> GetByIdIncludingDeletedAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.Products
+            .IgnoreQueryFilters()
+            .Include(p => p.Category)
+            .Include(p => p.Images)
+            .Include(p => p.Attributes)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+    }
+
     public async Task<Product?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Products

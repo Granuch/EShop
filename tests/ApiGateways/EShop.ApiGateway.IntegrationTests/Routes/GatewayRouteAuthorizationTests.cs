@@ -42,6 +42,11 @@ public sealed class GatewayRouteAuthorizationTests
         ["identity-roles-route"] = "Admin",
         ["catalog-products-write-route"] = "Admin",
         ["catalog-products-read-route"] = null,
+        // Admin panel S4. The one admin-only GET under a prefix whose read route is anonymous; it
+        // wins only because its Order (19) is lower than the read route's (21).
+        ["catalog-products-deleted-route"] = "Admin",
+        // G2. Everything under /api/v1/admin is admin-only whatever the method.
+        ["admin-catalog-route"] = "Admin",
         ["catalog-categories-write-route"] = "Admin",
         ["catalog-categories-read-route"] = null,
         ["basket-route"] = "Authenticated",

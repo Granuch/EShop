@@ -10,6 +10,18 @@ public interface IProductRepository
     Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Product?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default);
     /// <summary>
+    /// Loads a product for tracking <b>including soft-deleted ones</b>, via
+    /// <c>IgnoreQueryFilters()</c> (Admin panel S4).
+    /// </summary>
+    /// <remarks>
+    /// Exists only for the restore path, which by definition cannot find its target through
+    /// <see cref="GetByIdAsync"/> — the <c>!p.IsDeleted</c> global filter hides it, so that method
+    /// answers null and the handler would report 404 for a product that is plainly there. Do not
+    /// reach for this anywhere else: every other write path must keep treating a deleted product as
+    /// absent, which is what the filter is for.
+    /// </remarks>
+    Task<Product?> GetByIdIncludingDeletedAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <summary>
     /// Whether a <b>live</b> product already holds this SKU. Runs under the <c>!p.IsDeleted</c>
     /// global query filter, deliberately matching the partial unique index
     /// <c>IX_Products_Sku ... WHERE NOT "IsDeleted"</c> — so a soft-deleted product's SKU reads as

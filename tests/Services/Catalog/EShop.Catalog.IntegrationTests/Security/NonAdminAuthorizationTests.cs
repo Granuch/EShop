@@ -42,6 +42,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "POST /api/v1/products",
         "PUT /api/v1/products/{id:guid}",
         "DELETE /api/v1/products/{id:guid}",
+        "POST /api/v1/products/{id:guid}/restore",
+        "PATCH /api/v1/products/{id:guid}/stock",
         "POST /api/v1/products/{id:guid}/publish",
         "POST /api/v1/products/{id:guid}/unpublish",
         "PUT /api/v1/products/{id:guid}/discount",
@@ -189,6 +191,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             Attributes = [new ReplaceProductAttributeItem { Name = "Color", Value = "Forbidden" }]
         },
         "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}" => new UpdateProductAttributeRequest { Name = "Color", Value = "Forbidden" },
+        "PATCH /api/v1/products/{id:guid}/stock" => new AdjustProductStockRequest { Delta = 100 },
         "POST /api/v1/categories" => new CreateCategoryRequest { Name = "Forbidden Category" },
         "PUT /api/v1/categories/{id:guid}" => new UpdateCategoryRequest { Id = _categoryId, Name = "Renamed" },
         _ => null

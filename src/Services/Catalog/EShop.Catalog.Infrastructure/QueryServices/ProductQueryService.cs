@@ -100,9 +100,58 @@ public class ProductQueryService : IProductQueryService
     /// </summary>
     private static IQueryable<Product> ApplyFilter(IQueryable<Product> query, ProductListFilter filter)
     {
+        // Admin panel S4. The recycle-bin read. IgnoreQueryFilters applies to the WHOLE query, not
+        // only to the clauses after it, so the explicit IsDeleted predicate is what actually scopes
+        // this — dropping it would widen the result to every product, deleted and live alike, while
+        // still looking like a "deleted products" query. Admin-only, set at the endpoint.
+        if (filter.DeletedOnly)
+            query = query.IgnoreQueryFilters().Where(p => p.IsDeleted);
+
         // D1 / H5a. Public callers see published products only.
+        //
+        // Note this still applies under DeletedOnly, and must: SoftDelete sets Status to
+        // Discontinued, so a deleted product is never Active and an anonymous caller who somehow
+        // reached this path would get an empty page rather than the bin. The endpoint's Admin policy
+        // is the real guard; this is the second one.
         if (!filter.IncludeUnpublished)
             query = query.Where(p => p.Status == ProductStatus.Active);
+
+        // Admin panel S4. ANDs with the rule above rather than replacing it: a public caller asking
+        // for Draft gets an empty page, never the unpublished catalogue. Keep it on this side of
+        // that `if` — assigning `query = query.Where(p => p.Status == filter.Status)` in an `else`
+        // is the shape that would leak.
+        if (filter.Status.HasValue)
+        {
+            var status = filter.Status.Value;
+            query = query.Where(p => p.Status == status);
+        }
+
+        if (filter.HasDiscount.HasValue)
+        {
+            query = filter.HasDiscount.Value
+                ? query.Where(p => p.DiscountPrice != null)
+                : query.Where(p => p.DiscountPrice == null);
+        }
+
+        if (filter.StockBelow.HasValue)
+        {
+            // Strictly less than, so stockBelow=1 means "out of stock" and the low-stock read can
+            // pass its threshold straight through.
+            var stockBelow = filter.StockBelow.Value;
+            query = query.Where(p => p.StockQuantity < stockBelow);
+        }
+
+        if (filter.CreatedFrom.HasValue)
+        {
+            var createdFrom = filter.CreatedFrom.Value;
+            query = query.Where(p => p.CreatedAt >= createdFrom);
+        }
+
+        if (filter.CreatedTo.HasValue)
+        {
+            var createdTo = filter.CreatedTo.Value;
+            query = query.Where(p => p.CreatedAt <= createdTo);
+        }
 
         if (filter.CategoryId.HasValue)
         {

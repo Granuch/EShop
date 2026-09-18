@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Application.Pagination;
+using EShop.Catalog.Domain.Entities;
 
 namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 
@@ -27,6 +28,22 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     public decimal? MaxPrice { get; init; }
     public ProductSortBy? SortBy { get; init; }
     public bool? IsDescending { get; init; }
+
+    // Admin panel S4 — four admin list filters. Every one is nullable, including the bool and the
+    // int: [AsParameters] treats a non-nullable value type as a REQUIRED query-string parameter, so
+    // a plain `bool HasDiscount` would make every request that omits it fail binding, with a 400
+    // reading "The request body is not valid JSON" on a GET that has no body. Nineteen tests went
+    // red at once the last time that happened.
+    //
+    // These are NOT restricted to admins and do not need to be: Status ANDs with the published-only
+    // rule rather than replacing it (see ProductQueryService.ApplyFilter), so a public caller
+    // filtering for Draft gets an empty page. Contrast IncludeUnpublished below, which IS a
+    // privilege and is therefore overwritten server-side after binding.
+    public ProductStatus? Status { get; init; }
+    public bool? HasDiscount { get; init; }
+    public int? StockBelow { get; init; }
+    public DateTime? CreatedFrom { get; init; }
+    public DateTime? CreatedTo { get; init; }
 
     /// <summary>
     /// H4. <b>Not supported here — any value is rejected with 400.</b> Keyset paging lives at
@@ -75,10 +92,18 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     // IncludeUnpublished is part of the key and must stay that way: an admin's list contains draft
     // products, and without it in the key that response would be cached and then served to
     // anonymous callers — leaking the unpublished catalog through the cache rather than the API.
+    //
+    // Admin panel S4 added five filters, and every one of them HAD to be appended here. A filter
+    // that narrows the result set but is absent from the key makes two different requests share one
+    // cache entry: ?StockBelow=5 would be served the cached unfiltered page, or — worse in the
+    // other direction — a later unfiltered request would be served the five-item low-stock page.
+    // Nothing fails, and it looks like a filter that "sometimes doesn't work". Append to this key
+    // whenever a property is added above.
     public string CacheKey =>
         $"products:list:cat={CategoryId}:s={SearchTerm}:min={MinPrice}:max={MaxPrice}" +
         $":sort={EffectiveSortBy}:desc={EffectiveIsDescending}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
-        $":unpub={EffectiveIncludeUnpublished}";
+        $":unpub={EffectiveIncludeUnpublished}" +
+        $":st={Status}:disc={HasDiscount}:sb={StockBelow}:cf={CreatedFrom:O}:ct={CreatedTo:O}";
 
     /// <summary>
     /// DEBT-16. The key above embeds ten filter/sort/page parameters, so the set of live keys is

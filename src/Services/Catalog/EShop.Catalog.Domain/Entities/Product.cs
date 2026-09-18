@@ -295,6 +295,46 @@ public class Product : AggregateRoot<Guid>
 
         StockQuantity = quantity;
     }
+
+    /// <summary>
+    /// Moves stock by a relative amount (Admin panel S4) — a delivery of +50, a write-off of −3.
+    /// Returns the new quantity.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="UpdateStock"/> because the two answer different questions, and
+    /// conflating them is how stock goes wrong. "Set it to 50" is a stock-take: the caller has
+    /// counted the shelf and its answer is correct whatever the database says. "Add 50" is a
+    /// movement: it composes with whatever anyone else did meanwhile. An admin UI that only has
+    /// the absolute form makes every delivery a read-modify-write across an HTTP round trip, and
+    /// two admins receiving two deliveries silently lose one of them.
+    /// </para>
+    /// <para>
+    /// A delta of zero is refused rather than treated as a no-op: it always means the caller
+    /// computed it, and answering 204 to a movement that moved nothing hides that.
+    /// </para>
+    /// </remarks>
+    public int AdjustStock(int delta)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot adjust stock of a deleted product.");
+
+        if (delta == 0)
+            throw new DomainException("Stock adjustment cannot be zero.");
+
+        var adjusted = (long)StockQuantity + delta;
+
+        // Checked as a long first: StockQuantity + delta can overflow int, and an overflowed
+        // negative would pass a plain `< 0` check on the wrapped value in an unchecked context.
+        if (adjusted < 0)
+            throw new DomainException($"Stock cannot go negative: {StockQuantity} adjusted by {delta}.");
+
+        if (adjusted > int.MaxValue)
+            throw new DomainException("Stock adjustment would exceed the maximum stock quantity.");
+
+        StockQuantity = (int)adjusted;
+        return StockQuantity;
+    }
     
     /// <summary>
     /// Makes the product publicly visible. Until Stage 4 this had no production caller, so every
@@ -338,10 +378,43 @@ public class Product : AggregateRoot<Guid>
     {
         if (IsDeleted)
             return;
-        
+
         IsDeleted = true;
         DeletedAt = DateTime.UtcNow;
         Status = ProductStatus.Discontinued;
+    }
+
+    /// <summary>
+    /// Brings a soft-deleted product back (Admin panel S4). Idempotent: restoring a live product
+    /// does nothing, mirroring <see cref="SoftDelete"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It restores to <see cref="ProductStatus.Draft"/>, not to whatever the product was before
+    /// deletion.</b> That status is not recoverable — <see cref="SoftDelete"/> overwrites it with
+    /// <c>Discontinued</c> and keeps no record of the previous value — so the only honest choices
+    /// are Draft or Active, and Draft is the safe one: restoring must never silently put a product
+    /// back in front of customers. An admin re-publishes deliberately, through
+    /// <see cref="Publish"/>. Restoring to <c>Discontinued</c> was rejected because it is
+    /// indistinguishable from "still deleted" to every read path that filters on Status.
+    /// </para>
+    /// <para>
+    /// <b>SKU uniqueness is not checked here, and cannot be.</b> <c>IX_Products_Sku</c> is unique
+    /// filtered <c>NOT "IsDeleted"</c>, so a deleted product's SKU is free for another product to
+    /// take — and once taken, restoring re-enters the filtered index and collides. The aggregate
+    /// cannot see other products, so the pre-check lives in
+    /// <c>RestoreProductCommandHandler</c> with the index as the race backstop, exactly as SKU
+    /// uniqueness works on create and update.
+    /// </para>
+    /// </remarks>
+    public void Restore()
+    {
+        if (!IsDeleted)
+            return;
+
+        IsDeleted = false;
+        DeletedAt = null;
+        Status = ProductStatus.Draft;
     }
     
     public Guid AddImage(string url, string? altText, int displayOrder)
