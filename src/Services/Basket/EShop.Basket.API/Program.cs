@@ -4,6 +4,7 @@ using EShop.Basket.API.Infrastructure.HealthChecks;
 using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Extensions;
 using EShop.Basket.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
@@ -107,6 +108,11 @@ builder.Services.AddAuthorization(options =>
     // The owner for everything, an admin for reads only (Basket audit S10, D10).
     options.AddPolicy(OwnerOrAdminReadRequirement.PolicyName, policy => policy.Requirements.Add(new OwnerOrAdminReadRequirement()));
 });
+
+// Decision Q4c: one policy per permission, resolved from the caller's roles through
+// RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+// the Admin role bundles every permission, so no existing caller loses access.
+builder.Services.AddEShopPermissions();
 builder.Services.AddSingleton<IAuthorizationHandler, OwnerOrAdminReadHandler>();
 
 // Validated here rather than inside AddPolicy: CORS builds its policies lazily on first use,

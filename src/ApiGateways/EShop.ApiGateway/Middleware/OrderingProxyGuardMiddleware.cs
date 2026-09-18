@@ -6,7 +6,8 @@ namespace EShop.ApiGateway.Middleware;
 
 public sealed class OrderingProxyGuardMiddleware
 {
-    private static readonly string[] OrderingPathPrefixes =
+    /// <inheritdoc cref="IdentityProxyGuardMiddleware.IdentityPathPrefixes"/>
+    public static readonly string[] OrderingPathPrefixes =
     [
         "/api/v1/orders",
         "/api/v1/users"

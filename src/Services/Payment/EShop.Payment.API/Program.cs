@@ -1,6 +1,7 @@
 using EShop.Payment.API.Endpoints;
 using EShop.Payment.API.Infrastructure.Configuration;
 using EShop.Payment.API.Infrastructure.HealthChecks;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Extensions;
@@ -127,6 +128,11 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("SameUserOrAdmin", policy =>
         policy.Requirements.Add(new SameUserOrAdminRequirement()));
 });
+
+// Decision Q4c: one policy per permission, resolved from the caller's roles through
+// RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+// the Admin role bundles every permission, so no existing caller loses access.
+builder.Services.AddEShopPermissions();
 
 builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 

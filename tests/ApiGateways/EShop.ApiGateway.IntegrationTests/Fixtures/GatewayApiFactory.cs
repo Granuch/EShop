@@ -8,7 +8,9 @@ using EShop.ApiGateway.Notifications;
 
 namespace EShop.ApiGateway.IntegrationTests.Fixtures;
 
-public sealed class GatewayApiFactory : WebApplicationFactory<Program>
+// Not sealed: RouteAuthorizationApiFactory derives from it to raise the global rate limit, which
+// has to happen through UseSetting rather than the ConfigureAppConfiguration block below.
+public class GatewayApiFactory : WebApplicationFactory<Program>
 {
     public TestNotificationCollector NotificationCollector { get; } = new();
 

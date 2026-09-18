@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Catalog.API.Endpoints;
@@ -229,6 +230,11 @@ try
     {
         options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
     });
+
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
 
     // Add CORS. L27: the shared CorsOriginGuard, as Identity and Basket use, replacing a hand-rolled
     // copy. Two differences, both the point of the shared guard: it runs HERE, while the host is

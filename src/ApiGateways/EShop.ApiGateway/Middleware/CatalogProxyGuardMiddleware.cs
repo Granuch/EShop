@@ -6,7 +6,8 @@ namespace EShop.ApiGateway.Middleware;
 
 public sealed class CatalogProxyGuardMiddleware
 {
-    private static readonly string[] CatalogPathPrefixes =
+    /// <inheritdoc cref="IdentityProxyGuardMiddleware.IdentityPathPrefixes"/>
+    public static readonly string[] CatalogPathPrefixes =
     [
         "/api/v1/products",
         "/api/v1/categories"

@@ -6,6 +6,7 @@ using EShop.ApiGateway.Health;
 using EShop.ApiGateway.Middleware;
 using EShop.ApiGateway.Notifications;
 using EShop.ApiGateway.Simulation;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
@@ -88,6 +89,11 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Authenticated", policy => policy.RequireAuthenticatedUser());
     options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
 });
+
+// Decision Q4c: one policy per permission, resolved from the caller's roles through
+// RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+// the Admin role bundles every permission, so no existing caller loses access.
+builder.Services.AddEShopPermissions();
 
 builder.Services.AddCors(options =>
 {

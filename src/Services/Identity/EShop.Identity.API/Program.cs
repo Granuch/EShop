@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Identity.Infrastructure.Extensions;
 using EShop.Identity.Infrastructure.Configuration;
@@ -323,6 +324,11 @@ try
         options.AddPolicy("InternalService", policy =>
             policy.Requirements.Add(new InternalServiceRequirement()));
     });
+
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
 
     builder.Services.AddSingleton<IAuthorizationHandler, InternalServiceAuthorizationHandler>();
 

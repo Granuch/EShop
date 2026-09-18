@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
@@ -196,6 +197,11 @@ try
         options.AddPolicy("SameUserOrAdmin", policy =>
             policy.Requirements.Add(new SameUserOrAdminRequirement()));
     });
+
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
 
     // Scoped, not Singleton: the owner check reads the database through the scoped IOrderRepository.
     // As a Singleton it captured one root-scoped OrderingDbContext shared by every request (audit H1);
