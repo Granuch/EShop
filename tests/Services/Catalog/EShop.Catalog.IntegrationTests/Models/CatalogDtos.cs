@@ -49,6 +49,13 @@ public record UpdateProductRequest
     public Guid ProductId { get; init; }
     public decimal Price { get; init; }
     public int StockQuantity { get; init; }
+
+    // Admin panel S2. All four are optional — omitted means "leave it alone" — so the
+    // price-and-stock requests this endpoint has always accepted keep working unchanged.
+    public string? Name { get; init; }
+    public string? Description { get; init; }
+    public string? Sku { get; init; }
+    public Guid? CategoryId { get; init; }
 }
 
 /// <summary>

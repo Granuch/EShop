@@ -15,7 +15,11 @@ public interface IProductRepository
     /// <c>IX_Products_Sku ... WHERE NOT "IsDeleted"</c> — so a soft-deleted product's SKU reads as
     /// free here and the database agrees.
     /// </summary>
-    Task<bool> SkuExistsAsync(string sku, CancellationToken cancellationToken = default);
+    /// <param name="excludingProductId">
+    /// A product to ignore, so an update that keeps its own SKU does not collide with itself.
+    /// Omitted on the create path, where there is no such product.
+    /// </param>
+    Task<bool> SkuExistsAsync(string sku, Guid? excludingProductId = null, CancellationToken cancellationToken = default);
     /// <summary>
     /// Whether any <b>live</b> product is in this category. Runs under the <c>!p.IsDeleted</c>
     /// global query filter, so soft-deleted products do not count — and since Product → Category

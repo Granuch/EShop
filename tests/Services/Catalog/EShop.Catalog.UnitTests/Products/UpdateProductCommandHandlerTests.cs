@@ -11,6 +11,7 @@ namespace EShop.Catalog.UnitTests.Products;
 public class UpdateProductCommandHandlerTests
 {
     private Mock<IProductRepository> _productRepositoryMock = null!;
+    private Mock<ICategoryRepository> _categoryRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
     private UpdateProductCommandHandler _handler = null!;
 
@@ -18,9 +19,11 @@ public class UpdateProductCommandHandlerTests
     public void SetUp()
     {
         _productRepositoryMock = new Mock<IProductRepository>();
+        _categoryRepositoryMock = new Mock<ICategoryRepository>();
         _unitOfWorkMock = new Mock<IUnitOfWork>();
         _handler = new UpdateProductCommandHandler(
             _productRepositoryMock.Object,
+            _categoryRepositoryMock.Object,
             _unitOfWorkMock.Object);
     }
 

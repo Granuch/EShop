@@ -89,6 +89,75 @@ public class Product : AggregateRoot<Guid>
     }
     
     /// <summary>
+    /// Changes the descriptive fields: name, description and SKU (Admin panel S2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Until this existed <c>UpdateProductCommand</c> carried exactly three fields — id, price and
+    /// stock — so no endpoint anywhere could change a product's name, description or SKU after
+    /// creation. An admin "edit product" form could not edit the product.
+    /// </para>
+    /// <para>
+    /// <paramref name="description"/> follows the BUG-09 three-case rule: <c>null</c> leaves the
+    /// stored value alone, blank clears it, anything else replaces it. The null check below is the
+    /// contract, not a redundant guard — assigning unconditionally is exactly the bug that let a
+    /// name-only update silently wipe a description.
+    /// </para>
+    /// <para>
+    /// <b>SKU uniqueness is deliberately not checked here.</b> The aggregate cannot see other
+    /// products; uniqueness is owned by the partial unique index
+    /// <c>IX_Products_Sku ... WHERE NOT "IsDeleted"</c>, with a handler pre-check for the common
+    /// case and <c>AddProductSkuConflict()</c> mapping a lost race. Same division of labour as
+    /// <see cref="Create"/>.
+    /// </para>
+    /// </remarks>
+    public void UpdateDetails(string name, string? description, string sku)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update a deleted product.");
+
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Product name is required.");
+
+        if (string.IsNullOrWhiteSpace(sku))
+            throw new DomainException("SKU is required.");
+
+        Name = name.Trim();
+        Sku = sku.Trim();
+
+        if (description is not null)
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+    }
+
+    /// <summary>
+    /// Moves the product to another category (Admin panel S2). Idempotent: moving to the category
+    /// it is already in is a no-op.
+    /// </summary>
+    /// <remarks>
+    /// Only the id is set. Whether the target category <i>exists</i> is a cross-aggregate question
+    /// the handler answers with a repository lookup before calling this — the alternative, taking a
+    /// <c>Category</c> here, would let a caller attach an unsaved category to a tracked product and
+    /// have EF insert it, the trap <c>Category.ResolveRequestedSlug</c> exists to avoid.
+    /// </remarks>
+    public void ChangeCategory(Guid categoryId)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot change the category of a deleted product.");
+
+        if (categoryId == Guid.Empty)
+            throw new DomainException("Category id is required.");
+
+        if (categoryId == CategoryId)
+            return;
+
+        CategoryId = categoryId;
+
+        // The navigation is left alone on purpose. It may be loaded and would then contradict the
+        // id; EF fixes it up on the next load, and nothing in the aggregate reads it.
+        Category = null!;
+    }
+
+    /// <summary>
     /// Changes the list price.
     /// </summary>
     /// <remarks>

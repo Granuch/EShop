@@ -35,14 +35,19 @@ public class ProductRepository : IProductRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
-    public async Task<bool> SkuExistsAsync(string sku, CancellationToken cancellationToken = default)
+    public async Task<bool> SkuExistsAsync(string sku, Guid? excludingProductId = null, CancellationToken cancellationToken = default)
     {
         // AnyAsync, not FirstOrDefaultAsync: the only caller asks an existence question, and the
         // old form materialised and tracked a whole Product to answer it. AsNoTracking keeps the
         // result out of the change tracker even if EF's translation ever stops eliding it.
+        //
+        // The comparison is ordinal, matching both the column's collation and the unique index, so
+        // "ABC" and "abc" are two SKUs here and in the database alike.
         return await _context.Products
             .AsNoTracking()
-            .AnyAsync(p => p.Sku == sku, cancellationToken);
+            .AnyAsync(
+                p => p.Sku == sku && (excludingProductId == null || p.Id != excludingProductId),
+                cancellationToken);
     }
 
     public async Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)

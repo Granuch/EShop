@@ -45,7 +45,7 @@ public class BlindSkuCheckApiFactory : PostgresCatalogApiFactory
         public Task<Product?> GetByIdReadOnlyAsync(Guid id, CancellationToken cancellationToken = default)
             => inner.GetByIdReadOnlyAsync(id, cancellationToken);
 
-        public Task<bool> SkuExistsAsync(string sku, CancellationToken cancellationToken = default)
+        public Task<bool> SkuExistsAsync(string sku, Guid? excludingProductId = null, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
         public Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
