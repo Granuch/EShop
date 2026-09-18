@@ -60,6 +60,35 @@ public class ProductQueryService : IProductQueryService
         return (dtos, totalCount);
     }
 
+    /// <summary>
+    /// One GroupBy-less aggregate over the category's live products. Written as a single projection
+    /// so it is one round trip: five separate CountAsync calls would each be their own query, and
+    /// they could disagree with each other under concurrent writes.
+    /// </summary>
+    public async Task<CategoryProductStats> GetCategoryProductStatsAsync(
+        Guid categoryId,
+        CancellationToken cancellationToken = default)
+    {
+        // The !IsDeleted global query filter applies, deliberately: a deleted product is invisible
+        // in every other read, and a stat that counted it would be the only place it surfaced.
+        var stats = await _context.Products
+            .AsNoTracking()
+            .Where(p => p.CategoryId == categoryId)
+            .GroupBy(_ => 1)
+            .Select(g => new CategoryProductStats(
+                g.Count(),
+                g.Count(p => p.Status == ProductStatus.Active),
+                // Cast before summing: StockQuantity is int, and Postgres' sum(int) returns bigint,
+                // so leaving it as int would overflow where the database would not.
+                g.Sum(p => (long)p.StockQuantity),
+                g.Count(p => p.StockQuantity == 0)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // GroupBy over an empty set yields no rows, not a row of zeros — an empty category would
+        // otherwise come back null and read as "category not found" one layer up.
+        return stats ?? new CategoryProductStats(0, 0, 0, 0);
+    }
+
     public async Task<List<ProductDto>> GetNewestProductsAsync(
         ProductListFilter filter,
         ProductCursor? after,

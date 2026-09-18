@@ -47,10 +47,19 @@ public class BlindSlugCheckApiFactory : PostgresCatalogApiFactory
         public Task UpdateAsync(Category category, CancellationToken cancellationToken = default)
             => inner.UpdateAsync(category, cancellationToken);
 
-        public Task<List<Category>> GetRootCategories(CancellationToken cancellationToken = default)
-            => inner.GetRootCategories(cancellationToken);
+        public Task<List<Category>> GetRootCategories(bool includeInactive = false, CancellationToken cancellationToken = default)
+            => inner.GetRootCategories(includeInactive, cancellationToken);
 
         public Task<bool> SlugExistsAsync(Guid? parentCategoryId, string slug, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<Category?> GetByIdIncludingInactiveAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.GetByIdIncludingInactiveAsync(id, cancellationToken);
+
+        public Task<List<Guid>> GetAncestorIdsAsync(Guid categoryId, CancellationToken cancellationToken = default)
+            => inner.GetAncestorIdsAsync(categoryId, cancellationToken);
+
+        public Task<List<Category>> GetSiblingsAsync(Guid? parentCategoryId, CancellationToken cancellationToken = default)
+            => inner.GetSiblingsAsync(parentCategoryId, cancellationToken);
     }
 }

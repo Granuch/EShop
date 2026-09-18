@@ -60,6 +60,9 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "POST /api/v1/categories",
         "PUT /api/v1/categories/{id:guid}",
         "DELETE /api/v1/categories/{id:guid}",
+        "PUT /api/v1/categories/reorder",
+        "PUT /api/v1/categories/{id:guid}/parent",
+        "POST /api/v1/categories/{id:guid}/restore",
     ];
 
     private Guid _categoryId;
@@ -192,6 +195,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         },
         "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}" => new UpdateProductAttributeRequest { Name = "Color", Value = "Forbidden" },
         "PATCH /api/v1/products/{id:guid}/stock" => new AdjustProductStockRequest { Delta = 100 },
+        "PUT /api/v1/categories/reorder" => new ReorderCategoriesRequest { CategoryIds = [_categoryId] },
+        "PUT /api/v1/categories/{id:guid}/parent" => new MoveCategoryRequest { NewParentCategoryId = null },
         "POST /api/v1/categories" => new CreateCategoryRequest { Name = "Forbidden Category" },
         "PUT /api/v1/categories/{id:guid}" => new UpdateCategoryRequest { Id = _categoryId, Name = "Renamed" },
         _ => null

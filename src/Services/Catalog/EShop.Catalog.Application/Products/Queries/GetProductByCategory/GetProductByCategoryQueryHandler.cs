@@ -24,7 +24,7 @@ public sealed class GetProductByCategoryQueryHandler : IRequestHandler<GetProduc
             SearchTerm: null,
             MinPrice: null,
             MaxPrice: null,
-            IncludeUnpublished: false);
+            IncludeUnpublished: request.EffectiveIncludeUnpublished);
 
         var pageNumber = request.EffectivePageNumber;
         var pageSize = request.EffectivePageSize;

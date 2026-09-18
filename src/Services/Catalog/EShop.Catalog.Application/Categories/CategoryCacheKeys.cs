@@ -9,7 +9,15 @@ namespace EShop.Catalog.Application.Categories;
 /// </summary>
 public static class CategoryCacheKeys
 {
-    /// <summary>The root list, <c>GET /api/v1/categories</c>.</summary>
+    /// <summary>
+    /// <b>Dead as of Admin panel S5 (A4) — do not use it, and do not "restore" an eviction of it.</b>
+    /// The tree read's key became <c>categories:list:inactive={bool}</c> when
+    /// <c>?includeInactive=</c> was added, so nothing writes this string any more and evicting it
+    /// removes nothing while logging success. The replacement is the versioned family
+    /// <see cref="CategoryCacheFamilies.CategoryList"/>, which every category write bumps.
+    /// Kept only so that a branch still naming it fails to compile rather than silently no-opping.
+    /// </summary>
+    [Obsolete("Superseded by CategoryCacheFamilies.CategoryList (A4, Admin panel S5): nothing writes this key any more, so evicting it is a silent no-op.")]
     public const string All = "categories:all";
 
     /// <summary>One category's detail, <c>GET /api/v1/categories/{id}</c>.</summary>

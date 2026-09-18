@@ -90,6 +90,29 @@ public record ProductStockResponse
     public int StockQuantity { get; init; }
 }
 
+// Admin panel S5.
+public record MoveCategoryRequest
+{
+    public Guid? NewParentCategoryId { get; init; }
+}
+
+public record ReorderCategoriesRequest
+{
+    public Guid? ParentCategoryId { get; init; }
+    public IReadOnlyList<Guid>? CategoryIds { get; init; }
+}
+
+public record CategoryStatsResponse
+{
+    public Guid CategoryId { get; init; }
+    public string CategoryName { get; init; } = string.Empty;
+    public int ProductCount { get; init; }
+    public int PublishedProductCount { get; init; }
+    public int TotalStock { get; init; }
+    public int OutOfStockCount { get; init; }
+    public int ChildCategoryCount { get; init; }
+}
+
 public record UpdateProductRequest
 {
     public Guid ProductId { get; init; }

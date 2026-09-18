@@ -137,7 +137,23 @@ public class UpdateCategoryCommandHandlerTests
     {
         var id = Guid.NewGuid();
 
+        // Detail is still an exact key, written by the query and named by every command.
         Assert.That(new GetCategoryByIdQuery { Id = id }.CacheKey, Is.EqualTo(CategoryCacheKeys.Detail(id)));
-        Assert.That(new GetCategoriesQuery().CacheKey, Is.EqualTo(CategoryCacheKeys.All));
+
+        // A4 (Admin panel S5). The root list moved from one exact key to a versioned family, because
+        // ?includeInactive= gave it variants no command can enumerate. The contract this test now
+        // guards is the family membership, and it asserts the INTERFACE rather than just the
+        // property: a record that dropped IVersionedCacheKey but kept CacheKeyFamily would satisfy
+        // a property-only check while caching unversioned — the exact regression this exists for.
+        var listQuery = new GetCategoriesQuery();
+        Assert.That(listQuery, Is.InstanceOf<IVersionedCacheKey>());
+        Assert.That(listQuery.CacheKeyFamily, Is.EqualTo(CategoryCacheFamilies.CategoryList));
+        Assert.That(new UpdateCategoryCommand { Id = id, Name = "N" }.CacheFamiliesToInvalidate,
+            Contains.Item(CategoryCacheFamilies.CategoryList),
+            "the query reads this family, so every category write must bump it");
+
+        // The two variants must be distinct keys, or an admin request poisons the anonymous entry.
+        Assert.That(new GetCategoriesQuery { IncludeInactive = true }.CacheKey,
+            Is.Not.EqualTo(new GetCategoriesQuery { IncludeInactive = false }.CacheKey));
     }
 }

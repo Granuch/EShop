@@ -119,6 +119,90 @@ public class Category : AggregateRoot<Guid>
     /// </summary>
     public void Deactivate() => IsActive = false;
 
+    /// <summary>
+    /// Brings a soft-deleted category back (Admin panel S5). Idempotent.
+    /// </summary>
+    /// <remarks>
+    /// <b>Slug uniqueness is not checked here, and cannot be.</b> Both unique slug indexes are
+    /// filtered on <c>"IsActive"</c>, so a deleted category's slug is free for another to take —
+    /// and once taken, reactivating re-enters the filtered index and collides. The aggregate cannot
+    /// see its siblings, so the pre-check lives in <c>RestoreCategoryCommandHandler</c> with the
+    /// index as the race backstop, exactly as <c>Product.Restore</c> handles the SKU.
+    /// <para>
+    /// Restoring does <b>not</b> restore the parent: if the parent is itself still deleted the
+    /// category comes back unreachable from the root list, which the handler refuses rather than
+    /// silently cascading a reactivation nobody asked for.
+    /// </para>
+    /// </remarks>
+    public void Restore()
+    {
+        if (IsActive)
+            return;
+
+        IsActive = true;
+    }
+
+    /// <summary>
+    /// Used by the batch reorder (Admin panel S5) to place a category among its siblings.
+    /// </summary>
+    public void SetDisplayOrder(int displayOrder)
+    {
+        if (displayOrder < 0)
+            throw new DomainException("Display order cannot be negative.");
+
+        DisplayOrder = displayOrder;
+    }
+
+    /// <summary>
+    /// Re-parents the category (Admin panel S5), or makes it a root when
+    /// <paramref name="newParentId"/> is null.
+    /// </summary>
+    /// <param name="newParentAncestorIds">
+    /// The <b>persisted</b> ancestor chain of the new parent, nearest first, as read from the
+    /// database by the handler. Empty when the new parent is a root, and irrelevant when
+    /// <paramref name="newParentId"/> is null.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>The chain is a parameter, not something this method walks.</b> A category's parent was
+    /// fixed at creation from Stage 8 precisely because the old <c>SetParent</c>'s cycle check
+    /// walked the in-memory <c>ParentCategory</c> navigation — which EF populates only as far as
+    /// the query happened to <c>Include</c>, so it answered "no cycle" for a chain it could not
+    /// see. Re-parenting is only safe with the check moved to a caller that can read the real
+    /// chain; passing a navigation-derived list here reintroduces the original bug with the same
+    /// shape and no failing test.
+    /// </para>
+    /// <para>
+    /// Two cycles are possible and both are refused: making a category its own parent, and moving
+    /// it under one of its own descendants (which shows up as this category appearing in the new
+    /// parent's ancestor chain). Note the second is detected from the <i>parent's</i> ancestors
+    /// rather than from this category's descendants — the aggregate can see neither, but the
+    /// handler can read the former with one recursive query.
+    /// </para>
+    /// </remarks>
+    public void MoveTo(Guid? newParentId, IReadOnlyCollection<Guid> newParentAncestorIds)
+    {
+        ArgumentNullException.ThrowIfNull(newParentAncestorIds);
+
+        if (!IsActive)
+            throw new DomainException("Cannot move a deleted category.");
+
+        if (newParentId == Id)
+            throw new DomainException("A category cannot be its own parent.");
+
+        if (newParentId.HasValue && newParentAncestorIds.Contains(Id))
+            throw new DomainException("Cannot move a category beneath one of its own descendants.");
+
+        if (newParentId == ParentCategoryId)
+            return;
+
+        ParentCategoryId = newParentId;
+
+        // Cleared so a stale navigation cannot be written back: the caller passed an id, and the
+        // entity it points at is not loaded here. EF repopulates it on the next read.
+        ParentCategory = null;
+    }
+
     public static string GenerateSlug(string name)
     {
         var slug = name.ToLowerInvariant();

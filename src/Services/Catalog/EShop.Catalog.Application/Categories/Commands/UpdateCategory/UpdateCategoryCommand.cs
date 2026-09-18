@@ -25,5 +25,11 @@ public record UpdateCategoryCommand : IRequest<Result>, ICacheInvalidatingComman
     /// embed this category (M8) but need the loaded entity, so the handler adds them through
     /// <c>ICacheInvalidationContext</c>.
     /// </summary>
-    public IEnumerable<string> CacheKeysToInvalidate => [CategoryCacheKeys.Detail(Id), CategoryCacheKeys.All];
+    /// <remarks>
+    /// A4 (Admin panel S5): <c>CategoryCacheKeys.All</c> was removed — see
+    /// <c>CategoryCacheFamilies.CategoryList</c>. The family bump below replaces it.
+    /// </remarks>
+    public IEnumerable<string> CacheKeysToInvalidate => [CategoryCacheKeys.Detail(Id)];
+
+    public IEnumerable<string> CacheFamiliesToInvalidate => [CategoryCacheFamilies.CategoryList];
 }

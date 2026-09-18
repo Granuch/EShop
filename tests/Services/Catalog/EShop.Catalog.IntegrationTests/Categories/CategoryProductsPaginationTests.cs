@@ -42,8 +42,18 @@ public class CategoryProductsPaginationTests : AuthenticatedIntegrationTestBase
     }
 
     private async Task<PagedResponse<ProductResponse>> PageAsync(Guid categoryId, int pageNumber, int pageSize)
+        => await PageAsync(Client, categoryId, pageNumber, pageSize);
+
+    /// <summary>
+    /// Admin panel S5 (#54) made this endpoint's result depend on the caller's role, so a test that
+    /// means the public view has to pass a second client. Nulling
+    /// <c>Client.DefaultRequestHeaders.Authorization</c> would not do it — HttpClient merges its
+    /// default headers into any request that lacks them.
+    /// </summary>
+    private static async Task<PagedResponse<ProductResponse>> PageAsync(
+        HttpClient client, Guid categoryId, int pageNumber, int pageSize)
     {
-        var response = await Client.GetAsync(
+        var response = await client.GetAsync(
             $"{CategoriesEndpoint}/{categoryId}/products?PageNumber={pageNumber}&PageSize={pageSize}");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         return (await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>())!;
@@ -108,18 +118,27 @@ public class CategoryProductsPaginationTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
-    public async Task DraftsAreExcluded_EvenForAnAdmin()
+    public async Task DraftsAreExcludedForAnonymous_ButVisibleToAnAdmin()
     {
-        // Client is admin-authenticated. This endpoint stays published-only for every caller — see
-        // GetProductByCategoryQuery for why that is now a decision rather than a constraint.
+        // Admin panel S5 (#54) lifted the Stage 4 restriction this test used to pin. Back then the
+        // endpoint was published-only for EVERY caller, because an admin variant would have been a
+        // second exact cache key nothing evicted; the key has been in the versioned products:list
+        // family since Stage 6, so the variant is now invalidated correctly and the restriction was
+        // a decision rather than a constraint. The count assertions are the load-bearing half:
+        // TotalCount must describe what each caller can actually reach, or the pager offers pages
+        // that come back empty.
         var categoryId = await NewCategoryAsync();
         var published = await NewProductAsync(categoryId);
-        await NewProductAsync(categoryId, publish: false);
+        var draft = await NewProductAsync(categoryId, publish: false);
 
-        var page = await PageAsync(categoryId, 1, 10);
+        using var anonymous = Factory.CreateClient();
+        var publicPage = await PageAsync(anonymous, categoryId, 1, 10);
+        publicPage.Items.Select(p => p.Id).Should().Equal(published);
+        publicPage.TotalCount.Should().Be(1, "the count must describe what the caller can reach");
 
-        page.Items.Select(p => p.Id).Should().Equal(published);
-        page.TotalCount.Should().Be(1, "the count must describe what the caller can reach");
+        var adminPage = await PageAsync(categoryId, 1, 10);
+        adminPage.Items.Select(p => p.Id).Should().BeEquivalentTo([published, draft]);
+        adminPage.TotalCount.Should().Be(2);
     }
 
     [Test]
@@ -128,13 +147,16 @@ public class CategoryProductsPaginationTests : AuthenticatedIntegrationTestBase
         var categoryId = await NewCategoryAsync();
         var draft = await NewProductAsync(categoryId, publish: false);
 
-        // Populate the cache for this exact page.
-        (await PageAsync(categoryId, 1, 10)).Items.Should().BeEmpty();
+        // The ANONYMOUS view is the one a publish changes. Since S5 (#54) the admin client sees
+        // drafts, so priming with it would start from a page that already contains the product and
+        // the test would pass without any invalidation happening at all.
+        using var anonymous = Factory.CreateClient();
+        (await PageAsync(anonymous, categoryId, 1, 10)).Items.Should().BeEmpty();
 
         var publish = await Client.PostAsync($"{ProductsEndpoint}/{draft}/publish", null);
         publish.IsSuccessStatusCode.Should().BeTrue();
 
-        (await PageAsync(categoryId, 1, 10)).Items.Select(p => p.Id).Should().Equal(
+        (await PageAsync(anonymous, categoryId, 1, 10)).Items.Select(p => p.Id).Should().Equal(
             [draft], "a cached category page must not keep serving the pre-publish result");
     }
 

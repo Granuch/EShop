@@ -25,7 +25,8 @@ public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, Res
 
     public async Task<Result<List<CategoryDto>>> Handle(GetCategoriesQuery request, CancellationToken cancellationToken)
     {
-        var categories = await _categoryRepository.GetRootCategories(cancellationToken);
+        var categories = await _categoryRepository.GetRootCategories(
+            request.EffectiveIncludeInactive, cancellationToken);
 
         var dto = _mapper.Map<List<CategoryDto>>(categories);
         return Result<List<CategoryDto>>.Success(dto);

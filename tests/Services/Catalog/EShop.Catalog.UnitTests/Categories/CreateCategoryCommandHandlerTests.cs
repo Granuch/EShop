@@ -189,9 +189,17 @@ public class CreateCategoryCommandHandlerTests
     {
         var parentId = Guid.NewGuid();
 
+        // A4 (Admin panel S5): the root list is no longer evicted by exact key. Its key gained an
+        // includeInactive variant, so no single string can name every live entry — the versioned
+        // family below replaces it, and re-adding CategoryCacheKeys.All here would evict a key
+        // nothing writes any more, silently removing nothing.
         Assert.That(new CreateCategoryCommand { Name = "C", ParentCategoryId = parentId }.CacheKeysToInvalidate,
-            Is.EquivalentTo(new[] { CategoryCacheKeys.All, CategoryCacheKeys.Detail(parentId) }));
+            Is.EquivalentTo(new[] { CategoryCacheKeys.Detail(parentId) }));
         Assert.That(new CreateCategoryCommand { Name = "Root" }.CacheKeysToInvalidate,
-            Is.EquivalentTo(new[] { CategoryCacheKeys.All }));
+            Is.Empty);
+
+        Assert.That(new CreateCategoryCommand { Name = "Root" }.CacheFamiliesToInvalidate,
+            Is.EquivalentTo(new[] { CategoryCacheFamilies.CategoryList }),
+            "without the family bump a new category stays invisible in both list variants for the full TTL");
     }
 }

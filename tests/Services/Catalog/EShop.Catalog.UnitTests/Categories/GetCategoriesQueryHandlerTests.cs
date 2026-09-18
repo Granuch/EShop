@@ -37,7 +37,7 @@ public class GetCategoriesQueryHandlerTests
         };
 
         _categoryRepositoryMock
-            .Setup(x => x.GetRootCategories(It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetRootCategories(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(categories);
 
         var query = new GetCategoriesQuery();
@@ -55,7 +55,7 @@ public class GetCategoriesQueryHandlerTests
     {
         // Arrange
         _categoryRepositoryMock
-            .Setup(x => x.GetRootCategories(It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetRootCategories(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Category>());
 
         var query = new GetCategoriesQuery();
