@@ -368,6 +368,7 @@ try
         .AddEfConcurrency()
         .AddProductSkuConflict()
         .AddCategorySlugConflict()
+        .AddProductAttributeConflict()
         .AddEfDuplicateKey()
         .AddMalformedJsonBody());
 

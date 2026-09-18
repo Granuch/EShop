@@ -47,9 +47,14 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/products/{id:guid}/discount",
         "DELETE /api/v1/products/{id:guid}/discount",
         "POST /api/v1/products/{id:guid}/images",
+        "PUT /api/v1/products/{id:guid}/images/reorder",
+        "PUT /api/v1/products/{id:guid}/images/{imageId:guid}",
         "DELETE /api/v1/products/{id:guid}/images/{imageId:guid}",
         "PUT /api/v1/products/{id:guid}/images/{imageId:guid}/main",
         "POST /api/v1/products/{id:guid}/attributes",
+        "PUT /api/v1/products/{id:guid}/attributes",
+        "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}",
+        "DELETE /api/v1/products/{id:guid}/attributes/{attributeId:guid}",
         "POST /api/v1/categories",
         "PUT /api/v1/categories/{id:guid}",
         "DELETE /api/v1/categories/{id:guid}",
@@ -80,7 +85,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         var target = route.Contains("/categories") ? _categoryId : _productId;
         var path = route[(method.Length + 1)..]
             .Replace("{id:guid}", target.ToString())
-            .Replace("{imageId:guid}", Guid.NewGuid().ToString());
+            .Replace("{imageId:guid}", Guid.NewGuid().ToString())
+            .Replace("{attributeId:guid}", Guid.NewGuid().ToString());
 
         var body = BodyFor(route);
         using var request = new HttpRequestMessage(new HttpMethod(method), path)
@@ -176,6 +182,13 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/products/{id:guid}/discount" => new SetProductDiscountRequest { DiscountPrice = 1m },
         "POST /api/v1/products/{id:guid}/images" => new AddProductImageRequest { Url = "https://cdn.example.com/forbidden.jpg" },
         "POST /api/v1/products/{id:guid}/attributes" => new AddProductAttributeRequest { Name = "Color", Value = "Red" },
+        "PUT /api/v1/products/{id:guid}/images/{imageId:guid}" => new UpdateProductImageRequest { Url = "https://cdn.example.com/forbidden-edit.jpg" },
+        "PUT /api/v1/products/{id:guid}/images/reorder" => new ReorderProductImagesRequest { ImageIds = [Guid.NewGuid()] },
+        "PUT /api/v1/products/{id:guid}/attributes" => new ReplaceProductAttributesRequest
+        {
+            Attributes = [new ReplaceProductAttributeItem { Name = "Color", Value = "Forbidden" }]
+        },
+        "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}" => new UpdateProductAttributeRequest { Name = "Color", Value = "Forbidden" },
         "POST /api/v1/categories" => new CreateCategoryRequest { Name = "Forbidden Category" },
         "PUT /api/v1/categories/{id:guid}" => new UpdateCategoryRequest { Id = _categoryId, Name = "Renamed" },
         _ => null

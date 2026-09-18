@@ -58,6 +58,37 @@ public static class CatalogProblemDetailsExtensions
                 : null);
 
     /// <summary>
+    /// Name of the expression unique index created by
+    /// <c>20260918131107_ProductAttributeNameUniqueIndex</c> (M1, Admin panel S3). Unlike the other
+    /// two index names here, this one has no counterpart in <c>CatalogDbContext.OnModelCreating</c>
+    /// — the index is on <c>lower("Name")</c>, which EF Core cannot model — so the migration is the
+    /// only other place it appears. Renaming it there without renaming it here downgrades the
+    /// response to a generic 409 with nothing failing.
+    /// </summary>
+    private const string ProductAttributeNameIndexName = "IX_ProductAttributes_ProductId_Name";
+
+    /// <summary>
+    /// The attribute counterpart of <see cref="AddProductSkuConflict"/> (Admin panel S3).
+    /// <c>Product.AddAttribute</c> and <c>Product.UpdateAttribute</c> refuse a duplicate name they
+    /// can see, which is the ordinary case and stays a 400 <c>DomainException</c>. This answers the
+    /// one they could not see — a name inserted by another request between the load and the save —
+    /// with a 409 carrying the same vocabulary, rather than the generic <c>DuplicateResource</c>.
+    /// Register before <c>AddEfDuplicateKey()</c>.
+    /// </summary>
+    public static ProblemDetailsExceptionOptions AddProductAttributeConflict(
+        this ProblemDetailsExceptionOptions options)
+        => options.Add((exception, context) =>
+            exception is DbUpdateException { InnerException: PostgresException postgresEx }
+            && postgresEx.SqlState == PostgresErrorCodes.UniqueViolation
+            && postgresEx.ConstraintName == ProductAttributeNameIndexName
+                ? EShopProblem.Create(
+                    context,
+                    StatusCodes.Status409Conflict,
+                    detail: "An attribute with the same name was added to this product concurrently. Reload the product and retry.",
+                    errorCode: "Product.AttributeConflict")
+                : null);
+
+    /// <summary>
     /// The two IsActive-filtered unique slug indexes on <c>Categories</c> (roots, and per parent).
     /// Must match the names in <c>CatalogDbContext.OnModelCreating</c>.
     /// </summary>

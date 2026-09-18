@@ -44,6 +44,37 @@ public record AddProductAttributeRequest
     public string Value { get; init; } = string.Empty;
 }
 
+// Admin panel S3. Full-replacement PUT semantics, unlike UpdateProductRequest above: Url is
+// required and AltText is replaced outright, because these endpoints are new and have no existing
+// caller sending a partial body to keep working.
+public record UpdateProductImageRequest
+{
+    public string Url { get; init; } = string.Empty;
+    public string? AltText { get; init; }
+}
+
+public record ReorderProductImagesRequest
+{
+    public IReadOnlyList<Guid>? ImageIds { get; init; }
+}
+
+public record UpdateProductAttributeRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
+}
+
+public record ReplaceProductAttributesRequest
+{
+    public IReadOnlyList<ReplaceProductAttributeItem>? Attributes { get; init; }
+}
+
+public record ReplaceProductAttributeItem
+{
+    public string Name { get; init; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
+}
+
 public record UpdateProductRequest
 {
     public Guid ProductId { get; init; }

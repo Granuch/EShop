@@ -232,6 +232,16 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(pa => pa.Value)
                 .IsRequired()
                 .HasMaxLength(200);
+
+            // NOTE: there IS a unique index on (ProductId, lower(Name)) — the backstop for the
+            // case-insensitive dedupe in Product.AddAttribute/UpdateAttribute — but it cannot be
+            // declared here. EF Core has no way to express an expression index, and the
+            // case-sensitive HasIndex(pa => new { pa.ProductId, pa.Name }) that it *can* express
+            // would be the wrong index: it would accept the "Color"/"color" pair the domain
+            // refuses. It is created as raw SQL by 20260918131107_ProductAttributeNameUniqueIndex
+            // (M1, Admin panel S3) under the name IX_ProductAttributes_ProductId_Name, which
+            // CatalogProblemDetailsExtensions.AddProductAttributeConflict() matches on. Do not
+            // "complete the model" by adding a HasIndex for it.
         });
 
         base.OnModelCreating(modelBuilder);

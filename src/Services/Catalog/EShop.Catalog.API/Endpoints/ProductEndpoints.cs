@@ -10,9 +10,14 @@ using EShop.Catalog.Application.Products.Commands.PublishProduct;
 using EShop.Catalog.Application.Products.Commands.SetProductDiscount;
 using EShop.Catalog.Application.Products.Commands.UnpublishProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
+using EShop.Catalog.Application.Products.Commands.RemoveProductAttribute;
 using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
+using EShop.Catalog.Application.Products.Commands.ReorderProductImages;
+using EShop.Catalog.Application.Products.Commands.ReplaceProductAttributes;
 using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
+using EShop.Catalog.Application.Products.Commands.UpdateProductAttribute;
+using EShop.Catalog.Application.Products.Commands.UpdateProductImage;
 using EShop.Catalog.Application.Products.Queries.GetNewestProducts;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
@@ -259,6 +264,41 @@ public static class ProductEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // PUT /api/v1/products/{id}/images/reorder (admin only)
+        //
+        // Declared before the {imageId:guid} routes below for readability only — it cannot actually
+        // be shadowed by them, because "reorder" does not satisfy the :guid constraint.
+        group.MapPut("/{id:guid}/images/reorder", async (Guid id, ReorderProductImagesCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("ReorderProductImages")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/images/{imageId} (admin only)
+        group.MapPut("/{id:guid}/images/{imageId:guid}", async (Guid id, Guid imageId, UpdateProductImageCommand command, IMediator mediator) =>
+        {
+            // The route owns both ids, so the body never has to repeat them.
+            var result = await mediator.Send(command with { ProductId = id, ImageId = imageId });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("UpdateProductImage")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
         // DELETE /api/v1/products/{id}/images/{imageId} (admin only)
         group.MapDelete("/{id:guid}/images/{imageId:guid}", async (Guid id, Guid imageId, IMediator mediator) =>
         {
@@ -313,6 +353,60 @@ public static class ProductEndpoints
         .RequireAuthorization("Admin")
         .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/attributes (admin only) — replaces the whole set
+        group.MapPut("/{id:guid}/attributes", async (Guid id, ReplaceProductAttributesCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("ReplaceProductAttributes")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // PUT /api/v1/products/{id}/attributes/{attributeId} (admin only)
+        group.MapPut("/{id:guid}/attributes/{attributeId:guid}", async (Guid id, Guid attributeId, UpdateProductAttributeCommand command, IMediator mediator) =>
+        {
+            // The route owns both ids, so the body never has to repeat them.
+            var result = await mediator.Send(command with { ProductId = id, AttributeId = attributeId });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("UpdateProductAttribute")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        // A duplicate name this request can see is a 400 from the domain; one that arrives
+        // concurrently reaches M1's unique index and becomes Product.AttributeConflict.
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // DELETE /api/v1/products/{id}/attributes/{attributeId} (admin only)
+        group.MapDelete("/{id:guid}/attributes/{attributeId:guid}", async (Guid id, Guid attributeId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new RemoveProductAttributeCommand
+            {
+                ProductId = id,
+                AttributeId = attributeId
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("RemoveProductAttribute")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound);
     }
 }
