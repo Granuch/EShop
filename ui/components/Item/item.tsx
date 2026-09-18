@@ -1,27 +1,27 @@
 import React from 'react'
 import Image from "next/image";
 import Link from 'next/link';
+import { itemData } from './types/itemType';
 
-function Item() {
+type itemProp = {
+    itemData:itemData
+}
 
-    const item: {id:number; name:string; desc:string} = {
-        id: 1,
-        name: "Піджак у стилі Наполеон",
-        desc: "2 599"
-    }
+function Item({itemData}:itemProp) {
 
   return (
     <div className='w-fit'>
-        <Link href="/test" className='hover:cursor-pointer'>
+        <Link href={`/product/${itemData.id}`} className='hover:cursor-pointer'>
+        <div className='w-75 h-100 relative'>
             <Image 
-                src="/372KT-MLC-030-2-1325574.avif"
-                alt={item.name}
-                width={300}
-                height={300}
+                src={itemData.mainImageUrl ? itemData.mainImageUrl : "/372KT-MLC-030-2-1325574.avif"}
+                alt={itemData.name}
+                fill
             />
+        </div>
             <div className='flex flex-col gap-0.5 mt-0.5'>
-                <p className=''>{item.name}</p>
-                <p className='text-sm'>{`${item.desc}$`}</p>
+                <p className=''>{itemData.name}</p>
+                <p className='text-sm'>{`${itemData.description ? itemData.description : ""}`}</p>
             </div>
         </Link>
     </div>

@@ -128,3 +128,5 @@
     @apply font-sans;
   }
 }
+
+@theme { --breakpoint-2k: 2100px; --breakpoint-4k: 3840px; }

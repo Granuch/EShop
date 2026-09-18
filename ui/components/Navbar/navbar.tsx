@@ -35,16 +35,13 @@ async function Navbar() {
                 <div>Acount</div>
               </Link>
             ) : (
-              <Link
-                href="/profile"
-                className="flex gap-1 text-base hover:cursor-pointer hover:underline"
-              >
-                <User />
-                <div>Acount</div>
-              </Link>
+              <div className="flex gap-1 text-base hover:cursor-pointer hover:underline">
+                <User/>
+                <div>{session.firstName}</div>
+              </div>
             )}
             <Link
-              href="/"
+              href="/basket"
               className="flex gap-1 text-base hover:cursor-pointer hover:underline"
             >
               <ShoppingCart />

@@ -38,7 +38,7 @@ function LoginForm() {
         <div className='flex flex-col mt-36 ml-64 items-center gap-8'>
             <h2 className='text-2xl'>Already registered?</h2>
             <input type="text"  placeholder='Email' name='Email' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
-            <input type="text" name='Password' placeholder='Pasword' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
+            <input type="password" name='Password' placeholder='Pasword' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
             <button className='text-white text-lg bg-black w-full py-3 hover:cursor-pointer hover:opacity-75' type='submit'>Sign in</button>
             <div>
                 <p className='text-sm text-gray-400'>Or continue by using</p>
