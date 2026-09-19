@@ -12,6 +12,7 @@ using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Infrastructure.Data;
+using EShop.Identity.Infrastructure.QueryServices;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
 using EShop.Identity.Infrastructure.Security;
@@ -110,6 +111,11 @@ public static class ServiceCollectionExtensions
         // Add repositories
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
+
+        // Read-side projections for the admin user screens (Admin panel S6). Separate from
+        // IUserRepository on purpose: that is the write-side boundary and returns tracked
+        // ApplicationUser aggregates, while this only ever projects into records.
+        services.AddScoped<IAdminUserQueryService, AdminUserQueryService>();
 
         // Register IUnitOfWork (implemented by IdentityDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());

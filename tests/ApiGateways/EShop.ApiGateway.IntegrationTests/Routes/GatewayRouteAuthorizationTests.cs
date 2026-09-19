@@ -40,6 +40,8 @@ public sealed class GatewayRouteAuthorizationTests
         ["identity-route"] = null,
         ["identity-account-route"] = "Authenticated",
         ["identity-roles-route"] = "Admin",
+        // G1 (Admin panel S6). Everything under /api/v1/admin is admin-only whatever the method.
+        ["admin-users-route"] = "Admin",
         ["catalog-products-write-route"] = "Admin",
         ["catalog-products-read-route"] = null,
         // Admin panel S4. The one admin-only GET under a prefix whose read route is anonymous; it
@@ -211,9 +213,22 @@ public sealed class GatewayRouteAuthorizationTests
     [Test]
     public async Task AnUnroutedAdminPath_Is404_NotAnonymouslyProxied()
     {
-        // Until an /api/v1/admin/** route exists, the safe answer is "no such route". This pins the
-        // current state so the stage that adds admin routes has to add them deliberately.
-        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/users", RouteAuthorizationApiFactory.AdminToken()),
+        // This used to probe /api/v1/admin/users, pinning "no /api/v1/admin/** route exists yet" so
+        // that the stage adding them had to do so deliberately. It worked: S4 added
+        // admin-catalog-route and S6 admin-users-route, and this test went red at each.
+        //
+        // The property it guards is still worth keeping, so it now probes a path the plan reserves
+        // but has not built — /api/v1/admin/settings belongs to S19. There is deliberately NO
+        // catch-all /api/v1/admin/{**} route: each service's admin family is routed explicitly, so
+        // an unbuilt one answers "no such route" rather than being proxied somewhere. Move this
+        // probe again when S19 lands.
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/settings", RouteAuthorizationApiFactory.AdminToken()),
             Is.EqualTo(HttpStatusCode.NotFound));
+
+        // And the two that DO exist must not be anonymous — the half that would actually be a hole.
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/users", token: null),
+            Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/catalog/low-stock", token: null),
+            Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 }

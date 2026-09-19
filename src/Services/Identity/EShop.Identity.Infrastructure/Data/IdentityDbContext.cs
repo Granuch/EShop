@@ -55,6 +55,15 @@ public class IdentityDbContext : BaseIdentityDbContext<ApplicationUser, Applicat
             entity.HasIndex(u => u.GoogleId).IsUnique().HasFilter("\"GoogleId\" IS NOT NULL");
             entity.HasIndex(u => u.GitHubId).IsUnique().HasFilter("\"GitHubId\" IS NOT NULL");
 
+            // M10 (Admin panel S6). The admin user list defaults to CreatedAt-descending and the
+            // stats tile counts by CreatedAt within a window, so that column carries both reads.
+            // (IsDeleted, IsActive) is composite and leads with IsDeleted because the global query
+            // filter puts a predicate on it in EVERY query — it is the one column always in the
+            // WHERE clause, the same reasoning that made Status the leading column in Catalog's
+            // M2/M3. Neither is unique and neither changes a column, so this is purely additive.
+            entity.HasIndex(u => u.CreatedAt, "IX_users_CreatedAt");
+            entity.HasIndex(u => new { u.IsDeleted, u.IsActive }, "IX_users_IsDeleted_IsActive");
+
             // Soft delete is enforced here rather than re-checked by hand in every handler.
             // Without it, `IsDeleted` was advisory: six handlers tested it and five did not, so
             // whether a deleted account could act depended on which code path it reached.

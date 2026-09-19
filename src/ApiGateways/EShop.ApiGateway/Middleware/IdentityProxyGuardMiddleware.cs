@@ -15,7 +15,12 @@ public sealed class IdentityProxyGuardMiddleware
     [
         "/api/v1/auth",
         "/api/v1/account",
-        "/api/v1/roles"
+        "/api/v1/roles",
+        // G6 (Admin panel S6). Must be added alongside any new /api/v1/admin/users route: this
+        // array is what applies the request-body cap and turns a bare 502 into a ProblemDetails
+        // body. It is matched by prefix only, so a route the gateway proxies but this list does not
+        // name is guarded by nothing, silently. ProxyGuardCoverageTests is what catches it.
+        "/api/v1/admin/users"
     ];
 
     private readonly RequestDelegate _next;
