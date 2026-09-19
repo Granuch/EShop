@@ -14,15 +14,20 @@ namespace EShop.Identity.IntegrationTests.Admin;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Paired behavioural and structural checks, for the reason the S6 reads fixture documents: each
-/// catches what the other cannot. Downgrading one action's policy turns only the behavioural half
-/// red; redefining the permission policies as <c>RequireAuthenticatedUser()</c> turns only that
-/// half red while the structural half stays green.
+/// Paired behavioural and structural checks — but <b>not</b> in the symmetric way the S6 reads
+/// fixture describes, and falsification is what showed the difference. Removing one action's
+/// <c>users.manage</c> attribute turns <b>only the structural half</b> red: the class-level
+/// <c>users.read</c> still applies, and the seeded non-admin holds neither permission, so the 403
+/// is unchanged. The behavioural half only moves when <i>both</i> policies come off an action —
+/// the repo's "two redundant lines" shape, verified by a round that removed each and then both.
 /// </para>
 /// <para>
-/// The structural half is the more valuable one here, because thirteen near-identical actions are
-/// exactly the shape where one gets added without its attribute. It fails the build on a write
-/// endpoint that carries no manage-level policy <b>and</b> on one missing from the list below.
+/// So the structural half is the load-bearing one here, and that is fitting: fourteen
+/// near-identical actions are exactly the shape where one gets added without its attribute. It
+/// fails the build on a write endpoint carrying no manage-level policy <b>and</b> on one missing
+/// from the list below. The behavioural half is what catches the other direction — a permission
+/// policy redefined as <c>RequireAuthenticatedUser()</c> leaves every attribute in place and every
+/// structural assertion green.
 /// </para>
 /// </remarks>
 [TestFixture]
