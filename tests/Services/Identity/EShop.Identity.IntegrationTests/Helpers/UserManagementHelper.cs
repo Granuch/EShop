@@ -7,10 +7,34 @@ using Microsoft.Extensions.DependencyInjection;
 namespace EShop.Identity.IntegrationTests.Helpers;
 
 /// <summary>
-/// Helper methods for managing test users
+/// Helper methods for managing test users.
 /// </summary>
+/// <remarks>
+/// <b>Every method opens its own DI scope, and that is load-bearing (Admin panel S7).</b> Callers
+/// pass <c>Factory.Services</c>, the root provider — resolving a scoped <c>IdentityDbContext</c>
+/// from it creates one in the <i>root</i> scope, which then lives for the whole host. Under the
+/// fixture-scoped host (PERF-02) that is the whole fixture, so one long-lived change tracker
+/// accumulated every user any test ever created, while the API mutated those same rows through its
+/// own request scopes and bumped their <c>ConcurrencyStamp</c>. The tracked copies kept the old
+/// stamp, EF's identity resolution handed a later query the stale instance rather than refreshing
+/// it, and the next <c>SaveChangesAsync</c> — including one belonging to a completely different
+/// test — failed with <c>DbUpdateConcurrencyException: expected to affect 1 row(s), but actually
+/// affected 0</c>.
+/// <para>
+/// It surfaced as six failures that all passed in isolation, attributed to whichever test happened
+/// to trigger the flush rather than to the one that left the stale entity. A fresh scope per call
+/// means nothing outlives the helper.
+/// </para>
+/// </remarks>
 public static class UserManagementHelper
 {
+    /// <summary>
+    /// A short-lived scope, whoever the caller resolved from — creating one from a scope's own
+    /// provider is legal and still gives a fresh <c>IdentityDbContext</c>.
+    /// </summary>
+    private static IServiceScope NewScope(IServiceProvider services)
+        => services.GetRequiredService<IServiceScopeFactory>().CreateScope();
+
     public static async Task<string> CreateTestUserAsync(
         IServiceProvider services,
         string? email = null,
@@ -19,7 +43,8 @@ public static class UserManagementHelper
         bool emailConfirmed = true,
         bool isActive = true)
     {
-        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        using var scope = NewScope(services);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         
         var testEmail = email ?? $"test_{Guid.NewGuid()}@test.com";
         var testPassword = password ?? "Test@123456";
@@ -60,7 +85,8 @@ public static class UserManagementHelper
     /// </remarks>
     public static async Task AddRoleAsync(IServiceProvider services, string userId, string role)
     {
-        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        using var scope = NewScope(services);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.FindByIdAsync(userId)
             ?? throw new InvalidOperationException($"User '{userId}' was not found.");
 
@@ -82,7 +108,8 @@ public static class UserManagementHelper
     /// </remarks>
     public static async Task SoftDeleteUserAsync(IServiceProvider services, string userId)
     {
-        var dbContext = services.GetRequiredService<IdentityDbContext>();
+        using var scope = NewScope(services);
+        var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
 
         var user = await dbContext.Users
             .IgnoreQueryFilters()
@@ -102,7 +129,8 @@ public static class UserManagementHelper
     /// </remarks>
     public static async Task<List<string>> GetRefreshTokenHashesAsync(IServiceProvider services, string userId)
     {
-        var dbContext = services.GetRequiredService<IdentityDbContext>();
+        using var scope = NewScope(services);
+        var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
 
         return await dbContext.RefreshTokens
             .AsNoTracking()
@@ -113,7 +141,8 @@ public static class UserManagementHelper
 
     public static async Task DeleteTestUserAsync(IServiceProvider services, string userId)
     {
-        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        using var scope = NewScope(services);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.FindByIdAsync(userId);
         
         if (user != null)
@@ -122,9 +151,66 @@ public static class UserManagementHelper
         }
     }
 
+    /// <summary>
+    /// Turns two-factor authentication on for a user without going through enrolment (Admin panel
+    /// S7).
+    /// </summary>
+    /// <remarks>
+    /// The real path needs a valid TOTP code from an authenticator app, which a test cannot
+    /// produce, so the flag is set directly. That is enough for the admin disable endpoint, whose
+    /// whole point is that it does <b>not</b> ask for a code.
+    /// </remarks>
+    public static async Task SetTwoFactorEnabledAsync(IServiceProvider services, string userId, bool enabled)
+    {
+        using var scope = NewScope(services);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByIdAsync(userId)
+            ?? throw new InvalidOperationException($"User '{userId}' was not found.");
+
+        var result = await userManager.SetTwoFactorEnabledAsync(user, enabled);
+        if (!result.Succeeded)
+            throw new InvalidOperationException($"Failed to set 2FA: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+    }
+
+    /// <summary>
+    /// The stored <c>AccessFailedCount</c> (Admin panel S7), read straight from the row so an
+    /// unlock's effect can be asserted rather than inferred from a status code.
+    /// </summary>
+    public static async Task<int> GetAccessFailedCountAsync(IServiceProvider services, string userId)
+    {
+        using var scope = NewScope(services);
+        var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+
+        return await dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(u => u.Id == userId)
+            .Select(u => u.AccessFailedCount)
+            .SingleAsync();
+    }
+
+    /// <summary>
+    /// Sets <c>AccessFailedCount</c> directly (Admin panel S7), so the unlock test has something to
+    /// clear. Nothing in the login path increments it — brute force is tracked in Redis by
+    /// <c>ILoginAttemptTracker</c> instead — so there is no way to arrange this through the API.
+    /// </summary>
+    public static async Task SetAccessFailedCountAsync(IServiceProvider services, string userId, int count)
+    {
+        using var scope = NewScope(services);
+        var dbContext = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+
+        var user = await dbContext.Users
+            .IgnoreQueryFilters()
+            .SingleAsync(u => u.Id == userId);
+
+        user.AccessFailedCount = count;
+        await dbContext.SaveChangesAsync();
+    }
+
     public static async Task<string?> GetUserIdByEmailAsync(IServiceProvider services, string email)
     {
-        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        using var scope = NewScope(services);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.FindByEmailAsync(email);
         return user?.Id;
     }
@@ -134,7 +220,8 @@ public static class UserManagementHelper
         string userId,
         string newPassword)
     {
-        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        using var scope = NewScope(services);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.FindByIdAsync(userId);
         
         if (user == null)

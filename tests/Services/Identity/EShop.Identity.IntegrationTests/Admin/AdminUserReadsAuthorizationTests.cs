@@ -62,13 +62,22 @@ public class AdminUserReadsAuthorizationTests : AuthenticatedIntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    /// <summary>
+    /// Every <b>read</b> action carries <c>users.read</c> and is listed above.
+    /// </summary>
+    /// <remarks>
+    /// S7 narrowed this from "every action on the controller" to "every GET". The controller gained
+    /// thirteen write actions, so the count assertion below went red — which is the test doing its
+    /// job, not a regression. The writes get the same treatment in
+    /// <c>AdminUserWritesAuthorizationTests</c>, where the policy they must additionally carry is
+    /// the thing worth asserting. Splitting on the verb keeps each half able to say something
+    /// specific; one combined list could only assert the class-level policy they share.
+    /// </remarks>
     [Test]
-    public void EveryAdminUserEndpoint_CarriesTheUsersReadPolicy_AndIsListedHere()
+    public void EveryAdminUserRead_CarriesTheUsersReadPolicy_AndIsListedHere()
     {
-        var endpoints = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .Where(e => e.RoutePattern.RawText?.StartsWith("api/v1/admin/users", StringComparison.OrdinalIgnoreCase) == true
-                     || e.RoutePattern.RawText?.StartsWith("/api/v1/admin/users", StringComparison.OrdinalIgnoreCase) == true)
+        var endpoints = AdminUserEndpoints.Of(Factory.Services)
+            .Where(AdminUserEndpoints.IsRead)
             .ToList();
 
         endpoints.Should().NotBeEmpty("the controller must be mapped at all");
@@ -83,10 +92,10 @@ public class AdminUserReadsAuthorizationTests : AuthenticatedIntegrationTestBase
                 .Should().BeNull($"{endpoint.RoutePattern.RawText} must not be anonymous");
         }
 
-        // A new action added to the controller without a line in AdminOnlyPaths above would ship
-        // untested behaviourally, so the counts are compared. Five actions, five paths.
+        // A new read action added to the controller without a line in AdminOnlyPaths above would
+        // ship untested behaviourally, so the counts are compared.
         endpoints.Should().HaveCount(AdminOnlyPaths.Length,
-            "an action added to AdminUsersController must also be added to AdminOnlyPaths");
+            "a GET action added to AdminUsersController must also be added to AdminOnlyPaths");
     }
 
     [Test]

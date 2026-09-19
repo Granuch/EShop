@@ -39,8 +39,19 @@ public sealed record AdminUserDetailsResponse
 {
     public string Id { get; init; } = string.Empty;
     public string? Email { get; init; }
+
+    /// <summary>
+    /// Added in S7 so <c>PUT /{id}/email</c>'s contract can be asserted: the user name has to move
+    /// with the email, and a DTO that did not declare it would deserialize happily while the two
+    /// silently diverged.
+    /// </summary>
+    public string? UserName { get; init; }
+
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;
+    public string? PhoneNumber { get; init; }
+    public string? ProfilePictureUrl { get; init; }
+    public DateTimeOffset? LockoutEnd { get; init; }
     public bool EmailConfirmed { get; init; }
     public bool TwoFactorEnabled { get; init; }
     public bool IsActive { get; init; }
