@@ -624,6 +624,26 @@ public class AdminUserWritesTests : AuthenticatedIntegrationTestBase
         (await LoginAsync(email, DefaultPassword)).AccessToken.Should().NotBeNullOrEmpty();
     }
 
+    [Test]
+    public async Task Unlock_AlsoClearsTheBruteForceTracker()
+    {
+        // The second lockout, and the one that actually stops a real victim signing in.
+        // LoginCommandHandler consults ILoginAttemptTracker before checking the password and never
+        // increments AccessFailedCount, so an unlock that only cleared Identity's fields would
+        // look complete on the detail card and change nothing for the user.
+        var email = UniqueEmail("tracker");
+        var userId = await UserManagementHelper.CreateTestUserAsync(Factory.Services, email);
+        await UserManagementHelper.RecordFailedLoginAttemptsAsync(Factory.Services, email, 3);
+        (await UserManagementHelper.GetTrackedFailedAttemptsAsync(Factory.Services, email))
+            .Should().BeGreaterThan(0, "precondition: the tracker is counting");
+
+        var response = await Client.PostAsync($"{Endpoint}/{userId}/unlock", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await UserManagementHelper.GetTrackedFailedAttemptsAsync(Factory.Services, email))
+            .Should().Be(0, "ResetAccountAttemptsAsync exists for administrators and this is its only caller");
+    }
+
     #endregion
 
     #region Reset password (#12)

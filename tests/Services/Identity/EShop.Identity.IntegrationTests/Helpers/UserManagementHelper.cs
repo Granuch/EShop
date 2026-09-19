@@ -1,4 +1,5 @@
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -205,6 +206,36 @@ public static class UserManagementHelper
 
         user.AccessFailedCount = count;
         await dbContext.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Records failed login attempts against <c>ILoginAttemptTracker</c> (Admin panel S7).
+    /// </summary>
+    /// <remarks>
+    /// This is the counter that actually blocks a brute-force victim — <c>LoginCommandHandler</c>
+    /// consults it before the password is even checked, and never touches ASP.NET Identity's
+    /// <c>AccessFailedCount</c>. Driving it directly rather than by posting wrong passwords keeps
+    /// the arrangement independent of the throttling thresholds, which would otherwise make the
+    /// test fail whenever someone tuned them.
+    /// </remarks>
+    public static async Task RecordFailedLoginAttemptsAsync(
+        IServiceProvider services, string email, int attempts)
+    {
+        using var scope = NewScope(services);
+        var tracker = scope.ServiceProvider.GetRequiredService<ILoginAttemptTracker>();
+
+        for (var i = 0; i < attempts; i++)
+        {
+            await tracker.RecordFailedAttemptAsync(email, "203.0.113.7");
+        }
+    }
+
+    /// <summary>The tracker's current failed-attempt count for an account (Admin panel S7).</summary>
+    public static async Task<int> GetTrackedFailedAttemptsAsync(IServiceProvider services, string email)
+    {
+        using var scope = NewScope(services);
+        var tracker = scope.ServiceProvider.GetRequiredService<ILoginAttemptTracker>();
+        return await tracker.GetFailedAttemptCountAsync(email);
     }
 
     public static async Task<string?> GetUserIdByEmailAsync(IServiceProvider services, string email)
