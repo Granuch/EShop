@@ -121,6 +121,63 @@ public class Order : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Changes an existing line's quantity, in place (Admin panel S8). Delete-and-re-add would work
+    /// against <c>RemoveItem</c>'s "an order must have at least one item" guard for a single-line
+    /// order, and would mint a new <c>OrderItem.Id</c> for a line the client is still addressing.
+    ///
+    /// <para>
+    /// Same Pending-only rule as <see cref="AddItem"/> and <see cref="RemoveItem"/>: the quantity is
+    /// an input to <see cref="TotalPrice"/>, and once paid the total is what the customer was charged.
+    /// Setting the quantity it already has is a no-op rather than an error.
+    /// </para>
+    /// </summary>
+    /// <exception cref="DomainException">
+    /// The order is not pending, the quantity is not positive, the item is not on this order, or the
+    /// resulting total would exceed <see cref="MaxTotal"/>.
+    /// </exception>
+    public void UpdateItemQuantity(Guid itemId, int quantity)
+    {
+        EnsurePending("Items can only be changed while the order is pending");
+
+        if (quantity <= 0)
+            throw new DomainException("Quantity must be greater than zero.");
+
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new DomainException("Order item not found.");
+
+        // Checked against the total the change WOULD produce, before the change, so a refused line
+        // leaves the order exactly as it was — the same ordering AddItem uses.
+        EnsureStorable(TotalPrice - item.SubTotal + (item.UnitPrice * quantity));
+
+        item.ChangeQuantity(quantity);
+        RecalculateTotal();
+    }
+
+    /// <summary>
+    /// Changes where the order ships to (Admin panel S8) — a customer who moved, or an admin fixing a
+    /// typo before the parcel leaves.
+    ///
+    /// <para>
+    /// Allowed while Pending <b>or</b> Paid, refused from Shipped onward: once a shipment exists the
+    /// address on the order no longer decides where the goods go, so accepting the edit would report
+    /// a delivery address the parcel is not travelling to. Cancelled and Refunded are refused for the
+    /// same reason in reverse — they are final, and nothing will be delivered.
+    /// </para>
+    /// </summary>
+    /// <exception cref="DomainException">The order is past Paid.</exception>
+    public void UpdateShippingAddress(Address address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+
+        if (Status is not (OrderStatus.Pending or OrderStatus.Paid))
+            throw new DomainException(
+                "The shipping address can only be changed before the order ships; "
+                + $"this order is {Status.ToString().ToLowerInvariant()}.");
+
+        ShippingAddress = address;
+    }
+
+    /// <summary>
     /// Records a successful payment. <paramref name="paidAmount"/> must equal <see cref="TotalPrice"/>:
     /// Payment charges the total it was sent when the order was created, so a mismatch means the items
     /// changed after the charge, or the charge was wrong — and marking the order paid anyway would

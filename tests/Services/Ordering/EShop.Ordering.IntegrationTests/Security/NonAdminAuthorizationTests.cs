@@ -45,10 +45,13 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["GET /api/v1/orders"] = "Admin",
         ["GET /api/v1/orders/{id:guid}"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/items"] = "OrderOwnerOrAdmin",
+        ["PUT /api/v1/orders/{id:guid}/items/{itemId:guid}"] = "OrderOwnerOrAdmin",
         ["DELETE /api/v1/orders/{id:guid}/items/{itemId:guid}"] = "OrderOwnerOrAdmin",
+        ["PUT /api/v1/orders/{id:guid}/shipping-address"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/cancel"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/ship"] = "Admin",
         ["POST /api/v1/orders/{id:guid}/deliver"] = "Admin",
+        ["GET /api/v1/orders/stats"] = "Admin",
         ["GET /api/v1/users/{userId}/orders"] = "SameUserOrAdmin",
     };
 
@@ -56,7 +59,9 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
     [
         "GET /api/v1/orders/{id:guid}",
         "POST /api/v1/orders/{id:guid}/items",
+        "PUT /api/v1/orders/{id:guid}/items/{itemId:guid}",
         "DELETE /api/v1/orders/{id:guid}/items/{itemId:guid}",
+        "PUT /api/v1/orders/{id:guid}/shipping-address",
         "POST /api/v1/orders/{id:guid}/cancel",
     ];
 
@@ -110,6 +115,15 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
                 Quantity = 1
             },
             "POST /api/v1/orders/{id:guid}/cancel" => new CancelOrderRequest { Reason = "not mine" },
+            "PUT /api/v1/orders/{id:guid}/items/{itemId:guid}" => new UpdateOrderItemQuantityRequest { Quantity = 3 },
+            "PUT /api/v1/orders/{id:guid}/shipping-address" => new UpdateShippingAddressRequest
+            {
+                Street = "9 Somewhere Else",
+                City = "Shelbyville",
+                State = "IL",
+                ZipCode = "62565",
+                Country = "US"
+            },
             _ => null
         };
 
@@ -153,6 +167,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         var order = await CreateOrderForAsync(TestUserId);
 
         (await Client.GetAsync("/api/v1/orders"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync("/api/v1/orders/stats"))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.PostAsync($"/api/v1/orders/{order.Id}/ship", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);

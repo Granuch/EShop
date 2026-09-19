@@ -7,9 +7,12 @@ using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 using EShop.Ordering.Application.Orders.Commands.DeliverOrder;
 using EShop.Ordering.Application.Orders.Commands.RemoveOrderItem;
 using EShop.Ordering.Application.Orders.Commands.ShipOrder;
+using EShop.Ordering.Application.Orders.Commands.UpdateOrderItemQuantity;
+using EShop.Ordering.Application.Orders.Commands.UpdateShippingAddress;
 using EShop.Ordering.Application.Orders.Queries;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
+using EShop.Ordering.Application.Orders.Queries.GetOrderStats;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 using EShop.Ordering.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Http;
@@ -79,6 +82,22 @@ public static class OrderEndpoints
         .Produces<PagedResult<OrderDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        // GET /api/v1/orders/stats (admin only) — Admin panel S8, endpoint #63.
+        // Mapped before "/{id:guid}" for readability only: the route constraint is what keeps "stats"
+        // from being read as an order id, so the two cannot collide whatever the order here.
+        group.MapGet("/stats", async ([AsParameters] GetOrderStatsQuery query, IMediator mediator) =>
+        {
+            var result = await mediator.Send(query);
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => ProblemForError(error));
+        })
+        .WithName("GetOrderStats")
+        .RequireAuthorization("Admin")
+        .Produces<OrderStatsDto>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
         // GET /api/v1/users/{userId}/orders
         app.MapGet("/api/v1/users/{userId}/orders", async (string userId, [AsParameters] GetOrdersByUserQuery query, IMediator mediator) =>
         {
@@ -130,6 +149,55 @@ public static class OrderEndpoints
                 error => ProblemForError(error));
         })
         .WithName("RemoveOrderItem")
+        .RequireAuthorization("OrderOwnerOrAdmin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // PUT /api/v1/orders/{id}/items/{itemId} — Admin panel S8, endpoint #57.
+        // OrderOwnerOrAdmin, like the add and remove beside it: the order is still Pending, so its
+        // owner correcting a quantity is the ordinary case and an admin doing it is the admin case.
+        group.MapPut("/{id:guid}/items/{itemId:guid}", async (
+            Guid id, Guid itemId, UpdateOrderItemQuantityRequest request, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new UpdateOrderItemQuantityCommand
+            {
+                OrderId = id,
+                ItemId = itemId,
+                Quantity = request.Quantity
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => ProblemForError(error));
+        })
+        .WithName("UpdateOrderItemQuantity")
+        .RequireAuthorization("OrderOwnerOrAdmin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // PUT /api/v1/orders/{id}/shipping-address — Admin panel S8, endpoint #59.
+        group.MapPut("/{id:guid}/shipping-address", async (
+            Guid id, UpdateShippingAddressRequest request, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new UpdateShippingAddressCommand
+            {
+                OrderId = id,
+                Street = request.Street,
+                City = request.City,
+                State = request.State,
+                ZipCode = request.ZipCode,
+                Country = request.Country
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                error => ProblemForError(error));
+        })
+        .WithName("UpdateShippingAddress")
         .RequireAuthorization("OrderOwnerOrAdmin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -201,6 +269,7 @@ public static class OrderEndpoints
     {
         _ when errorCode.EndsWith(".NotFound", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
         "Order.NotPaidYet" or "Order.NotShippedYet" or "Order.NotModifiable" or "Order.NotCancellable"
+            or "Order.AddressNotModifiable"
             => StatusCodes.Status409Conflict,
         "Catalog.Unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest
@@ -208,6 +277,20 @@ public static class OrderEndpoints
 }
 
 public record CancelOrderRequest(string Reason);
+
+/// <summary>The body of PUT /api/v1/orders/{id}/items/{itemId}: the route already names both ids.</summary>
+public record UpdateOrderItemQuantityRequest(int Quantity);
+
+/// <summary>
+/// The body of PUT /api/v1/orders/{id}/shipping-address — a whole address, because that is what an
+/// <c>Address</c> is. Every field is required, as on create.
+/// </summary>
+public record UpdateShippingAddressRequest(
+    string Street,
+    string City,
+    string State,
+    string ZipCode,
+    string Country);
 
 /// <summary>The body of a 201 from POST /api/v1/orders — the same <c>{ "id": … }</c> the anonymous object gave.</summary>
 public record CreateOrderResponse(Guid Id);

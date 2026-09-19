@@ -1,3 +1,4 @@
+using EShop.Ordering.Application.Abstractions;
 using EShop.Ordering.Domain.Entities;
 
 namespace EShop.Ordering.IntegrationTests.Models;
@@ -34,6 +35,52 @@ public record AddOrderItemRequest
 public record CancelOrderRequest
 {
     public string Reason { get; init; } = string.Empty;
+}
+
+/// <summary>Admin panel S8. The route names both ids, so the body carries only the new quantity.</summary>
+public record UpdateOrderItemQuantityRequest
+{
+    public int Quantity { get; init; }
+}
+
+/// <summary>Admin panel S8. A whole address — the endpoint replaces the value object outright.</summary>
+public record UpdateShippingAddressRequest
+{
+    public string Street { get; init; } = string.Empty;
+    public string City { get; init; } = string.Empty;
+    public string State { get; init; } = string.Empty;
+    public string ZipCode { get; init; } = string.Empty;
+    public string Country { get; init; } = string.Empty;
+}
+
+/// <summary>Admin panel S8. The body of GET /api/v1/orders/stats.</summary>
+public record OrderStatsResponse
+{
+    public DateTime? From { get; init; }
+    public DateTime? To { get; init; }
+    public OrderStatsGroupBy GroupBy { get; init; }
+    public int TotalOrders { get; init; }
+    public decimal GrossValue { get; init; }
+    public decimal PaidRevenue { get; init; }
+    public decimal RefundedValue { get; init; }
+    public decimal CancelledValue { get; init; }
+    public List<OrderStatusBreakdownResponse> ByStatus { get; init; } = new();
+    public List<OrderStatsBucketResponse> Buckets { get; init; } = new();
+}
+
+public record OrderStatusBreakdownResponse
+{
+    public OrderStatus Status { get; init; }
+    public int Count { get; init; }
+    public decimal Value { get; init; }
+}
+
+public record OrderStatsBucketResponse
+{
+    public DateTime PeriodStart { get; init; }
+    public int OrderCount { get; init; }
+    public decimal GrossValue { get; init; }
+    public decimal PaidRevenue { get; init; }
 }
 
 public record OrderResponse

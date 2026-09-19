@@ -4,8 +4,11 @@ using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 using EShop.Ordering.Application.Orders.Commands.RemoveOrderItem;
 using EShop.Ordering.Application.Orders.Commands.ShipOrder;
+using EShop.Ordering.Application.Orders.Commands.UpdateOrderItemQuantity;
+using EShop.Ordering.Application.Orders.Commands.UpdateShippingAddress;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
+using EShop.Ordering.Application.Orders.Queries.GetOrderStats;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.ValueObjects;
@@ -254,6 +257,254 @@ public class OrderCommandValidatorTests
     {
         new GetOrdersQueryValidator().TestValidate(new GetOrdersQuery { Status = status })
             .ShouldNotHaveAnyValidationErrors();
+    }
+
+    /// <summary>
+    /// Admin panel S8. Every element, not just the first: one typo among several names would
+    /// otherwise narrow the list to the ones that parsed, which reads as a working filter.
+    /// </summary>
+    [Test]
+    public void GetOrders_OneBadNameAmongTheStatuses_IsRejected()
+    {
+        var query = new GetOrdersQuery { Statuses = ["Paid", "Payed", "Shipped"] };
+
+        new GetOrdersQueryValidator().TestValidate(query)
+            .ShouldHaveValidationErrorFor(nameof(GetOrdersQuery.Statuses) + "[1]");
+    }
+
+    [Test]
+    public void GetOrders_SeveralGoodStatusNames_AreAccepted()
+    {
+        var query = new GetOrdersQuery { Statuses = ["paid", "SHIPPED"], Status = "Delivered" };
+
+        new GetOrdersQueryValidator().TestValidate(query).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [TestCase("nonsense", nameof(GetOrdersQuery.SortBy))]
+    [TestCase("0", nameof(GetOrdersQuery.SortBy))]
+    public void GetOrders_AnUnknownSortColumn_IsRejected(string sortBy, string field)
+    {
+        new GetOrdersQueryValidator().TestValidate(new GetOrdersQuery { SortBy = sortBy })
+            .ShouldHaveValidationErrorFor(field);
+    }
+
+    [TestCase("CreatedAt")]
+    [TestCase("totalprice")]
+    [TestCase("STATUS")]
+    public void GetOrders_AKnownSortColumn_IsAcceptedInAnyCase(string sortBy)
+    {
+        new GetOrdersQueryValidator().TestValidate(new GetOrdersQuery { SortBy = sortBy })
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    /// <summary>An inverted range is a mistake, and answering it with an empty page hides the mistake.</summary>
+    [Test]
+    public void GetOrders_AnInvertedDateRange_IsRejected()
+    {
+        var query = new GetOrdersQuery
+        {
+            From = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+            To = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        new GetOrdersQueryValidator().TestValidate(query)
+            .ShouldHaveValidationErrorFor(nameof(GetOrdersQuery.To));
+    }
+
+    [Test]
+    public void GetOrders_AnInvertedTotalRange_IsRejected()
+    {
+        var query = new GetOrdersQuery { MinTotal = 100m, MaxTotal = 10m };
+
+        new GetOrdersQueryValidator().TestValidate(query)
+            .ShouldHaveValidationErrorFor(nameof(GetOrdersQuery.MaxTotal));
+    }
+
+    [Test]
+    public void GetOrders_ANegativeMinimumTotal_IsRejected()
+    {
+        new GetOrdersQueryValidator().TestValidate(new GetOrdersQuery { MinTotal = -1m })
+            .ShouldHaveValidationErrorFor(nameof(GetOrdersQuery.MinTotal));
+    }
+
+    [Test]
+    public void GetOrders_AnOverlongSearchTerm_IsRejected()
+    {
+        var query = new GetOrdersQuery { Search = new string('x', GetOrdersQueryValidator.MaxSearchLength + 1) };
+
+        new GetOrdersQueryValidator().TestValidate(query)
+            .ShouldHaveValidationErrorFor(nameof(GetOrdersQuery.Search));
+    }
+
+    /// <summary>One bound alone is a half-open range, and must not be mistaken for an inverted one.</summary>
+    [Test]
+    public void GetOrders_ASingleDateBound_IsAccepted()
+    {
+        new GetOrdersQueryValidator()
+            .TestValidate(new GetOrdersQuery { From = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc) })
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    #endregion
+
+    #region GetOrderStatsQuery
+
+    [Test]
+    public void GetOrderStats_DefaultQuery_ShouldHaveNoErrors()
+    {
+        new GetOrderStatsQueryValidator().TestValidate(new GetOrderStatsQuery())
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    /// <summary>
+    /// <c>week</c> is the one a caller is most likely to try, and the one this API deliberately does
+    /// not have — so it must be an error, not daily buckets labelled as weeks.
+    /// </summary>
+    [TestCase("week")]
+    [TestCase("hour")]
+    [TestCase("1")]
+    public void GetOrderStats_AnUnknownGrouping_IsRejected(string groupBy)
+    {
+        new GetOrderStatsQueryValidator().TestValidate(new GetOrderStatsQuery { GroupBy = groupBy })
+            .ShouldHaveValidationErrorFor(nameof(GetOrderStatsQuery.GroupBy));
+    }
+
+    [TestCase("Day")]
+    [TestCase("month")]
+    [TestCase("YEAR")]
+    public void GetOrderStats_AKnownGrouping_IsAcceptedInAnyCase(string groupBy)
+    {
+        new GetOrderStatsQueryValidator().TestValidate(new GetOrderStatsQuery { GroupBy = groupBy })
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Test]
+    public void GetOrderStats_AnInvertedDateRange_IsRejected()
+    {
+        var query = new GetOrderStatsQuery
+        {
+            From = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
+            To = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        new GetOrderStatsQueryValidator().TestValidate(query)
+            .ShouldHaveValidationErrorFor(nameof(GetOrderStatsQuery.To));
+    }
+
+    #endregion
+
+    #region UpdateOrderItemQuantityCommand
+
+    private static UpdateOrderItemQuantityCommand ValidQuantityChange() => new()
+    {
+        OrderId = Guid.NewGuid(),
+        ItemId = Guid.NewGuid(),
+        Quantity = 3
+    };
+
+    [Test]
+    public void UpdateItemQuantity_ValidCommand_ShouldHaveNoErrors()
+    {
+        new UpdateOrderItemQuantityCommandValidator().TestValidate(ValidQuantityChange())
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Test]
+    public void UpdateItemQuantity_WithoutAnOrderId_IsRejected()
+    {
+        var command = ValidQuantityChange() with { OrderId = Guid.Empty };
+
+        new UpdateOrderItemQuantityCommandValidator().TestValidate(command)
+            .ShouldHaveValidationErrorFor(x => x.OrderId);
+    }
+
+    [Test]
+    public void UpdateItemQuantity_WithoutAnItemId_IsRejected()
+    {
+        var command = ValidQuantityChange() with { ItemId = Guid.Empty };
+
+        new UpdateOrderItemQuantityCommandValidator().TestValidate(command)
+            .ShouldHaveValidationErrorFor(x => x.ItemId);
+    }
+
+    [TestCase(0)]
+    [TestCase(-5)]
+    public void UpdateItemQuantity_WithANonPositiveQuantity_IsRejected(int quantity)
+    {
+        var command = ValidQuantityChange() with { Quantity = quantity };
+
+        new UpdateOrderItemQuantityCommandValidator().TestValidate(command)
+            .ShouldHaveValidationErrorFor(x => x.Quantity);
+    }
+
+    /// <summary>
+    /// Deliberately no upper bound, matching add and create: a cap here alone would make a quantity
+    /// reachable by adding a line and unreachable by correcting one. <c>Order.MaxTotal</c> is what
+    /// actually bounds it.
+    /// </summary>
+    [Test]
+    public void UpdateItemQuantity_WithAVeryLargeQuantity_PassesValidation()
+    {
+        var command = ValidQuantityChange() with { Quantity = 1_000_000 };
+
+        new UpdateOrderItemQuantityCommandValidator().TestValidate(command)
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    #endregion
+
+    #region UpdateShippingAddressCommand
+
+    private static UpdateShippingAddressCommand ValidAddressChange() => new()
+    {
+        OrderId = Guid.NewGuid(),
+        Street = "742 Evergreen Terrace",
+        City = "Springfield",
+        State = "IL",
+        ZipCode = "62701",
+        Country = "US"
+    };
+
+    [Test]
+    public void UpdateShippingAddress_ValidCommand_ShouldHaveNoErrors()
+    {
+        new UpdateShippingAddressCommandValidator().TestValidate(ValidAddressChange())
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Test]
+    public void UpdateShippingAddress_WithoutAnOrderId_IsRejected()
+    {
+        var command = ValidAddressChange() with { OrderId = Guid.Empty };
+
+        new UpdateShippingAddressCommandValidator().TestValidate(command)
+            .ShouldHaveValidationErrorFor(x => x.OrderId);
+    }
+
+    /// <summary>
+    /// The rules come from <c>Address.Validate</c> through <c>ShippingAddressRules</c>, so an address
+    /// this validator accepts is one the value object accepts — no second copy to drift. Each case
+    /// names the field it concerns, which is what makes the 400 usable.
+    /// </summary>
+    [TestCase("ab", "Springfield", "IL", "62701", "US", "Street")]
+    [TestCase("742 Evergreen Terrace", "S", "IL", "62701", "US", "City")]
+    [TestCase("742 Evergreen Terrace", "Springfield", "", "62701", "US", "State")]
+    [TestCase("742 Evergreen Terrace", "Springfield", "IL", "62701", "USA", "Country")]
+    [TestCase("742 Evergreen Terrace", "Springfield", "IL", "abcde", "US", "ZipCode")]
+    public void UpdateShippingAddress_AnInvalidAddress_NamesTheField(
+        string street, string city, string state, string zip, string country, string field)
+    {
+        var command = ValidAddressChange() with
+        {
+            Street = street,
+            City = city,
+            State = state,
+            ZipCode = zip,
+            Country = country
+        };
+
+        new UpdateShippingAddressCommandValidator().TestValidate(command)
+            .ShouldHaveValidationErrorFor(field);
     }
 
     #endregion

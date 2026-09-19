@@ -89,7 +89,13 @@ public class OrderingDbContext : BaseDbContext
             // one index serves both and replaces the single-column UserId index, whose lookups it covers.
             entity.HasIndex(o => new { o.UserId, o.CreatedAt, o.Id })
                 .IsDescending(false, true, true);
-            entity.HasIndex(o => o.Status);
+            // Admin panel S8 (M6). The admin list filters on Status and orders by (CreatedAt, Id)
+            // descending, so this serves the filtered list the way the L12 index serves the per-user
+            // one — and it replaces the single-column Status index, whose lookups it covers as a
+            // leading-column prefix. Same reasoning, same shape, one index fewer to maintain.
+            entity.HasIndex(o => new { o.Status, o.CreatedAt, o.Id })
+                .IsDescending(false, true, true);
+            // The UNfiltered admin list orders by the same pair, so this one keeps its job.
             entity.HasIndex(o => o.CreatedAt);
         });
 

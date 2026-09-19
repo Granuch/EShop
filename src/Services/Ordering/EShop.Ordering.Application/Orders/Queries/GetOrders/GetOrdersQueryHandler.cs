@@ -27,12 +27,23 @@ public sealed class GetOrdersQueryHandler : IRequestHandler<GetOrdersQuery, Resu
 
         // GetOrdersQueryValidator has already rejected anything but a status name, so this cannot fail.
         // It used to TryParse and fall back to "no filter", answering a typo with every order.
-        OrderStatus? status = string.IsNullOrEmpty(request.Status)
-            ? null
-            : Enum.Parse<OrderStatus>(request.Status, ignoreCase: true);
+        var statuses = request.RequestedStatusNames
+            .Select(name => Enum.Parse<OrderStatus>(name, ignoreCase: true))
+            .Distinct()
+            .ToArray();
+
+        var sortBy = QueryEnums.ParseSortBy(request.SortBy);
+
+        var filter = new OrderListFilter(
+            statuses,
+            request.Search,
+            QueryEnums.AsUtc(request.From),
+            QueryEnums.AsUtc(request.To),
+            request.MinTotal,
+            request.MaxTotal);
 
         var (dtos, totalCount) = await _orderQueryService.GetOrdersAsync(
-            status, pageNumber, pageSize, cancellationToken);
+            filter, sortBy, request.EffectiveIsDescending, pageNumber, pageSize, cancellationToken);
 
         var pagedResult = PagedResult<OrderDto>.Create(dtos, pageNumber, pageSize, totalCount);
         return Result<PagedResult<OrderDto>>.Success(pagedResult);
