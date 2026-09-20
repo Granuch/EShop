@@ -9,11 +9,14 @@ using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.QueryServices;
 using EShop.Payment.Infrastructure.Repositories;
+using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Payment.Infrastructure.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace EShop.Payment.Infrastructure.Extensions;
 
@@ -66,6 +69,14 @@ public static class ServiceCollectionExtensions
             services.AddDbContext<PaymentDbContext>(options =>
                 options.UseNpgsql(configuration.GetConnectionString("PaymentDb")));
         }
+
+        // Admin panel S11. Payment was the one service of six that never registered this, so EF built PaymentDbContext
+        // through its two-argument constructor, BaseDbContext's _currentUserContext was null, and SetAuditFields
+        // silently skipped CreatedBy/UpdatedBy — it gates only those two on a non-null user context and drops them
+        // rather than failing. The other five services register the same two lines in their own Infrastructure
+        // extensions; this brings Payment in line, so an entity here can record who wrote it.
+        services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PaymentDbContext>());
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<PaymentDbContext>());
