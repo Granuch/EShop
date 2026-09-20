@@ -230,6 +230,48 @@ public class FailedStripeWebhookTests : AuthenticatedIntegrationTestBase
         });
     }
 
+    /// <summary>
+    /// Why a replay must not re-check the signature, shown rather than argued.
+    ///
+    /// <para>Stripe's signature carries the instant it was made and the parser refuses anything older than 300
+    /// seconds, so re-verifying a capture is impossible rather than stricter — an operator replaying yesterday's
+    /// incident would be told the delivery is forged. The other tests here cannot show it: they capture and replay
+    /// inside the tolerance, so a replay that re-verified would pass every one of them. This seeds a capture whose
+    /// signature has expired, which is what every real one looks like.</para>
+    ///
+    /// <para>What makes skipping the check sound is the pair above: a delivery refused for its signature is never
+    /// captured, so "captured" already means "verified".</para>
+    /// </summary>
+    [Test]
+    public async Task AReplayOfACaptureSignedLongAgo_IsNotRefusedForItsExpiredSignature()
+    {
+        var (payment, payload) = await ADeliveryAsync();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+            db.FailedStripeWebhooks.Add(FailedStripeWebhook.Capture(
+                StripeEventIdOf(payload),
+                "payment_intent.succeeded",
+                payload,
+                StripeWebhooks.Sign(payload, signedAt: DateTimeOffset.UtcNow.AddMinutes(-10)),
+                "the database went away mid-webhook",
+                DateTime.UtcNow.AddMinutes(-10)));
+            await db.SaveChangesAsync();
+        }
+        Webhooks.FailWhen = _ => false;
+
+        var report = await ReplayAsync();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(report.Results.Single().Outcome, Is.EqualTo("Replayed"));
+            Assert.That((await StoredAsync(payment)).Status, Is.EqualTo(PaymentStatus.Success));
+        });
+    }
+
+    private static string StripeEventIdOf(string payload)
+        => System.Text.Json.JsonDocument.Parse(payload).RootElement.GetProperty("id").GetString()!;
+
     [Test]
     public async Task ReplayingTwice_IsSafe()
     {
