@@ -7,10 +7,12 @@ using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Payments.Commands.CreatePaymentIntent;
 using EShop.Payment.Application.Payments.Commands.CreatePayment;
 using EShop.Payment.Application.Payments.Commands.RefundPayment;
+using EShop.Payment.Application.Payments.Commands.ReplayFailedStripeWebhooks;
 using EShop.Payment.Application.Payments.Commands.SettleOfflinePayment;
 using EShop.Payment.Application.Payments.Common;
 using EShop.Payment.Application.Payments.Queries.ExportPayments;
 using EShop.Payment.Application.Payments.Queries.GetPaymentById;
+using EShop.Payment.Application.Payments.Queries.GetPaymentEvents;
 using EShop.Payment.Application.Payments.Queries.GetPayments;
 using EShop.Payment.Application.Payments.Queries.GetPaymentStats;
 using EShop.Payment.Application.Payments.Queries.GetPaymentsByUser;
@@ -225,6 +227,48 @@ public static class PaymentEndpoints
         .Produces(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        // Admin panel S11 (endpoint #67). Declared before "/{id:guid}" for readability only — "webhooks" cannot be
+        // read as a payment id, because of the route constraint rather than the declaration order.
+        group.MapPost("/webhooks/failed/replay", async (
+            ReplayFailedStripeWebhooksRequest? request,
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await mediator.Send(
+                new ReplayFailedStripeWebhooksCommand(request?.Ids), cancellationToken);
+
+            return result.Match(
+                report => Results.Ok(report),
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+        })
+        .WithName("ReplayFailedStripeWebhooks")
+        // payments.write, not system.manage: a replay re-applies a payment outcome, so it changes money records. It
+        // is the same authority POST /payments/offline needs, and deliberately not payments.refund, which is held back
+        // for the one action that moves money outward.
+        .RequireAuthorization(EShopPermissions.PaymentsWrite)
+        .Produces<FailedStripeWebhookReplayDto>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
+        // Admin panel S11 (endpoint #66). Admin-only, unlike GET /{id} beside it: the timeline names operators,
+        // carries Stripe event ids and quotes decline reasons, none of which is a customer's business.
+        group.MapGet("/{id:guid}/events", async (
+            Guid id,
+            IMediator mediator,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await mediator.Send(new GetPaymentEventsQuery(id), cancellationToken);
+
+            return result.Match(
+                events => Results.Ok(events),
+                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
+        })
+        .WithName("GetPaymentEvents")
+        .RequireAuthorization(EShopPermissions.PaymentsRead)
+        .Produces<IReadOnlyList<PaymentEventDto>>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapGet("/{id:guid}", async (
             Guid id,
             ClaimsPrincipal user,
@@ -321,6 +365,7 @@ public static class PaymentEndpoints
             HttpRequest request,
             IOptions<StripeSettings> stripeOptions,
             IStripeWebhookProcessor webhookProcessor,
+            IFailedStripeWebhookStore failedWebhooks,
             ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
         {
@@ -397,6 +442,16 @@ public static class PaymentEndpoints
             }
             catch (Exception ex)
             {
+                // Admin panel S11 (endpoint #67). The delivery was good — it got past the signature check and the
+                // parser, both of which throw StripeWebhookRejectedException above — and we lost it. Stripe does
+                // redeliver a 500, but not forever and not on demand, so it is captured here for replay.
+                //
+                // Two things make this correct rather than convenient. It runs in the CATCH, so the failing unit of
+                // work is finished with; and CaptureAsync writes through its own scope, because this one's DbContext
+                // still holds the rejected changes and on Postgres its transaction is aborted. It never throws, so
+                // the 500 Stripe needs is still the answer even when the capture itself fails.
+                await failedWebhooks.CaptureAsync(payload, signatureHeader!, ex, cancellationToken);
+
                 logger.LogError(ex, "Stripe webhook processing failed due to internal error.");
                 return ProblemResults.For(
                     "STRIPE_WEBHOOK_PROCESSING_FAILED",
@@ -469,6 +524,13 @@ public sealed record RefundPaymentRequest(decimal? Amount, string? Reason);
 /// after this request answered 200.
 /// </summary>
 public sealed record SettleOfflinePaymentRequest(Guid OrderId, string? Reference);
+
+/// <summary>
+/// Admin panel S11 (endpoint #67). The whole body is optional: no body, or <c>{}</c>, means "every outstanding
+/// capture, oldest first, up to the cap". <c>Ids</c> is nullable rather than <c>= []</c> because System.Text.Json
+/// writes an omitted collection as an explicit <c>null</c>, which overwrites an initializer — the BUG-09 shape.
+/// </summary>
+public sealed record ReplayFailedStripeWebhooksRequest(IReadOnlyCollection<Guid>? Ids);
 
 public sealed record PaymentSimulationDiagnosticsResponse(
     string Mode,

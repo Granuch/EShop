@@ -35,12 +35,24 @@ public sealed class StripeWebhookEventParser : IStripeWebhookEventParser
             {
                 EventUtility.ValidateSignature(payload, signatureHeader, _settings.WebhookSecret, SignatureToleranceSeconds);
             }
-            catch (StripeException ex)
+            catch (Exception ex)
             {
+                // Admin panel S11 widened this from StripeException. Any failure to validate a signature is a refusal,
+                // never a server error — and that is now load-bearing rather than tidy: the capture table's whole
+                // safety argument is "a row only exists here because Parse accepted the delivery", so a validation
+                // failure escaping as some other exception would reach the endpoint's internal-failure branch and
+                // capture an UNVERIFIED payload for later trusted replay.
                 throw new StripeWebhookRejectedException(StripeWebhookRejection.InvalidSignature, ex);
             }
         }
 
+        return ReadEvent(payload);
+    }
+
+    public StripeWebhookEvent ParseTrusted(string payload) => ReadEvent(payload);
+
+    private static StripeWebhookEvent ReadEvent(string payload)
+    {
         Event? stripeEvent;
         try
         {

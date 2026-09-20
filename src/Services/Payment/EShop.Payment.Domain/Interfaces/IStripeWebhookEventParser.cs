@@ -11,6 +11,26 @@ public interface IStripeWebhookEventParser
     /// redelivering the same bytes cannot succeed.
     /// </exception>
     StripeWebhookEvent Parse(string payload, string signatureHeader);
+
+    /// <summary>
+    /// Parses a payload this service has <b>already verified and stored</b>, without checking a signature (Admin
+    /// panel S11, endpoint #67).
+    ///
+    /// <para>
+    /// <b>Why replay cannot re-verify.</b> Stripe's signature carries the instant it was made and
+    /// <see cref="Parse"/> refuses anything older than 300 seconds, so re-checking a capture is not a stricter
+    /// option — it is an impossible one, and an operator replaying yesterday's incident would be told the delivery is
+    /// forged.
+    /// </para>
+    /// <para>
+    /// <b>Why it is safe anyway.</b> A payload only reaches the capture table after <see cref="Parse"/> accepted it:
+    /// a delivery refused for its signature throws <see cref="StripeWebhookRejectedException"/> and is answered 400
+    /// without being captured. So "captured" already means "verified", and this method re-reads bytes we vouched for
+    /// rather than bytes a caller supplied. It must therefore never be reachable from a request body.
+    /// </para>
+    /// </summary>
+    /// <exception cref="StripeWebhookRejectedException">The stored payload is not a Stripe event.</exception>
+    StripeWebhookEvent ParseTrusted(string payload);
 }
 
 public enum StripeWebhookRejection

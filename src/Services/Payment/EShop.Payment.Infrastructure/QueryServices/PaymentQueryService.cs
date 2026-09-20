@@ -81,6 +81,17 @@ public class PaymentQueryService : IPaymentQueryService
             buckets);
     }
 
+    public Task<bool> PaymentExistsAsync(Guid paymentId, CancellationToken cancellationToken = default)
+        => _context.PaymentTransactions.AsNoTracking().AnyAsync(p => p.Id == paymentId, cancellationToken);
+
+    public Task<List<PaymentEvent>> GetEventsAsync(Guid paymentId, CancellationToken cancellationToken = default)
+        => _context.PaymentEvents
+            .AsNoTracking()
+            .Where(e => e.PaymentTransactionId == paymentId)
+            .OrderBy(e => e.OccurredAt)
+            .ThenBy(e => e.Id)
+            .ToListAsync(cancellationToken);
+
     /// <summary>
     /// One <c>GROUP BY</c> on <c>CreatedAt</c>'s date parts. Grouping on integer components rather than on a truncated
     /// timestamp is not a style choice: Npgsql 10's <c>EF.Functions</c> exposes no <c>date_trunc</c>, and a bare

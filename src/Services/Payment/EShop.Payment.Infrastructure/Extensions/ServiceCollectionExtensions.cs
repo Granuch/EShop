@@ -78,6 +78,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IStripeWebhookEventParser, StripeWebhookEventParser>();
         services.AddScoped<IStripeWebhookProcessor, StripeWebhookProcessor>();
 
+        // Admin panel S11 (endpoint #67). Singletons on purpose: both work through IServiceScopeFactory, because each
+        // needs a DbContext that the failing one is not. Holding a scoped DbContext here would be the very defect they
+        // exist to avoid — and, with Ordering's ValidateScopes turned on, would not even resolve.
+        services.AddSingleton<IFailedStripeWebhookStore, FailedStripeWebhookStore>();
+        services.AddSingleton<IFailedStripeWebhookReplayer, FailedStripeWebhookReplayer>();
+
         // Ordering audit Stage 10. The DbContext above was registered "for the outbox processor", but
         // the processor itself never was, so every event Payment enqueued (PaymentSuccess, Failed,
         // Created, Completed, Refunded) was written to outbox_messages and never sent: Ordering never

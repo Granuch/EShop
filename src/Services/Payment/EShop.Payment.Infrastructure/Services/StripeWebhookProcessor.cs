@@ -32,10 +32,15 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         _logger = logger;
     }
 
-    public async Task<StripeWebhookProcessResult> ProcessAsync(string payload, string signatureHeader, CancellationToken cancellationToken = default)
-    {
-        var stripeEvent = _eventParser.Parse(payload, signatureHeader);
+    public Task<StripeWebhookProcessResult> ProcessAsync(string payload, string signatureHeader, CancellationToken cancellationToken = default)
+        => ApplyAsync(_eventParser.Parse(payload, signatureHeader), cancellationToken);
 
+    /// <summary>
+    /// Everything after parsing. Admin panel S11 split it out so a replay of a captured payload runs this exact code,
+    /// duplicate check included, rather than a second implementation that could drift from it.
+    /// </summary>
+    public async Task<StripeWebhookProcessResult> ApplyAsync(StripeWebhookEvent stripeEvent, CancellationToken cancellationToken = default)
+    {
         if (!stripeEvent.IsSupportedPaymentIntentEvent)
         {
             _logger.LogDebug(
@@ -80,19 +85,20 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         switch (stripeEvent.Type)
         {
             case "payment_intent.succeeded":
-                changed = payment.RecordStripeSuccess(stripeEvent.Status, now);
+                changed = payment.RecordStripeSuccess(stripeEvent.Status, now, stripeEvent.Id);
                 publishSuccess = changed;
                 break;
 
             // Stage 5 (H1, D3): a decline keeps the payment open for another card, with no PaymentFailedEvent.
             case "payment_intent.payment_failed":
-                changed = payment.RecordDeclinedAttempt(stripeEvent.FailureMessage, stripeEvent.Status, now);
+                changed = payment.RecordDeclinedAttempt(stripeEvent.FailureMessage, stripeEvent.Status, now, stripeEvent.Id);
                 break;
 
             // Ordering audit Stage 21 (D17): tagged by OrderCancelledConsumer, it is a cancelled order, recorded
             // Cancelled with no PaymentFailedEvent. Untagged (Dashboard, Stripe), the payment failed.
             case "payment_intent.canceled":
-                changed = payment.RecordStripeCancellation(stripeEvent.CancelRequestedByEShop, stripeEvent.Status, now);
+                changed = payment.RecordStripeCancellation(
+                    stripeEvent.CancelRequestedByEShop, stripeEvent.Status, now, stripeEvent.Id);
                 publishFailure = changed && payment.Status == PaymentStatus.Failed;
                 break;
         }
@@ -101,6 +107,10 @@ public sealed class StripeWebhookProcessor : IStripeWebhookProcessor
         {
             await _paymentRepository.UpdateAsync(payment, cancellationToken);
         }
+
+        // Admin panel S11: a delivery that changed nothing still appended a timeline row (see
+        // PaymentTransaction.RecordIgnoredWebhook), and the payment is tracked, so the SaveChanges below persists it
+        // without an UpdateAsync of its own.
 
         await _paymentRepository.AddProcessedStripeEventAsync(processedEvent, cancellationToken);
 

@@ -42,6 +42,11 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["GET /api/v1/payments"] = EShopPermissions.PaymentsRead,
         ["GET /api/v1/payments/stats"] = EShopPermissions.PaymentsRead,
         ["GET /api/v1/payments/export"] = EShopPermissions.PaymentsRead,
+
+        // Admin panel S11. The timeline is a read; a replay re-applies a payment outcome, so it is a write — and
+        // deliberately not payments.refund, which is held back for the one action that moves money outward.
+        ["GET /api/v1/payments/{id:guid}/events"] = EShopPermissions.PaymentsRead,
+        ["POST /api/v1/payments/webhooks/failed/replay"] = EShopPermissions.PaymentsWrite,
     };
 
     /// <summary>
@@ -78,6 +83,32 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Pending));
             Assert.That(stored.PaymentIntentId, Is.Empty);
         });
+    }
+
+    /// <summary>
+    /// Admin panel S11. The timeline names operators, carries Stripe event ids and quotes decline reasons — none of
+    /// it a customer's business, even about their own payment, which is why this asks for one they own.
+    /// </summary>
+    [Test]
+    public async Task ACustomer_CannotReadTheTimelineOfTheirOwnPayment()
+    {
+        var seeded = await Factory.SeedPaymentAsync(TestUserId);
+
+        var response = await Client.GetAsync($"/api/v1/payments/{seeded.Id}/events");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    /// <summary>
+    /// Replaying a captured webhook re-applies a payment outcome. A customer reaching it could settle their own order
+    /// by resurrecting a delivery.
+    /// </summary>
+    [Test]
+    public async Task ACustomer_CannotReplayFailedWebhooks()
+    {
+        var response = await Client.PostAsJsonAsync("/api/v1/payments/webhooks/failed/replay", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }
 
     /// <summary>

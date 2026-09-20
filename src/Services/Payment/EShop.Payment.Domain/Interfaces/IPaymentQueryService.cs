@@ -51,4 +51,17 @@ public interface IPaymentQueryService
         PaymentListFilter window,
         PaymentStatsGroupBy groupBy,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether a payment with this id exists (Admin panel S11). The timeline read needs it to tell "no such payment"
+    /// from "nothing has happened to it yet" — an empty array for an id that was never a payment is a wrong answer
+    /// that looks exactly like a right one.
+    /// </summary>
+    Task<bool> PaymentExistsAsync(Guid paymentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One payment's timeline, <b>oldest first</b> — it is read as a narrative, and a narrative starts at the
+    /// beginning. <c>Id</c> breaks ties, because several rows of one save share an instant to the tick.
+    /// </summary>
+    Task<List<PaymentEvent>> GetEventsAsync(Guid paymentId, CancellationToken cancellationToken = default);
 }
