@@ -211,19 +211,28 @@ public class PaymentEventTimelineTests
     }
 
     /// <summary>
-    /// Both rows above are written in one save, so they routinely ask for the same instant — and ordering the read by
-    /// <c>(OccurredAt, Id)</c> would then sort a refund and its reason by two random GUIDs.
+    /// A timeline is read in order, so rows that ask for the same instant must not end up sorted by two random GUIDs.
+    ///
+    /// <para>Two rows sharing a clock read is not hypothetical: <c>PaymentRefunder</c> records a refund and then its
+    /// reason a few statements apart, and <c>DateTime.UtcNow</c>'s resolution on Windows is coarse enough that those
+    /// two reads routinely return the same value. This forces the tie deterministically by passing one instant twice —
+    /// asserting it through two live <c>UtcNow</c> calls would pass whether or not the nudge exists, which is exactly
+    /// how the first draft of this test failed to test anything.</para>
     /// </summary>
     [Test]
-    public void TwoRowsOfOneOperation_HaveDistinctInstants_InTheOrderTheyHappened()
+    public void TwoRowsAskingForOneInstant_AreStillDistinct_InTheOrderTheyHappened()
     {
-        var payment = A(PaymentStatus.Success);
+        var payment = A(PaymentStatus.Processing, intentId: "pi_1");
 
-        payment.MarkRefunded(Now);
-        payment.AnnotateRefund("returned goods");
+        payment.RecordDeclinedAttempt("first card", "requires_payment_method", Now, "evt_1");
+        payment.RecordDeclinedAttempt("second card", "requires_payment_method", Now, "evt_2");
 
         var rows = payment.Events.ToList();
-        Assert.That(rows[1].OccurredAt, Is.GreaterThan(rows[0].OccurredAt));
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows[0].Detail, Does.Contain("first card"));
+            Assert.That(rows[1].OccurredAt, Is.GreaterThan(rows[0].OccurredAt));
+        });
     }
 
     /// <summary>A refused transition throws before it touches anything, so it leaves no row either.</summary>
