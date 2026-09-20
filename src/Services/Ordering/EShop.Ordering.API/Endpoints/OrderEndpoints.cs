@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Ordering.Application.Orders.Commands.AddOrderItem;
+using EShop.Ordering.Application.Orders.Commands.AddOrderNote;
 using EShop.Ordering.Application.Orders.Commands.CancelOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
 using EShop.Ordering.Application.Orders.Commands.DeliverOrder;
@@ -11,8 +12,10 @@ using EShop.Ordering.Application.Orders.Commands.UpdateOrderItemQuantity;
 using EShop.Ordering.Application.Orders.Commands.UpdateShippingAddress;
 using EShop.Ordering.Application.Orders.Queries;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
+using EShop.Ordering.Application.Orders.Queries.GetOrderNotes;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrderStats;
+using EShop.Ordering.Application.Orders.Queries.GetOrderStatusHistory;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 using EShop.Ordering.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Http;
@@ -204,6 +207,58 @@ public static class OrderEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict);
 
+        // POST /api/v1/orders/{id}/notes (admin only) — Admin panel S9, endpoint #60.
+        // Admin, not OrderOwnerOrAdmin, and that is the security decision of this stage: a note is an
+        // internal record an operator writes ABOUT a customer ("suspected chargeback", "refund approved
+        // by finance"), so the subject of the note must not be able to read or write it.
+        group.MapPost("/{id:guid}/notes", async (Guid id, AddOrderNoteRequest request, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new AddOrderNoteCommand { OrderId = id, Body = request.Body });
+
+            // Location is the owning order, like Catalog's product children (audit L25): a note is
+            // reached only through its order's collection, and there is no per-note GET.
+            return result.Match(
+                value => Results.Created($"/api/v1/orders/{id}", new CreatedOrderNoteResponse(value)),
+                error => ProblemForError(error));
+        })
+        .WithName("AddOrderNote")
+        .RequireAuthorization("Admin")
+        .Produces<CreatedOrderNoteResponse>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // GET /api/v1/orders/{id}/notes (admin only) — Admin panel S9, endpoint #61.
+        group.MapGet("/{id:guid}/notes", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new GetOrderNotesQuery { OrderId = id });
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => ProblemForError(error));
+        })
+        .WithName("GetOrderNotes")
+        .RequireAuthorization("Admin")
+        .Produces<IReadOnlyList<OrderNoteDto>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // GET /api/v1/orders/{id}/history (admin only) — Admin panel S9, endpoint #62.
+        // Admin for the same reason as the notes: every row names the operator who caused the
+        // transition, and a customer has no business learning staff identifiers.
+        group.MapGet("/{id:guid}/history", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new GetOrderStatusHistoryQuery { OrderId = id });
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => ProblemForError(error));
+        })
+        .WithName("GetOrderStatusHistory")
+        .RequireAuthorization("Admin")
+        .Produces<IReadOnlyList<OrderStatusHistoryDto>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
         // POST /api/v1/orders/{id}/cancel
         group.MapPost("/{id:guid}/cancel", async (Guid id, CancelOrderRequest request, IMediator mediator) =>
         {
@@ -294,3 +349,12 @@ public record UpdateShippingAddressRequest(
 
 /// <summary>The body of a 201 from POST /api/v1/orders — the same <c>{ "id": … }</c> the anonymous object gave.</summary>
 public record CreateOrderResponse(Guid Id);
+
+/// <summary>
+/// The body of POST /api/v1/orders/{id}/notes (Admin panel S9). Only the text: the order comes from
+/// the route and the author from the caller's own claims, never from the request.
+/// </summary>
+public record AddOrderNoteRequest(string Body);
+
+/// <summary>The id of the note just written, so the client need not re-read the list to find it.</summary>
+public record CreatedOrderNoteResponse(Guid Id);

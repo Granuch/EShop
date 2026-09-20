@@ -1,4 +1,5 @@
 using EShop.Ordering.Application.Orders.Commands.AddOrderItem;
+using EShop.Ordering.Application.Orders.Commands.AddOrderNote;
 using EShop.Ordering.Application.Orders.Commands.CancelOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateCheckedOutOrder;
 using EShop.Ordering.Application.Orders.Commands.CreateOrder;
@@ -7,8 +8,10 @@ using EShop.Ordering.Application.Orders.Commands.ShipOrder;
 using EShop.Ordering.Application.Orders.Commands.UpdateOrderItemQuantity;
 using EShop.Ordering.Application.Orders.Commands.UpdateShippingAddress;
 using EShop.Ordering.Application.Orders.Queries.GetOrderById;
+using EShop.Ordering.Application.Orders.Queries.GetOrderNotes;
 using EShop.Ordering.Application.Orders.Queries.GetOrders;
 using EShop.Ordering.Application.Orders.Queries.GetOrderStats;
+using EShop.Ordering.Application.Orders.Queries.GetOrderStatusHistory;
 using EShop.Ordering.Application.Orders.Queries.GetOrdersByUser;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Domain.ValueObjects;
@@ -678,6 +681,93 @@ public class OrderCommandValidatorTests
     {
         _getByUserValidator.TestValidate(new GetOrdersByUserQuery { UserId = "user-1", PageNumber = page, PageSize = size })
             .ShouldHaveValidationErrorFor(field);
+    }
+
+    #endregion
+
+    #region AddOrderNoteCommand (Admin panel S9)
+
+    [Test]
+    public void AddOrderNote_ValidCommand_ShouldHaveNoErrors()
+    {
+        new AddOrderNoteCommandValidator()
+            .TestValidate(new AddOrderNoteCommand { OrderId = Guid.NewGuid(), Body = "called the customer" })
+            .ShouldNotHaveAnyValidationErrors();
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    public void AddOrderNote_BlankBody_ShouldHaveError(string body)
+    {
+        new AddOrderNoteCommandValidator()
+            .TestValidate(new AddOrderNoteCommand { OrderId = Guid.NewGuid(), Body = body })
+            .ShouldHaveValidationErrorFor(x => x.Body);
+    }
+
+    [Test]
+    public void AddOrderNote_EmptyOrderId_ShouldHaveError()
+    {
+        new AddOrderNoteCommandValidator()
+            .TestValidate(new AddOrderNoteCommand { OrderId = Guid.Empty, Body = "body" })
+            .ShouldHaveValidationErrorFor(x => x.OrderId);
+    }
+
+    /// <summary>
+    /// The bound is <see cref="OrderNote.MaxBodyLength"/> itself, so the validator, the entity and the
+    /// column cannot drift apart into a 400 that should have been a 200 or a 500 that should have been
+    /// a 400.
+    /// </summary>
+    [Test]
+    public void AddOrderNote_BodyLength_IsBoundedByTheEntitysOwnLimit()
+    {
+        var validator = new AddOrderNoteCommandValidator();
+
+        Assert.That(
+            validator.TestValidate(new AddOrderNoteCommand
+            {
+                OrderId = Guid.NewGuid(),
+                Body = new string('x', OrderNote.MaxBodyLength)
+            }).IsValid,
+            Is.True);
+
+        Assert.That(
+            validator.TestValidate(new AddOrderNoteCommand
+            {
+                OrderId = Guid.NewGuid(),
+                Body = new string('x', OrderNote.MaxBodyLength + 1)
+            }).IsValid,
+            Is.False);
+    }
+
+    #endregion
+
+    #region Order sub-resource query validators (Admin panel S9)
+
+    [Test]
+    public void GetOrderNotes_EmptyOrderId_ShouldHaveError()
+    {
+        new GetOrderNotesQueryValidator()
+            .TestValidate(new GetOrderNotesQuery { OrderId = Guid.Empty })
+            .ShouldHaveValidationErrorFor(x => x.OrderId);
+    }
+
+    [Test]
+    public void GetOrderStatusHistory_EmptyOrderId_ShouldHaveError()
+    {
+        new GetOrderStatusHistoryQueryValidator()
+            .TestValidate(new GetOrderStatusHistoryQuery { OrderId = Guid.Empty })
+            .ShouldHaveValidationErrorFor(x => x.OrderId);
+    }
+
+    [Test]
+    public void TheOrderSubResourceQueries_AcceptARealId()
+    {
+        new GetOrderNotesQueryValidator()
+            .TestValidate(new GetOrderNotesQuery { OrderId = Guid.NewGuid() })
+            .ShouldNotHaveAnyValidationErrors();
+        new GetOrderStatusHistoryQueryValidator()
+            .TestValidate(new GetOrderStatusHistoryQuery { OrderId = Guid.NewGuid() })
+            .ShouldNotHaveAnyValidationErrors();
     }
 
     #endregion

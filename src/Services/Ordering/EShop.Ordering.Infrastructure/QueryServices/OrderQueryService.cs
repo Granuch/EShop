@@ -157,6 +157,52 @@ public class OrderQueryService : IOrderQueryService
             .Select(ToDto)
             .FirstOrDefaultAsync(cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OrderNoteDto>?> GetOrderNotesAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await OrderExistsAsync(orderId, cancellationToken))
+            return null;
+
+        // Newest first, like every other list in this service, with Id as the tie-break: two notes
+        // written in the same request would otherwise come back in an order Postgres is free to change.
+        return await _context.OrderNotes
+            .AsNoTracking()
+            .Where(n => n.OrderId == orderId)
+            .OrderByDescending(n => n.CreatedAt)
+            .ThenByDescending(n => n.Id)
+            .Select(n => new OrderNoteDto(n.Id, n.OrderId, n.AuthorId, n.AuthorName, n.Body, n.CreatedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OrderStatusHistoryDto>?> GetOrderStatusHistoryAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await OrderExistsAsync(orderId, cancellationToken))
+            return null;
+
+        // Oldest first: this is a timeline, and reading it backwards makes the From/To chain read
+        // backwards too. Id is the tie-break for the same reason as above.
+        return await _context.OrderStatusHistoryEntries
+            .AsNoTracking()
+            .Where(h => h.OrderId == orderId)
+            .OrderBy(h => h.OccurredAt)
+            .ThenBy(h => h.Id)
+            .Select(h => new OrderStatusHistoryDto(
+                h.Id, h.OrderId, h.FromStatus, h.ToStatus, h.Reason, h.CreatedBy, h.OccurredAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// A separate round trip on purpose: the child lists cannot tell "no such order" from "no rows",
+    /// and both sub-resource endpoints owe a 404 for the first.
+    /// </summary>
+    private Task<bool> OrderExistsAsync(Guid orderId, CancellationToken cancellationToken)
+        => _context.Orders.AsNoTracking().AnyAsync(o => o.Id == orderId, cancellationToken);
+
     /// <summary>
     /// Offset paging only. The cursor mode that lived here (<c>CreatedAt &lt; cursor</c>, with the count
     /// taken before the filter) was removed in audit M4; <c>GetOrdersByUserQueryValidator</c> rejects

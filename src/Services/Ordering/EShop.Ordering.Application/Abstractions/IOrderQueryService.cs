@@ -50,4 +50,30 @@ public interface IOrderQueryService
         DateTime? to,
         OrderStatsGroupBy groupBy,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One order's operator notes, newest first, or <c>null</c> when the order does not exist.
+    /// </summary>
+    /// <remarks>
+    /// Nullable rather than an empty list, because the two cases have different answers: a missing
+    /// order is a 404 and an order nobody has annotated is a 200 with <c>[]</c>. A list cannot carry
+    /// that distinction, and returning <c>[]</c> for both would tell a client that every id it invents
+    /// names a real order.
+    /// </remarks>
+    Task<IReadOnlyList<OrderNoteDto>?> GetOrderNotesAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One order's status timeline, oldest first, or <c>null</c> when the order does not exist.
+    /// </summary>
+    /// <remarks>
+    /// An existing order always has at least the row its creation wrote, so an empty list here means
+    /// the history was written by something other than the aggregate — which is the bug this design
+    /// exists to prevent. The nullability is still what separates 404 from 200; see
+    /// <see cref="GetOrderNotesAsync"/>.
+    /// </remarks>
+    Task<IReadOnlyList<OrderStatusHistoryDto>?> GetOrderStatusHistoryAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default);
 }

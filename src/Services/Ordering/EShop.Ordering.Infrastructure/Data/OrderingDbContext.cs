@@ -14,6 +14,13 @@ public class OrderingDbContext : BaseDbContext
 {
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<OrderNote> OrderNotes => Set<OrderNote>();
+    /// <summary>
+    /// Deliberately not named <c>OrderStatusHistory</c>: a member with the same name as its element
+    /// type shadows the type inside this class, and <c>OrderStatusHistory.MaxReasonLength</c> below
+    /// then fails to compile with an error about <c>DbSet</c> having no such member.
+    /// </summary>
+    public DbSet<OrderStatusHistory> OrderStatusHistoryEntries => Set<OrderStatusHistory>();
 
     public OrderingDbContext(DbContextOptions<OrderingDbContext> options) : base(options)
     {
@@ -84,6 +91,19 @@ public class OrderingDbContext : BaseDbContext
                 .HasForeignKey(i => i.OrderId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Admin panel S9. Both are append-only children the aggregate writes and never reads back:
+            // GetByIdAsync does not include them, so on a loaded order the collections hold only what
+            // the current operation added. The read path is IOrderQueryService.
+            entity.HasMany(o => o.StatusHistory)
+                .WithOne()
+                .HasForeignKey(h => h.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(o => o.Notes)
+                .WithOne()
+                .HasForeignKey(n => n.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             // Indexes
             // Audit L12. The per-user list filters on UserId and orders by (CreatedAt, Id) descending; this
             // one index serves both and replaces the single-column UserId index, whose lookups it covers.
@@ -134,6 +154,83 @@ public class OrderingDbContext : BaseDbContext
             // Indexes
             entity.HasIndex(i => i.OrderId);
             entity.HasIndex(i => i.ProductId);
+        });
+
+        // Admin panel S9 (M5). The order's timeline: one row per state transition, written by the
+        // aggregate inside the transition's own SaveChanges.
+        modelBuilder.Entity<OrderStatusHistory>(entity =>
+        {
+            entity.ToTable("OrderStatusHistory");
+
+            entity.HasKey(h => h.Id);
+
+            // Same reasoning as OrderItem above, and the reason it matters more here: every row is
+            // added to an order that is ALREADY persisted (a ship, a deliver, a cancel), which is
+            // precisely the case ValueGeneratedOnAdd turns into an UPDATE that matches nothing and a
+            // DbUpdateConcurrencyException — BUG-02's shape.
+            entity.Property(h => h.Id)
+                .ValueGeneratedNever();
+
+            entity.Property(h => h.OrderId).IsRequired();
+
+            // Stored as names, like Order.Status, so a row stays readable after the enum is reordered.
+            entity.Property(h => h.FromStatus)
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(h => h.ToStatus)
+                .IsRequired()
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(h => h.Reason)
+                .HasMaxLength(OrderStatusHistory.MaxReasonLength);
+
+            entity.Property(h => h.OccurredAt).IsRequired();
+
+            // Audit fields. CreatedBy is the actor: BaseDbContext.SetAuditFields stamps it from
+            // ICurrentUserContext, so an admin's ship lands their id and a bus-driven transition lands
+            // "system" — without threading an actor parameter through every domain method.
+            entity.Property(h => h.CreatedAt).IsRequired();
+            entity.Property(h => h.CreatedBy).HasMaxLength(100);
+            entity.Property(h => h.UpdatedAt);
+            entity.Property(h => h.UpdatedBy).HasMaxLength(100);
+
+            // The only query: one order's timeline, oldest first.
+            entity.HasIndex(h => new { h.OrderId, h.OccurredAt });
+        });
+
+        // Admin panel S9 (M4). Operator notes, append-only and admin-only.
+        modelBuilder.Entity<OrderNote>(entity =>
+        {
+            entity.ToTable("OrderNotes");
+
+            entity.HasKey(n => n.Id);
+
+            entity.Property(n => n.Id)
+                .ValueGeneratedNever();
+
+            entity.Property(n => n.OrderId).IsRequired();
+
+            entity.Property(n => n.AuthorId)
+                .IsRequired()
+                .HasMaxLength(OrderNote.MaxAuthorIdLength);
+
+            entity.Property(n => n.AuthorName)
+                .IsRequired()
+                .HasMaxLength(OrderNote.MaxAuthorNameLength);
+
+            entity.Property(n => n.Body)
+                .IsRequired()
+                .HasMaxLength(OrderNote.MaxBodyLength);
+
+            entity.Property(n => n.CreatedAt).IsRequired();
+            entity.Property(n => n.CreatedBy).HasMaxLength(100);
+            entity.Property(n => n.UpdatedAt);
+            entity.Property(n => n.UpdatedBy).HasMaxLength(100);
+
+            // One order's notes, newest first, and the COUNT the cap pre-check runs.
+            entity.HasIndex(n => new { n.OrderId, n.CreatedAt });
         });
 
         base.OnModelCreating(modelBuilder);

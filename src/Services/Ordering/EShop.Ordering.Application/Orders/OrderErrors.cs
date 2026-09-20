@@ -21,4 +21,13 @@ public static class OrderErrors
         "Order.AddressNotModifiable",
         "The shipping address can only be changed before the order ships; "
         + $"this order is {status.ToString().ToLowerInvariant()}.");
+
+    /// <summary>
+    /// The order already carries <see cref="Order.MaxNotes"/> notes (Admin panel S9). Mapped to 400 by
+    /// <c>OrderEndpoints.StatusFor</c>'s default arm, matching Catalog's image and attribute caps —
+    /// this is a bound on the request, not a state the order will grow out of.
+    /// </summary>
+    public static readonly Error NoteLimitReached = new(
+        "Order.NoteLimitReached",
+        $"An order may carry at most {Order.MaxNotes} notes.");
 }

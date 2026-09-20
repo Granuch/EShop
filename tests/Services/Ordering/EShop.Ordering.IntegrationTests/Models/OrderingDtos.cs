@@ -124,6 +124,35 @@ public record CreatedResponse
     public Guid Id { get; init; }
 }
 
+/// <summary>Admin panel S9. The body of POST /api/v1/orders/{id}/notes — the author is never sent.</summary>
+public record AddOrderNoteRequest
+{
+    public string Body { get; init; } = string.Empty;
+}
+
+/// <summary>Admin panel S9. One row of GET /api/v1/orders/{id}/notes.</summary>
+public record OrderNoteResponse
+{
+    public Guid Id { get; init; }
+    public Guid OrderId { get; init; }
+    public string AuthorId { get; init; } = string.Empty;
+    public string AuthorName { get; init; } = string.Empty;
+    public string Body { get; init; } = string.Empty;
+    public DateTime CreatedAt { get; init; }
+}
+
+/// <summary>Admin panel S9. One row of GET /api/v1/orders/{id}/history.</summary>
+public record OrderStatusHistoryResponse
+{
+    public Guid Id { get; init; }
+    public Guid OrderId { get; init; }
+    public OrderStatus? FromStatus { get; init; }
+    public OrderStatus ToStatus { get; init; }
+    public string? Reason { get; init; }
+    public string? ActorId { get; init; }
+    public DateTime OccurredAt { get; init; }
+}
+
 public record ProblemDetailsResponse
 {
     public string? Type { get; init; }

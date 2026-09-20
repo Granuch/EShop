@@ -27,6 +27,26 @@ public class Order : AggregateRoot<Guid>
     private readonly List<OrderItem> _items = new();
     public IReadOnlyCollection<OrderItem> Items => _items.AsReadOnly();
 
+    private readonly List<OrderStatusHistory> _statusHistory = new();
+
+    /// <summary>
+    /// The transitions recorded on this instance (Admin panel S9).
+    ///
+    /// <para>
+    /// <b>Write-side only, and empty on a loaded order.</b> <c>IOrderRepository.GetByIdAsync</c>
+    /// includes the items and nothing else, so on an order read back from the database this collection
+    /// contains only the rows the current operation appended — never the order's history. Reading it to
+    /// count, validate or display anything is therefore wrong in a way that fails silently; the read
+    /// path is <c>IOrderQueryService.GetOrderStatusHistoryAsync</c>, which projects from the table.
+    /// </para>
+    /// </summary>
+    public IReadOnlyCollection<OrderStatusHistory> StatusHistory => _statusHistory.AsReadOnly();
+
+    private readonly List<OrderNote> _notes = new();
+
+    /// <inheritdoc cref="StatusHistory"/>
+    public IReadOnlyCollection<OrderNote> Notes => _notes.AsReadOnly();
+
     public DateTime? PaidAt { get; private set; }
     public DateTime? ShippedAt { get; private set; }
     public DateTime? DeliveredAt { get; private set; }
@@ -67,6 +87,10 @@ public class Order : AggregateRoot<Guid>
         }
 
         order.RecalculateTotal();
+
+        // The timeline starts here. Without this row the history of an order that never moved is
+        // empty, which reads as "no data" rather than "created, still pending".
+        order.RecordTransition(null, OrderStatus.Pending);
 
         order.AddDomainEvent(new OrderCreatedDomainEvent
         {
@@ -197,9 +221,11 @@ public class Order : AggregateRoot<Guid>
                 $"Paid amount {ToCents(paidAmount).ToString("0.00", CultureInfo.InvariantCulture)} does not match "
                 + $"the order total {ToCents(TotalPrice).ToString("0.00", CultureInfo.InvariantCulture)}.");
 
+        var previous = Status;
         Status = OrderStatus.Paid;
         PaymentIntentId = paymentIntentId;
         PaidAt = DateTime.UtcNow;
+        RecordTransition(previous, Status);
 
         AddDomainEvent(new OrderPaidDomainEvent
         {
@@ -214,8 +240,10 @@ public class Order : AggregateRoot<Guid>
         if (Status != OrderStatus.Paid)
             throw new DomainException("Only paid orders can be shipped.");
 
+        var previous = Status;
         Status = OrderStatus.Shipped;
         ShippedAt = DateTime.UtcNow;
+        RecordTransition(previous, Status);
 
         AddDomainEvent(new OrderShippedDomainEvent
         {
@@ -229,8 +257,10 @@ public class Order : AggregateRoot<Guid>
         if (Status != OrderStatus.Shipped)
             throw new DomainException("Only shipped orders can be delivered.");
 
+        var previous = Status;
         Status = OrderStatus.Delivered;
         DeliveredAt = DateTime.UtcNow;
+        RecordTransition(previous, Status);
     }
 
     /// <summary>
@@ -249,9 +279,11 @@ public class Order : AggregateRoot<Guid>
         if (string.IsNullOrWhiteSpace(reason))
             throw new DomainException("Cancellation reason is required.");
 
+        var previous = Status;
         Status = OrderStatus.Cancelled;
         CancelledAt = DateTime.UtcNow;
         CancellationReason = reason;
+        RecordTransition(previous, Status, reason);
 
         AddDomainEvent(new OrderCancelledDomainEvent
         {
@@ -279,8 +311,47 @@ public class Order : AggregateRoot<Guid>
         if (Status == OrderStatus.Cancelled)
             throw new DomainException("A cancelled order cannot be refunded; its payment is settled in Payment.");
 
+        var previous = Status;
         Status = OrderStatus.Refunded;
+        RecordTransition(previous, Status);
     }
+
+    /// <summary>
+    /// The largest number of notes one order may carry (Admin panel S9).
+    ///
+    /// <para>
+    /// The number lives here because it is a rule about an order, but <b>it is enforced by the handler,
+    /// not by this aggregate, and that is deliberate</b>: <c>_notes</c> is not loaded by
+    /// <c>GetByIdAsync</c>, so a cap written as <c>if (_notes.Count >= MaxNotes)</c> would compare
+    /// against zero on every persisted order and never fire. A pre-check with a <c>COUNT</c> query is
+    /// the only place that can see the real number; it can be beaten by two concurrent writes, the same
+    /// way Catalog's SKU pre-check can, and that is accepted — the cap exists to bound an unpaged read,
+    /// not to hold an invariant.
+    /// </para>
+    /// </summary>
+    public const int MaxNotes = 500;
+
+    /// <summary>
+    /// Attaches an internal note (Admin panel S9, endpoint #60). Allowed in every status, including the
+    /// final ones: most of what is worth writing down about an order — a chargeback, a complaint, a
+    /// goodwill credit — happens after it is delivered or cancelled.
+    /// </summary>
+    /// <returns>The new note's id, so the caller need not guess it.</returns>
+    /// <exception cref="DomainException">The author or the body is blank, or the body is too long.</exception>
+    public Guid AddNote(string authorId, string authorName, string body)
+    {
+        var note = new OrderNote(Id, authorId, authorName, body);
+        _notes.Add(note);
+        return note.Id;
+    }
+
+    /// <summary>
+    /// Appends one history row, in the same unit of work as the status change that called it. Every
+    /// transition method calls this and nothing else does; see <see cref="OrderStatusHistory"/> for why
+    /// it is not fed from the domain events instead.
+    /// </summary>
+    private void RecordTransition(OrderStatus? from, OrderStatus to, string? reason = null)
+        => _statusHistory.Add(new OrderStatusHistory(Id, from, to, reason));
 
     /// <summary>
     /// The largest total the <c>numeric(18,2)</c> column holds (Ordering audit L1). Above it Postgres

@@ -52,6 +52,12 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["POST /api/v1/orders/{id:guid}/ship"] = "Admin",
         ["POST /api/v1/orders/{id:guid}/deliver"] = "Admin",
         ["GET /api/v1/orders/stats"] = "Admin",
+        // Admin panel S9. Admin, not OrderOwnerOrAdmin like their neighbours under the same {id}: a
+        // note is written ABOUT the customer and every history row names the operator who acted, so
+        // neither may be readable by the order's owner.
+        ["POST /api/v1/orders/{id:guid}/notes"] = "Admin",
+        ["GET /api/v1/orders/{id:guid}/notes"] = "Admin",
+        ["GET /api/v1/orders/{id:guid}/history"] = "Admin",
         ["GET /api/v1/users/{userId}/orders"] = "SameUserOrAdmin",
     };
 
@@ -174,6 +180,46 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.PostAsync($"/api/v1/orders/{order.Id}/deliver", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// Admin panel S9. The sharpest case in this fixture: the order is <b>the caller's own</b>, and
+    /// every other sub-resource under <c>/orders/{id}</c> is <c>OrderOwnerOrAdmin</c>, so owning it is
+    /// normally enough. Notes and history are the exception — a note is written about the customer and
+    /// a history row names the operator who acted — and only a non-admin who owns the order can show
+    /// that the exception is real rather than incidental.
+    /// </summary>
+    [Test]
+    public async Task ANonAdmin_CannotReadTheNotesOrHistoryOfTheirOwnOrder()
+    {
+        var order = await CreateOrderForAsync(TestUserId);
+
+        (await Client.GetAsync($"/api/v1/orders/{order.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "the order itself is theirs to read");
+
+        (await Client.GetAsync($"/api/v1/orders/{order.Id}/notes"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync($"/api/v1/orders/{order.Id}/history"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.PostAsJsonAsync($"/api/v1/orders/{order.Id}/notes",
+                new AddOrderNoteRequest { Body = "let me in" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>A 403 alone would pass if the note were written and only the response reported failure.</summary>
+    [Test]
+    public async Task AForbiddenNote_IsNotWritten()
+    {
+        var order = await CreateOrderForAsync(TestUserId);
+
+        (await Client.PostAsJsonAsync($"/api/v1/orders/{order.Id}/notes",
+                new AddOrderNoteRequest { Body = "should never be stored" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var scope = Factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<OrderingDbContext>()
+            .OrderNotes.AsNoTracking().CountAsync(n => n.OrderId == order.Id))
+            .Should().Be(0);
     }
 
     [Test]
