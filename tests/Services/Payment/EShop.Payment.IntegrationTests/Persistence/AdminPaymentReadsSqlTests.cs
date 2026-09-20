@@ -179,6 +179,30 @@ public class AdminPaymentReadsSqlTests
     }
 
     /// <summary>
+    /// Why <c>PaymentQueryEnums.AsUtc</c> exists, demonstrated rather than asserted.
+    ///
+    /// <para>Npgsql refuses to send a <see cref="DateTimeKind.Unspecified"/> value as a
+    /// <c>timestamp with time zone</c> parameter, so <c>?from=2026-01-15</c> — what an admin URL actually looks like —
+    /// reaches this query service as a 500 unless the handler has coerced it first. <b>The HTTP suite cannot show
+    /// this</b>: it runs on EF InMemory, where a <c>DateTime</c> comparison ignores the kind entirely, so removing the
+    /// coercion leaves every list and stats test green. Its unit test asserts the handler still coerces; this asserts
+    /// that not coercing would break, and goes red the day Npgsql stops caring.</para>
+    /// </summary>
+    [Test]
+    public async Task Npgsql_RefusesADateWithNoTimeZone_WhichIsWhyTheHandlerCoercesOne()
+    {
+        await SeedAsync(A(PaymentStatus.Success, 100m, Jan));
+        var unspecified = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Unspecified);
+
+        Assert.CatchAsync(async () =>
+            await _service.CountAsync(new PaymentListFilter(From: unspecified)));
+
+        // The same instant, coerced the way the handler does it, is accepted.
+        var coerced = DateTime.SpecifyKind(unspecified, DateTimeKind.Utc);
+        Assert.That(await _service.CountAsync(new PaymentListFilter(From: coerced)), Is.EqualTo(1));
+    }
+
+    /// <summary>
     /// The bucket start is assembled in memory from the integer parts the database grouped on; this pins that it
     /// comes back as a UTC instant rather than whatever kind Npgsql last handled.
     /// </summary>
