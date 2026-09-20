@@ -1,12 +1,12 @@
 using EShop.Payment.Domain.Entities;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Data;
+using EShop.Payment.Infrastructure.Extensions;
 using EShop.Payment.Infrastructure.QueryServices;
-using EShop.Payment.Infrastructure.Services;
 using EShop.Payment.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EShop.Payment.IntegrationTests.Persistence;
 
@@ -37,8 +37,19 @@ public class PaymentDiagnosticsSqlTests
     public async Task CreateDatabaseAsync()
     {
         _connectionString = await PostgresTestServer.CreateDatabaseAsync();
+
+        // Production's own registrations, not a copy of them: the capture test below turns on whether the store is a
+        // singleton that opens its own scope or a scoped service holding the caller's DbContext, and a registration
+        // written out here would keep saying whatever it said while AddPaymentInfrastructure changed.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:PaymentDb"] = _connectionString
+            })
+            .Build();
         var services = new ServiceCollection();
-        services.AddDbContext<PaymentDbContext>(o => o.UseNpgsql(_connectionString));
+        services.AddLogging();
+        services.AddPaymentInfrastructure(configuration);
         _provider = services.BuildServiceProvider();
     }
 
@@ -58,10 +69,6 @@ public class PaymentDiagnosticsSqlTests
 
     private static string APayload(string eventId)
         => $"{{\"id\":\"{eventId}\",\"type\":\"payment_intent.succeeded\"}}";
-
-    private FailedStripeWebhookStore NewStore()
-        => new(_provider.GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<FailedStripeWebhookStore>.Instance);
 
     // ---- the timeline ----------------------------------------------------------------------------------------
 
@@ -147,7 +154,12 @@ public class PaymentDiagnosticsSqlTests
     [Test]
     public async Task ACapture_SurvivesAnAbortedTransaction()
     {
-        await using var failing = NewContext();
+        // The store is resolved from the SAME scope as the poisoned DbContext, exactly as the webhook endpoint does.
+        // That is what makes this falsifiable: a store holding the caller's context would be handed the poisoned one.
+        using var scope = _provider.CreateScope();
+        var failing = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+        var store = scope.ServiceProvider.GetRequiredService<IFailedStripeWebhookStore>();
+
         await using var transaction = await failing.Database.BeginTransactionAsync();
 
         // Poison it: a duplicate primary key inside the transaction, so Postgres refuses every later statement on
@@ -162,7 +174,7 @@ public class PaymentDiagnosticsSqlTests
         // point, so it is asserted rather than assumed.
         Assert.CatchAsync(async () => await failing.PaymentTransactions.CountAsync());
 
-        await NewStore().CaptureAsync(APayload("evt_aborted"), "t=1,v1=x", new InvalidOperationException("boom"));
+        await store.CaptureAsync(APayload("evt_aborted"), "t=1,v1=x", new InvalidOperationException("boom"));
 
         await transaction.RollbackAsync();
 
@@ -214,8 +226,11 @@ public class PaymentDiagnosticsSqlTests
             await db.Database.ExecuteSqlRawAsync("""DROP TABLE "FailedStripeWebhooks" """);
         }
 
+        using var scope = _provider.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IFailedStripeWebhookStore>();
+
         Assert.DoesNotThrowAsync(async () =>
-            await NewStore().CaptureAsync(APayload("evt_gone"), "sig", new InvalidOperationException("boom")));
+            await store.CaptureAsync(APayload("evt_gone"), "sig", new InvalidOperationException("boom")));
     }
 
     [Test]
