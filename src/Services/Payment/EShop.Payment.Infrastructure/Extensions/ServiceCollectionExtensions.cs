@@ -7,6 +7,7 @@ using EShop.Payment.Infrastructure.Consumers;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Data;
+using EShop.Payment.Infrastructure.QueryServices;
 using EShop.Payment.Infrastructure.Repositories;
 using EShop.Payment.Infrastructure.Services;
 using Microsoft.Extensions.Options;
@@ -70,6 +71,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<PaymentDbContext>());
 
         services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<IPaymentQueryService, PaymentQueryService>();
         services.AddScoped<IPaymentProcessor, MockPaymentProcessor>();
         services.AddScoped<IStripeCustomerService, StripeCustomerService>();
         services.AddScoped<IStripePaymentService, StripePaymentService>();

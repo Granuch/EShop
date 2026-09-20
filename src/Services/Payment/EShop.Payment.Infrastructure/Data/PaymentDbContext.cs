@@ -96,7 +96,17 @@ public class PaymentDbContext : BaseDbContext
                 .IsUnique()
                 .HasFilter("\"PaymentIntentId\" <> ''");
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });
-            entity.HasIndex(x => new { x.Status, x.CreatedAt });
+
+            // Admin panel S10 (M9). Both match the admin list's ORDER BY — CreatedAt DESC, Id DESC — because a
+            // composite whose trailing columns ascend cannot serve a descending sort under a leading equality
+            // predicate, and Postgres can only read a *whole* index backwards. The unfiltered list has no leading
+            // predicate at all, which is why the second one exists: PaymentTransactions had no index on CreatedAt
+            // alone. IX_PaymentTransactions_Status_CreatedAt is replaced rather than joined, since this covers its
+            // lookups as a leading-column prefix — the same trade Ordering's M6 and audit L12 made.
+            entity.HasIndex(x => new { x.Status, x.CreatedAt, x.Id })
+                .IsDescending(false, true, true);
+            entity.HasIndex(x => new { x.CreatedAt, x.Id })
+                .IsDescending(true, true);
         });
 
         modelBuilder.Entity<PaymentCustomer>(entity =>

@@ -141,6 +141,48 @@ public class PaymentTransaction
     }
 
     /// <summary>
+    /// What an offline settlement writes into <see cref="PaymentIntentId"/> in front of the operator's own reference,
+    /// so a bank-transfer reference can never be mistaken for — or collide with — a Stripe intent id, in this service
+    /// or in the order it ends up on.
+    /// </summary>
+    public const string OfflineReferencePrefix = "offline:";
+
+    /// <summary>The stored form of an operator's offline reference. Built here so a caller's uniqueness pre-check and
+    /// <see cref="SettleOffline"/> cannot disagree about the string the unique index sees.</summary>
+    public static string OfflineReference(string reference) => OfflineReferencePrefix + reference.Trim();
+
+    /// <summary>
+    /// The money arrived outside the system — a bank transfer, cash at the counter — and an operator is recording that
+    /// fact (Admin panel S10, decision Q6a). The payment goes straight to <see cref="PaymentStatus.Success"/> as a
+    /// <see cref="PaymentMethodType.Mock"/> payment, and the <c>PaymentSuccessEvent</c> that follows reaches
+    /// <c>Order.MarkAsPaid</c> by the one path that already exists.
+    /// <para><b>Only a Pending payment, and that restriction is load-bearing rather than cautious.</b> Every method
+    /// that records an intent — <see cref="StartStripePayment"/>, <see cref="StartSimulated"/> — leaves Pending as it
+    /// does so, and nothing ever returns to it. So Pending means no attempt is in flight at a provider, and settling
+    /// offline cannot strand a Stripe intent the customer could still pay. The <see cref="PaymentIntentId"/> check
+    /// below states that invariant rather than trusting it.</para>
+    /// </summary>
+    public void SettleOffline(string reference, DateTime now)
+    {
+        if (Status != PaymentStatus.Pending || !string.IsNullOrEmpty(PaymentIntentId))
+        {
+            throw Refused(nameof(SettleOffline));
+        }
+
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            throw new DomainException($"Payment {Id} cannot be settled offline without a reference.");
+        }
+
+        PaymentMethod = PaymentMethodType.Mock;
+        PaymentIntentId = OfflineReference(reference);
+        Status = PaymentStatus.Success;
+        ErrorMessage = null;
+        ProcessedAt = now;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
     /// The customer started paying at Stripe (<c>/create-intent</c>). Only a Pending Stripe payment with no intent: one
     /// payment, one intent (S2, D4).
     /// </summary>

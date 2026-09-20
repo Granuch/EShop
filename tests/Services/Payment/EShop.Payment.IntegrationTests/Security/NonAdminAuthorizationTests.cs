@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Payment.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -32,7 +33,52 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["POST /api/v1/payments/{id:guid}/refund"] = "Admin",
         ["GET /api/v1/payments/simulation"] = "Admin",
         ["GET /api/v1/users/{userId}/payments"] = "SameUserOrAdmin",
+
+        // Admin panel S10. Permission policies, not the Admin role (decision Q4c, §12.1: new admin endpoints declare
+        // a permission). Behaviour is identical for every existing caller, because the Admin role bundles every
+        // permission — so the two styles below are a migration in progress, not a disagreement. Payment's three older
+        // admin endpoints move when a stage touches them.
+        ["POST /api/v1/payments/offline"] = EShopPermissions.PaymentsWrite,
+        ["GET /api/v1/payments"] = EShopPermissions.PaymentsRead,
+        ["GET /api/v1/payments/stats"] = EShopPermissions.PaymentsRead,
+        ["GET /api/v1/payments/export"] = EShopPermissions.PaymentsRead,
     };
+
+    /// <summary>
+    /// The behavioural half. A permission policy that was quietly redefined as
+    /// <c>RequireAuthenticatedUser()</c> leaves every attribute in place, so the structural check above cannot see
+    /// it — only a request with a valid non-admin token can.
+    /// </summary>
+    [TestCase("GET", "/api/v1/payments")]
+    [TestCase("GET", "/api/v1/payments/stats")]
+    [TestCase("GET", "/api/v1/payments/export")]
+    public async Task ACustomer_CannotUseTheAdminReads(string method, string path)
+    {
+        var response = await Client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    /// <summary>
+    /// The Q6a endpoint is the one a customer would most like to reach: it declares an order paid without any money
+    /// moving. The payment must stay as it was.
+    /// </summary>
+    [Test]
+    public async Task ACustomer_CannotDeclareTheirOwnOrderPaid()
+    {
+        var seeded = await Factory.SeedPaymentAsync(TestUserId);
+
+        var response = await Client.PostAsJsonAsync(
+            "/api/v1/payments/offline", new { seeded.OrderId, Reference = "TRF-1" });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+        var stored = (await Factory.FindByOrderIdAsync(seeded.OrderId))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Pending));
+            Assert.That(stored.PaymentIntentId, Is.Empty);
+        });
+    }
 
     /// <summary>
     /// The H4 defect: a customer could settle their own order through the simulator, bypassing Stripe. The payment
