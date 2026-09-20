@@ -1,3 +1,5 @@
+using EShop.BuildingBlocks.Domain;
+
 namespace EShop.Payment.Domain.Entities;
 
 /// <summary>
@@ -19,17 +21,15 @@ namespace EShop.Payment.Domain.Entities;
 /// </para>
 ///
 /// <para>
-/// <b>Not an <c>Entity&lt;Guid&gt;</c>, unlike Ordering's <c>OrderStatusHistory</c>, and the difference is a fact
-/// about this service rather than a style choice.</b> That base class brings <c>CreatedAt</c>/<c>CreatedBy</c>, and
-/// the actor half only works because <c>BaseDbContext.SetAuditFields</c> stamps <c>CreatedBy</c> from
-/// <c>ICurrentUserContext</c> — which <b>Payment alone of the six services does not register</b> (checked
-/// 2026-09-20: Basket, Catalog, Identity, Notification and Ordering each call
-/// <c>AddScoped&lt;ICurrentUserContext, HttpCurrentUserContext&gt;</c> and Payment does not). Deriving anyway would
-/// put an <c>ActorId</c> on the timeline that is null for every row ever written, which is worse than having no
-/// actor: a reader would conclude nobody did it. <c>OccurredAt</c> makes <c>CreatedAt</c> redundant here in any case.
+/// <b>The actor comes from <see cref="Entity{TId}.CreatedBy"/>, which <c>BaseDbContext.SetAuditFields</c> stamps from
+/// <c>ICurrentUserContext</c></b> — the same mechanism Ordering's <c>OrderStatusHistory</c> uses, so no domain method
+/// here had to grow an <c>actor</c> argument. It works only because Payment registers <c>ICurrentUserContext</c>,
+/// which until 2026-09-20 it was the one service of six not to do; this entity was written without an actor for
+/// exactly that reason, and gained one as soon as the registration landed. An operator's offline settlement therefore
+/// records their user id and a consumer's or a webhook's transition records <c>"system"</c>.
 /// </para>
 /// </summary>
-public class PaymentEvent
+public class PaymentEvent : Entity<Guid>
 {
     /// <summary>Matches <c>PaymentTransaction.ErrorMessage</c>'s column, which is where the longest details come
     /// from (Stripe's decline reasons, an operator's refund note).</summary>
@@ -37,8 +37,6 @@ public class PaymentEvent
 
     /// <summary>Stripe's own event ids are short; the column matches <c>ProcessedStripeWebhookEvents.EventId</c>.</summary>
     public const int MaxStripeEventIdLength = 200;
-
-    public Guid Id { get; private set; }
 
     public Guid PaymentTransactionId { get; private set; }
 
@@ -73,10 +71,11 @@ public class PaymentEvent
     /// When it happened, as the transition itself saw the clock.
     ///
     /// <para>
-    /// Deliberately not named <c>CreatedAt</c>: <c>BaseDbContext.SetAuditFields</c> overwrites any writable property
-    /// of that name with "now" on every insert, whatever the entity held, so it would record when the row was saved
-    /// rather than when the payment moved. For a webhook replayed days later those are emphatically not the same
-    /// instant.
+    /// Deliberately <b>not</b> <see cref="Entity{TId}.CreatedAt"/>, which this entity also carries:
+    /// <c>BaseDbContext.SetAuditFields</c> overwrites <c>CreatedAt</c> with "now" on every insert whatever the entity
+    /// held, so it records when the row was <i>saved</i> rather than when the payment moved. For a webhook replayed
+    /// days after it arrived those are emphatically not the same instant — and the timeline is read in
+    /// <c>OccurredAt</c> order for that reason.
     /// </para>
     /// </summary>
     public DateTime OccurredAt { get; private set; }

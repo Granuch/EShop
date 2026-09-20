@@ -51,6 +51,22 @@ public class PaymentEventTimelineTests : AuthenticatedIntegrationTestBase
     }
 
     /// <summary>
+    /// The actor comes from `BaseDbContext.SetAuditFields` stamping `CreatedBy` from `ICurrentUserContext`, so no
+    /// domain method had to take one. Worth pinning, because the obvious alternative — an `ActorId` threaded through
+    /// every transition — is what this avoids, and because the mechanism is one DI registration away from silently
+    /// reporting null (Payment was the one service missing it until 2026-09-20).
+    /// </summary>
+    [Test]
+    public async Task AnOperatorsAction_RecordsWhoDidIt()
+    {
+        var seeded = await Factory.SeedPaymentAsync("customer-1");
+
+        await Client.PostAsJsonAsync("/api/v1/payments/offline", new { seeded.OrderId, Reference = "TRF-100" });
+
+        Assert.That((await TimelineAsync(seeded.Id))[0].ActorId, Is.EqualTo(TestUserId));
+    }
+
+    /// <summary>
     /// The simulator's settlement runs through <c>POST /api/v1/payments</c>: start, then success, in two saves. Both
     /// rows are there and in order, which no single writer could have produced.
     /// </summary>
@@ -190,5 +206,6 @@ public class PaymentEventTimelineTests : AuthenticatedIntegrationTestBase
         string? FromStatus,
         string ToStatus,
         string Detail,
+        string? ActorId,
         DateTime OccurredAt);
 }

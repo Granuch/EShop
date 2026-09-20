@@ -164,6 +164,18 @@ public class PaymentDbContext : BaseDbContext
                 .HasColumnType("timestamp with time zone")
                 .IsRequired();
 
+            // Audit fields. CreatedBy is the actor: BaseDbContext.SetAuditFields stamps it from ICurrentUserContext,
+            // so an operator's offline settlement lands their id and a consumer's or a webhook's transition lands
+            // "system" — without any domain method learning about actors. CreatedAt is the save time, which is NOT
+            // the same instant as OccurredAt for a replayed webhook; the timeline reads on OccurredAt.
+            // UpdatedBy stays null forever, because the timeline is append-only and no row is ever modified.
+            entity.Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+            entity.Property(x => x.CreatedBy).HasMaxLength(100);
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.UpdatedBy).HasMaxLength(100);
+
             // The only query: one payment's timeline, oldest first.
             entity.HasIndex(x => new { x.PaymentTransactionId, x.OccurredAt });
         });

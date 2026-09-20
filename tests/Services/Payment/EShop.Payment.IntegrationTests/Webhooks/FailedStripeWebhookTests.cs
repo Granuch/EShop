@@ -35,6 +35,21 @@ public class FailedStripeWebhookTests : AuthenticatedIntegrationTestBase
 
     private FailingWebhookPaymentApiFactory Webhooks => (FailingWebhookPaymentApiFactory)Factory;
 
+    /// <summary>
+    /// Deliveries go through a <b>second, tokenless client</b>, because that is what Stripe is.
+    /// <para>`Client` carries this fixture's admin bearer token in `DefaultRequestHeaders`, and `HttpClient` merges
+    /// those into any request that does not already have them — so posting a webhook through it authenticates the
+    /// delivery as the admin. Every status-code assertion here passes either way, which is exactly why it went
+    /// unnoticed until a test asserted who the timeline names.</para>
+    /// </summary>
+    private HttpClient Stripe { get; set; } = null!;
+
+    [SetUp]
+    public void CreateStripeClient() => Stripe = Factory.CreateClient();
+
+    [TearDown]
+    public void DisposeStripeClient() => Stripe?.Dispose();
+
     private async Task<List<FailedStripeWebhook>> CapturesAsync()
     {
         using var scope = Factory.Services.CreateScope();
@@ -62,7 +77,7 @@ public class FailedStripeWebhookTests : AuthenticatedIntegrationTestBase
     }
 
     private Task<HttpResponseMessage> DeliverAsync(string payload)
-        => StripeWebhooks.PostAsync(Client, payload, StripeWebhooks.Sign(payload));
+        => StripeWebhooks.PostAsync(Stripe, payload, StripeWebhooks.Sign(payload));
 
     private async Task<ReplayReport> ReplayAsync(object? body = null)
     {
@@ -150,7 +165,7 @@ public class FailedStripeWebhookTests : AuthenticatedIntegrationTestBase
         var (_, payload) = await ADeliveryAsync();
 
         var response = await StripeWebhooks.PostAsync(
-            Client, payload, StripeWebhooks.Sign(payload, "whsec_someone_else"));
+            Stripe, payload, StripeWebhooks.Sign(payload, "whsec_someone_else"));
 
         Assert.Multiple(async () =>
         {
@@ -164,7 +179,7 @@ public class FailedStripeWebhookTests : AuthenticatedIntegrationTestBase
     {
         const string payload = "{\"nonsense\":true}";
 
-        var response = await StripeWebhooks.PostAsync(Client, payload, StripeWebhooks.Sign(payload));
+        var response = await StripeWebhooks.PostAsync(Stripe, payload, StripeWebhooks.Sign(payload));
 
         Assert.Multiple(async () =>
         {
@@ -271,6 +286,40 @@ public class FailedStripeWebhookTests : AuthenticatedIntegrationTestBase
 
     private static string StripeEventIdOf(string payload)
         => System.Text.Json.JsonDocument.Parse(payload).RootElement.GetProperty("id").GetString()!;
+
+    /// <summary>
+    /// Who the timeline names for a webhook-driven transition, which is not the same in the two cases and is easy to
+    /// assume wrong.
+    ///
+    /// <para>Stripe's own delivery arrives over <b>anonymous</b> HTTP, so `ICurrentUserContext` has an `HttpContext`
+    /// with no authenticated user and reports null — not `"system"`, which is reserved for the case with no
+    /// `HttpContext` at all (a consumer, the outbox processor). A replay of the same delivery happens inside an
+    /// operator's request, so it records that operator, and the replayer's per-row `IServiceScopeFactory` scope does
+    /// not lose them: `IHttpContextAccessor` is AsyncLocal-backed and flows into the inner scope.</para>
+    /// </summary>
+    [Test]
+    public async Task AStripeDeliveryNamesNobody_WhileItsReplayNamesTheOperator()
+    {
+        // Stripe's own delivery, applied first time.
+        var (direct, directPayload) = await ADeliveryAsync();
+        Webhooks.FailWhen = _ => false;
+        await DeliverAsync(directPayload);
+
+        // A delivery that fails, is captured, and is then replayed by the admin whose token this fixture carries.
+        Webhooks.FailWhen = _ => true;
+        var (replayed, replayedPayload) = await ADeliveryAsync();
+        await DeliverAsync(replayedPayload);
+        Webhooks.FailWhen = _ => false;
+        await ReplayAsync();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await TimelineAsync(direct.Id)).Single().CreatedBy, Is.Null,
+                "Stripe's delivery is anonymous, so there is no operator to name");
+            Assert.That((await TimelineAsync(replayed.Id)).Single().CreatedBy, Is.EqualTo(TestUserId),
+                "a replay is an operator's action and records them");
+        });
+    }
 
     [Test]
     public async Task ReplayingTwice_IsSafe()
