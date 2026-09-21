@@ -1,15 +1,23 @@
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Notification.Application.Extensions;
+using EShop.Notification.API.Endpoints;
 using EShop.Notification.Infrastructure.Extensions;
 using EShop.Notification.API.Configuration;
 using EShop.Notification.Infrastructure.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using HealthChecks.UI.Client;
 using Npgsql;
 using Prometheus;
+using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Events;
+using System.Text;
+using System.Threading.RateLimiting;
+using CorsOriginGuard = EShop.BuildingBlocks.Infrastructure.Configuration.CorsOriginGuard;
 
 ThreadPool.SetMinThreads(workerThreads: 50, completionPortThreads: 50);
 
@@ -41,8 +49,10 @@ try
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "EShop.Notification.API"));
 
-    // Notification has almost no public HTTP surface, so this is for consistency rather than a
-    // live exposure — one implementation everywhere beats remembering which service is exempt.
+    // Shared across every service — reads KnownNetworks as well as KnownProxies, which is what works under
+    // Docker/Kubernetes, and logs rather than silently dropping an unparseable entry. Since Admin panel S12 this is a
+    // live exposure rather than consistency alone: the journal endpoints sit behind the gateway, and the rate limiter
+    // below partitions on the address this rewrites.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
     builder.Services.AddNotificationApplication();
@@ -62,6 +72,93 @@ try
         serviceVersion: "1.0.0",
         environment: builder.Environment,
         additionalSources: "EShop.Notification");
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Admin panel S12 (endpoints #70, #71, #77). Notification's first web surface: JWT bearer authentication,
+    // permission policies, CORS, a partitioned rate limiter and the OpenAPI document. NotificationConfigurationGuard
+    // has already refused a missing, short or placeholder signing key and an empty issuer or audience, so binding
+    // below cannot produce a host that rejects every token while reporting healthy.
+    // ---------------------------------------------------------------------------------------------------------
+    var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
+        ?? throw new InvalidOperationException("JWT settings are required.");
+
+    builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidAudience = jwtSettings.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through RolePermissionBundles.
+    // Notification deliberately declares NO "Admin" policy — it has never had one, and the root guide's rule is to
+    // reach for a permission exactly here. The journal endpoints require notifications.read; an Admin token carries
+    // every permission through the bundle, so nothing has to be granted for an existing administrator to use them.
+    builder.Services.AddEShopPermissions();
+
+    // Validated while the host is composed rather than inside the AddPolicy lambda, which CORS builds lazily on first
+    // use: a misconfigured deploy would otherwise start healthy and throw on its first cross-origin request.
+    var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
+
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowFrontend", policy =>
+        {
+            policy.WithOrigins(corsAllowedOrigins)
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials();
+        });
+    });
+
+    // Payment's limiter, ported as-is: partitioned per client (never AddFixedWindowLimiter(name, ...), which builds
+    // ONE bucket shared by every caller), off under Testing unless RateLimiting:EnableInTesting, and read from the
+    // same RateLimiting:* keys as Catalog, Identity, Ordering and Payment.
+    var rateLimitingEnabled = !builder.Environment.IsEnvironment("Testing")
+        || builder.Configuration.GetValue<bool>("RateLimiting:EnableInTesting");
+    var globalPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+    var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Global:WindowSeconds") ?? 60;
+
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        if (rateLimitingEnabled)
+        {
+            // GetClientPartitionKey normalises IPv4-mapped IPv6, so a dual-stack client cannot claim two allowances,
+            // and it reads the address UseForwardedHeaders has already rewritten.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        AutoReplenishment = true,
+                        PermitLimit = globalPermitLimit,
+                        Window = TimeSpan.FromSeconds(globalWindowSeconds)
+                    }));
+        }
+    });
+
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddOpenApi();
+
+    // AddCommon() only. Notification throws no NotFoundException — the journal's 404 comes from a Result error mapped
+    // by the endpoint, as Basket's do — and its reads open no transaction and write nothing, so there is no
+    // DbUpdateException to classify. Adding branches here for exceptions this service cannot raise would be a table
+    // to keep in sync with nothing.
+    builder.Services.AddEShopProblemDetails(options => options.AddCommon());
 
     var app = builder.Build();
 
@@ -102,14 +199,45 @@ try
         }
     }
 
+    // Admin panel S12. Notification's endpoints can now fail, so the shared RFC 7807 middleware has something to do.
+    // It is registered first, as in every other component, so it wraps everything below it.
+    app.UseGlobalExceptionHandler();
+
+    // OpenAPI and Scalar: every environment except Production, the one rule all services share (Ordering audit L10,
+    // EShopApiDocs). Notification is the seventh and last component to map them — it had no API to document.
+    if (EShopApiDocs.IsExposedIn(app.Environment))
+    {
+        app.MapOpenApi();
+
+        app.MapScalarApiReference(options =>
+        {
+            options
+                .WithTitle("EShop Notification API")
+                .WithTheme(ScalarTheme.Purple)
+                .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
+                .WithOpenApiRoutePattern("/openapi/{documentName}.json");
+        });
+    }
+
+    // Before anything that reads the client address: the rate limiter partitions on it.
     app.UseEShopForwardedHeaders(forwardedHeadersEnabled);
 
     app.UseEShopRequestLogging();
+
+    app.UseCors("AllowFrontend");
+
+    // After CORS, so a preflight does not spend a permit; before authentication and the endpoints.
+    app.UseRateLimiter();
 
     app.UseHttpMetrics(options =>
     {
         options.AddCustomLabel("service", _ => "notification");
     });
+
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapNotificationEndpoints();
 
     // Notification previously had no /health, and its liveness predicate fell back to
     // `Tags.Count == 0` because nothing was tagged "live" — it matched no check and so always

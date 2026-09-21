@@ -52,6 +52,7 @@ builder.Services.Configure<IdentityProxyOptions>(builder.Configuration.GetSectio
 builder.Services.Configure<CatalogProxyOptions>(builder.Configuration.GetSection(CatalogProxyOptions.SectionName));
 builder.Services.Configure<OrderingProxyOptions>(builder.Configuration.GetSection(OrderingProxyOptions.SectionName));
 builder.Services.Configure<BasketProxyOptions>(builder.Configuration.GetSection(BasketProxyOptions.SectionName));
+builder.Services.Configure<NotificationProxyOptions>(builder.Configuration.GetSection(NotificationProxyOptions.SectionName));
 
 // Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
 // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
@@ -232,6 +233,7 @@ app.UseMiddleware<IdentityProxyGuardMiddleware>();
 app.UseMiddleware<CatalogProxyGuardMiddleware>();
 app.UseMiddleware<OrderingProxyGuardMiddleware>();
 app.UseMiddleware<BasketProxyGuardMiddleware>();
+app.UseMiddleware<NotificationProxyGuardMiddleware>();
 
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();

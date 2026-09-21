@@ -906,6 +906,17 @@ services:
       IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
 
+      # Admin panel S12. Notification gained a web surface (the delivery journal), so it now validates tokens like
+      # every other service. NotificationConfigurationGuard refuses a missing, short or placeholder key and an empty
+      # issuer or audience, so an unset JWT_SECRET_KEY crash-loops notification-api rather than starting a host that
+      # rejects every token while reporting healthy.
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
+
       OpenTelemetry__Enabled: "true"
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
       OpenTelemetry__SamplingRatio: "${OTEL_SAMPLING_RATIO:-0.1}"

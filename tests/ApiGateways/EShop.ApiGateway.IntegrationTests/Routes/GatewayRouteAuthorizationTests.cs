@@ -55,7 +55,10 @@ public sealed class GatewayRouteAuthorizationTests
         ["orders-route"] = "Authenticated",
         ["payments-route"] = "Authenticated",
         ["ordering-user-orders-route"] = "Authenticated",
-        ["payment-user-payments-route"] = "Authenticated"
+        ["payment-user-payments-route"] = "Authenticated",
+        // G3 (Admin panel S12). The notification delivery journal — the whole surface is operational, so there is no
+        // anonymous read to carve out as there is under /api/v1/products.
+        ["notifications-route"] = "Admin"
     };
 
     [OneTimeSetUp]
@@ -176,6 +179,22 @@ public sealed class GatewayRouteAuthorizationTests
         AssertReachedProxy(
             await Send(HttpMethod.Get, "/api/v1/categories", token: null),
             "an anonymous GET /api/v1/categories");
+    }
+
+    [Test]
+    public async Task TheNotificationJournal_IsAdminOnly()
+    {
+        // Admin panel S12 added notification-cluster and this route together. Notification itself requires the
+        // notifications.read permission, so the gateway's role check and the service's permission check are two
+        // different questions; this asserts the gateway half.
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/notifications", token: null),
+            Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/notifications", RouteAuthorizationApiFactory.UserToken()),
+            Is.EqualTo(HttpStatusCode.Forbidden));
+
+        AssertReachedProxy(
+            await Send(HttpMethod.Get, "/api/v1/notifications/stats", RouteAuthorizationApiFactory.AdminToken()),
+            "an admin calling /api/v1/notifications/stats");
     }
 
     [Test]

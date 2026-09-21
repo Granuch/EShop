@@ -36,7 +36,9 @@ public sealed class ProxyGuardCoverageTests
         IdentityProxyGuardMiddleware.IdentityPathPrefixes
             .Concat(CatalogProxyGuardMiddleware.CatalogPathPrefixes)
             .Concat(OrderingProxyGuardMiddleware.OrderingPathPrefixes)
-            .Append(BasketProxyGuardMiddleware.BasketPathPrefix);
+            .Append(BasketProxyGuardMiddleware.BasketPathPrefix)
+            // G6 (Admin panel S12): added in the same change as notifications-route, which is the point of this test.
+            .Append(NotificationProxyGuardMiddleware.NotificationPathPrefix);
 
     [Test]
     public void EveryApiRoute_SitsBehindAProxyGuard_OrIsAKnownHole()

@@ -71,6 +71,21 @@ Routes support:
 - Per-route authorization policy
 - Service destination selection
 
+Six clusters are declared: `identity-cluster`, `catalog-cluster`, `basket-cluster`,
+`ordering-cluster`, `payment-cluster` and `notification-cluster`.
+
+Two rules are easy to get wrong here:
+
+- There is **no `FallbackPolicy`**, so a route with no `AuthorizationPolicy` is anonymous and
+  nothing fails at startup. `Routes/GatewayRouteAuthorizationTests` pins every `/api/` route and
+  its policy so a new one cannot ship without a decision.
+- Every route must also sit behind one of the `*ProxyGuardMiddleware` path-prefix arrays
+  (identity, catalog, ordering, basket, notification). A route outside them works perfectly while
+  losing its request-body cap and the 502→503 rewrite; `Routes/ProxyGuardCoverageTests` is what
+  catches that. `/api/v1/payments` is recorded there as a known pre-existing hole.
+- Comments inside `Routes` only work under a route's `Metadata`: every other key is parsed as a
+  route id and fails startup.
+
 ---
 
 ## 5. Simulation Layer

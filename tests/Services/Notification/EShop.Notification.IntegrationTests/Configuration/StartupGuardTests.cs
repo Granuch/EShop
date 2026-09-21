@@ -39,6 +39,20 @@ public class StartupGuardTests
         Assert.That(Messages(failure), Has.Some.Contains("PasswordReset:ResetUrlBase is required"));
     }
 
+    /// <summary>
+    /// Admin panel S12. The same shape for the token settings the web surface needs: the guard runs before the host is
+    /// built, so a placeholder key cannot produce a running notification-api that trusts it.
+    /// </summary>
+    [Test]
+    public void InSandbox_ThePlaceholderSigningKey_StopsTheHost()
+    {
+        var (failure, reachedBuild) = Start("Sandbox", UnreachableDatabase,
+            ("JwtSettings:SecretKey", "CHANGE_ME_notification_service_secret_key_32_chars_min"));
+
+        Assert.That(reachedBuild, Is.False, "the guard runs while the host is composed, before it is built");
+        Assert.That(Messages(failure), Has.Some.Contains("placeholder"));
+    }
+
     /// <summary>What the tracked appsettings.Development.json ships.</summary>
     [Test]
     public void InSandbox_ThePlaceholderApiKey_StopsTheHost()
@@ -119,6 +133,12 @@ public class StartupGuardTests
             builder.UseSetting("RabbitMQ:Username", "u");
             builder.UseSetting("RabbitMQ:Password", "p");
             builder.UseSetting("RabbitMQ:WaitUntilStarted", "false");
+            // Admin panel S12. Restated rather than inherited so the token settings a deployed host needs are visible
+            // here: the base factory sets them too, but the clean control's meaning depends on them being real values,
+            // and the placeholder case above works by overriding exactly one of them.
+            builder.UseSetting("JwtSettings:SecretKey", NotificationApiFactory.SecretKey);
+            builder.UseSetting("JwtSettings:Issuer", NotificationApiFactory.Issuer);
+            builder.UseSetting("JwtSettings:Audience", NotificationApiFactory.Audience);
             builder.UseSetting(setting.Key, setting.Value);
 
             // Runs when Program.cs calls builder.Build(), i.e. only once the guard has passed.

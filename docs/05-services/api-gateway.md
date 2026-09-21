@@ -37,12 +37,24 @@ Gateway routes map API path patterns to service clusters defined in configuratio
 
 Common routed areas include:
 - `/api/v1/auth/*` -> identity
+- `/api/v1/admin/users/*` -> identity (`Admin`)
 - `/api/v1/products/*` and `/api/v1/categories/*` -> catalog
+- `/api/v1/admin/catalog/*` -> catalog (`Admin`)
 - `/api/v1/basket/*` -> basket
 - `/api/v1/orders/*` -> ordering
 - `/api/v1/payments/*` -> payment
+- `/api/v1/notifications/*` -> notification (`Admin`)
 
 Authorization is applied per route where required (for example `Authenticated`, `Admin`).
+
+The gateway declares **no `FallbackPolicy`**, so a route added without an `AuthorizationPolicy` is
+anonymous and nothing fails. `Routes/GatewayRouteAuthorizationTests` pins the whole table for that
+reason: adding a route without listing its policy fails the build.
+
+Gateway authorization is defence in depth, not the enforcement point — every service re-checks the
+caller. Where the two differ deliberately, the gateway asks a *role* question and the service asks
+a *permission* question: `/api/v1/notifications/*` is `Admin` here and `notifications.read` in
+Notification, and both must pass.
 
 ---
 
@@ -85,7 +97,10 @@ Behavior is configured through `RateLimiting` settings in gateway configuration.
 7. Rate limiter
 8. HTTPS redirection (environment-dependent)
 9. Authentication + Authorization
-10. Proxy guard middlewares
+10. Proxy guard middlewares (identity, catalog, ordering, basket, notification — each matching a
+    hardcoded path-prefix array; a route on a path none of them covers silently loses its
+    request-body cap and leaks bare 502s, which `Routes/ProxyGuardCoverageTests` refuses.
+    `/api/v1/payments` is a known, recorded hole)
 11. Simulation decision/response middlewares
 12. Reverse proxy forwarding
 

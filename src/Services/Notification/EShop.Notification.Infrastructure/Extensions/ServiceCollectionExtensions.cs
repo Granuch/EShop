@@ -10,6 +10,7 @@ using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Consumers;
 using EShop.Notification.Infrastructure.Data;
 using EShop.Notification.Infrastructure.HealthChecks;
+using EShop.Notification.Infrastructure.QueryServices;
 using EShop.Notification.Infrastructure.Repositories;
 using EShop.Notification.Infrastructure.Services;
 using MassTransit;
@@ -57,6 +58,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IEmailService, EmailService>();
         services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
         services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
+
+        // Admin panel S12. The read side of the journal, separate from the repository: everything here is AsNoTracking
+        // and answers a screen, while the repository's reads are tracked and race on the row version.
+        services.AddScoped<INotificationQueryService, NotificationQueryService>();
 
         services.AddHttpClient<IUserContactResolver, UserContactResolver>((sp, client) =>
         {
