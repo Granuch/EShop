@@ -52,4 +52,26 @@ public class ApiDocsExposureTests
             "the 200 response must carry a schema — Ordering audit L8 had to retrofit this once, when every endpoint "
             + "declared Produces<object> and the document described no response shapes at all");
     }
+
+    /// <summary>
+    /// Admin panel S13. With no first-party client, the document is the actions' only contract; a resend's 202 carrying
+    /// no schema would leave a UI developer guessing whether it returns the row, a job id, or nothing.
+    /// </summary>
+    [TestCase("/api/v1/notifications/{id}/resend", "202")]
+    [TestCase("/api/v1/notifications/retry-failed", "202")]
+    [TestCase("/api/v1/notifications/{id}/mark-undeliverable", "200")]
+    [TestCase("/api/v1/notifications/templates/{name}/test", "200")]
+    public async Task TheDocument_DescribesEachAction_WithItsResponseShape(string path, string status)
+    {
+        await using var factory = new NotificationApiFactory();
+        using var client = factory.CreateClient();
+
+        var document = await client.GetStringAsync("/openapi/v1.json");
+        using var json = System.Text.Json.JsonDocument.Parse(document);
+
+        Assert.That(json.RootElement.GetProperty("paths").TryGetProperty(path, out var item), Is.True, document);
+        var response = item.GetProperty("post").GetProperty("responses").GetProperty(status);
+        Assert.That(response.GetProperty("content").GetProperty("application/json").TryGetProperty("schema", out _), Is.True,
+            $"{path} {status} must carry a schema");
+    }
 }

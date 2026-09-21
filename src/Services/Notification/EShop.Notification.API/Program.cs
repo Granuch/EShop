@@ -154,11 +154,21 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
-    // AddCommon() only. Notification throws no NotFoundException — the journal's 404 comes from a Result error mapped
-    // by the endpoint, as Basket's do — and its reads open no transaction and write nothing, so there is no
-    // DbUpdateException to classify. Adding branches here for exceptions this service cannot raise would be a table
-    // to keep in sync with nothing.
-    builder.Services.AddEShopProblemDetails(options => options.AddCommon());
+    // Still no AddNotFound(): Notification throws no NotFoundException — every 404 here is a Result error mapped by the
+    // endpoint, as Basket's are.
+    //
+    // Admin panel S13 added the two branches S12 deliberately left out, because S13 is what made them reachable:
+    // - AddEfConcurrency(): mark-undeliverable saves a tracked row under its xmin row version, so a delivery that claims
+    //   the row between the operator's read and save raises DbUpdateConcurrencyException — a 409, not a 500. Still no
+    //   AddEfDuplicateKey(): the one unique index (EventId) is written only by the consumers, which handle it themselves.
+    // - AddMalformedJsonBody() with ThrowOnBadRequest: the actions take JSON bodies. Without ThrowOnBadRequest a
+    //   malformed one is a bare 400 with an empty body outside Development; throwing routes it to the branch, which
+    //   answers problem+json naming the offending JSON path — Ordering's pairing.
+    builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+    builder.Services.AddEShopProblemDetails(options => options
+        .AddCommon()
+        .AddEfConcurrency()
+        .AddMalformedJsonBody());
 
     var app = builder.Build();
 

@@ -10,6 +10,12 @@ public interface INotificationLogRepository
 {
     Task<NotificationLog?> FindByEventIdAsync(Guid eventId, CancellationToken ct = default);
 
+    /// <summary>
+    /// A log by its own id, tracked — for an operator's write (Admin panel S13). Reads for a screen go through the
+    /// AsNoTracking <c>INotificationQueryService</c> instead.
+    /// </summary>
+    Task<NotificationLog?> FindByIdAsync(Guid id, CancellationToken ct = default);
+
     /// <summary>Inserts the log; false when a log for the same event already exists (another delivery inserted it).</summary>
     Task<bool> TryAddAsync(NotificationLog log, CancellationToken ct = default);
 

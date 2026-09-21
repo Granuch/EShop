@@ -53,8 +53,8 @@ reason: adding a route without listing its policy fails the build.
 
 Gateway authorization is defence in depth, not the enforcement point — every service re-checks the
 caller. Where the two differ deliberately, the gateway asks a *role* question and the service asks
-a *permission* question: `/api/v1/notifications/*` is `Admin` here and `notifications.read` in
-Notification, and both must pass.
+a *permission* question: `/api/v1/notifications/*` is `Admin` here and `notifications.read` (the
+journal) or `notifications.manage` (the operator actions) in Notification, and both must pass.
 
 ---
 

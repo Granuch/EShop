@@ -27,6 +27,10 @@ public sealed record NotificationSummaryDto(
 /// <see cref="CorrelationId"/> and <see cref="ProviderMessageId"/> — are the whole reason this endpoint exists:
 /// <c>CorrelationId</c> is what ties the row back to the request that caused the event, and <c>LastError</c> is what
 /// says why nothing arrived.
+/// <para><see cref="IsResendable"/> (Admin panel S13): not final, and its event was kept. A resend can still answer 409
+/// while an attempt holds its lease — that is momentary, and deciding it here would need a clock.</para>
+/// <para>The stored payload itself is deliberately not exposed: the journal answers "what happened", and the event
+/// is Notification's own copy of another service's data.</para>
 /// </summary>
 public sealed record NotificationDetailDto(
     Guid Id,
@@ -45,9 +49,30 @@ public sealed record NotificationDetailDto(
     DateTime? SentAt,
     DateTime? UpdatedAt,
     DateTime? AttemptStartedAt,
-    bool IsFinal);
+    bool IsFinal,
+    bool IsResendable);
 
 public sealed record NotificationStatusCountDto(string Status, int Count);
+
+/// <summary>One email template (#75). <see cref="Resendable"/> is false only for the password reset.</summary>
+public sealed record NotificationTemplateDto(string Name, string EventType, bool Resendable);
+
+/// <summary>What a test send (#76) sent: the template, and the Message-ID a mail server's logs will show.</summary>
+public sealed record TestNotificationResultDto(string TemplateName, string ProviderMessageId);
+
+/// <summary>
+/// What a batch retry (#73) did. <see cref="Matching"/> is how many failed, resendable notifications the filter matched
+/// when the request ran; when it exceeds the two id lists together, the rest are waiting for a later call.
+/// <para>
+/// <b>Dispatched is not delivered.</b> Each id was handed to this service's own consumer queue; the delivery itself
+/// happens there, and the journal shows its outcome. <see cref="FailedIds"/> are the ones the bus refused outright.
+/// </para>
+/// </summary>
+public sealed record RetryFailedNotificationsResultDto(
+    int Matching,
+    int Limit,
+    IReadOnlyList<Guid> DispatchedIds,
+    IReadOnlyList<Guid> FailedIds);
 
 /// <summary>The journal dashboard (#77): sent / failed / queued, plus the full breakdown behind them.</summary>
 public sealed record NotificationStatsDto(
@@ -99,7 +124,8 @@ public static class NotificationMappings
         log.SentAt,
         log.UpdatedAt,
         log.AttemptStartedAt,
-        log.IsFinal);
+        log.IsFinal,
+        !log.IsFinal && log.Payload is not null);
 
     public static NotificationStatsDto ToDto(this NotificationJournalStats stats) => new(
         stats.From,

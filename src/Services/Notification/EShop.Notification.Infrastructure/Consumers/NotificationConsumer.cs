@@ -3,6 +3,7 @@ using EShop.BuildingBlocks.Messaging;
 using EShop.Notification.Application.Abstractions;
 using EShop.Notification.Domain.Entities;
 using EShop.Notification.Domain.ValueObjects;
+using EShop.Notification.Infrastructure.Resend;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 
@@ -201,13 +202,16 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
         var log = await _logs.FindByEventIdAsync(message.EventId, cancellationToken);
         if (log is null)
         {
+            // Admin panel S13: the event is kept on the row (null for a password reset), because it is the only thing an
+            // operator's resend can rebuild the email from. Only on insert — a redelivery or a resend finds the row.
             var pending = NotificationLog.CreatePending(
                 message.EventId,
                 typeof(TEvent).Name,
                 correlationId,
                 UserIdOf(message),
                 TemplateName,
-                SubjectFor(message));
+                SubjectFor(message),
+                NotificationPayload.Serialize(message));
 
             log = await _logs.TryAddAsync(pending, cancellationToken)
                 ? pending
@@ -272,12 +276,11 @@ public abstract class NotificationConsumer<TEvent> : IConsumer<TEvent>
 public static class NotificationDelivery
 {
     /// <summary>
-    /// How long an attempt holds its claim (Notification audit D5). Longer than an attempt can take — the Identity lookup
-    /// is bounded to about 18 s and MailKit allows 2 minutes per SMTP operation — so a live attempt is never taken over;
-    /// shorter than the 15-minute delayed redelivery, so a message whose attempt died with its process is delivered by a
-    /// later redelivery instead of ending in the error queue.
+    /// How long an attempt holds its claim (Notification audit D5) — <see cref="NotificationLog.AttemptLease"/>, where the
+    /// reasoning lives. Defined there since Admin panel S13 so the operator's actions refuse a live attempt by the same
+    /// rule this delivery path takes a dead one over by; two constants would drift.
     /// </summary>
-    public static readonly TimeSpan AttemptLease = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan AttemptLease = NotificationLog.AttemptLease;
 }
 
 /// <summary>

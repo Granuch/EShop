@@ -31,14 +31,32 @@ public class NotificationAuthorizationTests
     {
         ["GET /api/v1/notifications"] = EShopPermissions.NotificationsRead,
         ["GET /api/v1/notifications/stats"] = EShopPermissions.NotificationsRead,
-        ["GET /api/v1/notifications/{id:guid}"] = EShopPermissions.NotificationsRead
+        ["GET /api/v1/notifications/{id:guid}"] = EShopPermissions.NotificationsRead,
+
+        // Admin panel S13. The template list is a read; every action — the test send included, which writes nothing but
+        // emails an address the caller picks — takes the manage permission.
+        ["GET /api/v1/notifications/templates"] = EShopPermissions.NotificationsRead,
+        ["POST /api/v1/notifications/templates/{name}/test"] = EShopPermissions.NotificationsManage,
+        ["POST /api/v1/notifications/retry-failed"] = EShopPermissions.NotificationsManage,
+        ["POST /api/v1/notifications/{id:guid}/resend"] = EShopPermissions.NotificationsManage,
+        ["POST /api/v1/notifications/{id:guid}/mark-undeliverable"] = EShopPermissions.NotificationsManage
     };
 
     private static readonly string[] JournalPaths =
     [
         "/api/v1/notifications",
         "/api/v1/notifications/stats",
-        "/api/v1/notifications/11111111-1111-1111-1111-111111111111"
+        "/api/v1/notifications/11111111-1111-1111-1111-111111111111",
+        "/api/v1/notifications/templates"
+    ];
+
+    /// <summary>Admin panel S13: every action, each with a body its handler would accept.</summary>
+    private static readonly (string Path, object? Body)[] ActionRequests =
+    [
+        ("/api/v1/notifications/11111111-1111-1111-1111-111111111111/resend", null),
+        ("/api/v1/notifications/retry-failed", new { limit = 1 }),
+        ("/api/v1/notifications/11111111-1111-1111-1111-111111111111/mark-undeliverable", new { reason = "x" }),
+        ("/api/v1/notifications/templates/order-created/test", new { email = "ops@eshop.test" })
     ];
 
     private NotificationApiFactory _factory = null!;
@@ -151,4 +169,62 @@ public class NotificationAuthorizationTests
 
         Assert.That((await client.GetAsync("/api/v1/notifications")).StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }
+
+    // ---------- Admin panel S13: the actions ----------
+
+    [Test]
+    public async Task TheActions_RefuseAnonymous_WithUnauthorized()
+    {
+        using var anonymous = _factory.CreateClient();
+
+        foreach (var (path, body) in ActionRequests)
+        {
+            Assert.That((await Post(anonymous, path, body)).StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized), path);
+        }
+    }
+
+    [Test]
+    public async Task TheActions_RefuseASignedInNonAdmin_WithForbidden()
+    {
+        using var user = _factory.CreateUserClient();
+
+        foreach (var (path, body) in ActionRequests)
+        {
+            Assert.That((await Post(user, path, body)).StatusCode, Is.EqualTo(HttpStatusCode.Forbidden), path);
+        }
+    }
+
+    /// <summary>
+    /// The one that tells the two permissions apart. An action declared with <c>notifications.read</c> by mistake would
+    /// pass every admin test and refuse every customer exactly as before; only a caller who may read but not manage
+    /// sees the difference — the support operator the permission split exists for.
+    /// </summary>
+    [Test]
+    public async Task TheReadPermission_DoesNotOpenTheActions()
+    {
+        using var reader = _factory.CreateClient();
+        reader.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", NotificationApiFactory.PermissionOnlyToken(EShopPermissions.NotificationsRead));
+
+        foreach (var (path, body) in ActionRequests)
+        {
+            Assert.That((await Post(reader, path, body)).StatusCode, Is.EqualTo(HttpStatusCode.Forbidden), path);
+        }
+    }
+
+    [Test]
+    public async Task TheManagePermission_OpensTheActions_WithNoRoleAtAll()
+    {
+        using var manager = _factory.CreateClient();
+        manager.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", NotificationApiFactory.PermissionOnlyToken(EShopPermissions.NotificationsManage));
+
+        // Past authorization, into the handler: the notification does not exist.
+        Assert.That((await Post(manager, ActionRequests[0].Path, null)).StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    private static Task<HttpResponseMessage> Post(HttpClient client, string path, object? body)
+        => body is null
+            ? client.PostAsync(path, null)
+            : client.PostAsync(path, System.Net.Http.Json.JsonContent.Create(body));
 }

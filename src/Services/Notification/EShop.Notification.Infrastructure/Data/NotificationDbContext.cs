@@ -89,6 +89,12 @@ public sealed class NotificationDbContext : BaseDbContext
             entity.Property(x => x.AttemptStartedAt)
                 .HasColumnType("timestamp with time zone");
 
+            // Admin panel S13 (M13). The event as JSON, for an operator's resend. Unbounded text: an order's item list has
+            // no fixed size, and a truncated payload would be worse than none — it would fail to deserialize at the one
+            // moment someone needs it. Nullable, and null for a password reset (see NotificationLog.Payload).
+            entity.Property(x => x.Payload)
+                .HasColumnType("text");
+
             // Notification audit S2 (D5). Mapped to PostgreSQL's xmin, as Payment's is: two deliveries that read the same
             // state cannot both start an attempt, because the second one's UPDATE matches no row. It adds no column, so
             // no schema check notices it missing — only ConsumerDeliveryRecordTests does.

@@ -65,10 +65,10 @@ MassTransit consumers process notification-relevant events from the message brok
 ## HTTP API
 
 Until the admin-panel work the service had **no** HTTP API: `Program.cs` mapped only the health
-endpoints, `/prometheus` and an information-free `GET /`. It now serves the read-only delivery
-journal that the admin panel's notification page is built on.
+endpoints, `/prometheus` and an information-free `GET /`. It now serves the delivery journal
+that the admin panel's notification page is built on, and the operator actions on it.
 
-All three endpoints require the `notifications.read` **permission** policy, not the `Admin` role.
+The three journal reads require the `notifications.read` **permission** policy, not the `Admin` role.
 Notification has never declared an `"Admin"` policy of its own, which is the case the permission
 model exists for; `RolePermissionBundles` maps `Admin` to every permission, so an existing
 administrator's token works unchanged, and a future operator role is a change to that one map.
@@ -95,8 +95,61 @@ The list and the stats share one filter surface, bound from the query string:
 `status` is serialised by name, never by the stored integer — the column is
 `HasConversion<int>()`, so the numbers are a storage detail and `3` is `Sending`, not `Failed`.
 
-Writes (resend, retry-failed, mark-undeliverable, template test-send) are not part of this surface
-yet; they will declare `notifications.manage`.
+### Operator actions
+
+The actions an operator takes on the journal. Every one declares the `notifications.manage`
+permission, including the template test send: it writes nothing, but it emails an address the
+caller chooses. The template list is a read (`notifications.read`). `notifications.read` alone
+does **not** open the actions, so a support role can be given the journal without the buttons.
+
+| Method | Path | Returns |
+|--------|------|---------|
+| POST | `/api/v1/notifications/{id}/resend` | **202** + `NotificationDetailDto` as it stands, `Location` → the detail |
+| POST | `/api/v1/notifications/retry-failed` | **202** + `{ matching, limit, dispatchedIds, failedIds }` |
+| POST | `/api/v1/notifications/{id}/mark-undeliverable` | 200 + `NotificationDetailDto`; body `{ "reason": "…" }`, required |
+| GET | `/api/v1/notifications/templates` | `[{ name, eventType, resendable }]` |
+| POST | `/api/v1/notifications/templates/{name}/test` | 200 + `{ templateName, providerMessageId }`; body `{ "email": "…", "name": "…" }` |
+
+**A resend redelivers the event; it does not send the email itself.** The row keeps a copy of the
+event it was built from (`Payload`, since migration `NotificationLogPayload`), and a resend sends
+that event to Notification's **own** consumer queue (`notification_<consumer>`). The resend then
+goes through exactly the path the first delivery took: the `NotificationLogs` claim, the attempt
+lease, the row version, the retry policy and the error queue. The event is *sent*, never
+*published*: publishing it again would reach every subscribed service, and Payment would open a
+second payment for a re-published `OrderCreatedEvent`. That is why the answer is 202. The journal
+shows the outcome once the consumer has run.
+
+A resend is refused with **409** when the notification is final (`Notification.Final`), when an
+attempt still holds its 5-minute lease (`Notification.AttemptInProgress`), or when no event was
+kept (`Notification.NotResendable`). Two kinds of row keep no event:
+
+- **password resets**, deliberately. The event carries a live reset token, and keeping it would
+  leave that token at rest for the 90-day retention window. A customer whose reset email failed
+  should request a new one.
+- rows written before the payload column existed.
+
+On a host with no message bus (Testing, or Development with no RabbitMQ) a resend answers **503**
+`Notification.BusUnavailable`.
+
+**Retry-failed** dispatches up to `limit` (1–100, default 100) **Failed** notifications that kept
+their event, oldest first, narrowed by an optional JSON body: `eventType`, `templateName`,
+`userId`, `email`, `from`, `to`. It has no status filter; the request only ever means "the failed
+ones". If `matching` is larger than the ids returned, call again. A second call made before the
+first batch has been processed can dispatch the same rows twice. That is safe: every copy carries
+the same `EventId`, so the consumer's claim lets one attempt through and acknowledges the others.
+
+**Mark-undeliverable** ends a notification for good. The reason is stored after the prefix
+`Marked undeliverable by an operator: `, so the journal can tell an operator's decision from the
+delivery path's. It is permitted from Pending, Failed, or a Sending row whose lease has expired.
+It is refused (409) for a final row and for a live attempt, which may already have sent the email.
+If a delivery claims the row between the operator's read and save, the row version turns the save
+into a 409 `ConcurrencyConflict` instead of overwriting `Sent`.
+
+**Test send** renders the template with sample data (an all-zero order id, and a reset link to the
+real page with a token no account holds) and sends it through the same `IEmailService` a customer's
+email uses, synchronously. It writes no journal row. If the mail server refuses or cannot be reached,
+the answer is **503** `Notification.TestSendFailed`. It is not 502, because the gateway rewrites
+every 502.
 
 ### Authentication, CORS and rate limiting
 
@@ -111,9 +164,10 @@ Gaining a web surface meant gaining the rest of the stack every other service al
   Identity, Ordering and Payment.
 - **Forwarded headers**, which were already registered but had nothing reading a client address;
   the rate limiter's partition key now does.
-- **RFC 7807 error responses** via `AddEShopProblemDetails(o => o.AddCommon())`. Only `AddCommon()`:
-  the journal's 404 comes from a `Result` error mapped by the endpoint, as Basket's do, and its
-  reads open no transaction, so there is no `DbUpdateException` to classify.
+- **RFC 7807 error responses** via `AddEShopProblemDetails(o => o.AddCommon().AddEfConcurrency().AddMalformedJsonBody())`,
+  with `ThrowOnBadRequest` on. No `AddNotFound()`: every 404 is a `Result` error mapped by the
+  endpoint, as Basket's are. `AddEfConcurrency()` and `AddMalformedJsonBody()` arrived with the
+  operator actions, which save a row under its row version and take JSON bodies.
 - **OpenAPI and Scalar** (`/openapi/v1.json`, `/scalar/v1`) in every environment except Production,
   through the shared `EShopApiDocs` rule. With no first-party admin client, this document is the
   contract surface for whoever builds one.
@@ -165,5 +219,5 @@ And emits structured logs, traces, and metrics for operational diagnostics.
 
 ---
 
-**Version**: 2.1  
+**Version**: 2.2  
 **Last Updated**: 2026-09-21

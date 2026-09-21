@@ -9,6 +9,17 @@ namespace EShop.Notification.Domain.Entities;
 /// </summary>
 public sealed class NotificationLog
 {
+    /// <summary>
+    /// How long an attempt holds its claim (Notification audit D5). Longer than an attempt can take — the Identity lookup
+    /// is bounded to about 18 s and MailKit allows 2 minutes per SMTP operation — so a live attempt is never taken over;
+    /// shorter than the 15-minute delayed redelivery, so a message whose attempt died with its process is delivered by a
+    /// later redelivery instead of ending in the error queue.
+    /// <para>Here rather than beside the consumers since Admin panel S13: the operator's actions (resend,
+    /// mark-undeliverable) must refuse a live attempt by the same rule the delivery path takes it over by, and Application
+    /// cannot reach Infrastructure. <c>NotificationDelivery.AttemptLease</c> still names it for the consumers.</para>
+    /// </summary>
+    public static readonly TimeSpan AttemptLease = TimeSpan.FromMinutes(5);
+
     private NotificationLog()
     {
     }
@@ -19,7 +30,8 @@ public sealed class NotificationLog
         string? correlationId,
         string? userId,
         string templateName,
-        string subject)
+        string subject,
+        string? payload)
     {
         Id = Guid.NewGuid();
         EventId = eventId;
@@ -28,6 +40,7 @@ public sealed class NotificationLog
         UserId = userId;
         TemplateName = templateName;
         Subject = subject;
+        Payload = payload;
         Status = NotificationStatus.Pending;
         RetryCount = 0;
         CreatedAt = DateTime.UtcNow;
@@ -61,13 +74,24 @@ public sealed class NotificationLog
     /// <summary>The row version (PostgreSQL <c>xmin</c>).</summary>
     public uint Version { get; private set; }
 
+    /// <summary>
+    /// The integration event this notification was built from, as JSON — what an operator's resend sends again (Admin
+    /// panel S13). Nothing else on the row can rebuild the email: the consumers render it from the live event.
+    /// <para><b>Null on purpose</b> for an <c>ISensitivePayloadEvent</c> (the password reset): its payload is a live reset
+    /// token, and keeping it here would put that token at rest for the whole 90-day retention window — the SEC-05
+    /// exposure the outbox redaction exists to prevent. Null also for every row written before the column existed. Either
+    /// way the notification cannot be resent, and says so.</para>
+    /// </summary>
+    public string? Payload { get; private set; }
+
     public static NotificationLog CreatePending(
         Guid eventId,
         string eventType,
         string? correlationId,
         string? userId,
         string templateName,
-        string subject)
+        string subject,
+        string? payload = null)
     {
         if (string.IsNullOrWhiteSpace(eventType))
         {
@@ -90,7 +114,8 @@ public sealed class NotificationLog
             correlationId,
             userId,
             templateName,
-            subject);
+            subject,
+            string.IsNullOrWhiteSpace(payload) ? null : payload);
     }
 
     /// <summary>
@@ -185,6 +210,73 @@ public sealed class NotificationLog
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Why an operator's resend would be refused at <paramref name="now"/>, or null when it may go ahead (Admin panel
+    /// S13). In the order an operator needs to hear them: a final notification is never attempted again, a live attempt
+    /// must be left to finish, and a notification whose event was not kept has nothing to resend.
+    /// </summary>
+    public NotificationResendBlocker? ResendBlockerAt(DateTime now)
+    {
+        if (IsFinal)
+        {
+            return NotificationResendBlocker.Final;
+        }
+
+        if (IsAttemptInProgress(now, AttemptLease))
+        {
+            return NotificationResendBlocker.AttemptInProgress;
+        }
+
+        return Payload is null ? NotificationResendBlocker.NoPayload : null;
+    }
+
+    /// <summary>
+    /// An operator ends the notification for good (Admin panel S13, risk A5) — say, an address that bounces for a reason
+    /// no retry will cure, which only a person reading the mail server's logs can know.
+    /// <para>
+    /// <b>Separate from <see cref="MarkUndeliverable"/>, which is unchanged.</b> That one is the delivery path's and
+    /// requires <see cref="NotificationStatus.Sending"/>, correctly: the attempt it ends is its own. An operator acts from
+    /// outside any attempt, so this one is permitted from <see cref="NotificationStatus.Pending"/>,
+    /// <see cref="NotificationStatus.Failed"/>, or a <see cref="NotificationStatus.Sending"/> whose lease has expired.
+    /// </para>
+    /// <para>
+    /// <b>A live attempt is refused, which narrows plan §4.4</b> ("from Failed or Sending"). An attempt holding its lease
+    /// may be past its SMTP send: this write would bump the row version, the attempt's <c>MarkSent</c> save would then
+    /// fail its concurrency check, and the delivery path deliberately swallows that failure (D2) — leaving a row that says
+    /// Undeliverable for an email the customer has. Waiting at most one lease is the cheaper wrong.
+    /// </para>
+    /// Not counted in <see cref="RetryCount"/>, like the delivery path's undeliverable outcome.
+    /// </summary>
+    public void MarkUndeliverableByOperator(string reason, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("A reason is required.", nameof(reason));
+        }
+
+        if (IsFinal)
+        {
+            throw new InvalidOperationException(
+                $"The notification for event {EventId} is {Status}; it cannot be marked undeliverable.");
+        }
+
+        if (IsAttemptInProgress(now, AttemptLease))
+        {
+            throw new InvalidOperationException(
+                $"An attempt to deliver the notification for event {EventId} is in progress; it cannot be marked undeliverable until it ends.");
+        }
+
+        Status = NotificationStatus.Undeliverable;
+        LastError = $"{OperatorReasonPrefix}{reason.Trim()}";
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Prefixed to an operator's reason, so the journal tells "an operator decided" from "the delivery path found no such
+    /// recipient" — both end <see cref="NotificationStatus.Undeliverable"/> with a reason in <see cref="LastError"/>.
+    /// </summary>
+    public const string OperatorReasonPrefix = "Marked undeliverable by an operator: ";
+
     private static string SanitizeError(string rawError)
     {
         var error = rawError.Trim();
@@ -234,4 +326,17 @@ public enum NotificationStatus
 
     /// <summary>Final: the recipient cannot exist or has no address, so no retry can help (Notification audit D3).</summary>
     Undeliverable = 4
+}
+
+/// <summary>Why a notification cannot be resent right now (Admin panel S13).</summary>
+public enum NotificationResendBlocker
+{
+    /// <summary>Sent or undeliverable: nothing will ever be attempted again.</summary>
+    Final,
+
+    /// <summary>Another attempt holds a live lease; resending now could only race it.</summary>
+    AttemptInProgress,
+
+    /// <summary>The event was not kept — a password reset, or a row from before the payload column existed.</summary>
+    NoPayload
 }

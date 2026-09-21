@@ -12,6 +12,7 @@ using EShop.Notification.Infrastructure.Data;
 using EShop.Notification.Infrastructure.HealthChecks;
 using EShop.Notification.Infrastructure.QueryServices;
 using EShop.Notification.Infrastructure.Repositories;
+using EShop.Notification.Infrastructure.Resend;
 using EShop.Notification.Infrastructure.Services;
 using MassTransit;
 using Microsoft.AspNetCore.Http;
@@ -24,6 +25,13 @@ namespace EShop.Notification.Infrastructure.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// The prefix on every queue this service's bus binds (<c>notification_order_created</c>). One constant because two
+    /// places need it to agree: <see cref="AddNotificationMessaging"/> configures the bus with it, and
+    /// <see cref="ResendableNotifications"/> derives the queue an operator's resend is sent to from it (Admin panel S13).
+    /// </summary>
+    public const string MessagingServiceName = "notification";
+
     public static IServiceCollection AddNotificationInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -62,6 +70,11 @@ public static class ServiceCollectionExtensions
         // Admin panel S12. The read side of the journal, separate from the repository: everything here is AsNoTracking
         // and answers a screen, while the repository's reads are tracked and race on the row version.
         services.AddScoped<INotificationQueryService, NotificationQueryService>();
+
+        // Admin panel S13. The operator's actions: a resend hands the stored event back to this service's own consumer
+        // queue, and the template catalog renders and test-sends through the real IEmailService.
+        services.AddScoped<INotificationRedispatcher, NotificationRedispatcher>();
+        services.AddScoped<INotificationTemplateCatalog, NotificationTemplateCatalog>();
 
         services.AddHttpClient<IUserContactResolver, UserContactResolver>((sp, client) =>
         {
@@ -108,7 +121,7 @@ public static class ServiceCollectionExtensions
     {
         // The bus alone (Notification audit S6, debt 4): AddMessaging would also register an integration event outbox,
         // and Notification publishes nothing.
-        services.AddEShopBus(configuration, "notification", isDevelopment, bus => bus.AddNotificationConsumers());
+        services.AddEShopBus(configuration, MessagingServiceName, isDevelopment, bus => bus.AddNotificationConsumers());
 
         return services;
     }

@@ -28,6 +28,12 @@ public sealed record NotificationJournalFilter(
     public static NotificationJournalFilter All { get; } = new([], null, null, null, null, null, null, null);
 }
 
+/// <summary>
+/// A failed notification an operator's batch retry can send again (Admin panel S13, endpoint #73): just what the
+/// redispatch needs, so a batch of a hundred does not load a hundred full rows.
+/// </summary>
+public sealed record NotificationRetryCandidate(Guid Id, string EventType, string Payload);
+
 /// <summary>How many notifications are in one status.</summary>
 public sealed record NotificationStatusCount(NotificationStatus Status, int Count);
 
@@ -72,6 +78,19 @@ public interface INotificationQueryService
 
     /// <summary>One notification, or null. Returns the entity, so the detail endpoint projects the same fields the list does.</summary>
     Task<NotificationLog?> FindAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Up to <paramref name="limit"/> <b>Failed</b> notifications that kept their event, oldest first, plus how many match
+    /// in all (Admin panel S13, #73). The filter's own statuses are ignored: a batch retry only ever retries Failed.
+    /// <para>
+    /// Oldest first so repeated calls work through a backlog in the order customers have been waiting — and so the
+    /// answer is deterministic, with <c>Id</c> breaking ties for the same reason the journal page needs it.
+    /// </para>
+    /// </summary>
+    Task<(IReadOnlyList<NotificationRetryCandidate> Items, int TotalMatching)> GetRetryCandidatesAsync(
+        NotificationJournalFilter filter,
+        int limit,
+        CancellationToken cancellationToken = default);
 
     /// <summary>The breakdown over <paramref name="window"/>, in one <c>GROUP BY "Status"</c>.</summary>
     Task<NotificationJournalStats> GetStatsAsync(

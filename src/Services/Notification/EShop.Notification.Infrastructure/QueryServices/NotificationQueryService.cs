@@ -37,6 +37,29 @@ public sealed class NotificationQueryService : INotificationQueryService
     public Task<NotificationLog?> FindAsync(Guid id, CancellationToken cancellationToken = default)
         => _context.NotificationLogs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public async Task<(IReadOnlyList<NotificationRetryCandidate> Items, int TotalMatching)> GetRetryCandidatesAsync(
+        NotificationJournalFilter filter,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        // Statuses replaced, not intersected: "retry the failed ones" must not become "retry nothing" because a caller
+        // also sent ?status=Sent, nor "retry everything" because it sent no status at all.
+        var query = ApplyFilter(
+                _context.NotificationLogs.AsNoTracking(),
+                filter with { Statuses = [] })
+            .Where(x => x.Status == NotificationStatus.Failed && x.Payload != null);
+
+        var totalMatching = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .Take(limit)
+            .Select(x => new NotificationRetryCandidate(x.Id, x.EventType, x.Payload!))
+            .ToListAsync(cancellationToken);
+
+        return (items, totalMatching);
+    }
+
     public async Task<NotificationJournalStats> GetStatsAsync(
         NotificationJournalFilter window,
         CancellationToken cancellationToken = default)
