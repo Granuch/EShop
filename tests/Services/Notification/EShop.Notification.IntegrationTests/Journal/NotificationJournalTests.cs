@@ -237,6 +237,20 @@ public class NotificationJournalTests
             .Should().Be(stats.GetProperty("total").GetInt32(), "the total is summed from the breakdown, not queried again");
     }
 
+    [TestCase("?status=NoSuchStatus")]
+    [TestCase("?from=2026-09-02T00:00:00Z&to=2026-09-01T00:00:00Z")]
+    public async Task TheStats_RefuseTheSameUnusableFiltersTheListDoes(string queryString)
+    {
+        // The two share NotificationFilterRules. Without a request that reaches the stats validator, removing that one
+        // call would leave every test here green while the stats endpoint silently accepted a typo as "every status".
+        var response = await _admin.GetAsync("/api/v1/notifications/stats" + queryString);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        problem.GetProperty("errorCode").GetString().Should().Be("Validation.Failed");
+    }
+
     [Test]
     public async Task TheStats_HonourTheSameFiltersTheListDoes()
     {
