@@ -30,6 +30,7 @@ public class NotificationJournalTests
     private Guid _sentId;
     private Guid _failedId;
     private Guid _pendingId;
+    private Guid _sendingId;
     private Guid _undeliverableId;
 
     [OneTimeSetUp]
@@ -44,6 +45,9 @@ public class NotificationJournalTests
         _sentId = Add(db, Sent("OrderCreatedEvent", "OrderConfirmation", "user-1", "buyer@eshop.test"));
         _failedId = Add(db, Failed("PaymentFailedEvent", "PaymentFailed", "user-2", "other@eshop.test"));
         _pendingId = Add(db, Pending("OrderShippedEvent", "OrderShipped", "user-1"));
+        // An attempt in flight. Seeded deliberately: "queued" means Pending OR Sending, and without a Sending row
+        // narrowing that definition to Pending alone would change no number here.
+        _sendingId = Add(db, Sending("PaymentCompletedEvent", "PaymentCompleted", "user-4", "inflight@eshop.test"));
         _undeliverableId = Add(db, Undeliverable("PaymentRefundedEvent", "PaymentRefunded", "user-3"));
 
         await db.SaveChangesAsync();
@@ -63,8 +67,8 @@ public class NotificationJournalTests
     {
         var page = await GetJsonAsync(_admin, "/api/v1/notifications");
 
-        page.GetProperty("totalCount").GetInt32().Should().Be(4);
-        Ids(page).Should().BeEquivalentTo(new[] { _sentId, _failedId, _pendingId, _undeliverableId });
+        page.GetProperty("totalCount").GetInt32().Should().Be(5);
+        Ids(page).Should().BeEquivalentTo(new[] { _sentId, _failedId, _pendingId, _sendingId, _undeliverableId });
     }
 
     [Test]
@@ -102,7 +106,7 @@ public class NotificationJournalTests
         var withoutError = Ids(await GetJsonAsync(_admin, "/api/v1/notifications?hasError=false"));
 
         withError.Should().BeEquivalentTo(new[] { _failedId, _undeliverableId });
-        withoutError.Should().BeEquivalentTo(new[] { _sentId, _pendingId });
+        withoutError.Should().BeEquivalentTo(new[] { _sentId, _pendingId, _sendingId });
     }
 
     [Test]
@@ -113,7 +117,7 @@ public class NotificationJournalTests
         var after = await GetJsonAsync(
             _admin, $"/api/v1/notifications?to={Iso(DateTime.UtcNow.AddHours(-1))}");
 
-        inside.GetProperty("totalCount").GetInt32().Should().Be(4);
+        inside.GetProperty("totalCount").GetInt32().Should().Be(5);
         after.GetProperty("totalCount").GetInt32().Should().Be(0, "every seeded row was created just now");
     }
 
@@ -122,7 +126,7 @@ public class NotificationJournalTests
     {
         var page = await GetJsonAsync(_admin, "/api/v1/notifications?pageSize=2&pageNumber=1");
 
-        page.GetProperty("totalCount").GetInt32().Should().Be(4, "the count is of matches, not of the page");
+        page.GetProperty("totalCount").GetInt32().Should().Be(5, "the count is of matches, not of the page");
         page.GetProperty("items").GetArrayLength().Should().Be(2);
         page.GetProperty("hasNextPage").GetBoolean().Should().BeTrue();
     }
@@ -209,11 +213,12 @@ public class NotificationJournalTests
     {
         var stats = await GetJsonAsync(_admin, "/api/v1/notifications/stats");
 
-        stats.GetProperty("total").GetInt32().Should().Be(4);
+        stats.GetProperty("total").GetInt32().Should().Be(5);
         stats.GetProperty("sent").GetInt32().Should().Be(1);
         stats.GetProperty("failed").GetInt32().Should().Be(1);
         stats.GetProperty("undeliverable").GetInt32().Should().Be(1);
-        stats.GetProperty("queued").GetInt32().Should().Be(1, "Pending and Sending are both queued; one row is Pending");
+        stats.GetProperty("queued").GetInt32().Should().Be(2,
+            "queued is Pending OR Sending — one row of each — because neither is final and neither has been delivered");
     }
 
     [Test]
@@ -289,6 +294,14 @@ public class NotificationJournalTests
         log.BeginAttempt(DateTime.UtcNow);
         log.RecordRecipient(email);
         log.MarkFailed("SMTP connection refused");
+        return log;
+    }
+
+    private static NotificationLog Sending(string eventType, string template, string userId, string email)
+    {
+        var log = New(eventType, template, userId);
+        log.BeginAttempt(DateTime.UtcNow);
+        log.RecordRecipient(email);
         return log;
     }
 
