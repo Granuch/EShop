@@ -262,6 +262,7 @@ Base path: `/api/v1/basket` (all operations are scoped by `{userId}`)
 | Price | decimal | Snapshot of the price, kept in sync with catalog price changes |
 | Quantity | int | |
 | SubTotal | decimal | `Price * Quantity` |
+| MainImage | string? | Product's main image URL, snapshotted from Catalog at add time; `null` if the product has no image |
 
 > Basket item price is automatically updated via the `ProductPriceChangedEvent` from
 > Catalog — the frontend doesn't need to recompute `Price` itself, it's always current
