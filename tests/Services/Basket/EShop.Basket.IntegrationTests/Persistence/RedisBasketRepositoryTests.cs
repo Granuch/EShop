@@ -64,6 +64,24 @@ public class RedisBasketRepositoryTests
     }
 
     [Test]
+    public async Task ASavedBasket_ReadsBackTheMainImageUrl()
+    {
+        var userId = NewUser();
+        var mug = Guid.NewGuid();
+        var pen = Guid.NewGuid();
+        var basket = ShoppingBasket.Create(userId);
+        basket.AddItem(mug, "Mug", 12.50m, 2, "https://cdn.test/mug.jpg");
+        basket.AddItem(pen, "Pen", 0.99m, 10); // no image, as Catalog reports for a product without one
+
+        await WithRepository(repository => repository.TrySaveBasketAsync(basket));
+        var read = await WithRepository(repository => repository.GetBasketAsync(userId));
+
+        read.Should().NotBeNull();
+        read!.Items.Single(i => i.ProductId == mug).MainImageUrl.Should().Be("https://cdn.test/mug.jpg");
+        read.Items.Single(i => i.ProductId == pen).MainImageUrl.Should().BeNull();
+    }
+
+    [Test]
     public async Task ASavedBasket_ExpiresAfterTheConfiguredTtl()
     {
         var userId = NewUser();

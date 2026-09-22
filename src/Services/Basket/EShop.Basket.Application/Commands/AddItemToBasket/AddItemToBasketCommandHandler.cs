@@ -68,7 +68,7 @@ public class AddItemToBasketCommandHandler : IRequestHandler<AddItemToBasketComm
                     return Result<Unit>.Failure(BasketErrors.InsufficientStock);
                 }
 
-                basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity);
+                basket.AddItem(product.ProductId, product.ProductName, product.Price, request.Quantity, product.MainImageUrl);
 
                 if (!await _basketRepository.TrySaveBasketAsync(basket, ct))
                 {
