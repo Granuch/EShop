@@ -51,6 +51,9 @@ public class CatalogAuditLogTests : AuthenticatedIntegrationTestBase
     [Test]
     public async Task AnAdminCreate_WritesExactlyOneRow_NamingTheNewProductAndTheActor()
     {
+        // A second product's row first, so "exactly one" is something the entityId filter has to earn. Without it the
+        // fixture could hold a single Product row, and an ignored filter would still return exactly one (round R17).
+        await CreateProductAsync(CatalogDataHelper.GenerateUniqueSku("AUX"));
         var sku = CatalogDataHelper.GenerateUniqueSku("AUD");
         var id = await CreateProductAsync(sku);
 
