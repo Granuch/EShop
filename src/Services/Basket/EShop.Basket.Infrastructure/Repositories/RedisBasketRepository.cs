@@ -366,7 +366,8 @@ public class RedisBasketRepository : IBasketRepository
                         ProductName = item.ProductName,
                         Price = item.Price,
                         Quantity = item.Quantity,
-                        AddedAt = item.CreatedAt
+                        AddedAt = item.CreatedAt,
+                        MainImageUrl = item.MainImageUrl
                     })
                     .ToList()
             };
@@ -382,7 +383,7 @@ public class RedisBasketRepository : IBasketRepository
                 createdAt,
                 lastModifiedAt,
                 (Items ?? [])
-                    .Select(item => new StoredBasketItem(item.ProductId, item.ProductName, item.Price, item.Quantity, item.AddedAt))
+                    .Select(item => new StoredBasketItem(item.ProductId, item.ProductName, item.Price, item.Quantity, item.AddedAt, item.MainImageUrl))
                     .ToArray(),
                 concurrencyToken: payload);
         }
@@ -397,5 +398,8 @@ public class RedisBasketRepository : IBasketRepository
 
         /// <summary>When the line was added (Basket audit L1, S9); absent from documents written before it.</summary>
         public DateTime? AddedAt { get; init; }
+
+        /// <summary>The product's main image; absent from documents written before this field existed.</summary>
+        public string? MainImageUrl { get; init; }
     }
 }

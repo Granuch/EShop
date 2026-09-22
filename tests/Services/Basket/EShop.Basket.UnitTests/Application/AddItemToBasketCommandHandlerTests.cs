@@ -1,3 +1,4 @@
+using System.Linq;
 using EShop.Basket.Application.Abstractions;
 using EShop.Basket.Application.Commands.AddItemToBasket;
 using EShop.Basket.Application.Common;
@@ -27,7 +28,8 @@ public class AddItemToBasketCommandHandlerTests
         _catalog = new Mock<IProductCatalogReader>();
         _catalog
             .Setup(x => x.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid productId, CancellationToken _) => new ProductCatalogSnapshot(productId, "Phone", 100m, 100));
+            .ReturnsAsync((Guid productId, CancellationToken _) =>
+                new ProductCatalogSnapshot(productId, "Phone", 100m, 100, "https://cdn.test/phone.jpg"));
 
         _metrics = new Mock<IBasketMetrics>();
         _metrics.Setup(x => x.MeasureOperation(It.IsAny<string>())).Returns(Mock.Of<IDisposable>());
@@ -57,6 +59,19 @@ public class AddItemToBasketCommandHandlerTests
         _repository.Verify(x => x.TrySaveBasketAsync(
             It.Is<ShoppingBasket>(b => b.UserId == "user-1" && b.Items.Count == 1), It.IsAny<CancellationToken>()), Times.Once);
         _metrics.Verify(x => x.RecordItemAdded("api"), Times.Once);
+    }
+
+    [Test]
+    public async Task Handle_ShouldCarryTheCatalogsMainImageOntoTheLine()
+    {
+        _repository.Setup(x => x.GetBasketAsync("user-1", It.IsAny<CancellationToken>())).ReturnsAsync((ShoppingBasket?)null);
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        _repository.Verify(x => x.TrySaveBasketAsync(
+            It.Is<ShoppingBasket>(b => b.Items.Single().MainImageUrl == "https://cdn.test/phone.jpg"),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
