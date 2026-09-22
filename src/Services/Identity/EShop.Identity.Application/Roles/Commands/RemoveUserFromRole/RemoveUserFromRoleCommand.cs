@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 
 namespace EShop.Identity.Application.Roles.Commands.RemoveUserFromRole;
@@ -13,8 +14,12 @@ namespace EShop.Identity.Application.Roles.Commands.RemoveUserFromRole;
 /// <c>AddUserToRoleCommand</c> for why that marker cannot reach this cache — and invalidates
 /// through <c>ICachedUserRolesService</c> in the handler instead.
 /// </summary>
-public record RemoveUserFromRoleCommand : IRequest<Result<Unit>>, ITransactionalCommand
+public record RemoveUserFromRoleCommand : IRequest<Result<Unit>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string RoleName { get; init; } = string.Empty;
     public string UserId { get; init; } = string.Empty;
 }

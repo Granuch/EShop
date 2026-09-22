@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.Identity.Domain.Entities;
 using FluentValidation;
@@ -29,8 +30,12 @@ namespace EShop.Identity.Application.Users.Commands.LockUser;
 /// for no reason and, worse, would suggest the cache tracks lockout state.
 /// </para>
 /// </remarks>
-public record LockUserCommand : IRequest<Result<Unit>>, ITransactionalCommand
+public record LockUserCommand : IRequest<Result<Unit>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
     public DateTimeOffset Until { get; init; }
     public string? Reason { get; init; }

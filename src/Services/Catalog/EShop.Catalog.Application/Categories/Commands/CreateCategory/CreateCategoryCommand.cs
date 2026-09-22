@@ -1,12 +1,19 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
 
 namespace EShop.Catalog.Application.Categories.Commands.CreateCategory;
 
-public record CreateCategoryCommand : IRequest<Result<Guid>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record CreateCategoryCommand : IRequest<Result<Guid>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Category";
+
+    string? IAuditedCommand.AuditEntityId => null;
+
+    string? IAuditedCommand.AuditEntityIdFromResult(object? value) => value is Guid id ? id.ToString() : null;
+
     public string Name { get; init; } = string.Empty;
 
     public string? Slug { get; init; }

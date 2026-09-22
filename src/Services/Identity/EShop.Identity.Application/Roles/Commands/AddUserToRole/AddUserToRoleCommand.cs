@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 
 namespace EShop.Identity.Application.Roles.Commands.AddUserToRole;
@@ -26,8 +27,12 @@ namespace EShop.Identity.Application.Roles.Commands.AddUserToRole;
 /// the Application layer, where it runs inside the transaction and is unit-testable.
 /// </para>
 /// </summary>
-public record AddUserToRoleCommand : IRequest<Result<Unit>>, ITransactionalCommand
+public record AddUserToRoleCommand : IRequest<Result<Unit>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string RoleName { get; init; } = string.Empty;
     public string UserId { get; init; } = string.Empty;
 }

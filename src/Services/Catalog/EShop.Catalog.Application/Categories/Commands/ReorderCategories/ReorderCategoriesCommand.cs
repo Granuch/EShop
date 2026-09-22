@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -24,8 +25,12 @@ namespace EShop.Catalog.Application.Categories.Commands.ReorderCategories;
 /// omitted ones land.
 /// </para>
 /// </remarks>
-public record ReorderCategoriesCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record ReorderCategoriesCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Category";
+
+    string? IAuditedCommand.AuditEntityId => null;
+
     public Guid? ParentCategoryId { get; init; }
     public IReadOnlyList<Guid>? CategoryIds { get; init; }
 

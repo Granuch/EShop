@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.Catalog.Application.Products;
@@ -18,8 +19,12 @@ namespace EShop.Catalog.Application.Categories.Commands.MoveCategory;
 /// (<c>MoveCategoryRequest</c> is a dedicated body with one field, so an omitted body is a 400
 /// rather than a silent promotion to root).
 /// </remarks>
-public record MoveCategoryCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record MoveCategoryCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Category";
+
+    string? IAuditedCommand.AuditEntityId => CategoryId.ToString();
+
     public Guid CategoryId { get; init; }
     public Guid? NewParentCategoryId { get; init; }
 

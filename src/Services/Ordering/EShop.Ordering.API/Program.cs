@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using EShop.BuildingBlocks.Infrastructure.Authorization;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
@@ -62,6 +63,10 @@ try
     // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
     // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<OrderingDbContext>("ordering");
 
     // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
     // behaviors in DI registration order (first registered = outermost), so these three calls are
@@ -390,6 +395,8 @@ try
 
     // Map Order endpoints
     app.MapOrderEndpoints();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Map Prometheus metrics endpoints:
     // /prometheus — prometheus-net custom business metrics

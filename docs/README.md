@@ -254,6 +254,7 @@ Details: [03-architecture/security-architecture.md](03-architecture/security-arc
 - [Data Flow](03-architecture/data-flow.md)
 - [Design Patterns](03-architecture/design-patterns.md)
 - [Security Architecture](03-architecture/security-architecture.md)
+- [Admin Audit Trail](03-architecture/audit-log.md)
 
 ### 04. Implementation Plan
 - [Phase 1: Foundation](04-implementation-plan/phase-1-foundation.md)

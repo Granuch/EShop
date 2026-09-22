@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.Identity.Domain.Entities;
@@ -29,8 +30,12 @@ namespace EShop.Identity.Application.Users.Commands.DeactivateUser;
 /// error handling is the feature.
 /// </para>
 /// </remarks>
-public record DeactivateUserCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record DeactivateUserCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 
     public IEnumerable<string> CacheKeysToInvalidate => [$"profile:{UserId}"];

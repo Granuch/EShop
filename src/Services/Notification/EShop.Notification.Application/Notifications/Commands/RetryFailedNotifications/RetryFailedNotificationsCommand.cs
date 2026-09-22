@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Domain;
 using EShop.Notification.Application.Notifications.Common;
 using EShop.Notification.Application.Notifications.Queries;
@@ -24,8 +25,12 @@ namespace EShop.Notification.Application.Notifications.Commands.RetryFailedNotif
 /// redact nothing.
 /// </para>
 /// </summary>
-public sealed record RetryFailedNotificationsCommand : IRequest<Result<RetryFailedNotificationsResultDto>>
+public sealed record RetryFailedNotificationsCommand : IRequest<Result<RetryFailedNotificationsResultDto>>, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Notification";
+
+    string? IAuditedCommand.AuditEntityId => null;
+
     /// <summary>
     /// The hard cap on one request (risk A8), and the default. Payment's <c>MaxReplayPerRequest</c> is 100 too, and for a
     /// related reason: each id dispatched here becomes, a moment later, an Identity lookup and an SMTP send on the

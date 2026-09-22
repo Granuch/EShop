@@ -1,4 +1,5 @@
 ﻿using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -14,8 +15,12 @@ namespace EShop.Catalog.Application.Products.Commands.PublishProduct;
 /// the whole <c>products:list</c> family.
 /// </para>
 /// </summary>
-public record PublishProductCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record PublishProductCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
 
     // Both detail variants: the public one and the admin one that includes drafts. Evicting

@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Domain;
@@ -32,8 +33,14 @@ namespace EShop.Identity.Application.Users.Commands.CreateUser;
 /// no such state.
 /// </para>
 /// </remarks>
-public record CreateUserCommand : IRequest<Result<CreateUserResponse>>, ITransactionalCommand
+public record CreateUserCommand : IRequest<Result<CreateUserResponse>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => null;
+
+    string? IAuditedCommand.AuditEntityIdFromResult(object? value) => (value as CreateUserResponse)?.UserId;
+
     public string Email { get; init; } = string.Empty;
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;

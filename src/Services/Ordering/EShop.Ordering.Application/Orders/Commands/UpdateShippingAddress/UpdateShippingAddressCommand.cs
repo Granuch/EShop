@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
@@ -16,8 +17,12 @@ namespace EShop.Ordering.Application.Orders.Commands.UpdateShippingAddress;
 /// statement of what a storable address is.
 /// </para>
 /// </summary>
-public record UpdateShippingAddressCommand : IRequest<Result>, ITransactionalCommand, ICacheInvalidatingCommand
+public record UpdateShippingAddressCommand : IRequest<Result>, ITransactionalCommand, ICacheInvalidatingCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Order";
+
+    string? IAuditedCommand.AuditEntityId => OrderId.ToString();
+
     public Guid OrderId { get; init; }
 
     // A home address is personal data; LoggingBehavior logs every command at Information (audit L7).

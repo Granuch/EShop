@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -23,8 +24,12 @@ namespace EShop.Catalog.Application.Products.Commands.AdjustProductStock;
 /// loses one of them silently.
 /// </para>
 /// </remarks>
-public record AdjustProductStockCommand : IRequest<Result<int>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record AdjustProductStockCommand : IRequest<Result<int>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
 
     /// <summary>Relative movement. Negative is a write-off. Zero is refused, never a no-op.</summary>

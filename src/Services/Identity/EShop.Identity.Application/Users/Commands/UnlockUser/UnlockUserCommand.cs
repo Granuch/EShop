@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Security;
@@ -32,8 +33,12 @@ namespace EShop.Identity.Application.Users.Commands.UnlockUser;
 /// own. It is awaited rather than swallowed, so a failure is still reported.
 /// </para>
 /// </remarks>
-public record UnlockUserCommand : IRequest<Result<Unit>>, ITransactionalCommand
+public record UnlockUserCommand : IRequest<Result<Unit>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 }
 

@@ -84,6 +84,9 @@ Common endpoint groups include:
 
 Gateway policy controls determine external accessibility for protected paths.
 
+Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
+(`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).
+
 ---
 
 ## Authorization Model

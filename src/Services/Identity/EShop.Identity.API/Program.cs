@@ -11,6 +11,7 @@ using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
 using EShop.Identity.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Messaging.Events;
 using Microsoft.AspNetCore.Identity;
@@ -69,6 +70,10 @@ try
     // Shared across every service — see EShopForwardedHeaders for why KnownNetworks matters
     // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<IdentityDbContext>("identity");
 
     // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
     // behaviors in DI registration order (first registered = outermost), so these three calls are
@@ -618,6 +623,8 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Map Prometheus metrics endpoints:
     // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)

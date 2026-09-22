@@ -5,6 +5,7 @@ using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Extensions;
@@ -72,6 +73,10 @@ if (startupStripeSettings.SkipWebhookSignatureVerification
 // Payment previously had no forwarded-headers handling at all, so behind the gateway every
 // request appeared to come from the gateway address. Shared helper — see EShopForwardedHeaders.
 var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+// Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+// recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+builder.Services.AddEShopAuditLog<PaymentDbContext>("payment");
 
 builder.Services.AddPaymentApplication();
 builder.Services.AddPaymentInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
@@ -275,6 +280,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapPaymentEndpoints();
+// This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+app.MapEShopAuditLog();
 
 // /prometheus — custom prometheus-net metrics
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless

@@ -182,6 +182,9 @@ Kubernetes probe fail in a way that looks like the service being unhealthy.
 `NotificationProxyGuardMiddleware` for the request-body cap and the 502→503 rewrite. The gateway's
 role check and the service's permission check are two different questions and both must pass.
 
+Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
+(`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).
+
 ---
 
 ## Workflow Role

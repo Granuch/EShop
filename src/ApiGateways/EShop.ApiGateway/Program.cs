@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
+using EShop.ApiGateway.AuditLog;
 using EShop.ApiGateway.Configuration;
 using EShop.ApiGateway.Health;
 using EShop.ApiGateway.Middleware;
@@ -162,6 +163,11 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 builder.Services.AddHttpClient();
 
+// Admin audit trail (S15): the gateway serves GET /api/v1/admin/audit itself, merging every audited service's own
+// trail. Bounded per service, so one hung service costs the page seconds, not the request timeout.
+builder.Services.AddHttpClient(AuditLogFanOut.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddScoped<AuditLogFanOut>();
+
 builder.Services.AddEShopOpenTelemetry(
     builder.Configuration,
     serviceName: "EShop.ApiGateway",
@@ -246,6 +252,7 @@ if (EShopApiDocs.IsExposedIn(app.Environment))
 }
 
 app.MapReverseProxy();
+app.MapGatewayAuditLog();
 
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
 // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).

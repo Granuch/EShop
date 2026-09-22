@@ -46,6 +46,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         // Admin panel S11. The timeline is a read; a replay re-applies a payment outcome, so it is a write — and
         // deliberately not payments.refund, which is held back for the one action that moves money outward.
         ["GET /api/v1/payments/{id:guid}/events"] = EShopPermissions.PaymentsRead,
+        // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
+        ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
         ["POST /api/v1/payments/webhooks/failed/replay"] = EShopPermissions.PaymentsWrite,
     };
 

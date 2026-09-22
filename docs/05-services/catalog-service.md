@@ -131,6 +131,9 @@ key family cannot be invalidated).
 
 ## Security and Access
 
+Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
+(`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).
+
 - JWT authentication support
 - Role-based authorization for administrative writes
 - CORS and rate-limiting alignment through service/gateway policies

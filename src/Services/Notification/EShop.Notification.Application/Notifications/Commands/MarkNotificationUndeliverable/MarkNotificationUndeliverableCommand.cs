@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.Notification.Application.Notifications.Common;
 using MediatR;
 
@@ -10,8 +11,12 @@ namespace EShop.Notification.Application.Notifications.Commands.MarkNotification
 /// person looking at the journal will need.
 /// </summary>
 public sealed record MarkNotificationUndeliverableCommand(Guid Id, string? Reason)
-    : IRequest<Result<NotificationDetailDto>>
+    : IRequest<Result<NotificationDetailDto>>, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Notification";
+
+    string? IAuditedCommand.AuditEntityId => Id.ToString();
+
     /// <summary>The longest reason accepted — far inside <c>LastError</c>'s 4000, prefix included.</summary>
     public const int MaxReasonLength = 500;
 }

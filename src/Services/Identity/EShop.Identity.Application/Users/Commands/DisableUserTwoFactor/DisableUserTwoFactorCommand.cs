@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.Identity.Domain.Entities;
@@ -26,8 +27,12 @@ namespace EShop.Identity.Application.Users.Commands.DisableUserTwoFactor;
 /// turned back on.
 /// </para>
 /// </remarks>
-public record DisableUserTwoFactorCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record DisableUserTwoFactorCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 
     /// <summary><c>UserProfileResponse.TwoFactorEnabled</c> is cached.</summary>

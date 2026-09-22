@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.Identity.Domain.Interfaces;
@@ -24,8 +25,12 @@ namespace EShop.Identity.Application.Users.Commands.DeleteUser;
 /// again and they would sit on the table until the cleanup job expired them.
 /// </para>
 /// </remarks>
-public record DeleteUserCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record DeleteUserCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 
     public IEnumerable<string> CacheKeysToInvalidate => [$"profile:{UserId}"];

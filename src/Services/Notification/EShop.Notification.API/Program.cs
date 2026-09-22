@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.API.Endpoints;
@@ -54,6 +55,10 @@ try
     // live exposure rather than consistency alone: the journal endpoints sit behind the gateway, and the rate limiter
     // below partitions on the address this rewrites.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<NotificationDbContext>("notification");
 
     builder.Services.AddNotificationApplication();
 
@@ -248,6 +253,8 @@ try
     app.UseAuthorization();
 
     app.MapNotificationEndpoints();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Notification previously had no /health, and its liveness predicate fell back to
     // `Tags.Count == 0` because nothing was tagged "live" — it matched no check and so always

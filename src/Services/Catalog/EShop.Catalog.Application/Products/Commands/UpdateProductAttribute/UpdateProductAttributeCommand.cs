@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -15,8 +16,12 @@ namespace EShop.Catalog.Application.Products.Commands.UpdateProductAttribute;
 /// <c>UpdateProductImageCommand</c> and for the same reason: this endpoint is new and has no
 /// existing caller sending a partial body to protect.
 /// </remarks>
-public record UpdateProductAttributeCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record UpdateProductAttributeCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
     public Guid AttributeId { get; init; }
     public string Name { get; init; } = string.Empty;

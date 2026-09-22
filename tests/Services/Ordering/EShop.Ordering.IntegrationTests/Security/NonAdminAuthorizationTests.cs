@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Infrastructure.Data;
 using EShop.Ordering.IntegrationTests.Helpers;
@@ -59,6 +60,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["GET /api/v1/orders/{id:guid}/notes"] = "Admin",
         ["GET /api/v1/orders/{id:guid}/history"] = "Admin",
         ["GET /api/v1/users/{userId}/orders"] = "SameUserOrAdmin",
+        // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
+        ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
     };
 
     private static readonly string[] OwnerOnlyRoutes =

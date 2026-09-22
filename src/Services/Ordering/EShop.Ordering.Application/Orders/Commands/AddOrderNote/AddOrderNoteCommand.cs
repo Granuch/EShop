@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Domain;
 
@@ -20,8 +21,12 @@ namespace EShop.Ordering.Application.Orders.Commands.AddOrderNote;
 /// entry for nothing.
 /// </para>
 /// </summary>
-public record AddOrderNoteCommand : IRequest<Result<Guid>>, ITransactionalCommand
+public record AddOrderNoteCommand : IRequest<Result<Guid>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Order";
+
+    string? IAuditedCommand.AuditEntityId => OrderId.ToString();
+
     public Guid OrderId { get; init; }
 
     /// <summary>

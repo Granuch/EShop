@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -14,8 +15,12 @@ namespace EShop.Catalog.Application.Products.Commands.SetProductDiscount;
 /// domain raises <c>ProductPriceChangedEvent</c>, which reprices existing baskets.
 /// </para>
 /// </summary>
-public record SetProductDiscountCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record SetProductDiscountCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
 
     public decimal DiscountPrice { get; init; }

@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
@@ -31,8 +32,12 @@ namespace EShop.Identity.Application.Users.Commands.ConfirmUserEmail;
 /// a panel button clicked twice should do.
 /// </para>
 /// </remarks>
-public record ConfirmUserEmailCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record ConfirmUserEmailCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 
     /// <summary><c>UserProfileResponse.EmailConfirmed</c> is cached, so it goes stale here.</summary>

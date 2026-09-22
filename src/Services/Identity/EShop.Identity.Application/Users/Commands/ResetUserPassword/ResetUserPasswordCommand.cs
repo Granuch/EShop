@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Messaging.Events;
@@ -32,8 +33,12 @@ namespace EShop.Identity.Application.Users.Commands.ResetUserPassword;
 /// retention window (SEC-05).
 /// </para>
 /// </remarks>
-public record ResetUserPasswordCommand : IRequest<Result<Unit>>, ITransactionalCommand
+public record ResetUserPasswordCommand : IRequest<Result<Unit>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 }
 

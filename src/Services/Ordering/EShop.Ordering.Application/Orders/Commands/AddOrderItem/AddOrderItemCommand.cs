@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Caching;
 
 namespace EShop.Ordering.Application.Orders.Commands.AddOrderItem;
@@ -13,8 +14,12 @@ namespace EShop.Ordering.Application.Orders.Commands.AddOrderItem;
 /// calls Catalog, and its single <c>SaveChangesAsync</c> is already atomic.
 /// </para>
 /// </summary>
-public record AddOrderItemCommand : IRequest<Result>, ICacheInvalidatingCommand
+public record AddOrderItemCommand : IRequest<Result>, ICacheInvalidatingCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Order";
+
+    string? IAuditedCommand.AuditEntityId => OrderId.ToString();
+
     public Guid OrderId { get; init; }
     public Guid ProductId { get; init; }
     public int Quantity { get; init; }

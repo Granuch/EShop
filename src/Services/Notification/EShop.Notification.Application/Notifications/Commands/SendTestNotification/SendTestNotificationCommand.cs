@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Domain;
 using EShop.Notification.Application.Notifications.Common;
 using MediatR;
@@ -9,8 +10,12 @@ namespace EShop.Notification.Application.Notifications.Commands.SendTestNotifica
 /// Sends one template, filled with sample data, to an address the operator names (Admin panel S13, endpoint #76).
 /// The template comes from the route; the address and an optional greeting name from the body.
 /// </summary>
-public sealed record SendTestNotificationCommand : IRequest<Result<TestNotificationResultDto>>
+public sealed record SendTestNotificationCommand : IRequest<Result<TestNotificationResultDto>>, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "NotificationTemplate";
+
+    string? IAuditedCommand.AuditEntityId => TemplateName;
+
     public string TemplateName { get; init; } = string.Empty;
 
     /// <summary>Where to send it. Personal data, so redacted from the request log like every other address here.</summary>

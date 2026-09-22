@@ -45,6 +45,9 @@ Common routed areas include:
 - `/api/v1/orders/*` -> ordering
 - `/api/v1/payments/*` -> payment
 - `/api/v1/notifications/*` -> notification (`Admin`)
+- `/api/v1/admin/audit` -> **served by the gateway itself** (`audit.read`): it asks all five audited services for a
+  page and merges them. Not a YARP route, so it is absent from the routing-table test and pinned by
+  `AuditLog/AuditLogFanOutTests` instead. See [Admin Audit Trail](../03-architecture/audit-log.md).
 
 Authorization is applied per route where required (for example `Authenticated`, `Admin`).
 

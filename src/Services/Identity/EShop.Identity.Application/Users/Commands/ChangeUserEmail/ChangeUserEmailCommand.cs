@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
@@ -30,8 +31,12 @@ namespace EShop.Identity.Application.Users.Commands.ChangeUserEmail;
 /// admin has to ask for.
 /// </para>
 /// </remarks>
-public record ChangeUserEmailCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record ChangeUserEmailCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 
     /// <summary>

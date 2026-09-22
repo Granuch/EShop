@@ -36,6 +36,8 @@ public class NotificationAuthorizationTests
         // Admin panel S13. The template list is a read; every action — the test send included, which writes nothing but
         // emails an address the caller picks — takes the manage permission.
         ["GET /api/v1/notifications/templates"] = EShopPermissions.NotificationsRead,
+        // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
+        ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
         ["POST /api/v1/notifications/templates/{name}/test"] = EShopPermissions.NotificationsManage,
         ["POST /api/v1/notifications/retry-failed"] = EShopPermissions.NotificationsManage,
         ["POST /api/v1/notifications/{id:guid}/resend"] = EShopPermissions.NotificationsManage,

@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
@@ -33,8 +34,12 @@ namespace EShop.Identity.Application.Users.Commands.UpdateUserProfile;
 /// audit S10's shipping address.
 /// </para>
 /// </remarks>
-public record UpdateUserProfileCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record UpdateUserProfileCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
     public string? FirstName { get; init; }
     public string? LastName { get; init; }

@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.Identity.Domain.Interfaces;
 using MediatR;
@@ -25,8 +26,12 @@ namespace EShop.Identity.Application.Users.Commands.RevokeUserTokens;
 /// is the honest answer.
 /// </para>
 /// </remarks>
-public record RevokeUserTokensCommand : IRequest<Result<Unit>>, ITransactionalCommand
+public record RevokeUserTokensCommand : IRequest<Result<Unit>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 }
 

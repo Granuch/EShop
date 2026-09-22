@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.Payment.Application.Payments.Common;
 using MediatR;
 
@@ -28,8 +29,12 @@ namespace EShop.Payment.Application.Payments.Commands.ReplayFailedStripeWebhooks
 /// endpoint means.
 /// </param>
 public sealed record ReplayFailedStripeWebhooksCommand(IReadOnlyCollection<Guid>? Ids)
-    : IRequest<Result<FailedStripeWebhookReplayDto>>
+    : IRequest<Result<FailedStripeWebhookReplayDto>>, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "StripeWebhook";
+
+    string? IAuditedCommand.AuditEntityId => null;
+
     /// <summary>
     /// The hard cap on one request (risk A8).
     /// <para>Lower than Basket's <c>MaxReplayPerRequest = 1000</c> because the unit of work is far heavier: each row

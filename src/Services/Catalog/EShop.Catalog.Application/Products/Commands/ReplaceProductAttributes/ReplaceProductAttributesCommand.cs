@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -37,8 +38,12 @@ public record ReplaceProductAttributeRequest
 /// against M1's non-deferrable unique index that would abort the batch with 23505.
 /// </para>
 /// </remarks>
-public record ReplaceProductAttributesCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record ReplaceProductAttributesCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
     public IReadOnlyList<ReplaceProductAttributeRequest>? Attributes { get; init; }
 

@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -17,8 +18,12 @@ namespace EShop.Catalog.Application.Products.Commands.UpdateProductImage;
 /// a partial body; this endpoint is new, so it has no such caller to protect and can use the
 /// simpler, unambiguous PUT semantics instead.
 /// </remarks>
-public record UpdateProductImageCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record UpdateProductImageCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
     public Guid ImageId { get; init; }
     public string Url { get; init; } = string.Empty;

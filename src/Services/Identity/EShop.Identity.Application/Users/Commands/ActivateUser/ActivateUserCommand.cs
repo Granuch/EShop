@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.Identity.Domain.Entities;
@@ -18,8 +19,12 @@ namespace EShop.Identity.Application.Users.Commands.ActivateUser;
 /// separate decisions, and <c>ApplicationUser.Activate()</c> throwing on a deleted user is the
 /// backstop for the same rule rather than a path this handler can take.
 /// </remarks>
-public record ActivateUserCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand
+public record ActivateUserCommand : IRequest<Result<Unit>>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "User";
+
+    string? IAuditedCommand.AuditEntityId => UserId;
+
     public string UserId { get; init; } = string.Empty;
 
     /// <summary><c>UserProfileResponse</c> carries <c>IsActive</c>, so the cached profile is stale after this.</summary>

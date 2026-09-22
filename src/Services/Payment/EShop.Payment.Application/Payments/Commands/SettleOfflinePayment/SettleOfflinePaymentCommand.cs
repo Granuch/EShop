@@ -1,4 +1,5 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.Payment.Application.Payments.Common;
 using MediatR;
@@ -35,8 +36,14 @@ namespace EShop.Payment.Application.Payments.Commands.SettleOfflinePayment;
 /// <c>offline:</c> prefix, where the filtered unique index already guarantees one intent per payment.
 /// </param>
 public sealed record SettleOfflinePaymentCommand(Guid OrderId, string Reference)
-    : IRequest<Result<PaymentDto>>, ITransactionalCommand
+    : IRequest<Result<PaymentDto>>, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Payment";
+
+    string? IAuditedCommand.AuditEntityId => null;
+
+    string? IAuditedCommand.AuditEntityIdFromResult(object? value) => (value as PaymentDto)?.Id.ToString();
+
     /// <summary>Bounded well under the 200-character <c>PaymentIntentId</c> column, which also has to hold the
     /// <c>offline:</c> prefix and be storable on the order that receives it.</summary>
     public const int MaxReferenceLength = 100;

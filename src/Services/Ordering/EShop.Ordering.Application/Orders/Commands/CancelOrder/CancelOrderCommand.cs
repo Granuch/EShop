@@ -1,5 +1,6 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 
@@ -8,8 +9,12 @@ namespace EShop.Ordering.Application.Orders.Commands.CancelOrder;
 /// <summary>
 /// Command to cancel an order
 /// </summary>
-public record CancelOrderCommand : IRequest<Result>, ITransactionalCommand, ICacheInvalidatingCommand
+public record CancelOrderCommand : IRequest<Result>, ITransactionalCommand, ICacheInvalidatingCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Order";
+
+    string? IAuditedCommand.AuditEntityId => OrderId.ToString();
+
     public Guid OrderId { get; init; }
     public string Reason { get; init; } = string.Empty;
 
