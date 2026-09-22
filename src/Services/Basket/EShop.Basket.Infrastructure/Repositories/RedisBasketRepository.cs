@@ -300,9 +300,15 @@ public class RedisBasketRepository : IBasketRepository
     /// lines the domain accepts; otherwise <c>null</c>. A line the domain refused used to throw from every read, so that
     /// user's GET and every write failed until the basket expired.
     /// </summary>
-    private ShoppingBasket? ReadBasket(string payload, string userId)
+    private ShoppingBasket? ReadBasket(string payload, string userId) => ReadBasket(payload, userId, _logger);
+
+    /// <summary>
+    /// The one definition of "a readable basket", shared with the admin walk (Admin panel S14) so that a basket it
+    /// reports as unreadable is exactly one a customer's GET reads as empty.
+    /// </summary>
+    internal static ShoppingBasket? ReadBasket(string payload, string userId, ILogger logger)
     {
-        var document = TryDeserialize(payload, userId);
+        var document = TryDeserialize(payload, userId, logger);
         if (document == null)
         {
             return null;
@@ -310,7 +316,7 @@ public class RedisBasketRepository : IBasketRepository
 
         if (!string.Equals(document.UserId, userId, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Basket payload user mismatch for key user {RequestedUserId}. Document contains user {DocumentUserId}. Treating record as corrupted.",
                 userId,
                 document.UserId);
@@ -323,14 +329,16 @@ public class RedisBasketRepository : IBasketRepository
         }
         catch (DomainException ex)
         {
-            _logger.LogWarning(ex,
+            logger.LogWarning(ex,
                 "Basket document for user {UserId} holds a line the domain refuses. Treating record as corrupted.",
                 userId);
             return null;
         }
     }
 
-    private BasketDocument? TryDeserialize(string payload, string userId)
+    private BasketDocument? TryDeserialize(string payload, string userId) => TryDeserialize(payload, userId, _logger);
+
+    private static BasketDocument? TryDeserialize(string payload, string userId, ILogger logger)
     {
         try
         {
@@ -338,7 +346,7 @@ public class RedisBasketRepository : IBasketRepository
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Failed to deserialize basket document for user {UserId}", userId);
+            logger.LogWarning(ex, "Failed to deserialize basket document for user {UserId}", userId);
             return null;
         }
     }

@@ -51,6 +51,9 @@ public sealed class GatewayRouteAuthorizationTests
         ["admin-catalog-route"] = "Admin",
         ["catalog-categories-write-route"] = "Admin",
         ["catalog-categories-read-route"] = null,
+        // Admin panel S14. /api/v1/basket/admin/** is admin-only; it wins over basket-route only because its Order (29)
+        // is lower than basket-route's (30).
+        ["basket-admin-route"] = "Admin",
         ["basket-route"] = "Authenticated",
         ["orders-route"] = "Authenticated",
         ["payments-route"] = "Authenticated",
@@ -195,6 +198,34 @@ public sealed class GatewayRouteAuthorizationTests
         AssertReachedProxy(
             await Send(HttpMethod.Get, "/api/v1/notifications/stats", RouteAuthorizationApiFactory.AdminToken()),
             "an admin calling /api/v1/notifications/stats");
+    }
+
+    [Test]
+    public async Task BasketAdminPaths_AreAdminOnly_WhileACustomersOwnBasketIsNot()
+    {
+        // Admin panel S14. Before basket-admin-route these paths matched basket-route and any signed-in customer was
+        // proxied through; only Basket's own policies refused them. The S7 outbox paths are covered by the same route.
+        foreach (var path in new[]
+                 {
+                     "/api/v1/basket/admin/carts",
+                     "/api/v1/basket/admin/abandoned",
+                     "/api/v1/basket/admin/outbox/dead-letters",
+                     "/api/v1/basket/admin/outbox/dead-letters/details"
+                 })
+        {
+            Assert.That(await Send(HttpMethod.Get, path, token: null), Is.EqualTo(HttpStatusCode.Unauthorized), path);
+            Assert.That(await Send(HttpMethod.Get, path, RouteAuthorizationApiFactory.UserToken()),
+                Is.EqualTo(HttpStatusCode.Forbidden), path);
+            AssertReachedProxy(await Send(HttpMethod.Get, path, RouteAuthorizationApiFactory.AdminToken()), $"an admin calling {path}");
+        }
+
+        Assert.That(await Send(HttpMethod.Post, "/api/v1/basket/admin/outbox/dead-letters/replay",
+                RouteAuthorizationApiFactory.UserToken()),
+            Is.EqualTo(HttpStatusCode.Forbidden), "the replay is a write, and just as admin-only");
+
+        AssertReachedProxy(
+            await Send(HttpMethod.Get, "/api/v1/basket/user-1", RouteAuthorizationApiFactory.UserToken()),
+            "a customer reading a basket outside the admin prefix");
     }
 
     [Test]

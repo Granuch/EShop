@@ -40,6 +40,7 @@ Common routed areas include:
 - `/api/v1/admin/users/*` -> identity (`Admin`)
 - `/api/v1/products/*` and `/api/v1/categories/*` -> catalog
 - `/api/v1/admin/catalog/*` -> catalog (`Admin`)
+- `/api/v1/basket/admin/*` -> basket (`Admin`; wins over the next route because its `Order` is lower)
 - `/api/v1/basket/*` -> basket
 - `/api/v1/orders/*` -> ordering
 - `/api/v1/payments/*` -> payment
@@ -55,6 +56,7 @@ Gateway authorization is defence in depth, not the enforcement point — every s
 caller. Where the two differ deliberately, the gateway asks a *role* question and the service asks
 a *permission* question: `/api/v1/notifications/*` is `Admin` here and `notifications.read` (the
 journal) or `notifications.manage` (the operator actions) in Notification, and both must pass.
+`/api/v1/basket/admin/*` is the same: `Admin` here, `baskets.read` or `system.manage` in Basket.
 
 ---
 
