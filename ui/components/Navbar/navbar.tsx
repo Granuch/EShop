@@ -52,7 +52,7 @@ async function Navbar() {
               <span className="hidden sm:inline">{session.firstName}</span>
             </div>
           )}
-          <Link href="/basket" className={actionLink}>
+          <Link href="/cart" className={actionLink}>
             <ShoppingCart className="size-5" />
             <span className="hidden sm:inline">Basket</span>
           </Link>

@@ -2,7 +2,7 @@ import Image from "next/image";
 import Item from "@/components/Item/item";
 import { itemData } from "@/components/Item/types/itemType";
 import Link from "next/link";
-import { buildHref, getCategories, sortOptions } from "@/lib/temp";
+import { buildHref, getCategories, sortOptions, toApiSort } from "@/lib/temp";
 import FilterSidebar from "@/components/Navbar/filterSidebar";
 
 type ShopParams = {
@@ -14,8 +14,14 @@ type ShopParams = {
 
 
 async function fetchProducts(params: ShopParams): Promise<itemData[]> {
-  const res = await fetch("http://localhost:7000/api/v1/products")
-  if(!res.ok) throw new Error("Failed to fetch products");
+  const apiSort = toApiSort(params.sort)
+  const query = new URLSearchParams({
+    ...(params.category ? { CategoryId: params.category } : {}),
+    ...(params.minPrice ? { MinPrice: params.minPrice } : {}),
+    ...(params.maxPrice ? { MaxPrice: params.maxPrice } : {}),
+    ...apiSort,
+  })
+  const res = await fetch(`http://localhost:7000/api/v1/products?${query}`, {next: {revalidate: 60}})
   
   const data = await res.json()
   return data.items
@@ -64,7 +70,7 @@ export default async function Home({
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {products.length} {products.length === 1 ? "product" : "products"}
+                {products?.length ?? 0} {(products?.length ?? 0) === 1 ? "product" : "products"}
               </p>
             </div>
  
@@ -89,7 +95,7 @@ export default async function Home({
             </nav>
           </div>
  
-          {products.length > 0 ? (
+          {(products?.length ?? 0) > 0 ? (
             <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 md:gap-x-6 xl:grid-cols-4">
               {products.map((product) => (
                 <Item key={product.id} itemData={product} />

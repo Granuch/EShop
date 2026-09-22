@@ -23,6 +23,14 @@ export const sortOptions = [
   { value: "price_desc", label: "Price: high to low" },
 ];
 
+export function toApiSort(sort?:string) {
+  switch (sort) {
+    case "price_asc": return {SortBy: "Price", IsDescending: "false"};
+    case "price_desc": return {SortBy: "Price", IsDescending: "true"};
+    default:            return { SortBy: "CreatedAt", IsDescending: "true" }; 
+  }
+}
+
 /** Builds a "/?category=...&sort=..." link, skipping empty values. */
 export function buildHref(params: ShopParams) {
   const query = new URLSearchParams();
