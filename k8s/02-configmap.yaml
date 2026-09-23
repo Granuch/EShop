@@ -37,6 +37,8 @@ data:
   ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
   ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
   ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+  # IPv6 unique-local: a dual-stack cluster gives the gateway pod an fc00::/7 address.
+  ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
   # Identity settings
   Identity__RequireConfirmedEmail: "false"

@@ -66,26 +66,146 @@ public class EShopForwardedHeadersTests
     }
 
     /// <summary>
-    /// The exact values <c>docker-compose.yml</c> and <c>k8s/02-configmap.yaml</c> now set. If this
-    /// goes red, the Sandbox stack is back to one shared rate-limit bucket for the entire user base.
+    /// The private ranges <c>docker-compose.yml</c> and <c>k8s/02-configmap.yaml</c> trust: the three RFC 1918
+    /// ranges plus IPv6 unique-local. The fourth is not optional. Docker can give <c>eshop-network</c> an IPv6
+    /// subnet, and the gateway then reaches every service over IPv6 first. Trusting only the IPv4 ranges made each
+    /// service ignore <c>X-Forwarded-For</c> and put every client in one rate-limit bucket.
+    /// </summary>
+    private static readonly (string Key, string Value)[] DeployedNetworks =
+    [
+        ("ForwardedHeaders:KnownNetworks:0", "10.0.0.0/8"),
+        ("ForwardedHeaders:KnownNetworks:1", "172.16.0.0/12"),
+        ("ForwardedHeaders:KnownNetworks:2", "192.168.0.0/16"),
+        ("ForwardedHeaders:KnownNetworks:3", "fc00::/7")
+    ];
+
+    /// <summary>
+    /// If this goes red, the Sandbox stack is back to one shared rate-limit bucket for the entire user base.
     /// </summary>
     [Test]
-    public void EnablesForTheRfc1918RangesTheDeploymentsConfigure()
+    public void EnablesForThePrivateRangesTheDeploymentsConfigure()
     {
         var services = new ServiceCollection();
 
-        var enabled = services.AddEShopForwardedHeaders(Configuration(
-            ("ForwardedHeaders:KnownNetworks:0", "10.0.0.0/8"),
-            ("ForwardedHeaders:KnownNetworks:1", "172.16.0.0/12"),
-            ("ForwardedHeaders:KnownNetworks:2", "192.168.0.0/16")));
+        var enabled = services.AddEShopForwardedHeaders(Configuration(DeployedNetworks));
 
         Assert.That(enabled, Is.True);
 
         var options = services.BuildServiceProvider()
             .GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value;
 
-        Assert.That(options.KnownIPNetworks, Has.Count.EqualTo(3));
+        Assert.That(options.KnownIPNetworks, Has.Count.EqualTo(4));
         Assert.That(options.ForwardLimit, Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// The address the gateway actually connects from in the compose stack (an <c>fdc7:…</c> address on the
+    /// network's IPv6 subnet), driven through the real middleware. Without <c>fc00::/7</c> the client address
+    /// stays the gateway's.
+    /// </summary>
+    [TestCase("fdc7:cf73:f805:1::12")]
+    [TestCase("172.18.0.18")]
+    public async Task TakesTheClientAddressFromAPrivateNetworkProxy(string gatewayAddress)
+    {
+        var seen = await ClientAddressSeenBehind(gatewayAddress, "198.51.100.7");
+
+        Assert.That(seen, Is.EqualTo(IPAddress.Parse("198.51.100.7")));
+    }
+
+    /// <summary>The control: a public peer is not a proxy, so its X-Forwarded-For is ignored.</summary>
+    [TestCase("2001:db8::1")]
+    [TestCase("203.0.113.9")]
+    public async Task IgnoresXForwardedForFromAPublicPeer(string peer)
+    {
+        var seen = await ClientAddressSeenBehind(peer, "198.51.100.7");
+
+        Assert.That(seen, Is.EqualTo(IPAddress.Parse(peer)));
+    }
+
+    /// <summary>
+    /// What the repository ships. No test host reads these files, so only reading them can notice one service
+    /// losing the IPv6 entry. Every app service in compose, and the shared k8s ConfigMap, must trust exactly
+    /// <see cref="DeployedNetworks"/>.
+    /// </summary>
+    [TestCase("identity-api")]
+    [TestCase("api-gateway")]
+    [TestCase("basket-api")]
+    [TestCase("catalog-api")]
+    [TestCase("ordering-api")]
+    [TestCase("payment-api")]
+    [TestCase("notification-api")]
+    public void Compose_TrustsThePrivateRanges(string service)
+    {
+        Assert.That(
+            KnownNetworkLines(ComposeServiceBlock(service)),
+            Is.EqualTo(DeployedNetworks.Select(ExpectedLine).ToArray()));
+    }
+
+    [Test]
+    public void Kubernetes_TrustsThePrivateRanges()
+    {
+        var lines = File.ReadAllLines(Path.Combine(RepositoryRoot(), "k8s", "02-configmap.yaml"))
+            .Select(line => line.Trim())
+            .Where(line => !line.StartsWith('#'));
+
+        Assert.That(KnownNetworkLines(lines), Is.EqualTo(DeployedNetworks.Select(ExpectedLine).ToArray()));
+    }
+
+    private static string ExpectedLine((string Key, string Value) setting)
+        => $"{setting.Key.Replace(":", "__", StringComparison.Ordinal)}: \"{setting.Value}\"";
+
+    private static string[] KnownNetworkLines(IEnumerable<string> lines)
+        => lines.Where(line => line.StartsWith("ForwardedHeaders__KnownNetworks__", StringComparison.Ordinal)).ToArray();
+
+    private static async Task<IPAddress?> ClientAddressSeenBehind(string peer, string forwardedFor)
+    {
+        var services = new ServiceCollection().AddLogging();
+        var enabled = services.AddEShopForwardedHeaders(Configuration(DeployedNetworks));
+        await using var provider = services.BuildServiceProvider();
+
+        IPAddress? seen = null;
+        var app = new ApplicationBuilder(provider);
+        app.UseEShopForwardedHeaders(enabled);
+        app.Run(context =>
+        {
+            seen = context.Connection.RemoteIpAddress;
+            return Task.CompletedTask;
+        });
+
+        var request = ContextFrom(peer);
+        request.Request.Headers["X-Forwarded-For"] = forwardedFor;
+        await app.Build()(request);
+
+        return seen;
+    }
+
+    /// <summary>The uncommented, trimmed lines of one service in docker-compose.yml, up to the next service.</summary>
+    private static List<string> ComposeServiceBlock(string service)
+    {
+        var lines = File.ReadAllLines(Path.Combine(RepositoryRoot(), "docker-compose.yml"));
+        var start = Array.IndexOf(lines, $"  {service}:");
+        Assert.That(start, Is.GreaterThanOrEqualTo(0), $"docker-compose.yml has no {service} service");
+
+        var nextService = new System.Text.RegularExpressions.Regex(@"^(  )?[A-Za-z0-9_-]+:\s*$");
+        return lines
+            .Skip(start + 1)
+            .TakeWhile(line => !nextService.IsMatch(line))
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith('#'))
+            .ToList();
+    }
+
+    private static string RepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "EShop.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new InvalidOperationException("EShop.slnx not found above the test directory.");
     }
 
     /// <summary>
