@@ -1,543 +1,76 @@
-# Frontend Data Contracts
+# Frontend Data Contracts (moved)
 
-Field-level reference for Entities/DTOs across all EShop services, for teams building a
-client application (web/mobile) on top of the API Gateway. Compiled from the actual
-repository code (`Domain/Entities`, `Application/.../Dto|Command|Query`), not from an
-abstract schema.
+This document has been replaced by the **[frontend API contracts](frontend/README.md)** in `docs/01-overview/frontend/`.
+The new set is verified against the code and the running API, covers every endpoint for the storefront and the admin
+panel, and gives each DTO a TypeScript type.
 
----
+The old text is no longer maintained. It had drifted from the code in several ways:
+- PascalCase field names, where the API sends camelCase;
+- enum names where Catalog and Ordering send integers;
+- an outdated payment status list and two-factor flow;
+- no error, paging or permission model.
 
-## Store Vertical
-
-By code, the platform is a **generic e-commerce framework** (similar to
-eShopOnContainers): a product is modeled abstractly (`Name`, `SKU`, `Price`,
-`CategoryId`, a set of `key/value` attributes), with no binding to a specific domain
-(apparel/electronics/books/etc.) in the code itself.
-
-However, the attribute model itself strongly hints at one — the `ProductAttribute`
-comment explicitly gives the example `Size: Large`, `Color: Blue`. For documentation and
-frontend purposes, the vertical is therefore fixed as **a fashion & footwear store**:
-
-- **Categories** — hierarchical (`ParentCategoryId`), mapped to the structure
-  `Men / Women / Kids -> Clothing / Shoes / Accessories`.
-- **Product** — modeled as an apparel/footwear item: name, SKU, price, discount price,
-  stock quantity, image gallery, status (`Draft/Active/Discontinued`).
-- **ProductAttribute** — variant characteristics: `Size` (S/M/L/XL or a numeric shoe
-  size), `Color`, `Material`, etc. Stored as `Name/Value` pairs, so new ones can be added
-  without a schema change.
-- **ProductImage** — the product card gallery; one image is flagged as main (`IsMain`)
-  for catalog/list views.
-
-This is a documentation convention only — it doesn't change backend code, only what
-values are expected in `Name`/`CategoryId`/`ProductAttribute.Name` and how to render them
-on the frontend (size/color selectors on the product card, category filter in the
-catalog, etc.).
+Use git history if you need the old wording. The sections that used to be here now live at the links below. The
+"Store Vertical" section was dropped: the documentation is generic, and the seed data is placeholder content.
 
 ---
 
 ## How to Read This Document
 
-- **Entity** — the domain model (what's persisted); not returned directly to the
-  frontend, but defines which fields exist at all.
-- **DTO** — what's actually sent/received over the API (use this for frontend types,
-  e.g. TypeScript interfaces).
-- **Command**/**Request** tables — the request body (`POST`/`PUT`) the frontend sends.
-- All Ids are `Guid` (UUID string), except `Basket.UserId`/`Order.UserId`, which are
-  `string` (Identity `UserId`), and refresh tokens, which are also `string`.
-- Money fields (`Price`, `Amount`, `TotalPrice`, etc.) are `decimal`.
-
----
+See [README — How to read these files](frontend/README.md#how-to-read-these-files) and
+[conventions.md](frontend/conventions.md) (JSON, ids, dates, money, enums, errors, paging).
 
 ## Catalog Service
 
-Base path: `/api/v1/products`, `/api/v1/categories`
-
-### Product (entity)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| Id | Guid | — | Product identifier |
-| Name | string | yes | Product name |
-| Description | string? | no | Description. **Write-once and uncapped** — see the note below the table |
-| Sku | string | yes | SKU |
-| Price | decimal | yes | Price (> 0) |
-| DiscountPrice | decimal? | no | Discounted price |
-| StockQuantity | int | yes | Stock on hand (>= 0) |
-| Status | enum `ProductStatus` | — | `Draft` \| `Active` \| `Discontinued` |
-| CategoryId | Guid | yes | Product category |
-| Images | ProductImage[] | — | Image gallery |
-| Attributes | ProductAttribute[] | — | `Name`/`Value` pairs (size, color, etc.) |
-| IsDeleted | bool | — | Soft delete flag |
-
-**`Description` is write-once and has no length limit.** Both are deliberate gaps recorded here
-rather than fixed (DEBT-17), because closing either would change the published contract:
-
-- **No update path.** `Description` is set only by `Product.Create` and has a private setter;
-  `UpdateProductCommand` carries only `Price` and `StockQuantity`, and `Product` exposes no method
-  that changes it. Once a product exists its description cannot be edited or cleared. Adding one
-  is a contract change, not a bug fix.
-- **No maximum length.** The column is unbounded `text` and no validator rule caps it, so a client
-  may send an arbitrarily large value. Introducing a cap would start rejecting requests this
-  document currently says are valid.
-- Values are normalised on creation: trimmed, with blank or whitespace-only stored as `null`, so
-  "absent" and "empty string" are indistinguishable in every response.
-
-### ProductDto (response of `GET /api/v1/products`, list view)
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| Name | string | |
-| Description | string? | |
-| Sku | string | |
-| Price | decimal | |
-| DiscountPrice | decimal? | |
-| StockQuantity | int | |
-| Status | enum `ProductStatus` | |
-| CategoryId | Guid | |
-| MainImageUrl | string? | Direct link to the main image (for list/catalog cards). Picks the image flagged `IsMain`, falling back to lowest `DisplayOrder`, then oldest `CreatedAt`. `null` only when the product has no images at all |
-| CreatedAt | DateTime | |
-
-> Note: the list `ProductDto` carries no gallery or attribute arrays — only
-> `MainImageUrl`. A product detail screen gets both from `ProductDetailsDto` below.
-
-### ProductDetailsDto (response of `GET /api/v1/products/{id}`)
-
-Every field of `ProductDto` above, unchanged, plus two arrays:
-
-| Field | Type | Description |
-|---|---|---|
-| Images | ProductImageDto[] | Full gallery, ordered by `DisplayOrder`, then `CreatedAt` |
-| Attributes | ProductAttributeDto[] | All `Name`/`Value` pairs, unordered |
-
-`ProductImageDto`: `Id`, `Url`, `AltText`, `DisplayOrder`, `IsMain` —
-`IsMain` is exposed as a flag so the client decides how to surface the main image, rather
-than it being folded into the gallery ordering.
-`ProductAttributeDto`: `Id`, `Name`, `Value`.
-
-Both arrays are additive — every field previously returned by `GET /api/v1/products/{id}`
-is unchanged.
-
-### ProductImage (entity)
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| ProductId | Guid | |
-| Url | string | Absolute HTTP/HTTPS URL, up to 500 characters. **No file-extension requirement** — extensionless CDN links (`https://cdn.example.com/img/abc123`) are valid, and nothing server-side checks that the URL actually points at an image; that is the admin client's responsibility |
-| AltText | string? | Up to 200 characters |
-| DisplayOrder | int | Sort order within the gallery (>= 0) |
-| IsMain | bool | Main image flag. At most one image per product is main; a product with no images has none. The first image added to a product becomes main automatically, and removing the main image promotes the next one in gallery order |
-
-### ProductAttribute (entity) — for size/color selectors
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| ProductId | Guid | |
-| Name | string | Up to 100 characters (e.g. `Size`, `Color`, `Material`) |
-| Value | string | Up to 200 characters (e.g. `L`, `Red`) |
-
-### CreateProductCommand (`POST /api/v1/products`, admin)
-
-| Field | Type | Required |
-|---|---|---|
-| Name | string | yes |
-| Description | string? | no |
-| Sku | string | yes |
-| Price | decimal | yes (> 0) |
-| StockQuantity | int | yes (>= 0) |
-| CategoryId | Guid | yes |
-| Images | CreateProductImageRequest[]? | no — omit or send `null` for none; max 10, no duplicate URLs within the request (trimmed, case-insensitive) |
-| Attributes | CreateProductAttributeRequest[]? | no — omit or send `null` for none; max 50, no duplicate `Name` within the request |
-
-`CreateProductImageRequest`: `Url` (required, ≤500, absolute http/https),
-`AltText` (optional, ≤200), `DisplayOrder` (>= 0).
-`CreateProductAttributeRequest`: `Name` (required, ≤100), `Value` (required, ≤200).
-
-The whole create is one transaction — a rejected image or attribute rolls the product back,
-so partial products are never persisted. The first image in the array becomes the main image.
-
-### UpdateProductCommand (`PUT /api/v1/products/{id}`, admin)
-
-| Field | Type | Required |
-|---|---|---|
-| Price | decimal | yes |
-| StockQuantity | int | yes |
-
-### Category (entity) / CategoryDto
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| Name | string | |
-| Description | string? | |
-| Slug | string | URL slug (auto-generated if not provided) |
-| ParentCategoryId | Guid? | Parent category (for tree structure) |
-| ParentCategoryName | string? | DTO-only — parent's name |
-| DisplayOrder | int | Order within the list |
-| IsActive | bool | |
-| ChildCategories | CategoryDto[] | Child categories (recursive) |
-
-### CreateCategoryCommand (`POST /api/v1/categories`, admin)
-
-| Field | Type | Required |
-|---|---|---|
-| Name | string | yes |
-| Slug | string? | no (auto-generated from Name) |
-| ParentCategoryId | Guid? | no |
-
-### UpdateCategoryCommand (`PUT /api/v1/categories/{id}`, admin)
-
-| Field | Type | Required |
-|---|---|---|
-| Name | string | yes |
-| Description | string | yes |
-
-### List query parameters (`GET /api/v1/products`)
-
-| Parameter | Type | Description |
-|---|---|---|
-| PageNumber | int? | Defaults to 1 |
-| PageSize | int? | Defaults to 10 |
-| CategoryId | Guid? | Filter by category |
-| SearchTerm | string? | Search by name |
-| MinPrice / MaxPrice | decimal? | Price range filter |
-| SortBy | enum `ProductSortBy` | `Name` \| `Price` \| `CreatedAt` |
-| IsDescending | bool? | Sort direction |
-| Cursor | DateTime? | Keyset pagination cursor (instead of offset for deep pages) |
-
-### Image and attribute sub-resources (admin)
-
-Images can also be edited after creation. Attributes are **add-only** — there is
-deliberately no update or delete endpoint for them.
-
-| Endpoint | Request | Success | Errors |
-|---|---|---|---|
-| `POST /api/v1/products/{id}/images` | `{ Url, AltText?, DisplayOrder }` | 201 `{ id }` | 400 invalid/duplicate URL or 10-image cap reached; 404 unknown product |
-| `DELETE /api/v1/products/{id}/images/{imageId}` | — | 204 | 404 unknown product or image |
-| `PUT /api/v1/products/{id}/images/{imageId}/main` | — | 204 | 404 unknown product or image |
-| `POST /api/v1/products/{id}/attributes` | `{ Name, Value }` | 201 `{ id }` | 400 invalid name/value, duplicate name, or 50-attribute cap reached; 404 unknown product |
-
-The product id comes from the route — the request body never needs to repeat it.
-Attribute names are unique per product, compared trimmed and case-insensitively, and a
-product is capped at 50 attributes. Both rules hold across separate requests, not just
-within a single `POST /api/v1/products` payload — they are enforced by the `Product`
-aggregate, which is the only place that can see the attributes already persisted.
-Since attributes are add-only, re-sending an existing name is rejected rather than
-treated as an update.
-
-> **Caching caveat:** these writes invalidate the product-detail and by-category caches
-> immediately, but the paged `GET /api/v1/products` results cannot be invalidated (their
-> cache keys embed every filter/sort/page combination). An image change can therefore take
-> up to 5 minutes to appear in list responses, while `GET /{id}` reflects it at once.
-
-Other endpoints: `GET /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` (admin),
-`GET /api/v1/categories`, `GET /api/v1/categories/{id}`,
-`GET /api/v1/categories/{id}/products`, `DELETE /api/v1/categories/{id}` (admin).
-
----
+| Old section | New location |
+|---|---|
+| Product, ProductDto, ProductDetailsDto | [catalog.md](frontend/catalog.md) |
+| ProductImage, ProductAttribute and their admin sub-resources | [catalog.md](frontend/catalog.md) |
+| CreateProductCommand, UpdateProductCommand | [catalog.md](frontend/catalog.md) |
+| Category, CategoryDto, category commands | [catalog.md](frontend/catalog.md) |
+| List query parameters | [catalog.md](frontend/catalog.md), and [conventions.md §6](frontend/conventions.md#6-paging) for paging |
 
 ## Basket Service
 
-Base path: `/api/v1/basket` (all operations are scoped by `{userId}`)
-
-### BasketDto (`GET /api/v1/basket/{userId}`)
-
-| Field | Type | Description |
-|---|---|---|
-| UserId | string | |
-| Items | BasketItemDto[] | |
-| TotalPrice | decimal | Sum across all line items |
-| TotalItems | int | Total unit count |
-| CreatedAt | DateTime | |
-| LastModifiedAt | DateTime | |
-
-### BasketItemDto
-
-| Field | Type | Description |
-|---|---|---|
-| ProductId | Guid | |
-| ProductName | string | Snapshot of the name at add time |
-| Price | decimal | Snapshot of the price, kept in sync with catalog price changes |
-| Quantity | int | |
-| SubTotal | decimal | `Price * Quantity` |
-
-> Basket item price is automatically updated via the `ProductPriceChangedEvent` from
-> Catalog — the frontend doesn't need to recompute `Price` itself, it's always current
-> as of the response.
-
-### AddItemToBasketRequest (`POST /api/v1/basket/{userId}/items`)
-
-| Field | Type | Required |
-|---|---|---|
-| ProductId | Guid | yes |
-| Quantity | int | yes |
-
-### UpdateBasketItemQuantityRequest (`PUT /api/v1/basket/{userId}/items/{productId}`)
-
-| Field | Type | Required |
-|---|---|---|
-| Quantity | int | yes (0 or less removes the line item) |
-
-### CheckoutBasketRequest (`POST /api/v1/basket/{userId}/checkout`)
-
-| Field | Type | Required |
-|---|---|---|
-| ShippingAddress | object: street, city, state, zipCode, country (ISO alpha-2) | yes |
-
-Response: `200 { "checkoutId": "<guid>" }`. There is no `PaymentMethod` any more; one still sent is ignored.
-
-Other endpoints: `DELETE /api/v1/basket/{userId}/items/{productId}` (remove line item),
-`DELETE /api/v1/basket/{userId}` (clear basket).
-
----
+| Old section | New location |
+|---|---|
+| BasketDto, BasketItemDto | [basket.md](frontend/basket.md) |
+| Add item, update quantity, checkout requests | [basket.md](frontend/basket.md) |
 
 ## Ordering Service
 
-Base path: `/api/v1/orders`
-
-### OrderDto (`GET /api/v1/orders/{id}`, `GET /api/v1/orders`)
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| UserId | string | |
-| TotalPrice | decimal | |
-| Status | enum `OrderStatus` | `Pending` \| `Paid` \| `Shipped` \| `Delivered` \| `Cancelled` \| `Refunded` |
-| PaymentIntentId | string? | |
-| CreatedAt | DateTime | |
-| PaidAt / ShippedAt / DeliveredAt / CancelledAt | DateTime? | Status transition timestamps |
-| CancellationReason | string? | |
-| ShippingAddress | AddressDto | |
-| Items | OrderItemDto[] | |
-
-### AddressDto
-
-| Field | Type | Description |
-|---|---|---|
-| Street | string | 3–150 characters |
-| City | string | 2–100 characters |
-| State | string | 2–100 characters |
-| ZipCode | string | 3–12 characters (for `Country = "US"` — format `12345` or `12345-6789`) |
-| Country | string | 2-letter ISO code (e.g. `UA`, `US`) |
-
-### OrderItemDto
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| ProductId | Guid | |
-| ProductName | string | Snapshot of the name at order time |
-| UnitPrice | decimal | Snapshot of the price at order time |
-| Quantity | int | |
-| SubTotal | decimal | `UnitPrice * Quantity` |
-
-### CreateOrderCommand (`POST /api/v1/orders`)
-
-| Field | Type | Required |
-|---|---|---|
-| UserId | string | yes |
-| Items | CreateOrderItemDto[] | yes, at least 1 |
-| Street / City / State / ZipCode / Country | string | yes (see rules above) |
-
-`CreateOrderItemDto`: `ProductId` (Guid), `ProductName` (string), `Price` (decimal),
-`Quantity` (int).
-
-> In practice, orders are usually created automatically from the
-> `BasketCheckedOutEvent` after basket checkout — calling this directly from the
-> frontend is less common.
-
-### AddOrderItemCommand (`POST /api/v1/orders/{id}/items`)
-
-| Field | Type | Required |
-|---|---|---|
-| ProductId | Guid | yes |
-| ProductName | string | yes |
-| UnitPrice | decimal | yes |
-| Quantity | int | yes |
-
-### CancelOrderRequest (`POST /api/v1/orders/{id}/cancel`)
-
-| Field | Type | Required |
-|---|---|---|
-| Reason | string | yes |
-
-Other endpoints: `GET /api/v1/orders?...` (paginated list),
-`GET /api/v1/users/{userId}/orders` (a user's orders),
-`DELETE /api/v1/orders/{id}/items/{itemId}`, `POST /api/v1/orders/{id}/ship` (admin).
-
----
+| Old section | New location |
+|---|---|
+| OrderDto, AddressDto, OrderItemDto | [ordering.md](frontend/ordering.md) |
+| CreateOrderCommand, AddOrderItemCommand, CancelOrderRequest | [ordering.md](frontend/ordering.md) |
 
 ## Payment Service
 
-Base path: `/api/v1/payments`
-
-### PaymentDto
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| OrderId | Guid | |
-| UserId | string | |
-| Amount | decimal | |
-| Currency | string | Defaults to `USD` |
-| PaymentMethod | string | Defaults to `Mock` (dev environment), Stripe in production |
-| Status | string | `Pending` \| `Processing` \| `Success` \| `Failed` \| `Refunded` |
-| PaymentIntentId | string? | Stripe PaymentIntent id |
-| ErrorMessage | string? | |
-| CreatedAt | DateTime | |
-| ProcessedAt / UpdatedAt | DateTime? | |
-
-### CreatePaymentIntentCommand (`POST /api/v1/payments/create-intent`)
-
-| Field | Type | Required |
-|---|---|---|
-| OrderId | Guid | yes |
-| UserId | string | yes |
-| Amount | decimal | yes |
-| Currency | string? | no (default `USD`) |
-| Email | string? | no |
-
-Response — `CreatePaymentIntentDto`: `PaymentId` (Guid), `PaymentIntentId` (string),
-`ClientSecret` (string, for Stripe.js on the frontend), `Status` (string).
-
-### CreatePaymentCommand (`POST /api/v1/payments`)
-
-| Field | Type | Required |
-|---|---|---|
-| OrderId | Guid | yes |
-| UserId | string | yes |
-| Amount | decimal | yes |
-| Currency | string? | no |
-| PaymentMethod | string? | no |
-
-### RefundPaymentCommand (`POST /api/v1/payments/{id}/refund`, admin)
-
-| Field | Type | Required |
-|---|---|---|
-| Amount | decimal? | no (full refund if omitted) |
-| Reason | string? | no |
-
-Other endpoints: `GET /api/v1/payments/{id}`, `GET /api/v1/users/{userId}/payments`,
-`GET /api/v1/payments/simulation` (mock-mode settings, for dev environments),
-`POST /webhooks/stripe` (server-side webhook, not called by the frontend).
-
----
+| Old section | New location |
+|---|---|
+| PaymentDto | [payment.md](frontend/payment.md) |
+| CreatePaymentIntentCommand, CreatePaymentCommand, RefundPaymentCommand | [payment.md](frontend/payment.md) |
 
 ## Identity Service
 
-Base path: `/api/v1/auth` (registration/login), `/api/v1/account` (profile)
-
-### RegisterCommand (`POST /api/v1/auth/register`)
-
-| Field | Type | Required |
-|---|---|---|
-| Email | string | yes |
-| Password | string | yes |
-| FirstName | string | yes |
-| LastName | string | yes |
-
-Response `RegisterResponse`: `UserId`, `Email`, `Message`.
-
-### LoginCommand (`POST /api/v1/auth/login`)
-
-| Field | Type | Required |
-|---|---|---|
-| Email | string | yes |
-| Password | string | yes |
-| TwoFactorCode | string? | no (when 2FA is enabled) |
-
-Response `LoginResponse`:
-
-| Field | Type | Description |
-|---|---|---|
-| AccessToken | string | JWT |
-| RefreshToken | string | |
-| ExpiresIn | int | Seconds until the access token expires |
-| TokenType | string | `Bearer` |
-| Requires2FA | bool | If true, a separate 2FA confirmation call is required |
-| User | UserDto? | |
-
-`UserDto`: `Id`, `Email`, `FirstName`, `LastName`, `Roles` (string[]).
-
-### RefreshTokenCommand (`POST /api/v1/auth/refresh-token`)
-
-| Field | Type | Required |
-|---|---|---|
-| RefreshToken | string | yes |
-
-Response `RefreshTokenResponse`: `AccessToken`, `RefreshToken`, `ExpiresIn`.
-
-### UserProfileResponse (`GET /api/v1/account/profile`)
-
-| Field | Type | Description |
-|---|---|---|
-| Id | string | |
-| Email | string | |
-| FirstName | string | |
-| LastName | string | |
-| ProfilePictureUrl | string? | |
-| EmailConfirmed | bool | |
-| TwoFactorEnabled | bool | |
-| IsActive | bool | |
-| CreatedAt | DateTime | |
-| LastLoginAt | DateTime? | |
-| Roles | string[] | |
-
-### UpdateProfileCommand (`PUT /api/v1/account/profile`)
-
-| Field | Type | Required |
-|---|---|---|
-| FirstName | string | yes |
-| LastName | string | yes |
-| ProfilePictureUrl | string? | no |
-
-### ChangePasswordCommand (`POST /api/v1/account/change-password`)
-
-| Field | Type | Required |
-|---|---|---|
-| CurrentPassword | string | yes |
-| NewPassword | string | yes |
-
-Other endpoints: `POST /api/v1/auth/revoke-token`, `POST /api/v1/auth/confirm-email`,
-`POST /api/v1/auth/forgot-password`, `POST /api/v1/auth/reset-password`,
-`POST /api/v1/account/enable-2fa`, `POST /api/v1/account/verify-2fa`,
-`POST /api/v1/account/disable-2fa`.
-
----
+| Old section | New location |
+|---|---|
+| Register, login (including two-factor), refresh token | [identity.md](frontend/identity.md), overview in [conventions.md §4](frontend/conventions.md#4-authentication) |
+| UserProfileResponse, UpdateProfileCommand, ChangePasswordCommand | [identity.md](frontend/identity.md) |
 
 ## Notification Service
 
-Internal service (no direct frontend calls — driven by queue events). Only relevant for
-displaying email delivery status in an admin panel.
-
-### NotificationLog (entity)
-
-| Field | Type | Description |
-|---|---|---|
-| Id | Guid | |
-| EventType | string | The event type that triggered the notification |
-| RecipientEmail | string | |
-| TemplateName | string | |
-| Subject | string | |
-| Status | enum `NotificationStatus` | `Pending` \| `Sent` \| `Failed` |
-| RetryCount | int | |
-| SentAt | DateTime? | |
-
----
+| Old section | New location |
+|---|---|
+| NotificationLog | [notification.md](frontend/notification.md). Notification now has an admin HTTP API |
 
 ## Related Documents
 
-- [Catalog Service](catalog-service.md)
-- [Basket Service](basket-service.md)
-- [Ordering Service](ordering-service.md)
-- [Payment Service](payment-service.md)
-- [Identity Service](identity-service.md)
-- [Notification Service](notification-service.md)
-- [Project Overview](../01-overview/project-overview.md)
+- [Frontend API contracts](frontend/README.md)
+- [Service documentation](../05-services/)
+- [Project Overview](project-overview.md)
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-09-05
+**Version**: 2.0 (redirect)  
+**Last Updated**: 2026-09-23
