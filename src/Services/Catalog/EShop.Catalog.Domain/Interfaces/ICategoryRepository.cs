@@ -8,6 +8,11 @@ namespace EShop.Catalog.Domain.Interfaces;
 public interface ICategoryRepository
 {
     Task<Category?> GetById(Guid id, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Which of <paramref name="ids"/> name an <b>active</b> category, in one query (admin panel S16 — import). Runs under
+    /// the <c>IsActive</c> global filter, so it agrees with <see cref="GetById"/>, which is what a single create checks.
+    /// </summary>
+    Task<HashSet<Guid>> GetExistingIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);
     Task AddAsync(Category category, CancellationToken cancellationToken = default);
     Task UpdateAsync(Category category, CancellationToken cancellationToken = default);
     /// <param name="includeInactive">

@@ -68,6 +68,32 @@ public class ProductRepository : IProductRepository
             .AnyAsync(p => p.CategoryId == categoryId, cancellationToken);
     }
 
+    public async Task<List<Product>> GetByIdsWithoutChildrenAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        // Tracked, because every caller mutates what it loads; no Include, because none of them touches a child — see
+        // the interface. Contains over a collection becomes `"Id" = ANY(@ids)` on Npgsql: one parameter, whatever the
+        // count, so the bulk cap bounds the row count and not the statement's shape.
+        return await _context.Products
+            .Where(p => ids.Contains(p.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<HashSet<string>> GetTakenSkusAsync(
+        IReadOnlyCollection<string> skus,
+        CancellationToken cancellationToken = default)
+    {
+        var taken = await _context.Products
+            .AsNoTracking()
+            .Where(p => skus.Contains(p.Sku))
+            .Select(p => p.Sku)
+            .ToListAsync(cancellationToken);
+
+        // Ordinal, matching SkuExistsAsync, the column's collation and IX_Products_Sku.
+        return new HashSet<string>(taken, StringComparer.Ordinal);
+    }
+
     public async Task AddAsync(Product product, CancellationToken cancellationToken = default)
     {
         await _context.Products.AddAsync(product, cancellationToken);

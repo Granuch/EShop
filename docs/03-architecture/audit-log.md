@@ -35,7 +35,7 @@ cannot ship unclassified.
 | `OccurredAt` | when the pipeline finished (UTC) |
 | `Service` | `catalog`, `identity`, `ordering`, `payment`, `notification` |
 | `Action` | the command's type name without `Command` (`UpdateProduct`) |
-| `EntityType` / `EntityId` | declared by the command; a create's id comes from its result, a batch's is null |
+| `EntityType` / `EntityId` | declared by the command; a create's id comes from its result; a batch writes one row per item (below) |
 | `ActorUserId` / `ActorName` | the caller's `NameIdentifier` and name/email claims |
 | `CorrelationId` | the request's correlation id, cut to 100 characters |
 | `Outcome` | `Succeeded`, `Rejected` (a failed `Result`) or `Failed` (an exception) |
@@ -45,6 +45,15 @@ cannot ship unclassified.
 **Failures are recorded, not only successes.** A rejected admin action is what an audit trail is for, and a
 `Rejected` command may still have written something (`TransactionBehavior` commits on any non-exception return).
 Authorization failures never reach MediatR and are not recorded here.
+
+**A batch is recorded per item** (admin-panel S16). A batch command — Catalog's bulk product actions and import — that
+ran writes **one row per item it acted on**, in one commit: that item's `EntityId`, its own `Outcome` (`Succeeded`, or
+`Rejected` with the item's own error code) and, as `PayloadJson`, only the part of the request concerning that item (a new
+price, a target category, an import row's index and SKU). The rows share the actor, the correlation id and one
+`OccurredAt`. This is what makes a product touched by a bulk action findable by its own id: one row carrying the ids in
+its payload would have named only the first 25, because the renderer cuts every collection there. A batch refused as a
+whole (validation, a missing target category) or thrown is one row with no entity, like any other command. A command
+opts in through `IAuditedCommand.AuditItemsFromResult`.
 
 **The payload is the log line.** Both writers use `SafeRequestRenderer`, so a property redacted in the logs
 (`[SensitiveData]` or a name such as `Password`) is redacted in the table, and nothing is stored that the Information

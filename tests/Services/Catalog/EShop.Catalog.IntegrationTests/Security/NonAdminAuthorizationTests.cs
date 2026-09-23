@@ -57,6 +57,13 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/products/{id:guid}/attributes",
         "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}",
         "DELETE /api/v1/products/{id:guid}/attributes/{attributeId:guid}",
+        // Admin panel S16.
+        "POST /api/v1/products/bulk/publish",
+        "POST /api/v1/products/bulk/unpublish",
+        "POST /api/v1/products/bulk/delete",
+        "POST /api/v1/products/bulk/category",
+        "POST /api/v1/products/bulk/price",
+        "POST /api/v1/products/import",
         "POST /api/v1/categories",
         "PUT /api/v1/categories/{id:guid}",
         "DELETE /api/v1/categories/{id:guid}",
@@ -64,6 +71,28 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/categories/{id:guid}/parent",
         "POST /api/v1/categories/{id:guid}/restore",
     ];
+
+    /// <summary>
+    /// Admin panel S16. Every GET under <c>/api/</c>, with the policy it carries — <c>null</c> for a deliberately anonymous
+    /// read. The write list above could not see an admin-only GET, and S16 added one under a prefix whose other reads are
+    /// public (<c>/products/export</c>, beside S4's <c>/products/deleted</c>): downgrading either to anonymous would have
+    /// left every structural check green. Ordering's, Payment's and Notification's structural tests already cover GETs;
+    /// this brings Catalog's level with them.
+    /// </summary>
+    private static readonly Dictionary<string, string?> ReadPolicies = new(StringComparer.Ordinal)
+    {
+        ["GET /api/v1/products"] = null,
+        ["GET /api/v1/products/newest"] = null,
+        ["GET /api/v1/products/{id:guid}"] = null,
+        ["GET /api/v1/products/deleted"] = "Admin",
+        ["GET /api/v1/products/export"] = "Admin",
+        ["GET /api/v1/categories"] = null,
+        ["GET /api/v1/categories/{id:guid}"] = null,
+        ["GET /api/v1/categories/{id:guid}/products"] = null,
+        ["GET /api/v1/categories/{id:guid}/stats"] = "Admin",
+        ["GET /api/v1/admin/catalog/low-stock"] = "Admin",
+        ["GET /api/v1/admin/audit"] = "audit.read",
+    };
 
     private Guid _categoryId;
     private Guid _productId;
@@ -127,6 +156,40 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             endpoint.Metadata.GetMetadata<IAllowAnonymous>()
                 .Should().BeNull($"{route} must not be anonymous");
         }
+    }
+
+    [Test]
+    public void EveryReadEndpoint_IsListedHere_WithItsPolicy()
+    {
+        var reads = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.StartsWith("/api/", StringComparison.Ordinal) == true)
+            .Where(e => e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("GET") == true)
+            .ToDictionary(e => $"GET {e.RoutePattern.RawText!.TrimEnd('/')}", e => e);
+
+        reads.Keys.Should().BeEquivalentTo(ReadPolicies.Keys,
+            "a read endpoint added or removed must be listed in ReadPolicies with the policy it must carry");
+
+        foreach (var (route, expected) in ReadPolicies)
+        {
+            var metadata = reads[route].Metadata;
+            metadata.GetOrderedMetadata<IAuthorizeData>().Select(a => a.Policy).SingleOrDefault(p => p is not null)
+                .Should().Be(expected, $"{route} carries the wrong policy");
+
+            // A policy with AllowAnonymous beside it guards nothing, and on a group-mapped endpoint the policy comes
+            // from the group, so an .AllowAnonymous() on the one endpoint would leave the policy check above green.
+            if (expected is not null)
+                metadata.GetMetadata<IAllowAnonymous>().Should().BeNull($"{route} must not be anonymous");
+        }
+    }
+
+    [TestCase("/api/v1/products/export")]
+    [TestCase("/api/v1/products/deleted")]
+    public async Task ASignedInNonAdmin_CannotReadAnAdminOnlyProductList(string path)
+    {
+        using var response = await Client.GetAsync(path);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{path} must require the Admin role");
     }
 
     /// <summary>
@@ -196,6 +259,14 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}" => new UpdateProductAttributeRequest { Name = "Color", Value = "Forbidden" },
         "PATCH /api/v1/products/{id:guid}/stock" => new AdjustProductStockRequest { Delta = 100 },
         "PUT /api/v1/categories/reorder" => new ReorderCategoriesRequest { CategoryIds = [_categoryId] },
+        "POST /api/v1/products/bulk/publish" or "POST /api/v1/products/bulk/unpublish" or "POST /api/v1/products/bulk/delete"
+            => new BulkProductIdsRequest { ProductIds = [_productId] },
+        "POST /api/v1/products/bulk/category" => new BulkChangeCategoryRequest { ProductIds = [_productId], CategoryId = _categoryId },
+        "POST /api/v1/products/bulk/price" => new BulkPriceRequest { Items = [new BulkPriceItem { ProductId = _productId, Price = 1m }] },
+        "POST /api/v1/products/import" => new ImportProductsRequest
+        {
+            Products = [new ImportProductRowRequest { Name = "Forbidden Import", Sku = CatalogDataHelper.GenerateUniqueSku("FORBI"), Price = 1m, CategoryId = _categoryId }]
+        },
         "PUT /api/v1/categories/{id:guid}/parent" => new MoveCategoryRequest { NewParentCategoryId = null },
         "POST /api/v1/categories" => new CreateCategoryRequest { Name = "Forbidden Category" },
         "PUT /api/v1/categories/{id:guid}" => new UpdateCategoryRequest { Id = _categoryId, Name = "Renamed" },

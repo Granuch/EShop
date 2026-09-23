@@ -47,6 +47,9 @@ public sealed class GatewayRouteAuthorizationTests
         // Admin panel S4. The one admin-only GET under a prefix whose read route is anonymous; it
         // wins only because its Order (19) is lower than the read route's (21).
         ["catalog-products-deleted-route"] = "Admin",
+        // Admin panel S16. The CSV export — the second admin-only GET under the anonymous read prefix, winning by the
+        // same Order (19 < 21).
+        ["catalog-products-export-route"] = "Admin",
         // G2. Everything under /api/v1/admin is admin-only whatever the method.
         ["admin-catalog-route"] = "Admin",
         ["catalog-categories-write-route"] = "Admin",
@@ -171,6 +174,48 @@ public sealed class GatewayRouteAuthorizationTests
         AssertReachedProxy(
             await Send(HttpMethod.Get, "/api/v1/products", token: null),
             "an anonymous GET /api/v1/products");
+    }
+
+    [Test]
+    public async Task TheProductExport_IsAdminOnly_ThoughProductReadsAreAnonymous()
+    {
+        // Admin panel S16. Without catalog-products-export-route this GET matches catalog-products-read-route and is
+        // proxied for anyone, drafts included, with only Catalog's own policy left to refuse it.
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/products/export", token: null),
+            Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/products/export", RouteAuthorizationApiFactory.UserToken()),
+            Is.EqualTo(HttpStatusCode.Forbidden));
+
+        AssertReachedProxy(
+            await Send(HttpMethod.Get, "/api/v1/products/export", RouteAuthorizationApiFactory.AdminToken()),
+            "an admin exporting products");
+
+        // A product id still reads anonymously: the export route matches its own literal path only.
+        AssertReachedProxy(
+            await Send(HttpMethod.Get, "/api/v1/products/00000000-0000-0000-0000-000000000001", token: null),
+            "an anonymous product read beside the export");
+    }
+
+    [Test]
+    public async Task TheBulkActionsAndTheImport_AreAdminOnly()
+    {
+        // Admin panel S16. POSTs, so catalog-products-write-route already covers them; pinned so a later "bulk" route
+        // with its own id cannot quietly arrive without a policy.
+        foreach (var path in new[]
+                 {
+                     "/api/v1/products/bulk/publish",
+                     "/api/v1/products/bulk/unpublish",
+                     "/api/v1/products/bulk/delete",
+                     "/api/v1/products/bulk/category",
+                     "/api/v1/products/bulk/price",
+                     "/api/v1/products/import"
+                 })
+        {
+            Assert.That(await Send(HttpMethod.Post, path, token: null), Is.EqualTo(HttpStatusCode.Unauthorized), path);
+            Assert.That(await Send(HttpMethod.Post, path, RouteAuthorizationApiFactory.UserToken()),
+                Is.EqualTo(HttpStatusCode.Forbidden), path);
+            AssertReachedProxy(await Send(HttpMethod.Post, path, RouteAuthorizationApiFactory.AdminToken()), $"an admin calling {path}");
+        }
     }
 
     [Test]

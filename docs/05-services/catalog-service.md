@@ -96,8 +96,8 @@ some external host or CDN already serves.
 | Gallery order | `DisplayOrder`, then `CreatedAt` |
 | Max attributes per product | 50 |
 | Duplicate attribute names | Rejected per product, compared trimmed and case-insensitively |
-| Attributes | `Name`/`Value` pairs, add-only — no update or remove operation exists, so a name already in use is rejected rather than overwritten |
-| Description | Optional; set only at creation, trimmed, blank stored as `null` — no endpoint changes it afterwards |
+| Attributes | `Name`/`Value` pairs; added, updated, removed or replaced as a set (admin panel S3); a name already in use on the product is rejected rather than overwritten |
+| Description | Optional; trimmed, blank stored as `null`; editable through `PUT /api/v1/products/{id}` since admin panel S2 (omitted leaves it, blank clears it) |
 
 Removing the extension allowlist was a deliberate trade for CDN support: nothing in the
 domain asserts a URL points at an actual image, so a mistyped link fails visually at render
@@ -116,8 +116,8 @@ Two enforcement details worth knowing:
 - **"Exactly one main image" is guarded twice** — in the domain (`ProductImage`'s
   constructor and its `IsMain` setters are `internal`, so only `Product` can reach them)
   and in the database (a filtered unique index on `ProductImages (ProductId) WHERE IsMain`,
-  which permits zero mains but makes two impossible). The index is not exercised by the
-  test suite, which runs on EF InMemory.
+  which permits zero mains but makes two impossible). The integration suite has run on real
+  PostgreSQL since Catalog audit Stage 0, so the index is exercised there.
 - **`MainImageUrl` in list responses is a correlated subquery**, not a join or a
   denormalized column, ordered `IsMain` → `DisplayOrder` → `CreatedAt`. It relies on the
   composite `IX_ProductImages_ProductId (ProductId, IsMain, DisplayOrder) INCLUDE (Url)`
@@ -126,6 +126,55 @@ Two enforcement details worth knowing:
 Image and attribute mutations raise **no domain or integration events**, and image edits
 stay stale in paged list results for up to the 5-minute cache TTL (the `products:list:*`
 key family cannot be invalidated).
+
+---
+
+## Bulk Actions, Import and Export (admin panel S16)
+
+All `Admin`-only, and all under a dedicated `bulk` rate-limit policy — 10 requests a minute per client by default
+(`RateLimiting:Bulk:PermitLimit` / `WindowSeconds`), partitioned per client like `search`.
+
+| Method | Path | Body / query | Answer |
+|---|---|---|---|
+| POST | `/api/v1/products/bulk/publish` | `{ productIds: [] }` | `BulkProductReport` |
+| POST | `/api/v1/products/bulk/unpublish` | `{ productIds: [] }` | `BulkProductReport` |
+| POST | `/api/v1/products/bulk/delete` | `{ productIds: [] }` (soft delete) | `BulkProductReport` |
+| POST | `/api/v1/products/bulk/category` | `{ productIds: [], categoryId }` | `BulkProductReport` |
+| POST | `/api/v1/products/bulk/price` | `{ items: [{ productId, price }] }` | `BulkProductReport` |
+| POST | `/api/v1/products/import` | `{ products: [{ name, description, sku, price, stockQuantity, categoryId }] }` | `ProductImportReport` |
+| GET | `/api/v1/products/export` | the admin list's filters and sort (`categoryId`, `searchTerm`, `minPrice`, `maxPrice`, `status`, `hasDiscount`, `stockBelow`, `createdFrom`, `createdTo`, `sortBy`, `isDescending`) | `text/csv` file |
+
+How they behave:
+
+- **Synchronous, hard-capped, one report entry per row** (decision Q5a). At most **1 000** ids, prices or import rows per
+  request, and at most **10 000** exported rows. Over a cap the request is refused whole with 400 — never truncated.
+- **A 200 always carries the per-row report**, even when every row was refused. Each entry names its product (or import
+  row index), whether it succeeded, and if not an error code — `Product.NotFound`, `DomainError` (the product's own rule
+  refused it, e.g. a price at or below an active discount), and for import `Validation.Failed`, `Product.SkuConflict` or
+  `Category.NotFound`. A non-2xx means nothing was changed.
+- **One transaction per request.** Every refusal is decided before the single save, so every row reported as succeeded is
+  committed and no refused row changed anything. A database failure — a SKU taken by a concurrent create between the import's
+  check and its save — fails the whole request (409 `Product.SkuConflict`) rather than a row.
+- **Idempotent where the single endpoint is:** publishing a published product or unpublishing a draft is a success. A
+  soft-deleted product is `Product.NotFound`, as it is to the single endpoints.
+- **Import is create-only.** A row whose SKU a live product holds is refused, never merged; a SKU on two rows refuses both.
+  Each row is checked by the same validator `POST /api/v1/products` uses, and new products are **drafts**. Rows are JSON:
+  a client that edits the CSV export turns it back into rows. The export's columns carry every import field under the
+  same name.
+- **Bulk price takes absolute prices**, one per product, through `Product.UpdatePrice` — so every single-edit rule applies and
+  a moved customer-facing price still raises `ProductPriceChangedEvent` for Basket.
+- **The export** includes drafts and excludes soft-deleted products, follows the list's sort, and uses the shared CSV rules
+  (RFC 4180 quoting, a leading apostrophe on any field a spreadsheet would run as a formula, UTF-8 with a BOM).
+- **Cache:** each request bumps the `products:list` family **once** and evicts both detail variants of each named product.
+- **Audit:** one `audit_log` row **per product** (or import row), each with its own outcome — see
+  [Admin Audit Trail](../03-architecture/audit-log.md).
+
+At the gateway the POSTs are covered by `catalog-products-write-route`; the export has its own
+`catalog-products-export-route` (`Admin`, `Order: 19`), because `GET /api/v1/products/**` is otherwise anonymous there. The
+import alone gets a larger request-body cap (`CatalogProxy:ImportMaxRequestBodySizeBytes`, 8 MiB).
+
+A zone-less date in `createdFrom`/`createdTo` (`?createdFrom=2026-09-01`) is read as UTC by both the list and the export
+since S16; before, the list answered 500 for it.
 
 ---
 

@@ -24,18 +24,7 @@ public class GetProductsQueryValidator : AbstractValidator<GetProductsQuery>
             .Empty()
             .WithMessage("Cursor paging is served by GET /api/v1/products/newest. This endpoint pages by PageNumber.");
 
-        RuleFor(x => x.MinPrice)
-            .GreaterThanOrEqualTo(0).When(x => x.MinPrice.HasValue)
-            .WithMessage("Minimum price cannot be negative");
-
-        RuleFor(x => x.MaxPrice)
-            .GreaterThan(x => x.MinPrice ?? 0).When(x => x.MaxPrice.HasValue && x.MinPrice.HasValue)
-            .WithMessage("Maximum price must be greater than minimum price");
-
-        RuleFor(x => x.SearchTerm)
-            .MinimumLength(2).When(x => !string.IsNullOrEmpty(x.SearchTerm))
-            .WithMessage("Search term must be at least 2 characters")
-            .MaximumLength(200).When(x => !string.IsNullOrEmpty(x.SearchTerm))
-            .WithMessage("Search term must not exceed 200 characters");
+        // The filter rules are shared with the export's validator (admin panel S16).
+        ProductFilterRules.Apply(this);
     }
 }

@@ -24,19 +24,8 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
         var pageNumber = request.EffectivePageNumber;
         var pageSize = request.EffectivePageSize;
 
-        // Named arguments for the S4 filters: they are positional-with-defaults on the record, so a
-        // future insertion in the middle would silently rebind positional ones.
-        var filter = new ProductListFilter(
-            request.CategoryId,
-            request.SearchTerm,
-            request.MinPrice,
-            request.MaxPrice,
-            request.EffectiveIncludeUnpublished,
-            Status: request.Status,
-            HasDiscount: request.HasDiscount,
-            StockBelow: request.StockBelow,
-            CreatedFrom: request.CreatedFrom,
-            CreatedTo: request.CreatedTo);
+        // One mapping, shared with the export (admin panel S16), so the two reads cannot filter differently.
+        var filter = request.ToFilter(request.EffectiveIncludeUnpublished);
 
         var (dtos, totalCount) = await _productQueryService.GetFilteredProductsAsync(
             filter,

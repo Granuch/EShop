@@ -154,4 +154,34 @@ public class RateLimitPartitioningTests : IntegrationTestBase
         (await GetAsAsync(quiet, SearchLimitedEndpoint)).Should().NotBe(HttpStatusCode.TooManyRequests,
             "the search policy must not be one bucket shared by every caller");
     }
+
+    /// <summary>
+    /// Admin panel S16 (G9). The bulk actions, import and export carry their own <c>bulk</c> policy, tighter than the
+    /// global one, and partitioned per client like <c>search</c>. The export is used here because the limiter runs before
+    /// authentication: an anonymous request under the limit is a 401 and one over it a 429, so no token is needed to see
+    /// the bucket.
+    /// </summary>
+    [Test]
+    public async Task TheBulkPolicy_IsTighterThanTheGlobalOne_AndPartitionedPerClient()
+    {
+        const string noisy = "192.0.2.30";
+        const string quiet = "192.0.2.40";
+        const string bulkEndpoint = "/api/v1/products/export";
+
+        var noisyStatuses = new List<HttpStatusCode>();
+        for (var i = 0; i < RateLimitingApiFactory.BulkPermitLimit + 1; i++)
+        {
+            noisyStatuses.Add(await GetAsAsync(noisy, bulkEndpoint));
+        }
+
+        RateLimitingApiFactory.BulkPermitLimit.Should().BeLessThan(RateLimitingApiFactory.GlobalPermitLimit,
+            "otherwise the global limiter could be what answers 429 here");
+        noisyStatuses.Take(RateLimitingApiFactory.BulkPermitLimit).Should().NotContain(HttpStatusCode.TooManyRequests);
+        noisyStatuses.Last().Should().Be(HttpStatusCode.TooManyRequests);
+
+        (await GetAsAsync(quiet, bulkEndpoint)).Should().NotBe(HttpStatusCode.TooManyRequests,
+            "the bulk policy must not be one bucket shared by every admin");
+        (await GetAsAsync(noisy, GlobalOnlyEndpoint)).Should().NotBe(HttpStatusCode.TooManyRequests,
+            "an exhausted bulk budget leaves the client's ordinary reads alone");
+    }
 }

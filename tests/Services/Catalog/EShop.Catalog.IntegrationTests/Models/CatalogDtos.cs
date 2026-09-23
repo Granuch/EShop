@@ -262,3 +262,76 @@ public record ProblemDetailsResponse
     public string? TraceId { get; init; }
     public Dictionary<string, string[]>? Errors { get; init; }
 }
+
+// ---------- Admin panel S16: bulk actions, import ----------
+
+public record BulkProductIdsRequest
+{
+    public List<Guid> ProductIds { get; init; } = [];
+}
+
+public record BulkChangeCategoryRequest
+{
+    public List<Guid> ProductIds { get; init; } = [];
+    public Guid CategoryId { get; init; }
+}
+
+public record BulkPriceRequest
+{
+    public List<BulkPriceItem> Items { get; init; } = [];
+}
+
+public record BulkPriceItem
+{
+    public Guid ProductId { get; init; }
+    public decimal Price { get; init; }
+}
+
+public record BulkReportResponse
+{
+    public int Requested { get; init; }
+    public int Succeeded { get; init; }
+    public int Failed { get; init; }
+    public List<BulkItemResponse> Items { get; init; } = [];
+}
+
+public record BulkItemResponse
+{
+    public Guid ProductId { get; init; }
+    public bool Succeeded { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? Error { get; init; }
+}
+
+public record ImportProductsRequest
+{
+    public List<ImportProductRowRequest> Products { get; init; } = [];
+}
+
+public record ImportProductRowRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string Sku { get; init; } = string.Empty;
+    public decimal Price { get; init; }
+    public int StockQuantity { get; init; }
+    public Guid CategoryId { get; init; }
+}
+
+public record ImportReportResponse
+{
+    public int Requested { get; init; }
+    public int Created { get; init; }
+    public int Failed { get; init; }
+    public List<ImportRowResponse> Rows { get; init; } = [];
+}
+
+public record ImportRowResponse
+{
+    public int Index { get; init; }
+    public string? Sku { get; init; }
+    public Guid? ProductId { get; init; }
+    public bool Succeeded { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? Error { get; init; }
+}

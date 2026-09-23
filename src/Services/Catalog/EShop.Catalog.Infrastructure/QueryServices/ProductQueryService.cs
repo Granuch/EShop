@@ -33,12 +33,45 @@ public class ProductQueryService : IProductQueryService
 
         var totalCount = await query.CountAsync(cancellationToken);
 
-        // Id is the tiebreaker on every sort. Name, Price and CreatedAt all repeat, and without a
-        // unique final key Postgres may order tied rows differently on each execution — so OFFSET
-        // paging could repeat one row on two pages and never show another.
-        //
-        // The Price sort orders by the EFFECTIVE price (DiscountPrice ?? Price) — see ApplyFilter.
-        query = sortBy switch
+        var dtos = await ApplySort(query, sortBy, isDescending)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ToDto)
+            .ToListAsync(cancellationToken);
+
+        return (dtos, totalCount);
+    }
+
+    public async Task<(List<ProductDto> Items, int TotalCount)> GetProductsForExportAsync(
+        ProductListFilter filter,
+        ProductSortBy sortBy,
+        bool isDescending,
+        int maxRows,
+        CancellationToken cancellationToken = default)
+    {
+        // The list's own filter and order, so an export is the list's rows, all pages at once.
+        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        if (totalCount > maxRows)
+            return ([], totalCount);
+
+        // ToDto's main-image subquery runs once per row; bounded here by maxRows rather than by a page size, and
+        // index-only on IX_ProductImages_ProductId either way.
+        var dtos = await ApplySort(query, sortBy, isDescending)
+            .Select(ToDto)
+            .ToListAsync(cancellationToken);
+
+        return (dtos, totalCount);
+    }
+
+    /// <summary>
+    /// Id is the tiebreaker on every sort. Name, Price and CreatedAt all repeat, and without a unique final key Postgres
+    /// may order tied rows differently on each execution — so OFFSET paging could repeat one row on two pages and never
+    /// show another. The Price sort orders by the EFFECTIVE price (DiscountPrice ?? Price) — see ApplyFilter.
+    /// </summary>
+    private static IQueryable<Product> ApplySort(IQueryable<Product> query, ProductSortBy sortBy, bool isDescending)
+        => sortBy switch
         {
             ProductSortBy.Price => isDescending
                 ? query.OrderByDescending(p => p.DiscountPrice ?? p.Price).ThenBy(p => p.Id)
@@ -50,15 +83,6 @@ public class ProductQueryService : IProductQueryService
                 ? query.OrderByDescending(p => p.Name).ThenBy(p => p.Id)
                 : query.OrderBy(p => p.Name).ThenBy(p => p.Id),
         };
-
-        var dtos = await query
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .Select(ToDto)
-            .ToListAsync(cancellationToken);
-
-        return (dtos, totalCount);
-    }
 
     /// <summary>
     /// One GroupBy-less aggregate over the category's live products. Written as a single projection

@@ -11,6 +11,12 @@ public interface IAuditLogWriter
     /// command that has already run, so a client disconnecting afterwards must not cancel the record of it.
     /// </summary>
     Task WriteAsync(AuditLogEntry entry);
+
+    /// <summary>
+    /// Writes every entry of one batch command in a single commit (admin panel S16), so a batch is recorded whole or not
+    /// at all rather than half. Same scope and cancellation rules as <see cref="WriteAsync"/>.
+    /// </summary>
+    Task WriteAllAsync(IReadOnlyCollection<AuditLogEntry> entries);
 }
 
 /// <summary>
@@ -43,6 +49,15 @@ public sealed class AuditLogWriter<TDbContext> : IAuditLogWriter
         var db = scope.ServiceProvider.GetRequiredService<TDbContext>();
 
         db.Set<AuditLogEntry>().Add(entry);
+        await db.SaveChangesAsync(CancellationToken.None);
+    }
+
+    public async Task WriteAllAsync(IReadOnlyCollection<AuditLogEntry> entries)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TDbContext>();
+
+        db.Set<AuditLogEntry>().AddRange(entries);
         await db.SaveChangesAsync(CancellationToken.None);
     }
 }

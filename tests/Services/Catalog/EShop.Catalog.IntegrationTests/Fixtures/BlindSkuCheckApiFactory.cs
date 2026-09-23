@@ -51,8 +51,16 @@ public class BlindSkuCheckApiFactory : PostgresCatalogApiFactory
         public Task<bool> SkuExistsAsync(string sku, Guid? excludingProductId = null, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        // Admin panel S16. Import's batch form of the same pre-check, blinded the same way, so an imported SKU that a
+        // live product already holds reaches IX_Products_Sku at the single save.
+        public Task<HashSet<string>> GetTakenSkusAsync(IReadOnlyCollection<string> skus, CancellationToken cancellationToken = default)
+            => Task.FromResult(new HashSet<string>(StringComparer.Ordinal));
+
         public Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
             => inner.AnyInCategoryAsync(categoryId, cancellationToken);
+
+        public Task<List<Product>> GetByIdsWithoutChildrenAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+            => inner.GetByIdsWithoutChildrenAsync(ids, cancellationToken);
 
         public Task AddAsync(Product product, CancellationToken cancellationToken = default)
             => inner.AddAsync(product, cancellationToken);

@@ -38,7 +38,11 @@ Gateway routes map API path patterns to service clusters defined in configuratio
 Common routed areas include:
 - `/api/v1/auth/*` -> identity
 - `/api/v1/admin/users/*` -> identity (`Admin`)
-- `/api/v1/products/*` and `/api/v1/categories/*` -> catalog
+- `/api/v1/products/*` and `/api/v1/categories/*` -> catalog (writes `Admin`, reads anonymous — except
+  `GET /api/v1/products/deleted` and `GET /api/v1/products/export`, which have their own `Admin` routes at `Order: 19`
+  so they win over the anonymous read route at 21). The product import alone gets a larger request-body cap than the
+  rest of catalog (`CatalogProxy:ImportMaxRequestBodySizeBytes`, 8 MiB, against the general 1 MiB) because its largest
+  legal request is several megabytes; the bulk actions fit the general cap and keep it.
 - `/api/v1/admin/catalog/*` -> catalog (`Admin`)
 - `/api/v1/basket/admin/*` -> basket (`Admin`; wins over the next route because its `Order` is lower)
 - `/api/v1/basket/*` -> basket
@@ -88,6 +92,10 @@ Gateway applies:
 - Optional dedicated limiter for simulation traffic
 
 Behavior is configured through `RateLimiting` settings in gateway configuration.
+
+Per-route throttling lives in the services, not here. Catalog's bulk actions, import and export (admin panel S16) carry
+Catalog's own `bulk` policy, partitioned per client — so the limit holds for a caller that reaches the service directly
+as well.
 
 ---
 

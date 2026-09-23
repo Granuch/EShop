@@ -18,32 +18,13 @@ namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 /// Non-nullable value types use nullable wrappers so that [AsParameters] binding
 /// treats them as optional query string parameters. Defaults are applied in the handler.
 /// </summary>
-public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey
+public record GetProductsQuery : ProductFilterQuery, IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey
 {
     public int? PageNumber { get; init; }
     public int? PageSize { get; init; }
-    public Guid? CategoryId { get; init; }
-    public string? SearchTerm { get; init; }
-    public decimal? MinPrice { get; init; }
-    public decimal? MaxPrice { get; init; }
-    public ProductSortBy? SortBy { get; init; }
-    public bool? IsDescending { get; init; }
 
-    // Admin panel S4 — four admin list filters. Every one is nullable, including the bool and the
-    // int: [AsParameters] treats a non-nullable value type as a REQUIRED query-string parameter, so
-    // a plain `bool HasDiscount` would make every request that omits it fail binding, with a 400
-    // reading "The request body is not valid JSON" on a GET that has no body. Nineteen tests went
-    // red at once the last time that happened.
-    //
-    // These are NOT restricted to admins and do not need to be: Status ANDs with the published-only
-    // rule rather than replacing it (see ProductQueryService.ApplyFilter), so a public caller
-    // filtering for Draft gets an empty page. Contrast IncludeUnpublished below, which IS a
-    // privilege and is therefore overwritten server-side after binding.
-    public ProductStatus? Status { get; init; }
-    public bool? HasDiscount { get; init; }
-    public int? StockBelow { get; init; }
-    public DateTime? CreatedFrom { get; init; }
-    public DateTime? CreatedTo { get; init; }
+    // The eleven filter and sort properties live on ProductFilterQuery (admin panel S16), shared with the export so the
+    // two cannot drift. Their names, types and query-string spelling are unchanged.
 
     /// <summary>
     /// H4. <b>Not supported here — any value is rejected with 400.</b> Keyset paging lives at
@@ -85,8 +66,6 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     public bool EffectiveIncludeUnpublished => IncludeUnpublished ?? false;
     public int EffectivePageNumber => PageNumber ?? 1;
     public int EffectivePageSize => PageSize ?? 10;
-    public ProductSortBy EffectiveSortBy => SortBy ?? ProductSortBy.Name;
-    public bool EffectiveIsDescending => IsDescending ?? false;
 
     // ICacheableQuery implementation
     // IncludeUnpublished is part of the key and must stay that way: an admin's list contains draft

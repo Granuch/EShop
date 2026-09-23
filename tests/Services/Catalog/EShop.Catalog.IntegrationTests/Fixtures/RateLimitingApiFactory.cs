@@ -30,6 +30,7 @@ public class RateLimitingApiFactory : PostgresCatalogApiFactory
 
     public const int GlobalPermitLimit = 5;
     public const int SearchPermitLimit = 3;
+    public const int BulkPermitLimit = 2;
 
     private RateLimitingApiFactory(string connectionString) : base(connectionString)
     {
@@ -52,6 +53,8 @@ public class RateLimitingApiFactory : PostgresCatalogApiFactory
         builder.UseSetting("RateLimiting:Global:WindowSeconds", "60");
         builder.UseSetting("RateLimiting:Search:PermitLimit", SearchPermitLimit.ToString());
         builder.UseSetting("RateLimiting:Search:WindowSeconds", "60");
+        builder.UseSetting("RateLimiting:Bulk:PermitLimit", BulkPermitLimit.ToString());
+        builder.UseSetting("RateLimiting:Bulk:WindowSeconds", "60");
 
         // Trust the simulated gateway so UseForwardedHeaders rewrites RemoteIpAddress from
         // X-Forwarded-For before the rate limiter partitions on it. This is the setting

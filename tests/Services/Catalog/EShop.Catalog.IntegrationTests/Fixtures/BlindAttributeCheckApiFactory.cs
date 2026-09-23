@@ -77,6 +77,12 @@ public class BlindAttributeCheckApiFactory : PostgresCatalogApiFactory
         public Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default)
             => inner.AnyInCategoryAsync(categoryId, cancellationToken);
 
+        public Task<List<Product>> GetByIdsWithoutChildrenAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+            => inner.GetByIdsWithoutChildrenAsync(ids, cancellationToken);
+
+        public Task<HashSet<string>> GetTakenSkusAsync(IReadOnlyCollection<string> skus, CancellationToken cancellationToken = default)
+            => inner.GetTakenSkusAsync(skus, cancellationToken);
+
         public Task AddAsync(Product product, CancellationToken cancellationToken = default)
             => inner.AddAsync(product, cancellationToken);
 

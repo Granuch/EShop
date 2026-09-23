@@ -14,7 +14,8 @@ namespace EShop.BuildingBlocks.Infrastructure.Auditing;
 public sealed record AuditLogOptions(string ServiceName);
 
 /// <summary>
-/// Writes one <c>audit_log</c> row per execution of an <see cref="IAuditedCommand"/> (admin panel decision Q8a).
+/// Writes one <c>audit_log</c> row per execution of an <see cref="IAuditedCommand"/> (admin panel decision Q8a) — or, for
+/// a batch command that ran, one row per item it acted on (<see cref="IAuditedCommand.AuditItemsFromResult"/>, S16).
 ///
 /// <para>
 /// <b>It must be the OUTERMOST behavior</b> — registered before <c>AddEShopCacheInvalidation()</c> and before
@@ -93,11 +94,62 @@ public sealed class AuditBehavior<TRequest, TResponse> : IPipelineBehavior<TRequ
         }
 
         var (outcome, errorCode, value) = Inspect(response);
+
+        // Admin panel S16. A batch that ran is recorded per item, so each product it touched can be found by its own id.
+        // Only when it ran: a batch refused as a whole acted on nothing, and falls through to the one row below.
+        if (outcome == AuditOutcome.Succeeded
+            && audited.AuditItemsFromResult(value) is { Count: > 0 } items)
+        {
+            await RecordItemsAsync(audited, items);
+            return response;
+        }
+
         var entityId = audited.AuditEntityId
             ?? (outcome == AuditOutcome.Succeeded ? audited.AuditEntityIdFromResult(value) : null);
 
         await RecordAsync(request, audited, outcome, errorCode, entityId);
         return response;
+    }
+
+    private async Task RecordItemsAsync(IAuditedCommand audited, IReadOnlyList<AuditedItem> items)
+    {
+        var action = ActionName();
+
+        try
+        {
+            // One instant for the whole batch: the items were committed together, and a reader sorting by time should
+            // not see a batch interleaved with whatever else happened while its rows were being built.
+            var occurredAt = DateTime.UtcNow;
+
+            var entries = items
+                .Select(item => AuditLogEntry.Record(
+                    occurredAt: occurredAt,
+                    service: _options.ServiceName,
+                    action: action,
+                    entityType: audited.AuditEntityType,
+                    entityId: item.EntityId,
+                    actorUserId: _currentUser.UserId,
+                    actorName: _currentUser.UserName,
+                    correlationId: _currentUser.CorrelationId,
+                    outcome: item.ErrorCode is null ? AuditOutcome.Succeeded : AuditOutcome.Rejected,
+                    errorCode: item.ErrorCode,
+                    payloadJson: item.Detail is null
+                        ? null
+                        : JsonSerializer.Serialize(SafeRequestRenderer.Render(item.Detail), PayloadJsonOptions)))
+                .ToList();
+
+            await _writer.WriteAllAsync(entries);
+        }
+        catch (Exception ex)
+        {
+            // Same posture as a single row: the batch has committed, so failing it now would invite a retry that applies
+            // it twice.
+            _logger.LogError(
+                ex,
+                "Failed to write the {Count} audit records for batch {Action} on {EntityType} by {ActorUserId}; "
+                + "the command's own outcome is unaffected",
+                items.Count, action, audited.AuditEntityType, _currentUser.UserId);
+        }
     }
 
     private async Task RecordAsync(

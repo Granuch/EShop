@@ -22,6 +22,21 @@ public class CategoryRepository : ICategoryRepository
             .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
     }
 
+    public async Task<HashSet<Guid>> GetExistingIdsAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        // Under the IsActive global filter, like GetById: a deactivated category is as absent here as it is to a single
+        // create, so an import cannot put products into a category nobody can see.
+        var existing = await _context.Categories
+            .AsNoTracking()
+            .Where(c => ids.Contains(c.Id))
+            .Select(c => c.Id)
+            .ToListAsync(cancellationToken);
+
+        return existing.ToHashSet();
+    }
+
     public async Task<Category?> GetByIdIncludingInactiveAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Categories

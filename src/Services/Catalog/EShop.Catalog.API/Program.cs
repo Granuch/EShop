@@ -270,6 +270,11 @@ try
     var searchPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Search:PermitLimit")
         ?? (rateLimitingEnabled ? 30 : int.MaxValue);
     var searchWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Search:WindowSeconds") ?? 60;
+    // Admin panel S16 (G9, risk A8). Ten bulk actions, imports or exports a minute per client: each one can rewrite a
+    // thousand products or read ten thousand, so the global limiter's hundred a minute is no bound at all here.
+    var bulkPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Bulk:PermitLimit")
+        ?? (rateLimitingEnabled ? 10 : int.MaxValue);
+    var bulkWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Bulk:WindowSeconds") ?? 60;
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -306,6 +311,19 @@ try
                     AutoReplenishment = true,
                     PermitLimit = searchPermitLimit,
                     Window = TimeSpan.FromSeconds(searchWindowSeconds)
+                }));
+
+        // Admin panel S16. Partitioned per client exactly like "search" — an AddFixedWindowLimiter here would be one
+        // bucket for every admin at once. Throttled at the service rather than the gateway, the gateway guide's rule for
+        // per-route limits, so it holds for a caller that reaches the service directly too.
+        options.AddPolicy<string>(ProductBulkEndpoints.RateLimitPolicy, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = bulkPermitLimit,
+                    Window = TimeSpan.FromSeconds(bulkWindowSeconds)
                 }));
     });
 
@@ -477,6 +495,7 @@ try
     app.MapProductEndpoints();
     app.MapCategoryEndpoints();
     app.MapAdminCatalogEndpoints();
+    app.MapProductBulkEndpoints();
     // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
     app.MapEShopAuditLog();
 

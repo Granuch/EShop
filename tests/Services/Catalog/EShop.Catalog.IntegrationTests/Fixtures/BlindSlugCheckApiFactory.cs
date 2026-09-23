@@ -41,6 +41,9 @@ public class BlindSlugCheckApiFactory : PostgresCatalogApiFactory
         public Task<Category?> GetById(Guid id, CancellationToken cancellationToken = default)
             => inner.GetById(id, cancellationToken);
 
+        public Task<HashSet<Guid>> GetExistingIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+            => inner.GetExistingIdsAsync(ids, cancellationToken);
+
         public Task AddAsync(Category category, CancellationToken cancellationToken = default)
             => inner.AddAsync(category, cancellationToken);
 

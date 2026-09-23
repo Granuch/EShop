@@ -40,6 +40,23 @@ public interface IProductRepository
     /// belong to audit item M12.
     /// </summary>
     Task<bool> AnyInCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Loads live products for tracking, in one query, <b>without their images, attributes or category</b>
+    /// (admin panel S16 — the bulk actions). Ids with no live product are simply absent from the result.
+    /// </summary>
+    /// <remarks>
+    /// Without children on purpose: a bulk publish of a thousand products would otherwise load every image and
+    /// attribute row they have, to change one column each. The aggregates returned are therefore <b>partial</b> — their
+    /// <c>Images</c> and <c>Attributes</c> read as empty — so never use this for anything that reads or changes a child;
+    /// <see cref="GetByIdAsync"/> is the load for that.
+    /// </remarks>
+    Task<List<Product>> GetByIdsWithoutChildrenAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Which of <paramref name="skus"/> a <b>live</b> product already holds, in one query (admin panel S16 — import).
+    /// Same comparison and same global filter as <see cref="SkuExistsAsync"/>: ordinal, and a soft-deleted product's SKU
+    /// reads as free, exactly as <c>IX_Products_Sku ... WHERE NOT "IsDeleted"</c> sees it.
+    /// </summary>
+    Task<HashSet<string>> GetTakenSkusAsync(IReadOnlyCollection<string> skus, CancellationToken cancellationToken = default);
     Task AddAsync(Product product, CancellationToken cancellationToken = default);
     Task UpdateAsync(Product product, CancellationToken cancellationToken = default);
     Task DeleteAsync(Product product, CancellationToken cancellationToken = default);

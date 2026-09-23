@@ -282,6 +282,162 @@ public class AuditBehaviorTests
         });
     }
 
+    // ---------- batches (admin panel S16) ----------
+
+    private sealed record RetireWidgetsCommand : IRequest<Result<WidgetBatchReport>>, IAuditedCommand
+    {
+        public IReadOnlyList<Guid> WidgetIds { get; init; } = [];
+
+        string IAuditedCommand.AuditEntityType => "Widget";
+        string? IAuditedCommand.AuditEntityId => null;
+
+        IReadOnlyList<AuditedItem>? IAuditedCommand.AuditItemsFromResult(object? value)
+            => (value as WidgetBatchReport)?.Items
+                .Select(i => new AuditedItem(i.Id.ToString(), i.ErrorCode, i.Detail))
+                .ToList();
+    }
+
+    private sealed record WidgetBatchReport(IReadOnlyList<WidgetBatchItem> Items);
+
+    private sealed record WidgetBatchItem(Guid Id, string? ErrorCode, WidgetDetail? Detail);
+
+    private sealed record WidgetDetail
+    {
+        public string Name { get; init; } = "Blue widget";
+        public string Password { get; init; } = "hunter2-by-name";
+
+        [SensitiveData]
+        public string Contact { get; init; } = "hunter2-by-attribute";
+    }
+
+    private static WidgetBatchReport ReportFor(IEnumerable<Guid> ids, Func<int, string?> errorAt, Func<int, WidgetDetail?>? detailAt = null)
+        => new(ids.Select((id, i) => new WidgetBatchItem(id, errorAt(i), detailAt?.Invoke(i))).ToList());
+
+    [Test]
+    public async Task ABatch_WritesOneRowPerItem_EachWithItsOwnOutcome_BeyondWhatAPayloadCouldHold()
+    {
+        // 30 items: more than SafeRequestRenderer's 25, so the old single row's payload could not have named them all.
+        var ids = Enumerable.Range(0, 30).Select(_ => Guid.NewGuid()).ToList();
+        Assert.That(ids, Has.Count.GreaterThan(Application.Behaviors.SafeRequestRenderer.MaxCollectionItems));
+
+        await Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
+            new RetireWidgetsCommand { WidgetIds = ids },
+            _ => Task.FromResult(Result<WidgetBatchReport>.Success(ReportFor(ids, i => i == 7 ? "Widget.NotFound" : null))));
+
+        var rows = Rows();
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows.Select(r => r.EntityId), Is.EquivalentTo(ids.Select(id => id.ToString())),
+                "every item, including the ones past the 25th, is findable by its own id");
+            Assert.That(rows.Where(r => r.Outcome == AuditOutcome.Rejected).Select(r => r.EntityId), Is.EqualTo(new[] { ids[7].ToString() }));
+            Assert.That(rows.Single(r => r.EntityId == ids[7].ToString()).ErrorCode, Is.EqualTo("Widget.NotFound"));
+            Assert.That(rows.Count(r => r.Outcome == AuditOutcome.Succeeded), Is.EqualTo(29),
+                "one refused item does not make its neighbours' rows rejected");
+            Assert.That(rows.Select(r => r.Action).Distinct(), Is.EqualTo(new[] { "RetireWidgets" }));
+            Assert.That(rows.Select(r => r.ActorUserId).Distinct(), Is.EqualTo(new[] { ActorId }));
+            Assert.That(rows.Select(r => r.CorrelationId).Distinct(), Is.EqualTo(new[] { "corr-1" }));
+            Assert.That(rows.Select(r => r.EntityType).Distinct(), Is.EqualTo(new[] { "Widget" }));
+            Assert.That(rows.Select(r => r.OccurredAt).Distinct().Count(), Is.EqualTo(1), "a batch shares one instant");
+        });
+    }
+
+    [Test]
+    public async Task ABatchItemsDetail_IsItsPayload_RedactedLikeARequest()
+    {
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() };
+
+        await Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
+            new RetireWidgetsCommand { WidgetIds = ids },
+            _ => Task.FromResult(Result<WidgetBatchReport>.Success(
+                ReportFor(ids, _ => null, i => i == 0 ? new WidgetDetail() : null))));
+
+        var rows = Rows().ToDictionary(r => r.EntityId!);
+        var payload = JsonDocument.Parse(rows[ids[0].ToString()].PayloadJson!).RootElement;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload.GetProperty("name").GetString(), Is.EqualTo("Blue widget"), "camelCase, like a request's payload");
+            Assert.That(payload.GetProperty("password").GetString(), Is.EqualTo("****"));
+            Assert.That(payload.GetProperty("contact").GetString(), Is.EqualTo("****"));
+            Assert.That(rows[ids[0].ToString()].PayloadJson, Does.Not.Contain("hunter2"));
+            Assert.That(rows[ids[1].ToString()].PayloadJson, Is.Null, "no detail stores no payload");
+        });
+    }
+
+    [Test]
+    public async Task ABatchRefusedAsAWhole_IsOneRow_WithNoEntity()
+    {
+        // Validation refused it: no item was acted on, so there is nothing to record per item.
+        await Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
+            new RetireWidgetsCommand { WidgetIds = [Guid.NewGuid()] },
+            _ => Task.FromResult(Result<WidgetBatchReport>.Failure(new Error("Validation.Failed", "too many"))));
+
+        var row = Rows().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.Outcome, Is.EqualTo(AuditOutcome.Rejected));
+            Assert.That(row.ErrorCode, Is.EqualTo("Validation.Failed"));
+            Assert.That(row.EntityId, Is.Null);
+            Assert.That(row.PayloadJson, Does.Contain("widgetIds"), "the whole request is the payload, as for any command");
+        });
+    }
+
+    [Test]
+    public void AThrowingBatch_IsOneFailedRow()
+    {
+        Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
+                new RetireWidgetsCommand { WidgetIds = [Guid.NewGuid(), Guid.NewGuid()] },
+                _ => throw new InvalidOperationException("the save failed")));
+
+        var row = Rows().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.Outcome, Is.EqualTo(AuditOutcome.Failed));
+            Assert.That(row.ErrorCode, Is.EqualTo(nameof(InvalidOperationException)));
+            Assert.That(row.EntityId, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task ABatchReportingNoItems_StillLeavesOneRow()
+    {
+        // A batch must never execute without a trace; an empty item list falls back to the single row.
+        await Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
+            new RetireWidgetsCommand(),
+            _ => Task.FromResult(Result<WidgetBatchReport>.Success(new WidgetBatchReport([]))));
+
+        var row = Rows().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.Outcome, Is.EqualTo(AuditOutcome.Succeeded));
+            Assert.That(row.EntityId, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task AFailedBatchAuditWrite_DoesNotFailABatchThatAlreadySucceeded()
+    {
+        var writer = new Mock<IAuditLogWriter>();
+        writer.Setup(w => w.WriteAllAsync(It.IsAny<IReadOnlyCollection<AuditLogEntry>>()))
+            .ThrowsAsync(new InvalidOperationException("database down"));
+
+        using var provider = BuildProvider(services => services.AddSingleton(writer.Object));
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() };
+
+        var response = await Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
+            new RetireWidgetsCommand { WidgetIds = ids },
+            _ => Task.FromResult(Result<WidgetBatchReport>.Success(ReportFor(ids, _ => null))),
+            provider);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.IsSuccess, Is.True);
+            writer.Verify(w => w.WriteAllAsync(It.Is<IReadOnlyCollection<AuditLogEntry>>(e => e.Count == 2)), Times.Once);
+            writer.Verify(w => w.WriteAsync(It.IsAny<AuditLogEntry>()), Times.Never, "a batch is written in one commit");
+        });
+    }
+
     // ---------- fixtures ----------
 
     public sealed class Widget
