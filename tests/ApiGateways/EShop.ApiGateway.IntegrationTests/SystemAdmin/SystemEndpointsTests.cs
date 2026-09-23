@@ -256,6 +256,23 @@ public sealed class SystemEndpointsTests
         });
     }
 
+    [Test]
+    public async Task Settings_AServiceThatCannotBeReached_IsNamed_TooRatherThanFailingThePage()
+    {
+        // The failing case above answers 500, which never reaches the fan-out's catch. A refused connection does, and
+        // falsification round R13 (the catch narrowed to JSON errors) stayed green until this test existed.
+        _factory.Services_.Unreachable.Add("payment");
+
+        var settings = await ReadAsync<SystemSettingsDto>(SystemAdminPaths.Settings);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(settings.Payments, Is.Null);
+            Assert.That(settings.Pricing, Is.Not.Null);
+            Assert.That(settings.UnavailableServices, Is.EqualTo(new[] { "payment" }));
+        });
+    }
+
     // ---------- feature flags ----------
 
     [Test]
