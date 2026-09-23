@@ -3,8 +3,9 @@
 The rules in this file apply to every service. The per-service files ([README](README.md#file-map)) only record where
 an endpoint departs from them.
 
-**Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23). Every rule here was checked against the source and
-observed live through the gateway on the docker compose `sandbox` stack. Where the code and this file disagree, the
+**Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`.
+Every rule here was checked against the source and observed live through the gateway on the docker compose
+`sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
 
 ---
@@ -625,16 +626,12 @@ Identity's 429, captured from the sixth login in one minute:
  "traceId":"0HNOPIAQHPUEG:00000006","errorCode":"Request.RateLimited"}
 ```
 
+"Per client IP" holds at both layers. The gateway passes the caller's address to the services in
+`X-Forwarded-For`, and each service partitions on it. So one client using up its `login` allowance does not affect
+another. This was verified after `0e1bc06`: after one client IP spent its `login` and `search` buckets, a second IP
+got 401 and 200, not 429. Several browsers behind one NAT address still share a bucket.
+
 > ⚠ Most 429s have no body and no `Retry-After`. Assume the full 60 s window when the header is missing. (F-05)
->
-> ⚠ **In the local compose stack, each service's limits are shared by every client.** The gateway reaches the
-> services over IPv6, and the services only trust the gateway's IPv4 range when reading `X-Forwarded-For`. So each
-> service sees one caller, the gateway. In practice:
-> - five failed logins by anyone block login for everyone for up to a minute;
-> - 30 product searches by anyone block search for everyone.
->
-> The gateway's own limit is still per client. Expect "random" 429s from Identity and Catalog when several people or
-> test runners share one local stack. (F-23)
 
 ---
 
