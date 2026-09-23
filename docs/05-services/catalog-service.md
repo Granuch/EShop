@@ -65,6 +65,13 @@ Catalog startup validates critical configuration in non-local environments, incl
 
 Redis distributed cache is used when configured, with fallback behavior for testing/local fallback paths.
 
+`POST /api/v1/admin/cache/invalidate[?family=products:list|categories:list]` (admin panel S19, `system.manage`) bumps one
+versioned family, or every family in `CatalogCacheFamilies.All` when `family` is omitted, and answers with the families it
+bumped. It cannot reach exact keys (a product's or category's detail entry), which lapse on their TTL and are evicted by
+name on every write. An unknown family, including a different casing, is a 400 rather than a bump of an entry nothing
+reads, and an unreachable cache is a 503 `Cache.Unavailable` rather than a success. Each family bumped is audited as its
+own row (`EntityType` `CacheFamily`).
+
 ### Messaging
 
 MassTransit integration supports publishing/consuming integration events for cross-service catalog interactions.

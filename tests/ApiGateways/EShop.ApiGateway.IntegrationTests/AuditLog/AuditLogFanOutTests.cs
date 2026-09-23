@@ -331,27 +331,6 @@ public sealed class AuditLogFanOutTests
         }
 
         /// <summary>A token carrying one permission claim and no role.</summary>
-        public static string PermissionToken(string permission)
-        {
-            var claims = new List<Claim>
-            {
-                new(JwtRegisteredClaimNames.Sub, "operator-1"),
-                new(ClaimTypes.NameIdentifier, "operator-1"),
-                new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new(EShopPermissions.ClaimType, permission)
-            };
-
-            var token = new JwtSecurityToken(
-                issuer: RouteAuthorizationApiFactory.Issuer,
-                audience: RouteAuthorizationApiFactory.Audience,
-                claims: claims,
-                notBefore: DateTime.UtcNow.AddMinutes(-1),
-                expires: DateTime.UtcNow.AddMinutes(30),
-                signingCredentials: new SigningCredentials(
-                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(RouteAuthorizationApiFactory.SecretKey)),
-                    SecurityAlgorithms.HmacSha256));
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
-        }
+        public static string PermissionToken(string permission) => RouteAuthorizationApiFactory.PermissionToken(permission);
     }
 }

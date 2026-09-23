@@ -496,6 +496,8 @@ try
     app.MapCategoryEndpoints();
     app.MapAdminCatalogEndpoints();
     app.MapProductBulkEndpoints();
+    // The System page's cache lever (S19, #88) — the gateway proxies /api/v1/admin/cache/** here.
+    app.MapAdminCacheEndpoints();
     // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
     app.MapEShopAuditLog();
 

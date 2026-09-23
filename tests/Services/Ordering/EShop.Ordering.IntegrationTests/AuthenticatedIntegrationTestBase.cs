@@ -37,7 +37,13 @@ public abstract class AuthenticatedIntegrationTestBase : IntegrationTestBase
         await base.TearDownAsync();
     }
 
-    private string GenerateTestJwtToken()
+    private string GenerateTestJwtToken() => CreateToken(TestUserRole);
+
+    /// <summary>
+    /// A token for <see cref="TestUserId"/> carrying <paramref name="role"/> (none when <c>null</c>) and any extra claims —
+    /// a <c>permission</c> claim with no role is how a test shows a permission policy admits a non-Admin caller.
+    /// </summary>
+    protected string CreateToken(string? role, params Claim[] extraClaims)
     {
         using var scope = Factory.Services.CreateScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -63,14 +69,20 @@ public abstract class AuthenticatedIntegrationTestBase : IntegrationTestBase
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, TestUserId),
-            new Claim(ClaimTypes.Email, TestUserEmail),
-            new Claim(ClaimTypes.Role, TestUserRole),
-            new Claim(JwtRegisteredClaimNames.Sub, TestUserId),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new(ClaimTypes.NameIdentifier, TestUserId),
+            new(ClaimTypes.Email, TestUserEmail),
+            new(JwtRegisteredClaimNames.Sub, TestUserId),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
+        if (role is not null)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
+        claims.AddRange(extraClaims);
 
         var token = new JwtSecurityToken(
             issuer: issuer,

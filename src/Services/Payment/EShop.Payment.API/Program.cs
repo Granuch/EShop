@@ -280,6 +280,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapPaymentEndpoints();
+// Payment's slices of the System page's read-only settings and feature flags (S19, #85/#89).
+app.MapSystemEndpoints();
 // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
 app.MapEShopAuditLog();
 

@@ -62,6 +62,8 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["GET /api/v1/users/{userId}/orders"] = "SameUserOrAdmin",
         // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
         ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
+        // Admin panel S19: Ordering's slice of the read-only settings; the gateway serves the composed view.
+        ["GET /api/v1/admin/settings"] = EShopPermissions.SystemManage,
     };
 
     private static readonly string[] OwnerOnlyRoutes =

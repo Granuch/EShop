@@ -79,6 +79,11 @@ Gateway and service policies control route protection.
 Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
 (`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).
 
+`GET /api/v1/admin/settings` and `GET /api/v1/admin/feature-flags` (`system.manage`, admin panel S19) are this service's
+slices of the System page: the provider (`Stripe` when `Stripe:Enabled`, otherwise `Simulator`), and the simulator's
+configured values plus the webhook-signature bypass. Both are read-only and carry no key. The gateway serves the composed
+pages on the same paths and does not route them here. The older `GET /api/v1/payments/simulation` is unchanged.
+
 ---
 
 ## Health and Telemetry

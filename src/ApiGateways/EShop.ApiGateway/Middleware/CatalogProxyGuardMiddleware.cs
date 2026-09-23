@@ -15,7 +15,9 @@ public sealed class CatalogProxyGuardMiddleware
         // array is what applies the request-body cap and turns a bare 502 into a ProblemDetails
         // body, and it is matched by prefix only — a route the gateway proxies but this list does
         // not name is guarded by nothing, silently. ProxyGuardCoverageTests is what catches it.
-        "/api/v1/admin/catalog"
+        "/api/v1/admin/catalog",
+        // Admin panel S19 (#88): the cache lever is Catalog's, routed by admin-cache-route.
+        "/api/v1/admin/cache"
     ];
 
     /// <summary>

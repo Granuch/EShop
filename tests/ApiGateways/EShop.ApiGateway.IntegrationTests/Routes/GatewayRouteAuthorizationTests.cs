@@ -52,6 +52,9 @@ public sealed class GatewayRouteAuthorizationTests
         ["catalog-products-export-route"] = "Admin",
         // G2. Everything under /api/v1/admin is admin-only whatever the method.
         ["admin-catalog-route"] = "Admin",
+        // Admin panel S19 (#88). Catalog's cache lever. The role question here, system.manage in Catalog — as every YARP
+        // admin route does it. The System page's other three paths are gateway endpoints, not routes, so they are not here.
+        ["admin-cache-route"] = "Admin",
         ["catalog-categories-write-route"] = "Admin",
         ["catalog-categories-read-route"] = null,
         // Admin panel S14. /api/v1/basket/admin/** is admin-only; it wins over basket-route only because its Order (29)
@@ -310,20 +313,40 @@ public sealed class GatewayRouteAuthorizationTests
     {
         // This used to probe /api/v1/admin/users, pinning "no /api/v1/admin/** route exists yet" so
         // that the stage adding them had to do so deliberately. It worked: S4 added
-        // admin-catalog-route and S6 admin-users-route, and this test went red at each.
+        // admin-catalog-route and S6 admin-users-route, and this test went red at each; it went red
+        // again at S19, when /api/v1/admin/settings — its probe since S6 — was built.
         //
-        // The property it guards is still worth keeping, so it now probes a path the plan reserves
-        // but has not built — /api/v1/admin/settings belongs to S19. There is deliberately NO
-        // catch-all /api/v1/admin/{**} route: each service's admin family is routed explicitly, so
-        // an unbuilt one answers "no such route" rather than being proxied somewhere. Move this
-        // probe again when S19 lands.
-        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/settings", RouteAuthorizationApiFactory.AdminToken()),
+        // Every admin path the plan reserves now exists, so it probes one that no stage defines. The
+        // property is unchanged: there is deliberately NO catch-all /api/v1/admin/{**} route, so an
+        // admin path nobody built answers "no such route" rather than being proxied somewhere.
+        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/not-a-route", RouteAuthorizationApiFactory.AdminToken()),
             Is.EqualTo(HttpStatusCode.NotFound));
 
-        // And the two that DO exist must not be anonymous — the half that would actually be a hole.
-        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/users", token: null),
-            Is.EqualTo(HttpStatusCode.Unauthorized));
-        Assert.That(await Send(HttpMethod.Get, "/api/v1/admin/catalog/low-stock", token: null),
-            Is.EqualTo(HttpStatusCode.Unauthorized));
+        // And the ones that DO exist must not be anonymous — the half that would actually be a hole. The last four are
+        // the System page's (S19): three gateway endpoints and the proxied cache lever.
+        foreach (var (method, path) in new[]
+                 {
+                     (HttpMethod.Get, "/api/v1/admin/users"),
+                     (HttpMethod.Get, "/api/v1/admin/catalog/low-stock"),
+                     (HttpMethod.Get, "/api/v1/admin/health"),
+                     (HttpMethod.Get, "/api/v1/admin/settings"),
+                     (HttpMethod.Get, "/api/v1/admin/feature-flags"),
+                     (HttpMethod.Post, "/api/v1/admin/cache/invalidate")
+                 })
+        {
+            Assert.That(await Send(method, path, token: null), Is.EqualTo(HttpStatusCode.Unauthorized), path);
+        }
+    }
+
+    [Test]
+    public async Task TheCacheLever_IsAdminOnly_AndIsProxiedToCatalog()
+    {
+        // Admin panel S19 (#88). Without admin-cache-route the path is a 404; with it but no policy, anyone is proxied
+        // through and only Catalog's own system.manage check is left.
+        const string path = "/api/v1/admin/cache/invalidate";
+
+        Assert.That(await Send(HttpMethod.Post, path, token: null), Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(await Send(HttpMethod.Post, path, RouteAuthorizationApiFactory.UserToken()), Is.EqualTo(HttpStatusCode.Forbidden));
+        AssertReachedProxy(await Send(HttpMethod.Post, path, RouteAuthorizationApiFactory.AdminToken()), "an admin pulling the cache lever");
     }
 }

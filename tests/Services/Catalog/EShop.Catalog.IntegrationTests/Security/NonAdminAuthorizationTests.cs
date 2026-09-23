@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.IntegrationTests.Helpers;
 using EShop.Catalog.IntegrationTests.Models;
@@ -73,6 +74,18 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
     ];
 
     /// <summary>
+    /// Admin panel S19. Writes that carry a permission policy instead of the Admin role, with that permission. The cache
+    /// lever is an operation on the platform rather than a catalog edit, so it asks for <c>system.manage</c>; a customer
+    /// holds neither, so it is sent below with the rest.
+    /// </summary>
+    private static readonly Dictionary<string, string> PermissionWrites = new(StringComparer.Ordinal)
+    {
+        ["POST /api/v1/admin/cache/invalidate"] = EShopPermissions.SystemManage,
+    };
+
+    private static IEnumerable<string> ForbiddenWrites => AdminOnlyRoutes.Concat(PermissionWrites.Keys);
+
+    /// <summary>
     /// Admin panel S16. Every GET under <c>/api/</c>, with the policy it carries — <c>null</c> for a deliberately anonymous
     /// read. The write list above could not see an admin-only GET, and S16 added one under a prefix whose other reads are
     /// public (<c>/products/export</c>, beside S4's <c>/products/deleted</c>): downgrading either to anonymous would have
@@ -112,7 +125,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             scope.ServiceProvider, "Forbidden Target", CatalogDataHelper.GenerateUniqueSku("FORB"), 42m, 5, _categoryId);
     }
 
-    [TestCaseSource(nameof(AdminOnlyRoutes))]
+    [TestCaseSource(nameof(ForbiddenWrites))]
     public async Task ASignedInNonAdmin_IsForbidden(string route)
     {
         var method = route[..route.IndexOf(' ')];
@@ -136,7 +149,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
-    public void EveryWriteEndpoint_RequiresTheAdminPolicy_AndIsListedHere()
+    public void EveryWriteEndpoint_RequiresItsPolicy_AndIsListedHere()
     {
         var writes = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
@@ -146,13 +159,14 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
                 .Select(m => (Route: $"{m} {e.RoutePattern.RawText!.TrimEnd('/')}", Endpoint: e)))
             .ToList();
 
-        writes.Select(w => w.Route).Should().BeEquivalentTo(AdminOnlyRoutes,
-            "a write endpoint added or removed must be reflected in AdminOnlyRoutes, so it is sent above");
+        writes.Select(w => w.Route).Should().BeEquivalentTo(ForbiddenWrites,
+            "a write endpoint added or removed must be reflected in AdminOnlyRoutes or PermissionWrites, so it is sent above");
 
         foreach (var (route, endpoint) in writes)
         {
+            var policy = PermissionWrites.GetValueOrDefault(route, "Admin");
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
-                .Should().Contain(a => a.Policy == "Admin", $"{route} must carry the Admin policy");
+                .Should().Contain(a => a.Policy == policy, $"{route} must carry the {policy} policy");
             endpoint.Metadata.GetMetadata<IAllowAnonymous>()
                 .Should().BeNull($"{route} must not be anonymous");
         }

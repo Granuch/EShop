@@ -52,6 +52,23 @@ Common routed areas include:
 - `/api/v1/admin/audit` -> **served by the gateway itself** (`audit.read`): it asks all five audited services for a
   page and merges them. Not a YARP route, so it is absent from the routing-table test and pinned by
   `AuditLog/AuditLogFanOutTests` instead. See [Admin Audit Trail](../03-architecture/audit-log.md).
+- `/api/v1/admin/cache/*` -> catalog (`Admin` here, `system.manage` in Catalog). The cache lever of the System page (admin
+  panel S19); Catalog is the only service with service-wide cache families. `CatalogProxyGuardMiddleware` covers the prefix.
+- `/api/v1/admin/health`, `/api/v1/admin/settings`, `/api/v1/admin/feature-flags` -> **served by the gateway itself**
+  (`system.manage`), the rest of the System page:
+  - **health** reads every service's anonymous `/health`, plus the gateway's own checks except `downstream` (which would
+    probe every service a second time), and answers 200 with the worst status in the body. A service that cannot be
+    reached is listed as unreachable and Unhealthy rather than failing the page. Only names and statuses are repeated —
+    the same SEC-07 line as each service's own body.
+  - **settings** asks Ordering (pricing currency; tax and shipping are reported as not applied, because none is
+    modelled) and Payment (Stripe or the simulator) with the caller's token.
+  - **feature-flags** reports the gateway's `Simulation` section as the middleware applies it, and asks Payment for its
+    simulator values and webhook-signature bypass.
+
+  Settings and flags are **read-only** — changing one is a redeploy (decision Q9c, applied to flags at S19). A service
+  that cannot be read is named in `unavailableServices`. These are endpoints, not routes, so
+  `SystemAdmin/SystemEndpointsTests` pins their policy, and also pins `SystemFanOut.Sources` against the real cluster list
+  in both directions.
 
 Authorization is applied per route where required (for example `Authenticated`, `Admin`).
 

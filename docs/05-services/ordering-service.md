@@ -68,6 +68,10 @@ Exact route exposure is mediated by gateway policy and service authorization rul
 Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
 (`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).
 
+`GET /api/v1/admin/settings` (`system.manage`, admin panel S19) is this service's slice of the System page's read-only
+settings: the pricing currency (`Order.PricingCurrency`, USD) and `taxApplied`/`shippingCharged`, both `false` because an
+order's total is the sum of its lines. The gateway serves the composed page on the same path and does not route it here.
+
 ---
 
 ## Workflow Role

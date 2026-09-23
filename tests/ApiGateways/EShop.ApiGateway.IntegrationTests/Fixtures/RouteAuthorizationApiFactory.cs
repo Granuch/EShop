@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -56,7 +57,14 @@ public sealed class RouteAuthorizationApiFactory : GatewayApiFactory
     /// <summary>A token for an administrator.</summary>
     public static string AdminToken() => Token("admin-1", roles: ["Admin"]);
 
-    private static string Token(string subject, string[] roles)
+    /// <summary>
+    /// A token carrying one <c>permission</c> claim and no role — how a test shows that a permission policy admits a
+    /// caller who is not an Admin, and refuses one holding a different permission.
+    /// </summary>
+    public static string PermissionToken(string permission)
+        => Token("operator-1", roles: [], new Claim(EShopPermissions.ClaimType, permission));
+
+    private static string Token(string subject, string[] roles, params Claim[] extraClaims)
     {
         var claims = new List<Claim>
         {
@@ -66,6 +74,7 @@ public sealed class RouteAuthorizationApiFactory : GatewayApiFactory
         };
 
         claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+        claims.AddRange(extraClaims);
 
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SecretKey)),

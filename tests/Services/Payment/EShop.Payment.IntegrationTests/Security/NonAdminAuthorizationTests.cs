@@ -48,6 +48,9 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["GET /api/v1/payments/{id:guid}/events"] = EShopPermissions.PaymentsRead,
         // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
         ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
+        // Admin panel S19: Payment's slices of the System page's read-only settings and feature flags.
+        ["GET /api/v1/admin/settings"] = EShopPermissions.SystemManage,
+        ["GET /api/v1/admin/feature-flags"] = EShopPermissions.SystemManage,
         ["POST /api/v1/payments/webhooks/failed/replay"] = EShopPermissions.PaymentsWrite,
     };
 

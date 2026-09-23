@@ -7,6 +7,7 @@ using EShop.ApiGateway.Health;
 using EShop.ApiGateway.Middleware;
 using EShop.ApiGateway.Notifications;
 using EShop.ApiGateway.Simulation;
+using EShop.ApiGateway.SystemAdmin;
 using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
@@ -168,6 +169,11 @@ builder.Services.AddHttpClient();
 builder.Services.AddHttpClient(AuditLogFanOut.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<AuditLogFanOut>();
 
+// The System page (S19): aggregate health, read-only settings and read-only feature flags, served here. Same 5 s bound
+// per service as the audit fan-out, for the same reason.
+builder.Services.AddHttpClient(SystemFanOut.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddScoped<SystemFanOut>();
+
 builder.Services.AddEShopOpenTelemetry(
     builder.Configuration,
     serviceName: "EShop.ApiGateway",
@@ -202,7 +208,7 @@ builder.Services.AddHttpClient<IAccountEmailResolver, IdentityAccountEmailResolv
 builder.Services.AddHostedService<GatewayEmailDispatcher>();
 
 builder.Services.AddHealthChecks()
-    .AddCheck<DownstreamHealthCheck>("downstream", tags: ["ready"])
+    .AddCheck<DownstreamHealthCheck>(DownstreamHealthCheck.Name, tags: ["ready"])
     .AddCheck<SmtpGatewayHealthCheck>("smtp", tags: ["ready"])
     .AddCheck<EmailQueueHealthCheck>("email-queue", tags: ["ready"])
     .AddCheck<GatewayLivenessHealthCheck>("gateway-liveness", tags: ["live"]);
@@ -253,6 +259,7 @@ if (EShopApiDocs.IsExposedIn(app.Environment))
 
 app.MapReverseProxy();
 app.MapGatewayAuditLog();
+app.MapGatewaySystemEndpoints();
 
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
 // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).

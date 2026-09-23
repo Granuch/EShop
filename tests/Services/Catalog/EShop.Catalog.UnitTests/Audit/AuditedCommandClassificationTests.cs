@@ -34,6 +34,8 @@ public class AuditedCommandClassificationTests
         "DeleteCategoryCommand",
         "DeleteProductCommand",
         "ImportProductsCommand",
+        // Admin panel S19. The cache lever, audited one row per family it bumped.
+        "InvalidateCacheFamiliesCommand",
         "MoveCategoryCommand",
         "PublishProductCommand",
         "RemoveProductAttributeCommand",

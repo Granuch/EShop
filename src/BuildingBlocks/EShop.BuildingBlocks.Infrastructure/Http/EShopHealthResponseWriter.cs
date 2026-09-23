@@ -39,12 +39,12 @@ public static class EShopHealthResponseWriter
 
         context.Response.ContentType = "application/json";
 
-        var payload = new HealthResponse
+        var payload = new EShopHealthResponse
         {
             Status = report.Status.ToString(),
             TotalDurationMs = Math.Round(report.TotalDuration.TotalMilliseconds, 1),
             Checks = report.Entries
-                .Select(entry => new HealthCheckResponse
+                .Select(entry => new EShopHealthCheckEntry
                 {
                     Name = entry.Key,
                     Status = entry.Value.Status.ToString()
@@ -54,17 +54,23 @@ public static class EShopHealthResponseWriter
 
         return context.Response.WriteAsync(JsonSerializer.Serialize(payload, SerializerOptions));
     }
+}
 
-    private sealed record HealthResponse
-    {
-        public string Status { get; init; } = string.Empty;
-        public double TotalDurationMs { get; init; }
-        public HealthCheckResponse[] Checks { get; init; } = [];
-    }
+/// <summary>
+/// The body every health endpoint writes (<see cref="EShopHealthResponseWriter"/>). Public since admin panel S19 so the
+/// gateway's aggregate health read deserializes the very type the services serialize: a renamed property is then a
+/// compile error on both sides rather than a field that silently binds <c>null</c>.
+/// </summary>
+public sealed record EShopHealthResponse
+{
+    public string Status { get; init; } = string.Empty;
+    public double TotalDurationMs { get; init; }
+    public EShopHealthCheckEntry[] Checks { get; init; } = [];
+}
 
-    private sealed record HealthCheckResponse
-    {
-        public string Name { get; init; } = string.Empty;
-        public string Status { get; init; } = string.Empty;
-    }
+/// <summary>One check's name and status — deliberately nothing else (SEC-07).</summary>
+public sealed record EShopHealthCheckEntry
+{
+    public string Name { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
 }

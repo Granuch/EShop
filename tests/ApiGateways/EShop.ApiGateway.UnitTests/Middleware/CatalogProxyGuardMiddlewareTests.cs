@@ -108,8 +108,11 @@ public class CatalogProxyGuardMiddlewareTests
         Assert.That(new CatalogProxyOptions().ImportMaxRequestBodySizeBytes, Is.GreaterThanOrEqualTo(largestLegalImport));
     }
 
-    [Test]
-    public async Task InvokeAsync_Maps502To503_WithRetryAfter_ForCatalogPath()
+    [TestCase("/api/v1/products")]
+    [TestCase("/api/v1/admin/catalog/low-stock")]
+    // Admin panel S19: the cache lever, routed to Catalog by admin-cache-route.
+    [TestCase("/api/v1/admin/cache/invalidate")]
+    public async Task InvokeAsync_Maps502To503_WithRetryAfter_ForCatalogPath(string path)
     {
         var middleware = CreateMiddleware(
             next: context =>
@@ -119,7 +122,7 @@ public class CatalogProxyGuardMiddlewareTests
             },
             retryAfterSeconds: 8);
 
-        var context = CreateContext("/api/v1/products");
+        var context = CreateContext(path);
 
         await middleware.InvokeAsync(context);
 

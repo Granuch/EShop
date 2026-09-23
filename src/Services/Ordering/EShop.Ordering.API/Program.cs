@@ -395,6 +395,8 @@ try
 
     // Map Order endpoints
     app.MapOrderEndpoints();
+    // Ordering's slice of the System page's read-only settings (S19, #85); the gateway serves the composed view.
+    app.MapSystemSettingsEndpoints();
     // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
     app.MapEShopAuditLog();
 
