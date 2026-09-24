@@ -30,7 +30,7 @@ together with [conventions.md](conventions.md).
 |---|---|
 | [conventions.md](conventions.md) | complete |
 | [identity.md](identity.md) | complete |
-| [catalog.md](catalog.md) | products and categories complete; bulk actions, import/export, low stock, category statistics and cache pending |
+| [catalog.md](catalog.md) | complete |
 | [basket.md](basket.md) | outline only |
 | [ordering.md](ordering.md) | outline only |
 | [payment.md](payment.md) | outline only |

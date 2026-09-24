@@ -2,10 +2,9 @@
 
 Products and categories as the storefront reads them, plus product and category administration: images, attributes,
 discounts, stock, publishing and the recycle bin. Bulk actions, CSV import and export, low-stock reporting, category
-statistics and cache invalidation are also Catalog endpoints; they are documented in stage S4 and marked as such
-below.
+statistics and cache invalidation are also Catalog endpoints.
 
-**Verified at:** `d0b4c39` (`feature/admin-panel`, 2026-09-24). Catalog's code has not changed since `105d647`. Every
+**Verified at:** `5c6c3b0` (`feature/admin-panel`, 2026-09-24). Catalog's code has not changed since `105d647`. Every
 endpoint in this file was checked against the C# source and the service's OpenAPI document, and called through the
 gateway on the compose `sandbox` stack. Shared rules (errors, paging, rate limits, CORS) are in
 [conventions.md](conventions.md) and are not repeated here.
@@ -52,7 +51,6 @@ Not routed through the gateway: Catalog's own `GET /api/v1/admin/audit` (see [ad
   - [Product attributes](#product-attributes)
   - [Categories (admin)](#categories-admin): create, update, delete, move, restore, reorder
   - [Bulk actions, import and export, low stock, category statistics, cache](#bulk-actions-import-and-export-low-stock-category-statistics-cache)
-    (stage S4)
   - [Audit trail](#audit-trail)
 - [Not callable by clients](#not-callable-by-clients)
 - [Types](#types)
@@ -281,17 +279,27 @@ The products **directly** in one category, paged. **200**
 ## Admin panel
 
 **Auth, both layers:** every endpoint in this section needs gateway **`Admin` role** · service **`Admin` role**
-(Catalog's `Admin` policy). No Catalog endpoint in this section uses a permission. The S4 cache endpoint is the
-exception, with `system.manage`.
+(Catalog's `Admin` policy). Two endpoints break that pattern:
+
+- `POST /api/v1/admin/cache/invalidate` needs the permission **`system.manage`** at the service, not the `Admin`
+  policy (the gateway still asks the `Admin`-role question, as every `/api/v1/admin/**` route does).
+- `GET /api/v1/categories/{id}/stats` has **no dedicated gateway route**. It falls under the anonymous
+  `catalog-categories-read-route` (there is no `stats`-specific route the way there is for `/products/deleted` and
+  `/products/export`), so the gateway proxies it to Catalog whoever calls it. Only Catalog's own
+  `RequireAuthorization("Admin")` refuses it — which it does (401/403 observed, both through the gateway and
+  directly on :7004), so there is no live gap, but it is the one admin-only Catalog read the gateway itself does not
+  gate. (F-44)
 
 Without a token the gateway answers 401; with a customer token it answers 403. Both have empty bodies. Catalog
-checks again when called directly: all 25 admin endpoints in this section answered 401 anonymously and 403 to a
-customer on port 7004 too (observed).
+checks again when called directly: every admin endpoint in this section, `/categories/{id}/stats` included, answered
+401 anonymously and 403 to a customer on port 7004 too (observed).
 
 **Common to every admin write:**
 
-- **Success** is 204 with no body, apart from the creates (201 with `{ "id": "…" }`) and the stock adjustment (200).
-  Re-read the resource to show the result.
+- **Success** is 204 with no body, apart from the creates (201 with `{ "id": "…" }`), the stock adjustment (200), and
+  the [bulk actions, import and cache invalidation](#bulk-actions-import-and-export-low-stock-category-statistics-cache)
+  (200 with a report — a 200 there does not by itself mean every item succeeded). Re-read the resource, or read the
+  report, to show the result.
 - **A deleted product is gone** as far as writes are concerned: every product write answers 404
   `Product.NotFound` for it, except `PUT /products/{id}`, which answers 400 with the same code. Only
   [restore](#post-apiv1productsidrestore) reaches it.
@@ -749,17 +757,296 @@ the seeded ones included.
 
 ### Bulk actions, import and export, low stock, category statistics, cache
 
-_Written in stage S4:_ `POST /api/v1/products/bulk/{publish, unpublish, delete, category, price}`,
-`POST /api/v1/products/import`, `GET /api/v1/products/export`, `GET /api/v1/admin/catalog/low-stock`,
-`GET /api/v1/categories/{id}/stats` and `POST /api/v1/admin/cache/invalidate`. Until then use the OpenAPI document,
-[conventions.md §11](conventions.md#11-csv-downloads) for the CSV export, and
-[conventions.md §7](conventions.md#7-rate-limits) for the `bulk` rate limit.
+**Rate limit.** The five bulk actions, the import and the export **share one `bulk` bucket, 10 requests per 60 s per
+client IP**, on top of the global limit ([conventions.md §7](conventions.md#7-rate-limits)). It is registered once, on
+the whole `/api/v1/products` bulk group, so ten calls to any mix of these seven endpoints in a minute exhausts it for
+all of them; the 11th is a 429 with an empty body. Observed: 10 calls across `bulk/publish`, `bulk/unpublish`,
+`bulk/category`, `bulk/price` and `bulk/delete` in one minute, then a 429 on the 11th.
+
+**Two size caps, both refused whole, never truncated:**
+
+- The five bulk actions and the import take at most **1 000 ids or rows** per request
+  (`ProductIds`/`Items`/`Products`). One over the cap is a 400 `Validation.Failed`; nothing is truncated to fit.
+- The export answers at most **10 000 rows**. If more products match the filter, the request is refused with 400
+  `Products.ExportTooLarge`, and `detail` gives the actual count. From source, not observed: creating ten thousand
+  products was out of scope for this stage.
+
+**A 200 from a bulk action or the import is not "every row succeeded"** — it is "the request was understood", and
+the body is a **per-row report** whatever the rows' outcomes, success and failure mixed. A non-2xx means the whole
+request was refused (over a cap, malformed, an id list with a duplicate or an empty entry, or — for the category
+move — a target category that does not exist) and **nothing was changed**. The five bulk actions' report
+(`BulkProductReport`) and the import's (`ProductImportReport`) share this shape, in **request order**, so a client
+can zip the report against what it sent.
+
+**Every bulk action and the import run as one transaction.** A row's own refusal (`Product.NotFound`, or a domain
+rule the product's own methods enforce) is decided and reported without touching the database; a database failure —
+a SKU another request took in the instant between the check and the save — fails the **whole** request and rolls
+every row back, so the report is never a mix of real writes and fictitious ones.
+
+**Auth, rate limit and body-cap routing all differ between endpoints in this group** — see each one below.
+
+#### Bulk product actions
+
+`POST /api/v1/products/bulk/{publish, unpublish, delete, category, price}`. Gateway **`Admin` role** (the ordinary
+products write route) · service **`Admin` role**, rate limit **`bulk`**, gateway body cap the general **1 MiB**
+(1 000 GUIDs is well under it; only the import gets the larger cap).
+
+Every id in `productIds` (or `items[].productId` for the price action) is looked up once; each row's outcome is
+independent of the others:
+
+| Action | Body | Effect per id | Idempotent? |
+|---|---|---|---|
+| `bulk/publish` | `{"productIds":[...]}` | `Product.Publish()`, skipped if already Active | Yes, like the single endpoint |
+| `bulk/unpublish` | `{"productIds":[...]}` | `Product.Unpublish()`, skipped if already Draft | Yes |
+| `bulk/delete` | `{"productIds":[...]}` | Soft-deletes, like `DELETE /products/{id}` | No — a second call reports `Product.NotFound` for it |
+| `bulk/category` | `{"productIds":[...],"categoryId":"…"}` | `Product.ChangeCategory(categoryId)` | Yes, moving to the current category is a no-op |
+| `bulk/price` | `{"items":[{"productId":"…","price":…},…]}` | `Product.UpdatePrice(price)` — the same rule as `PUT /products/{id}`: refused if at or below an active discount | Yes, re-sending the same price is a no-op |
+
+`bulk/category` alone can refuse the **whole** request before touching any row: an unknown or deleted `categoryId`
+answers 400 `Category.NotFound` naming the category, not a per-row failure — one fact about the request is not worth
+reporting a thousand times.
+
+**200** [`BulkProductReport`](#bulkproductreport). Captured (`bulk/category`, two products moved to Electronics):
+
+```json
+{"requested":2,"succeeded":2,"failed":0,"items":[
+  {"productId":"b32a6701-…","succeeded":true,"errorCode":null,"error":null},
+  {"productId":"8c1ba325-…","succeeded":true,"errorCode":null,"error":null}]}
+```
+
+A mixed report (`bulk/publish`, one known id and one unknown):
+
+```json
+{"requested":2,"succeeded":1,"failed":1,"items":[
+  {"productId":"b32a6701-…","succeeded":true,"errorCode":null,"error":null},
+  {"productId":"00000000-…-99","succeeded":false,"errorCode":"Product.NotFound",
+   "error":"Product with ID '00000000-…-99' was not found."}]}
+```
+
+A domain refusal, per row, `errorCode` **`DomainError`** — the same code a single `PUT /products/{id}` gets for the
+same rule (`bulk/price`, a price at or below the product's own active discount):
+
+```json
+{"requested":1,"succeeded":0,"failed":1,"items":[{"productId":"1ccb94c5-…","succeeded":false,
+  "errorCode":"DomainError","error":"Price must be greater than the active discount price. Clear the discount first."}]}
+```
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 400 | `Validation.Failed` | The id (or item) list is missing, empty, over 1 000 entries, contains the all-zero id, or repeats an id. `bulk/category`: `categoryId` missing. `bulk/price`: an item's `price` is not > 0 |
+| 400 | `Category.NotFound` | `bulk/category` only: the whole request, for an unknown or deleted target category |
+
+- **A repeated id is refused, not de-duplicated**, on every action — a client bug is not silently corrected, and for
+  `bulk/price` the two copies could disagree with no right answer for which wins (observed: `{"productIds":["A","A"]}`
+  → 400 "Each product may appear only once in a bulk request").
+- **Soft-deleted products are `Product.NotFound`**, the same as a genuinely unknown id, since the global filter hides
+  them from the lookup.
+- **Caches.** One family bump per request, not per row: `products:list` is bumped once however many products the
+  batch touched, plus a detail-cache eviction for every named product (skipped entirely when the list is over the
+  1 000 cap, since a refused request changed nothing — evicting tens of thousands of keys for it would be its own
+  cost).
+- **Audit.** One row per product, each with its own outcome; see [Audit trail](#audit-trail). `bulk/category`'s rows
+  also carry the target `categoryId`, and `bulk/price`'s carry the price that product was sent.
+
+#### Product import
+
+`POST /api/v1/products/import`. Gateway **`Admin` role** (the ordinary products write route) · service **`Admin`
+role**, rate limit **`bulk`**, gateway body cap **8 MiB** (the general 1 MiB cap does not apply here — large enough
+for 1 000 rows).
+
+**Create-only, never update.** Every row is checked exactly as `POST /api/v1/products` would check it — the same
+validator, the same SKU and category rules — and a row whose SKU a live product already holds is refused, never
+merged into it. New products are Drafts, publish them with [`bulk/publish`](#bulk-product-actions) afterwards.
+**JSON rows, not a CSV file**: the API stays typed end to end, so a client that edits the CSV export turns it back
+into rows first. The export's columns match an import row's fields, so round-tripping needs no remapping.
+
+**Body:** `{"products": [ImportProductRow, …]}`, at most 1 000 rows.
+[`ImportProductRow`](#importproductrow) is `POST /products`'s fields minus `images` and `attributes`: `name`, `sku`,
+`price`, `stockQuantity`, `categoryId` required, `description` optional.
+
+**A SKU on more than one row refuses every row that carries it**, including one that would otherwise pass, and names
+every row number in the message — not just the first occurrence, since fixing the file and re-sending would then
+collide with whichever row this import happened to create. Every other check runs per row: file → per-row
+validation → in-file SKU duplicates → the database's taken SKUs → categories → construct — and only rows that pass
+every step are created.
+
+**200** [`ProductImportReport`](#productimportreport), one entry per row, **in the order sent**. Captured (two valid
+rows):
+
+```json
+{"requested":2,"created":2,"failed":0,"rows":[
+  {"index":0,"sku":"FE-S4-IMP-1","productId":"e5981df1-…","succeeded":true,"errorCode":null,"error":null},
+  {"index":1,"sku":"FE-S4-IMP-2","productId":"549f1649-…","succeeded":true,"errorCode":null,"error":null}]}
+```
+
+Two rows sharing a SKU (both refused, "rows 0, 1" listed in each):
+
+```json
+{"requested":2,"created":0,"failed":2,"rows":[
+  {"index":0,"sku":"FE-S4-IMP-DUP","productId":null,"succeeded":false,"errorCode":"Product.SkuConflict",
+   "error":"SKU 'FE-S4-IMP-DUP' appears on more than one row of this import (rows 0, 1)."},
+  {"index":1,"sku":"FE-S4-IMP-DUP","productId":null,"succeeded":false,"errorCode":"Product.SkuConflict",
+   "error":"SKU 'FE-S4-IMP-DUP' appears on more than one row of this import (rows 0, 1)."}]}
+```
+
+| Status | `errorCode` (per row) | When |
+|---|---|---|
+| — | `Validation.Failed` | A row fails `POST /products`'s own validator (e.g. a blank `name`; observed: `"Product name is required"`) |
+| — | `Product.SkuConflict` | The SKU appears on more than one row of this import, or a **live** product already holds it |
+| — | `Category.NotFound` | Unknown or deleted `categoryId` |
+| — | `DomainError` | The factory's own rules refuse it (from source, not observed for a create) |
+
+| Status | `errorCode` (whole request) | When |
+|---|---|---|
+| 400 | `Validation.Failed` | `products` missing, empty, or over 1 000 rows |
+| 409 | `Product.SkuConflict` | A SKU taken by a concurrent create between the check and the save. The whole import rolls back. From source, not observed |
+
+- **Caches.** No detail key to evict (the products are new); the `products:list` family is bumped once for the whole
+  import, whatever it created.
+- **Audit.** One row per import row, keyed by the created product's id (or none, for a refused row), each carrying
+  its row index and SKU as detail.
+
+#### Product export
+
+`GET /api/v1/products/export`. Gateway **`Admin` role** — its **own** gateway route, at a lower `Order` than the
+anonymous products-read route, the same pattern as `GET /products/deleted` — · service **`Admin` role**, rate limit
+**`bulk`**.
+
+Every product matching the admin list's filters, **as a CSV file**, drafts included. The filter surface is exactly
+[`GET /products`](#get-apiv1products)'s (`categoryId`, `searchTerm`, `minPrice`, `maxPrice`, `sortBy`,
+`isDescending`, `status`, `hasDiscount`, `stockBelow`, `createdFrom`, `createdTo`) minus paging — there is no
+`pageNumber`/`pageSize` here, the export is the whole matching set up to the cap. So "export what I am looking at"
+in the admin product list is the same set of rows by construction, and the same query-binding rules apply: a bad
+value (wrong-case `status`, `pageSize` — not a real parameter here — or any of the others) is 400 `MalformedRequest`
+with the same misleading "request body" wording (F-25; observed: `?status=active` on `/export`).
+
+**200**, `text/csv`, UTF-8 with BOM, `Content-Disposition: attachment; filename="products-<timestamp>.csv"` (see
+[conventions.md §11](conventions.md#11-csv-downloads) for the shared CSV rules — quoting, the formula-injection
+apostrophe, CRLF line endings). Columns, in order:
+
+```
+Id,Sku,Name,Description,CategoryId,Status,Price,DiscountPrice,StockQuantity,MainImageUrl,CreatedAt
+```
+
+Captured (two rows, one active with a discount, one draft):
+
+```csv
+Id,Sku,Name,Description,CategoryId,Status,Price,DiscountPrice,StockQuantity,MainImageUrl,CreatedAt
+"1ccb94c5-…","FE-S4-BULK-A","fe-contracts S4 Bulk A",,"5747ee57-…","Active","15.50","10.00","5",,"2026-09-24T18:31:42.7526360Z"
+"c2c64e41-…","FE-S4-BULK-B","fe-contracts S4 Bulk B",,"5747ee57-…","Draft","25.75",,"5",,"2026-09-24T18:31:42.9901400Z"
+```
+
+- **`Status` is the enum's NAME here** (`Active`, `Draft`, `Discontinued`), unlike the JSON API's integer — a
+  spreadsheet has no client-side lookup table to turn `1` back into `Active`. This is the one Catalog response where
+  the wire form of `ProductStatus` differs from the rest of this file.
+  `Price`/`DiscountPrice` are decimal strings quoted like every field; empty fields (`Description`, `DiscountPrice`
+  when absent, `MainImageUrl`) are simply empty between the commas.
+- **Not cached.** Every call reads live, which is also why it has no ETag or conditional-GET support.
+- **The columns match an import row's fields** (`Sku`, `Name`, `Description`, `Price`, `StockQuantity`,
+  `CategoryId`), so a client that edits the export and turns each row back into JSON gets a valid
+  [`ImportProductRow`](#importproductrow). `Id`, `Status`, `DiscountPrice`, `MainImageUrl` and `CreatedAt` are
+  read-only context the import does not accept.
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 400 | `Validation.Failed` | The list's own filter rules (`searchTerm` length, `minPrice`/`maxPrice`) |
+| 400 | `MalformedRequest` | A malformed query value (F-25) |
+| 400 | `Products.ExportTooLarge` | More than 10 000 products match. `detail` gives the actual count and says to narrow the filters. From source, not observed |
+
+#### Low stock
+
+`GET /api/v1/admin/catalog/low-stock`. Gateway **`Admin` role** (`/api/v1/admin/catalog/**`) · service **`Admin`
+role**. No named rate limit — only the global one.
+
+The admin dashboard's "what is running out" widget: `?StockBelow=` with an opinionated default and a fixed sort,
+through the **same** query service as `GET /products`, so it cannot drift from the list's projection or its
+visibility rules.
+
+**Query** ([`LowStockQuery`](#lowstockquery)); all optional:
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `threshold` | integer | `10` | Strictly less than. `threshold=1` means "out of stock". Must be > 0 |
+| `pageNumber` | integer | `1` | ≥ 1 |
+| `pageSize` | integer | `10` | 1–100 |
+| `categoryId` | GUID | — | Direct members only, like the list |
+
+**200** [`PagedResult<Product>`](conventions.md#61-pagedresultt-offset-pages-the-common-case), sorted by name
+ascending — not by stock, so an admin scans by product, not by quantity. **Includes Drafts**: an unpublished
+product that is out of stock is exactly what needs seeing before it is published.
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 400 | `Validation.Failed` | `threshold` ≤ 0, `pageNumber` < 1, `pageSize` outside 1–100 |
+| 400 | `MalformedRequest` | A value of the wrong type |
+
+- **Not cached**, like the recycle bin: one admin screen, and stale stock is worse than an extra query.
+
+#### Category statistics
+
+`GET /api/v1/categories/{id}/stats`. Gateway **anonymous** (see the ⚠ at the top of this section, F-44) · service
+**`Admin` role**.
+
+Per-category counts for the admin panel: **direct members only, not the whole subtree** — a recursive count would
+need the descendant closure on every call, and an admin reading a parent's row expects the number shown to match
+what clicking into it shows. Deleted products and categories are excluded throughout, matching every other read.
+
+**200** [`CategoryStatsDto`](#categorystatsdto). Captured (Books, after this stage's product moves):
+
+```json
+{"categoryId":"5747ee57-…","categoryName":"Books","productCount":5,"publishedProductCount":2,
+ "totalStock":213,"outOfStockCount":1,"childCategoryCount":0}
+```
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 404 | `Category.NotFound` | Unknown, deleted, or the all-zero id (there is no validator here, unlike most category endpoints — the id goes straight to the same lookup as any other unknown id) |
+
+- **Not cached**, deliberately: an admin re-reads this right after changing something, and a cache would mostly
+  serve answers to questions the change just made obsolete.
+
+#### Cache
+
+`POST /api/v1/admin/cache/invalidate?family=<name>`. Gateway **`Admin` role** (`/api/v1/admin/cache/**`) · service
+permission **`system.manage`** — the one endpoint in this file that needs a permission rather than the `Admin`
+policy.
+
+The manual lever: bump one of Catalog's versioned cache families, or all of them, after data changed behind the
+application's back or when a list looks stale during an incident. It does not delete any key — `IDistributedCache`
+has no SCAN — it bumps the family's version, so every previously cached entry in that family stops being addressed
+and lapses on its own TTL; a bumped family is **not** observable as keys disappearing.
+
+**Query:** `family` — `products:list`, `categories:list`, or omitted for both. **Case-sensitive** (F-39's sibling
+problem for cache keys): `Products:List` is not a known family and is refused, rather than silently bumping an
+entry nothing reads.
+
+**200** [`CacheInvalidationReport`](#cacheinvalidationreport):
+
+```json
+{"service":"catalog","families":["products:list","categories:list"]}
+```
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 400 | `Validation.Failed` | `family` is present and not one of the two known names (any case difference included) |
+| 503 | `Cache.Unavailable` | Redis refused a bump. `detail` names which families succeeded before the failure and which one failed. From source, not observed |
+
+- **This is the one command in this file that answers success or failure honestly for the bump itself.** Every
+  other write's cache eviction is a side effect of something already committed — a failed bump there is logged and
+  the write still answers 2xx. Here the bump **is** the whole request, so it reports `Cache.Unavailable` rather than
+  claiming success while Redis refused it.
+- **Exact keys (a product's or category's detail entry) are out of reach here.** They are not addressed by family and
+  the endpoint has no way to name them without the id; they lapse on their own 5–10 minute TTL. Do not read this
+  endpoint's success as "the whole cache is empty".
+- **Audit.** One row per family actually bumped (successes only), read by `entityId` = the family name.
 
 ### Audit trail
 
-Every admin write in this file records one audit row, successful or not, with the entity type `Product` or
-`Category`. Rejected writes carry their `errorCode`. The admin panel reads the merged trail from the gateway's
-`GET /api/v1/admin/audit`, filtered with `service=catalog`; see [admin-platform.md](admin-platform.md).
+Every admin write in this file records one audit row, successful or not, with the entity type `Product`, `Category`
+or — for cache invalidation only — `CacheFamily`. Rejected writes carry their `errorCode`. A bulk action or the
+import records **one row per item**, not one row for the whole request (see each endpoint above for what a row
+carries). The admin panel reads the merged trail from the gateway's `GET /api/v1/admin/audit`, filtered with
+`service=catalog`; see [admin-platform.md](admin-platform.md).
 
 ---
 
@@ -944,6 +1231,82 @@ Exactly one of `delta` (integer, ≠ 0) and `absolute` (integer, ≥ 0), plus `r
 #### ReorderCategoriesRequest
 
 `parentCategoryId` (GUID | null) and `categoryIds` (string[]).
+
+### Bulk, import, export, low stock, statistics, cache types
+
+#### BulkProductReport
+
+The answer to every bulk product action. Source: `BulkProductReport`.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `requested` | number | no | How many ids the request named |
+| `succeeded` | number | no | How many were changed, or already in the requested state |
+| `failed` | number | no | `succeeded + failed === requested` |
+| `items` | [`BulkProductItemResult`](#bulkproductitemresult)[] | no | One entry per requested id, in request order |
+
+#### BulkProductItemResult
+
+Source: `BulkProductItemResult`. `productId` (string, GUID), `succeeded` (boolean), `errorCode` (string | null —
+`Product.NotFound`, or `DomainError` for a rule the product's own methods refused), `error` (string | null, the
+message for a failed row).
+
+#### BulkIdsRequest
+
+The body of `bulk/publish`, `bulk/unpublish` and `bulk/delete`: `productIds` (string[], 1–1000, no duplicates, no
+all-zero id).
+
+#### BulkChangeProductCategoryRequest
+
+`productIds` (string[], the `BulkIdsRequest` rules) and `categoryId` (string, GUID, required).
+
+#### BulkUpdateProductPricesRequest
+
+`items` (`BulkProductPriceItem`[], 1–1000 by id, no duplicate `productId`).
+
+#### BulkProductPriceItem
+
+`productId` (string, GUID) and `price` (number, > 0).
+
+#### ImportProductRow
+
+One row to create. The same fields as [`CreateProductRequest`](#createproductrequest) minus `images` and
+`attributes`: `name`, `sku` (strings), `price` (number), `stockQuantity` (integer), `categoryId` (GUID) — all
+required — and `description` (string | null, optional).
+
+#### ProductImportReport
+
+Source: `ProductImportReport`. `requested`, `created`, `failed` (numbers), `rows`
+([`ProductImportRowResult`](#productimportrowresult)[], in the order sent).
+
+#### ProductImportRowResult
+
+Source: `ProductImportRowResult`.
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `index` | number | no | The row's zero-based position in the request |
+| `sku` | string | yes | The row's SKU, even when it failed |
+| `productId` | string (GUID) | yes | `null` for a refused row |
+| `succeeded` | boolean | no | |
+| `errorCode` | string | yes | `Validation.Failed`, `Product.SkuConflict`, `Category.NotFound` or `DomainError` |
+| `error` | string | yes | |
+
+#### LowStockQuery
+
+The query of [`GET /admin/catalog/low-stock`](#low-stock): `threshold`, `pageNumber`, `pageSize`, `categoryId`, all
+optional.
+
+#### CategoryStatsDto
+
+The response of [`GET /categories/{id}/stats`](#category-statistics). Source: `CategoryStatsDto`. `categoryId`
+(string, GUID), `categoryName` (string), `productCount`, `publishedProductCount`, `totalStock`, `outOfStockCount`,
+`childCategoryCount` (all numbers, counting direct members only).
+
+#### CacheInvalidationReport
+
+The response of [`POST /admin/cache/invalidate`](#cache). Source: `CacheInvalidationReport`. `service` (string,
+always `"catalog"`) and `families` (string[], the families actually bumped, in order).
 
 ### TypeScript
 
@@ -1178,6 +1541,110 @@ export interface ReorderCategoriesRequest {
   /** Every live category of that level, once each, in the new order. */
   categoryIds: string[];
 }
+
+// ---- Admin: bulk, import, export, low stock, statistics, cache ----
+
+export interface BulkProductItemResult {
+  productId: string;
+  succeeded: boolean;
+  /** Product.NotFound, or DomainError for a rule the product's own methods refused. */
+  errorCode: string | null;
+  error: string | null;
+}
+
+/** The answer to every bulk product action, and to the import (as ProductImportReport). Items are in request order. */
+export interface BulkProductReport {
+  requested: number;
+  succeeded: number;
+  failed: number;
+  items: BulkProductItemResult[];
+}
+
+/** Body of bulk/publish, bulk/unpublish and bulk/delete. */
+export interface BulkIdsRequest {
+  /** 1-1000, no duplicates, no all-zero id. */
+  productIds: string[];
+}
+
+export interface BulkChangeProductCategoryRequest {
+  productIds: string[];
+  categoryId: string;
+}
+
+export interface BulkProductPriceItem {
+  productId: string;
+  /** > 0. Subject to the same active-discount rule as PUT /products/{id}. */
+  price: number;
+}
+
+export interface BulkUpdateProductPricesRequest {
+  /** 1-1000 by id, no duplicate productId. */
+  items: BulkProductPriceItem[];
+}
+
+/** One row to create: CreateProductRequest minus images and attributes. */
+export interface ImportProductRow {
+  name: string;
+  sku: string;
+  price: number;
+  stockQuantity: number;
+  categoryId: string;
+  description?: string | null;
+}
+
+export interface ImportProductsRequest {
+  /** 1-1000 rows. */
+  products: ImportProductRow[];
+}
+
+export interface ProductImportRowResult {
+  /** Zero-based position in the request. */
+  index: number;
+  sku: string | null;
+  /** null for a refused row. */
+  productId: string | null;
+  succeeded: boolean;
+  /** Validation.Failed, Product.SkuConflict, Category.NotFound or DomainError. */
+  errorCode: string | null;
+  error: string | null;
+}
+
+export interface ProductImportReport {
+  requested: number;
+  created: number;
+  failed: number;
+  /** In the order sent. */
+  rows: ProductImportRowResult[];
+}
+
+/** GET /api/v1/products/export takes ProductListQuery's filters minus paging (no page params on this endpoint). */
+export type ExportProductsQuery = Omit<ProductListQuery, 'pageNumber' | 'pageSize'>;
+
+export interface LowStockQuery {
+  /** Strictly less than. Defaults to 10; use 1 for "out of stock". Must be > 0. */
+  threshold?: number;
+  pageNumber?: number;
+  pageSize?: number;
+  categoryId?: string;
+}
+
+export interface CategoryStatsDto {
+  categoryId: string;
+  categoryName: string;
+  /** Direct members only, not the whole subtree. */
+  productCount: number;
+  publishedProductCount: number;
+  totalStock: number;
+  outOfStockCount: number;
+  childCategoryCount: number;
+}
+
+export interface CacheInvalidationReport {
+  /** Always "catalog". */
+  service: string;
+  /** The families actually bumped, in order. */
+  families: string[];
+}
 ```
 
 ---
@@ -1221,6 +1688,18 @@ export interface ReorderCategoriesRequest {
 
 > ⚠ **A bad query value blames the request body.** `?status=active` or `?pageSize=abc` answers `MalformedRequest` with
 > "The request body is not valid JSON…". (F-25)
+
+> ⚠ **The five bulk actions, the import and the export share one rate-limit bucket**, 10 requests per 60 seconds per
+> client — not 10 each. A screen that offers several of these needs one shared client-side budget, not one per
+> button.
+
+> ⚠ **A 200 from a bulk action or the import is not "it worked"** — it is a per-row report, success and failure
+> mixed. Read `failed`/`items`/`rows` before telling the admin the action succeeded.
+
+> ⚠ **`GET /categories/{id}/stats` is the one admin-only Catalog read the gateway does not gate**: it falls under the
+> anonymous categories-read route, and only Catalog's own `Admin` check refuses an unauthorized caller. No live gap
+> was found (401/403 both observed), but a future change to the gateway's route table that assumes every
+> `/api/v1/categories/**` GET is safe to leave ungated would be wrong for this one path. (F-44)
 
 ---
 
