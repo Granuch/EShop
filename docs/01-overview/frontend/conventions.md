@@ -5,7 +5,7 @@ an endpoint departs from them.
 
 **Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`, and
 the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation-errors-three-shapes) were corrected at
-`1fcb630`.
+`1fcb630`; the login-throttle sentence in §7 was updated at `bb8c148`.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -616,8 +616,8 @@ Every limiter is a **fixed window**.
 | Catalog | `search` | **30 / 60 s** | `GET /api/v1/products`, `GET /api/v1/products/newest` |
 | Catalog | `bulk` | **10 / 60 s** | Bulk actions, import and export |
 
-Separately from these limiters, Identity's login blocks an account after three failures. That answers
-**401 `Auth.TooManyAttempts`**, with a wait time in `detail` that does not mean anything (F-28); see
+Separately from these limiters, Identity's login throttles an account after three failures and locks it for 10 minutes
+after five. That answers **401 `Auth.TooManyAttempts`**, with the real time left in `detail`; see
 [identity.md](identity.md#failed-logins-and-lockout).
 
 What a 429 looks like depends on where it comes from:

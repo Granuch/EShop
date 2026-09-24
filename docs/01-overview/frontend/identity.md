@@ -3,7 +3,7 @@
 Accounts, sign-in, tokens, two-factor authentication and the user's own profile, plus the admin user and role
 management screens.
 
-**Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23). Every endpoint was checked against the C# source and
+**Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23); [Failed logins and lockout](#failed-logins-and-lockout) was re-verified after the F-28 fix, at `bb8c148`. Every endpoint was checked against the C# source and
 the service's OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors,
 paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
@@ -138,7 +138,7 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
 | 400 | `ValidationError` | Shape (c): the body is not JSON |
 | 401 | `Auth.InvalidCredentials` | `detail` `"Invalid email or password"`. Wrong password, unknown email, **and also** a deactivated, deleted or admin-locked account. The response never says which |
 | 401 | `Auth.Invalid2FA` | `twoFactorCode` was sent and is wrong |
-| 401 | `Auth.TooManyAttempts` | The account or the client IP is blocked after failed logins. See [Failed logins and lockout](#failed-logins-and-lockout) |
+| 401 | `Auth.TooManyAttempts` | The account is in its post-failure delay or locked, or the client IP is blocked. See [Failed logins and lockout](#failed-logins-and-lockout) |
 | 429 | `Request.RateLimited` | `login` bucket spent |
 
 - **Side effects.** A successful login records `lastLoginAt` and the client IP, and resets the account's failed-login
@@ -425,27 +425,40 @@ Treat any of these as "sign the user out". (F-34)
 
 ### Failed logins and lockout
 
-Separately from the rate limits, login tracks failed attempts per account (by email) and per client IP. The counters
+Separately from the rate limits, login counts failed attempts per account (by email) and per client IP. The counters
 live for **15 minutes after the last failure**.
 
-| Failures | Effect on the next login |
+| Failures for one email | Effect on the next login |
 |---|---|
-| 3 for one email | **Every** login for that email is refused with 401 `Auth.TooManyAttempts`, **including one with the right password**, until 15 minutes pass with no new failure. `detail` says `"Too many failed attempts. Please wait 2 seconds before trying again"` |
-| 10 from one IP, across several emails | Every login from that IP is refused for 30 minutes, with `detail` `"This IP address has been temporarily blocked…"` (from source) |
+| 1–2 | None |
+| 3 | Refused with 401 `Auth.TooManyAttempts` until **2 s** after the third failure |
+| 4 | Refused until **4 s** after the fourth failure |
+| 5 | **Locked for 10 minutes**: 401 `Auth.TooManyAttempts`, `detail` `"This account has been temporarily locked due to repeated failed login attempts"` |
+| each further failure, once the lock has ended | Locked for another 10 minutes, as long as the counter lives (from source) |
 
-The source also has a 10-minute lock after 5 failures and a rule for failures from 5 different IPs. In practice
-neither is reached: after the third failure, the block above refuses logins before they are counted.
+- **The wait in `detail` is the time left.** A throttled login answers `"Too many failed attempts. Please wait N seconds
+  before trying again"`, where N is the time left of the delay, rounded up. Waiting N seconds and retrying gives a real
+  attempt. A countdown is fine. Each login takes about a second (see the padding above), so the first wait usually
+  reads `1`, and the message then says "1 seconds". Observed at `bb8c148`:
+  - three failures, then the right password → 401 "wait 1 seconds", then after 1.4 s → 200;
+  - a fourth failure after the delay → "wait 3 seconds";
+  - a fifth failure after that → locked, still locked 5 s later;
+  - admin `unlock` → the next login is 200.
+- **During the wait, even the right password is refused**, because the password is not checked. The refusal is not
+  counted as a failure.
+- **Other blocks** (from source):
+  - 10 failures from one IP, across several emails, block that IP for 30 minutes
+    (`"This IP address has been temporarily blocked…"`);
+  - failures for one email from 5 different IPs answer `"Unusual login pattern detected…"`.
+- **Who can clear it.** A successful login clears the account's counter. The admin action
+  [`unlock`](#post-apiv1adminusersidunlock) clears the counter, the delay and the lock (observed). A password reset
+  does not.
+- **What counts.** A wrong password, an unknown email, a disabled or admin-locked account, and a wrong 2FA code all
+  count. Validation errors and throttled refusals do not.
 
-- **Who can clear it.** A successful login clears an account's counter, but a blocked account cannot reach one. The
-  admin action [`unlock`](#post-apiv1adminusersidunlock) clears it (observed). A password reset does not.
-- **What counts.** A wrong password, an unknown email, a disabled or locked account, and a wrong 2FA code all count.
-  Validation errors and refusals by the block itself do not.
-
-> ⚠ **Ignore the number of seconds in `detail`.** It is always the delay for the third failure, and waiting it out
-> changes nothing: observed, the right password 5 s later was still refused, and an account failed by an earlier probe
-> was still refused 11 minutes later. On `Auth.TooManyAttempts`, tell the user to try again later or reset the password.
-> Do not start a countdown. Because unknown emails count too, anyone can block any account this way for 15 minutes.
-> (F-28)
+> ⚠ Unknown emails count too, so anyone who knows an address can put that account into the 10-minute lock with five
+> spaced-out failures. Offer "reset password" and an admin `unlock` path on this error. (Until F-28 was fixed in
+> `bb8c148`, three failures blocked the account for 15 minutes whatever `detail` said.)
 
 ---
 
@@ -1372,9 +1385,10 @@ export interface UserInRole {
 
 ## Frontend notes
 
-> ⚠ **Failed-login block.** Three failed logins block an email for 15 minutes after the last failure, even with the
-> right password, while `detail` says to wait 2 seconds. Show "try again later or reset your password", and offer an
-> admin `unlock`. (F-28)
+> ⚠ **Failed logins.** After three failures a login is refused for a short, growing delay (2 s, then 4 s), and the
+> fifth failure locks the account for 10 minutes. On `Auth.TooManyAttempts`, show `detail` (it gives the real wait)
+> and offer a password reset. See [Failed logins and lockout](#failed-logins-and-lockout).
+> F-28 made this delay real in `bb8c148`; before that it blocked the account for 15 minutes.
 
 > ⚠ **No confirmation email.** Registration's `message` promises one, but none is sent, and `confirm-email` cannot be
 > completed by a user. (F-27, F-30)
