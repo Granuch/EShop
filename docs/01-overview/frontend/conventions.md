@@ -3,7 +3,9 @@
 The rules in this file apply to every service. The per-service files ([README](README.md#file-map)) only record where
 an endpoint departs from them.
 
-**Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`.
+**Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`, and
+the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation-errors-three-shapes) were corrected at
+`1fcb630`.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -123,7 +125,9 @@ as "the JSON was malformed".
 
 ### Dates and times
 
-- Every timestamp is **ISO-8601 in UTC with a `Z` suffix**: `"2026-09-16T10:55:12.139241Z"`.
+- Timestamps are **ISO-8601 in UTC with a `Z` suffix**: `"2026-09-16T10:55:12.139241Z"`.
+- ⚠ The exception is a `DateTimeOffset` field. It is written with a `+00:00` offset and whole seconds:
+  `"2026-09-23T18:59:25+00:00"`. Seen so far on Identity's `lockoutEnd`; each service file marks its own. (F-35)
 - The number of fractional digits varies, because trailing zeros are dropped (`"…52.88013Z"`). Parse with
   `new Date(value)`; never with a fixed-length pattern.
 - Date-only values do not exist in responses.
@@ -240,9 +244,13 @@ a value. Captured from `GET /api/v1/products?pageSize=101`:
  "traceId":"00-5f3491738f7c466e8b427d22d9cdf87f-e4f052773a5defc6-00","errors":{"Name":["Category name is required"]}}
 ```
 
-**(c) Identity's MVC automatic 400.** Returned when an Identity request body cannot be bound at all. `title` carries
-the message, there is no `detail`, and the `errors` keys are binding paths (`$`, `request`). Captured from
-`POST /api/v1/account/change-password` with the body `{`:
+**(c) Identity's MVC automatic 400.** Returned when an Identity request cannot be bound:
+- the body is not JSON;
+- a required string is `null`;
+- a query value has the wrong type (`isActive=yes`, `sortBy=Bogus`).
+
+`title` carries the message and there is no `detail`. The `errors` keys are binding paths (`$`, `request`, `command`) or
+PascalCase property names (`Email`, `SortBy`). Captured from `POST /api/v1/account/change-password` with the body `{`:
 
 ```json
 {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.",
@@ -608,8 +616,9 @@ Every limiter is a **fixed window**.
 | Catalog | `search` | **30 / 60 s** | `GET /api/v1/products`, `GET /api/v1/products/newest` |
 | Catalog | `bulk` | **10 / 60 s** | Bulk actions, import and export |
 
-Separately from these limiters, Identity's login also slows down repeated failures for one account. That answers
-**401 `Auth.TooManyAttempts`** with a wait time in `detail`; see [identity.md](identity.md).
+Separately from these limiters, Identity's login blocks an account after three failures. That answers
+**401 `Auth.TooManyAttempts`**, with a wait time in `detail` that does not mean anything (F-28); see
+[identity.md](identity.md#failed-logins-and-lockout).
 
 What a 429 looks like depends on where it comes from:
 

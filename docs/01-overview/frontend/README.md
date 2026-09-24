@@ -29,7 +29,7 @@ together with [conventions.md](conventions.md).
 | File | State |
 |---|---|
 | [conventions.md](conventions.md) | complete |
-| [identity.md](identity.md) | outline only |
+| [identity.md](identity.md) | complete |
 | [catalog.md](catalog.md) | outline only |
 | [basket.md](basket.md) | outline only |
 | [ordering.md](ordering.md) | outline only |
