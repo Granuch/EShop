@@ -18,9 +18,11 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     private readonly IConnectionMultiplexer? _redis;
     private readonly BruteForceProtectionSettings _settings;
     private readonly ILogger<LoginAttemptTracker> _logger;
+    private readonly TimeProvider _timeProvider;
 
     // Cache key patterns
     private const string AccountAttemptsKey = "account_attempts"; // Failed attempts per account
+    private const string AccountLastFailureKey = "account_last_failure"; // When the account last failed (unix ms)
     private const string IpAttemptsKey = "ip_attempts"; // Failed attempts per IP
     private const string IpSetKey = "account_ips"; // Set of IPs per account
     private const string AccountLockKey = "account_lock"; // Temporary account locks
@@ -30,12 +32,14 @@ public class LoginAttemptTracker : ILoginAttemptTracker
         IDistributedCache cache,
         IOptions<BruteForceProtectionSettings> settings,
         ILogger<LoginAttemptTracker> logger,
-        IConnectionMultiplexer? redis = null)
+        IConnectionMultiplexer? redis = null,
+        TimeProvider? timeProvider = null)
     {
         _cache = cache;
         _redis = redis;
         _settings = settings.Value;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<LoginAttemptValidationResult> ValidateAttemptAsync(
@@ -102,19 +106,41 @@ public class LoginAttemptTracker : ILoginAttemptTracker
                 isSuspicious: true);
         }
 
-        // 5. Apply progressive throttling if threshold exceeded
+        // 5. Apply progressive throttling if threshold exceeded.
+        //
+        // The delay runs from the LAST failure, and the attempt is refused only while it is still
+        // running. This used to refuse every attempt once the counter reached the threshold, with no
+        // clock involved: the counter stayed at the threshold (a refusal is not a failure, so it is
+        // never counted), the account was blocked until the counter's 15-minute TTL expired, the
+        // right password was refused all along, and the message's "wait N seconds" meant nothing
+        // (F-28). It also made the lockout below unreachable, since no attempt past the threshold
+        // was ever evaluated. Now a caller who waits the delay gets a real attempt, a failure there
+        // is counted, and MaxFailedAttemptsBeforeLockout is what finally stops a guesser.
         if (failedAttempts >= _settings.MaxFailedAttemptsBeforeThrottle)
         {
             var throttleDelay = CalculateThrottleDelay(failedAttempts);
+            var lastFailure = await GetLastFailureAsync(hashedIdentifier, cancellationToken);
 
-            _logger.LogInformation(
-                "Progressive throttling applied. HashedIdentifier={HashedIdentifier}, IP={IpAddress}, FailedAttempts={FailedAttempts}, DelaySeconds={DelaySeconds}",
-                hashedIdentifier, ipAddress, failedAttempts, throttleDelay);
+            // No timestamp means the counter predates this key (or the key was lost): let the
+            // attempt through rather than block on a delay that can never be shown to have elapsed.
+            // A failure is still counted, so the lockout remains in force.
+            var remaining = lastFailure is { } failedAt
+                ? failedAt.AddSeconds(throttleDelay) - _timeProvider.GetUtcNow()
+                : TimeSpan.Zero;
 
-            return LoginAttemptValidationResult.Throttled(
-                throttleDelay,
-                failedAttempts,
-                $"Too many failed attempts. Please wait {throttleDelay} seconds before trying again");
+            if (remaining > TimeSpan.Zero)
+            {
+                var remainingSeconds = (int)Math.Ceiling(remaining.TotalSeconds);
+
+                _logger.LogInformation(
+                    "Progressive throttling applied. HashedIdentifier={HashedIdentifier}, IP={IpAddress}, FailedAttempts={FailedAttempts}, DelaySeconds={DelaySeconds}, RemainingSeconds={RemainingSeconds}",
+                    hashedIdentifier, ipAddress, failedAttempts, throttleDelay, remainingSeconds);
+
+                return LoginAttemptValidationResult.Throttled(
+                    remainingSeconds,
+                    failedAttempts,
+                    $"Too many failed attempts. Please wait {remainingSeconds} seconds before trying again");
+            }
         }
 
         // All checks passed
@@ -133,6 +159,9 @@ public class LoginAttemptTracker : ILoginAttemptTracker
             GetCacheKey(AccountAttemptsKey, hashedIdentifier),
             _settings.AttemptTrackingWindowMinutes,
             cancellationToken);
+
+        // Start of the throttle delay (see ValidateAttemptAsync step 5). Same lifetime as the counter.
+        await SetLastFailureAsync(hashedIdentifier, cancellationToken);
 
         // Increment IP-level counter
         var ipAttempts = await IncrementCounterAsync(
@@ -188,6 +217,7 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     {
         var hashedIdentifier = IdentifierHasher.HashShort(identifier);
         var accountAttemptsKey = GetCacheKey(AccountAttemptsKey, hashedIdentifier);
+        var lastFailureKey = GetCacheKey(AccountLastFailureKey, hashedIdentifier);
         var ipSetKey = GetCacheKey(IpSetKey, hashedIdentifier);
         var accountLockKey = GetCacheKey(AccountLockKey, hashedIdentifier);
 
@@ -197,6 +227,7 @@ public class LoginAttemptTracker : ILoginAttemptTracker
             await db.KeyDeleteAsync(new RedisKey[]
             {
                 accountAttemptsKey,
+                lastFailureKey,
                 ipSetKey,
                 accountLockKey
             });
@@ -209,6 +240,7 @@ public class LoginAttemptTracker : ILoginAttemptTracker
 
         // Remove all tracking entries for this account
         await _cache.RemoveAsync(accountAttemptsKey, cancellationToken);
+        await _cache.RemoveAsync(lastFailureKey, cancellationToken);
         await _cache.RemoveAsync(ipSetKey, cancellationToken);
         await _cache.RemoveAsync(accountLockKey, cancellationToken);
 
@@ -331,6 +363,47 @@ public class LoginAttemptTracker : ILoginAttemptTracker
         }
     }
 
+    private async Task<DateTimeOffset?> GetLastFailureAsync(string hashedIdentifier, CancellationToken cancellationToken)
+    {
+        var key = GetCacheKey(AccountLastFailureKey, hashedIdentifier);
+
+        string? value;
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            var redisValue = await db.StringGetAsync(key);
+            value = redisValue.HasValue ? redisValue.ToString() : null;
+        }
+        else
+        {
+            value = await _cache.GetStringAsync(key, cancellationToken);
+        }
+
+        return long.TryParse(value, out var unixMs)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(unixMs)
+            : null;
+    }
+
+    private async Task SetLastFailureAsync(string hashedIdentifier, CancellationToken cancellationToken)
+    {
+        var key = GetCacheKey(AccountLastFailureKey, hashedIdentifier);
+        var value = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds().ToString();
+        var lifetime = TimeSpan.FromMinutes(_settings.AttemptTrackingWindowMinutes);
+
+        if (_redis != null)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(key, value, lifetime);
+            return;
+        }
+
+        await _cache.SetStringAsync(
+            key,
+            value,
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = lifetime },
+            cancellationToken);
+    }
+
     private async Task<int> IncrementCounterAsync(string key, int expirationMinutes, CancellationToken cancellationToken)
     {
         if (_redis != null)
@@ -437,13 +510,17 @@ public class LoginAttemptTracker : ILoginAttemptTracker
     /// Calculates progressive throttle delay using exponential backoff.
     /// Formula: BaseDelay * 2^(attempts - threshold)
     /// Capped at MaxThrottleDelaySeconds to prevent excessive delays.
-    /// 
+    ///
     /// Example with defaults (base=2s, threshold=3):
     /// - 3 attempts: 2s
     /// - 4 attempts: 4s
     /// - 5 attempts: 8s
     /// - 6 attempts: 16s
     /// - 7+ attempts: 30s (capped)
+    ///
+    /// The delay is measured from the last failed attempt. With the default
+    /// MaxFailedAttemptsBeforeLockout of 5, the fifth failure locks the account for
+    /// TemporaryLockoutMinutes, so the longer delays apply only after that lock has expired.
     /// </summary>
     private int CalculateThrottleDelay(int failedAttempts)
     {
