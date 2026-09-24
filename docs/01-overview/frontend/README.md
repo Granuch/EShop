@@ -30,7 +30,7 @@ together with [conventions.md](conventions.md).
 |---|---|
 | [conventions.md](conventions.md) | complete |
 | [identity.md](identity.md) | complete |
-| [catalog.md](catalog.md) | outline only |
+| [catalog.md](catalog.md) | products and categories complete; bulk actions, import/export, low stock, category statistics and cache pending |
 | [basket.md](basket.md) | outline only |
 | [ordering.md](ordering.md) | outline only |
 | [payment.md](payment.md) | outline only |
@@ -147,4 +147,4 @@ which the payment flow needs.
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-23
+**Last Updated**: 2026-09-24
