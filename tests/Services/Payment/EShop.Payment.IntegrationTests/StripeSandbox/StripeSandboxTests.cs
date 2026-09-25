@@ -360,4 +360,75 @@ public class StripeSandboxTests
             await RefundUnderAFreshKeyAsync(intent.Id);
         }
     }
+
+    /// <summary>
+    /// frontend-contracts F-47. When an order's items change after the customer opened the payment form, Payment changes
+    /// the open intent's amount. Checked against Stripe: the update is accepted, the client secret still pays the same
+    /// intent, and a card confirmed afterwards is charged the <b>new</b> amount.
+    /// </summary>
+    [Test]
+    public async Task OurAmountUpdate_OfAnOpenIntent_IsWhatTheCardIsThenCharged()
+    {
+        var intents = new PaymentIntentService(_client);
+        var intent = await AnUncapturedIntentAsync();
+        PaymentIntent? paid = null;
+        try
+        {
+            var status = await _service.UpdatePaymentIntentAmountAsync(intent.Id, 12.34m, "USD");
+            var updated = await intents.GetAsync(intent.Id);
+
+            paid = await intents.ConfirmAsync(intent.Id, new PaymentIntentConfirmOptions { PaymentMethod = "pm_card_visa" });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(status, Is.EqualTo("requires_payment_method"));
+                Assert.That(updated.Amount, Is.EqualTo(1234));
+                Assert.That(updated.ClientSecret, Is.EqualTo(intent.ClientSecret), "the customer's open form keeps working");
+                Assert.That(paid.Status, Is.EqualTo("succeeded"));
+                Assert.That(paid.AmountReceived, Is.EqualTo(1234), "the card was charged the revised amount");
+            });
+        }
+        finally
+        {
+            if (paid?.Status == "succeeded")
+            {
+                await RefundUnderAFreshKeyAsync(intent.Id);
+            }
+            else
+            {
+                await intents.CancelAsync(intent.Id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// frontend-contracts F-47. Once the card has been charged, Stripe refuses to change the amount, and our service
+    /// reports that as <see cref="PaymentIntentNotUpdatableException"/> — the deterministic refusal the consumer
+    /// dead-letters — rather than as a transient error it would retry.
+    /// </summary>
+    [Test]
+    public async Task OurAmountUpdate_OfACapturedIntent_IsRefusedAsNotUpdatable()
+    {
+        var intent = await ACapturedPaymentAsync();
+        try
+        {
+            Assert.ThrowsAsync<PaymentIntentNotUpdatableException>(
+                () => _service.UpdatePaymentIntentAmountAsync(intent.Id, 12.34m, "USD"));
+        }
+        finally
+        {
+            await RefundUnderAFreshKeyAsync(intent.Id);
+        }
+    }
+
+    /// <summary>frontend-contracts F-47. The same refusal for an intent that was cancelled.</summary>
+    [Test]
+    public async Task OurAmountUpdate_OfACanceledIntent_IsRefusedAsNotUpdatable()
+    {
+        var intent = await AnUncapturedIntentAsync();
+        await new PaymentIntentService(_client).CancelAsync(intent.Id);
+
+        Assert.ThrowsAsync<PaymentIntentNotUpdatableException>(
+            () => _service.UpdatePaymentIntentAmountAsync(intent.Id, 12.34m, "USD"));
+    }
 }

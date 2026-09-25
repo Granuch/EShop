@@ -90,10 +90,84 @@ public class StripeProviderCallsTests
         var keys = _stripe.Calls.Select(c => c.IdempotencyKey).ToList();
         Assert.Multiple(() =>
         {
-            Assert.That(keys[0], Is.EqualTo($"payment-intent-{paymentId}"));
+            Assert.That(keys[0], Is.EqualTo($"payment-intent-{paymentId}-1000"), "the payment and its amount in cents");
             Assert.That(keys[1], Is.EqualTo(keys[0]), "a retry for the same payment");
             Assert.That(keys[2], Is.Not.EqualTo(keys[0]), "another payment");
         });
+    }
+
+    /// <summary>
+    /// frontend-contracts F-47. A payment's amount can change after an attempt to create its intent, and Stripe refuses
+    /// a key reused with different parameters for 24 hours. Keyed by payment alone, the retry at the new amount would
+    /// have been refused for a day.
+    /// </summary>
+    [Test]
+    public async Task ANewAmount_GetsANewKey_SoStripeDoesNotRefuseTheRetry()
+    {
+        _stripe.Respond = _ => FakeStripe.Json(HttpStatusCode.OK,
+            """{"id":"pi_1","object":"payment_intent","client_secret":"pi_1_secret_x","status":"requires_payment_method"}""");
+        var paymentId = Guid.NewGuid();
+
+        await Payments().CreatePaymentIntentAsync(IntentFor(paymentId) with { Amount = 591.99m });
+        await Payments().CreatePaymentIntentAsync(IntentFor(paymentId) with { Amount = 675.99m });
+
+        Assert.That(_stripe.Calls.Select(c => c.IdempotencyKey), Is.EqualTo(new[]
+        {
+            $"payment-intent-{paymentId}-59199",
+            $"payment-intent-{paymentId}-67599"
+        }));
+    }
+
+    /// <summary>
+    /// frontend-contracts F-47. The order's new total goes to Stripe in cents, on the intent the customer already holds,
+    /// under no key of ours: a later revision to another amount must not be refused as a reused key. (Stripe.net sends
+    /// a random key per request, so two identical calls carry different keys.)
+    /// </summary>
+    [Test]
+    public async Task AnAmountUpdate_PostsTheNewAmountInCents_ToTheSameIntent()
+    {
+        _stripe.Respond = _ => FakeStripe.Json(HttpStatusCode.OK,
+            """{"id":"pi_1","object":"payment_intent","amount":67599,"status":"requires_payment_method"}""");
+
+        var status = await Payments().UpdatePaymentIntentAmountAsync("pi_1", 675.99m, "USD");
+        await Payments().UpdatePaymentIntentAmountAsync("pi_1", 675.99m, "USD");
+
+        var call = _stripe.Calls[0];
+        Assert.Multiple(() =>
+        {
+            Assert.That(status, Is.EqualTo("requires_payment_method"));
+            Assert.That(call.Path, Is.EqualTo("/v1/payment_intents/pi_1"));
+            Assert.That(call.Body, Does.Contain("amount=67599"));
+            Assert.That(call.Body, Does.Contain("currency=usd"));
+            Assert.That(call.IdempotencyKey, Does.Not.StartWith("payment-intent-"));
+            Assert.That(_stripe.Calls[1].IdempotencyKey, Is.Not.EqualTo(call.IdempotencyKey), "no deterministic key of ours");
+        });
+    }
+
+    /// <summary>
+    /// frontend-contracts F-47. Stripe refusing the change because of the intent's state (it succeeded, is processing,
+    /// or was cancelled) is deterministic, so it is a typed refusal the consumer dead-letters, not a retry.
+    /// </summary>
+    [Test]
+    public void AnAmountUpdateStripeRefusesForTheIntentsState_IsNotUpdatable()
+    {
+        _stripe.Respond = _ => FakeStripe.Json(HttpStatusCode.BadRequest,
+            """{"error":{"type":"invalid_request_error","code":"payment_intent_unexpected_state","message":"This PaymentIntent's amount could not be updated because it has a status of succeeded."}}""");
+
+        var ex = Assert.ThrowsAsync<PaymentIntentNotUpdatableException>(
+            () => Payments().UpdatePaymentIntentAmountAsync("pi_1", 675.99m, "USD"));
+
+        Assert.That(ex!.StripeMessage, Does.Contain("status of succeeded"));
+    }
+
+    [TestCase(HttpStatusCode.ServiceUnavailable, "api_error")]
+    [TestCase(HttpStatusCode.TooManyRequests, "rate_limit_error")]
+    public void AnAmountUpdateARetryCanFix_IsProviderUnavailable(HttpStatusCode status, string type)
+    {
+        _stripe.Respond = _ => FakeStripe.Error(status, type);
+
+        Assert.ThrowsAsync<PaymentProviderUnavailableException>(
+            () => Payments().UpdatePaymentIntentAmountAsync("pi_1", 675.99m, "USD"));
     }
 
     [Test]
@@ -136,6 +210,7 @@ public class StripeProviderCallsTests
         await payments.CreateRefundAsync("pi_1", 10m, "USD");
         await payments.GetPaymentIntentStatusAsync("pi_1");
         await payments.CancelPaymentIntentAsync("pi_1");
+        await payments.UpdatePaymentIntentAmountAsync("pi_1", 12m, "USD");
         await Customers(NoCustomerYet()).CreateOrGetCustomerAsync("user-1", null);
 
         Assert.Multiple(() =>
@@ -147,6 +222,7 @@ public class StripeProviderCallsTests
                 "/v1/payment_intents/pi_1",
                 "/v1/payment_intents/pi_1",
                 "/v1/payment_intents/pi_1/cancel",
+                "/v1/payment_intents/pi_1",
                 "/v1/customers"
             }));
             Assert.That(StripeConfiguration.ApiKey, Is.EqualTo(ProcessWideKey),
@@ -207,7 +283,7 @@ public class StripeProviderCallsTests
     /// <summary>Records each request's path and idempotency key, and answers with <see cref="Respond"/>.</summary>
     private sealed class FakeStripe : HttpMessageHandler
     {
-        public List<(string Path, string? IdempotencyKey)> Calls { get; } = [];
+        public List<(string Path, string? IdempotencyKey, string Body)> Calls { get; } = [];
 
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => Json(HttpStatusCode.OK, "{}");
@@ -221,7 +297,8 @@ public class StripeProviderCallsTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var key = request.Headers.TryGetValues("Idempotency-Key", out var values) ? values.FirstOrDefault() : null;
-            Calls.Add((request.RequestUri!.AbsolutePath, key));
+            var body = request.Content is null ? string.Empty : request.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult();
+            Calls.Add((request.RequestUri!.AbsolutePath, key, body));
             return Task.FromResult(Respond(request));
         }
     }

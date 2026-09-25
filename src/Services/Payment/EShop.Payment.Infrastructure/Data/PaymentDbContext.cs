@@ -56,6 +56,11 @@ public class PaymentDbContext : BaseDbContext
                 .HasColumnType("decimal(18,2)")
                 .IsRequired();
 
+            // frontend-contracts F-47: when the order's total became Amount. Null while it is the creation total, so
+            // existing rows need no backfill.
+            entity.Property(x => x.AmountAsOf)
+                .HasColumnType("timestamp with time zone");
+
             entity.Property(x => x.Currency)
                 .HasMaxLength(3)
                 .IsRequired();

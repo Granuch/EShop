@@ -40,6 +40,21 @@ public interface IStripePaymentService
     Task<StripePaymentIntentCancelResult> CancelPaymentIntentAsync(
         string paymentIntentId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes the amount of an intent the customer has not paid yet, so an open payment form charges the order's
+    /// new total (frontend-contracts F-47). The client secret does not change. Returns the intent's status.
+    /// </summary>
+    /// <exception cref="PaymentIntentNotUpdatableException">
+    /// Stripe refused because of the intent's state: it is processing, has succeeded, or was cancelled, so the old
+    /// amount stands. Deterministic: retrying cannot change the answer.
+    /// </exception>
+    /// <remarks>A failure to reach Stripe is <see cref="PaymentProviderUnavailableException"/> and is retried.</remarks>
+    Task<string> UpdatePaymentIntentAmountAsync(
+        string paymentIntentId,
+        decimal amount,
+        string currency,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record StripePaymentIntentRequest(

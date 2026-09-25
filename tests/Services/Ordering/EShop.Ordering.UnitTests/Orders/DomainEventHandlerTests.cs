@@ -228,3 +228,48 @@ public class OrderShippedDomainEventHandlerTests
             It.IsAny<string>()), Times.Once);
     }
 }
+
+/// <summary>
+/// frontend-contracts F-47. The integration event carries the instant the items changed, not the instant this handler
+/// ran in the outbox processor: Payment orders competing totals by it.
+/// </summary>
+[TestFixture]
+public class OrderTotalChangedDomainEventHandlerTests
+{
+    [Test]
+    public async Task Handle_EnqueuesTheNewTotal_AsOfTheChangeItself()
+    {
+        var outbox = new Mock<IIntegrationEventOutbox>();
+        var currentUser = new Mock<ICurrentUserContext>();
+        currentUser.Setup(x => x.CorrelationId).Returns("corr-47");
+        var handler = new OrderTotalChangedDomainEventHandler(
+            outbox.Object, currentUser.Object, Mock.Of<ILogger<OrderTotalChangedDomainEventHandler>>());
+
+        OrderTotalChangedEvent? enqueued = null;
+        outbox
+            .Setup(x => x.Enqueue(It.IsAny<OrderTotalChangedEvent>(), It.IsAny<string>()))
+            .Callback<object, string>((e, _) => enqueued = (OrderTotalChangedEvent)e);
+
+        var orderId = Guid.NewGuid();
+        var changedAt = new DateTime(2026, 9, 25, 10, 34, 15, DateTimeKind.Utc);
+
+        await handler.Handle(new OrderTotalChangedDomainEvent
+        {
+            OrderId = orderId,
+            UserId = "user-1",
+            NewTotal = 675.99m,
+            OccurredOn = changedAt
+        }, CancellationToken.None);
+
+        Assert.That(enqueued, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(enqueued!.OrderId, Is.EqualTo(orderId));
+            Assert.That(enqueued.UserId, Is.EqualTo("user-1"));
+            Assert.That(enqueued.NewTotal, Is.EqualTo(675.99m));
+            Assert.That(enqueued.Currency, Is.EqualTo("USD"));
+            Assert.That(enqueued.TotalAsOf, Is.EqualTo(changedAt), "the change's instant, not the handler's");
+            Assert.That(enqueued.CorrelationId, Is.EqualTo("corr-47"));
+        });
+    }
+}

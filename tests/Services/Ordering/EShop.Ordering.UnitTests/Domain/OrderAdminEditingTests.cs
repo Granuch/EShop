@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Domain.Exceptions;
 using EShop.Ordering.Domain.Entities;
+using EShop.Ordering.Domain.Events;
 using EShop.Ordering.Domain.ValueObjects;
 
 namespace EShop.Ordering.UnitTests.Domain;
@@ -161,15 +162,20 @@ public class OrderAdminEditingTests
         Assert.That(order.TotalPrice, Is.EqualTo(8_000_000_000_000_000m));
     }
 
+    /// <summary>
+    /// frontend-contracts F-47. This test used to assert that no event was raised at all, which is exactly why Payment
+    /// kept charging the old total. Payment's <c>OrderTotalChangedConsumer</c> now consumes the one it raises.
+    /// </summary>
     [Test]
-    public void UpdateItemQuantity_RaisesNoDomainEvent()
+    public void UpdateItemQuantity_RaisesOnlyTheTotalChange()
     {
         var order = PendingOrder();
         order.ClearDomainEvents();
 
         order.UpdateItemQuantity(order.Items.First().Id, 4);
 
-        Assert.That(order.DomainEvents, Is.Empty);
+        Assert.That(order.DomainEvents, Has.Count.EqualTo(1));
+        Assert.That(order.DomainEvents[0], Is.InstanceOf<OrderTotalChangedDomainEvent>());
     }
 
     #endregion

@@ -154,6 +154,7 @@ public static class ServiceCollectionExtensions
             {
                 bus.AddConsumer<OrderCreatedConsumer>();
                 bus.AddConsumer<OrderCancelledConsumer>();
+                bus.AddConsumer<OrderTotalChangedConsumer>();
             });
 
         return services;

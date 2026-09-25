@@ -57,7 +57,7 @@ public sealed class StripePaymentService : IStripePaymentService
                         ["userId"] = request.UserId
                     }
                 },
-                new RequestOptions { IdempotencyKey = IntentIdempotencyKey(request.PaymentId) },
+                new RequestOptions { IdempotencyKey = IntentIdempotencyKey(request.PaymentId, amountMinor) },
                 cancellationToken);
         }
         catch (Exception ex) when (StripeErrors.IsTransient(ex, cancellationToken))
@@ -71,8 +71,48 @@ public sealed class StripePaymentService : IStripePaymentService
             intent.Status ?? string.Empty);
     }
 
-    /// <summary>The idempotency key for a payment's intent: one payment, one intent.</summary>
-    public static string IntentIdempotencyKey(Guid paymentId) => $"payment-intent-{paymentId}";
+    /// <summary>
+    /// The idempotency key for a payment's intent: one payment, one intent — for one amount.
+    /// <para>The amount is part of the key since frontend-contracts F-47. A payment's amount can now change after an
+    /// attempt to create its intent (the order's items changed), and Stripe refuses a key reused with different
+    /// parameters for 24 hours. Keyed by payment alone, a create-intent that lost its save to the amount revision
+    /// would have cancelled its intent, and every retry at the new amount would then have been refused for a day. A
+    /// retry at the same amount still gets the same intent back.</para>
+    /// </summary>
+    public static string IntentIdempotencyKey(Guid paymentId, long amountMinor) => $"payment-intent-{paymentId}-{amountMinor}";
+
+    public async Task<string> UpdatePaymentIntentAmountAsync(
+        string paymentIntentId,
+        decimal amount,
+        string currency,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedCurrency = NormalizeCurrency(currency);
+        var amountMinor = ConvertToMinorUnits(amount, normalizedCurrency);
+
+        try
+        {
+            // No idempotency key of ours: setting an amount is idempotent by nature, and Stripe would refuse a key of
+            // ours reused for a later revision to a different amount. Stripe.net sends a random one per request.
+            var intent = await new PaymentIntentService(_client).UpdateAsync(
+                paymentIntentId,
+                new PaymentIntentUpdateOptions { Amount = amountMinor, Currency = normalizedCurrency },
+                cancellationToken: cancellationToken);
+
+            return intent.Status ?? string.Empty;
+        }
+        catch (StripeException ex) when (IsUnexpectedState(ex))
+        {
+            throw new PaymentIntentNotUpdatableException(
+                paymentIntentId,
+                ex.StripeError?.Message ?? ex.Message,
+                ex);
+        }
+        catch (Exception ex) when (StripeErrors.IsTransient(ex, cancellationToken))
+        {
+            throw new PaymentProviderUnavailableException("update payment intent amount", ex);
+        }
+    }
 
     public async Task<StripeRefundResult> CreateRefundAsync(
         string paymentIntentId,

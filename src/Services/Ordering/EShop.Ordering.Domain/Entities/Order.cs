@@ -125,8 +125,10 @@ public class Order : AggregateRoot<Guid>
 
         var item = new OrderItem(productId, productName, unitPrice, quantity);
         EnsureStorable(TotalPrice + item.SubTotal);
+        var previousTotal = TotalPrice;
         _items.Add(item);
         RecalculateTotal();
+        RaiseTotalChangedIfMoved(previousTotal);
     }
 
     public void RemoveItem(Guid itemId)
@@ -139,9 +141,11 @@ public class Order : AggregateRoot<Guid>
         var item = _items.FirstOrDefault(i => i.Id == itemId)
             ?? throw new DomainException("Order item not found.");
 
+        var previousTotal = TotalPrice;
         _items.Remove(item);
 
         RecalculateTotal();
+        RaiseTotalChangedIfMoved(previousTotal);
     }
 
     /// <summary>
@@ -173,8 +177,10 @@ public class Order : AggregateRoot<Guid>
         // leaves the order exactly as it was — the same ordering AddItem uses.
         EnsureStorable(TotalPrice - item.SubTotal + (item.UnitPrice * quantity));
 
+        var previousTotal = TotalPrice;
         item.ChangeQuantity(quantity);
         RecalculateTotal();
+        RaiseTotalChangedIfMoved(previousTotal);
     }
 
     /// <summary>
@@ -370,6 +376,28 @@ public class Order : AggregateRoot<Guid>
     private void RecalculateTotal()
     {
         TotalPrice = _items.Sum(i => i.SubTotal);
+    }
+
+    /// <summary>
+    /// Tells Payment the order now costs something else (frontend-contracts F-47). Payment charges the amount it
+    /// recorded when the order was created, and <see cref="MarkAsPaid"/> refuses any payment that differs from
+    /// <see cref="TotalPrice"/>. So an item change it never heard about left a paid order Pending for good.
+    /// <para>Only when the total actually moved: setting a line to the quantity it already has, or swapping lines of
+    /// equal value, changes nothing Payment needs to know.</para>
+    /// </summary>
+    private void RaiseTotalChangedIfMoved(decimal previousTotal)
+    {
+        if (TotalPrice == previousTotal)
+        {
+            return;
+        }
+
+        AddDomainEvent(new OrderTotalChangedDomainEvent
+        {
+            OrderId = Id,
+            UserId = UserId,
+            NewTotal = TotalPrice
+        });
     }
 
     /// <summary>

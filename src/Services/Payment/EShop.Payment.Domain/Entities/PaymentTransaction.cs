@@ -29,6 +29,16 @@ public class PaymentTransaction
     /// </summary>
     public string? StripeCustomerId { get; internal set; }
     public decimal Amount { get; internal set; }
+
+    /// <summary>
+    /// When the order's total became <see cref="Amount"/>, as Ordering reported it in <c>OrderTotalChangedEvent</c>
+    /// (frontend-contracts F-47). <c>null</c> while the amount is still the total the order was created with.
+    /// <para>It exists only to order competing revisions: two changes to one order can be consumed in either order
+    /// (concurrent consumers, a retried message), and a revision no newer than this one is ignored rather than
+    /// allowed to put an older total back.</para>
+    /// </summary>
+    public DateTime? AmountAsOf { get; internal set; }
+
     public string Currency { get; internal set; } = "USD";
     public PaymentMethodType PaymentMethod { get; internal set; } = PaymentMethodType.Mock;
     public string PaymentIntentId { get; internal set; } = string.Empty;
@@ -287,6 +297,63 @@ public class PaymentTransaction
             Status,
             $"Stripe payment intent '{paymentIntentId}' created; Stripe reports '{stripeStatus}'.",
             now);
+    }
+
+    /// <summary>
+    /// True when <paramref name="asOf"/> is no newer than the total this payment already reflects, so a revision
+    /// carrying it must be ignored (frontend-contracts F-47).
+    /// </summary>
+    public bool AlreadyReflectsTotalAsOf(DateTime asOf) => AmountAsOf is { } current && current >= asOf;
+
+    /// <summary>
+    /// The order's total changed while it was still Pending, and this payment must charge the new one
+    /// (frontend-contracts F-47). Allowed only while nothing has been captured at the old amount:
+    /// <list type="bullet">
+    ///   <item>a Pending payment, with no attempt at any provider yet;</item>
+    ///   <item>a Processing Stripe payment whose intent the caller has <b>already</b> updated at Stripe, so the record
+    ///   and the intent the customer is paying agree.</item>
+    /// </list>
+    /// A simulated payment in flight, or anything settled or closed, is refused: the old amount is already being, or
+    /// has been, charged, and that needs a person.
+    /// <para>The same amount only moves <see cref="AmountAsOf"/> and writes no timeline row, since nothing an operator
+    /// would look for changed.</para>
+    /// </summary>
+    public void ReviseAmount(decimal amount, DateTime asOf, DateTime now)
+    {
+        var revisable = Status == PaymentStatus.Pending
+            || (Status == PaymentStatus.Processing
+                && PaymentMethod == PaymentMethodType.Stripe
+                && !string.IsNullOrEmpty(PaymentIntentId));
+        if (!revisable)
+        {
+            throw Refused(nameof(ReviseAmount));
+        }
+
+        if (amount < 0)
+        {
+            throw new DomainException($"A payment cannot be for a negative amount ({amount}).");
+        }
+
+        if (AlreadyReflectsTotalAsOf(asOf))
+        {
+            throw new DomainException(
+                $"Payment {Id} already reflects the order total as of {AmountAsOf:O}; a revision as of {asOf:O} is older.");
+        }
+
+        var previousAmount = Amount;
+        Amount = amount;
+        AmountAsOf = asOf;
+        UpdatedAt = now;
+
+        if (previousAmount != amount)
+        {
+            Record(
+                PaymentEventKind.Transition,
+                Status,
+                Status,
+                $"Amount revised from {previousAmount} to {amount} {Currency} because the order's items changed.",
+                now);
+        }
     }
 
     /// <summary>
