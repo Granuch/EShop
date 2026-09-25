@@ -5,7 +5,8 @@ an endpoint departs from them.
 
 **Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`, and
 the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation-errors-three-shapes) were corrected at
-`1fcb630`; the login-throttle sentence in §7 was updated at `bb8c148`.
+`1fcb630`; the login-throttle sentence in §7 was updated at `bb8c148`; Ordering's row in
+[§10](#enum-filters) was corrected at `530fe5d`.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -748,7 +749,7 @@ Enum query filters accept different forms per service:
 | Service | Accepts | Rejects |
 |---|---|---|
 | Catalog (`status`) | exact-case name (`Active`) or number (`1`) | `active` → 400 `MalformedRequest` (F-25) |
-| Ordering (`status`) | name, including `Pending` | a number → 400 `Validation.Failed` |
+| Ordering (`status`, and the repeatable `statuses`) | name in any case (`Cancelled`, `cancelled`) | a number → 400 `Validation.Failed` |
 | Payment, Notification (`status`) | name in any case (`PENDING`, `Pending`); the parameter may repeat | a number → 400 `Validation.Failed` |
 
 Send the **exact PascalCase name** everywhere, since every service accepts it. Note that this means sending `Active`
@@ -820,4 +821,4 @@ Captured from the gateway:
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-23
+**Last Updated**: 2026-09-25

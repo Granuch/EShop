@@ -32,7 +32,7 @@ together with [conventions.md](conventions.md).
 | [identity.md](identity.md) | complete |
 | [catalog.md](catalog.md) | complete |
 | [basket.md](basket.md) | complete |
-| [ordering.md](ordering.md) | outline only |
+| [ordering.md](ordering.md) | complete |
 | [payment.md](payment.md) | outline only |
 | [notification.md](notification.md) | outline only |
 | [admin-platform.md](admin-platform.md) | outline only |
@@ -147,4 +147,4 @@ which the payment flow needs.
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-24
+**Last Updated**: 2026-09-25
