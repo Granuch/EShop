@@ -6,7 +6,8 @@ and cancelling. Plus the admin order list, statistics, internal notes, status hi
 **Verified at:** `530fe5d` (`feature/admin-panel`, 2026-09-25). Ordering's code, `BuildingBlocks` and the gateway
 have not changed since `105d647`. Every endpoint in this file was checked against the C# source and the service's
 OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors, paging, rate
-limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
+limits, CORS) are in [conventions.md](conventions.md) and are not repeated here. The item endpoints' effect on payment
+(F-47) was re-verified at `d29a520`, which fixed it.
 
 ## Base paths through the gateway
 
@@ -164,7 +165,8 @@ Every address field is trimmed before it is checked and stored (`" us "` is stor
 | 503 | `Catalog.Unavailable` | Catalog could not be reached to price the order (observed with Catalog stopped). Nothing was created; retry |
 
 - **Side effects:** the order is Pending with one history row. Ordering publishes `OrderCreated`, from which Payment
-  records a pending payment for **this total** about 8 s later, and Notification sends the order confirmation.
+  records a pending payment for this total about 8 s later, and Notification sends the order confirmation. A later
+  item change updates that payment's amount too ([below](#post-apiv1ordersiditems)).
 - Catalog is called once per line, anonymously, over the internal network. So an admin cannot order a draft product
   either.
 
@@ -258,8 +260,13 @@ required), and optionally `orderId`, which must then equal the route's `{id}`.
 | 409 | `Order.NotModifiable` | The order is not Pending: `"Items can only be changed while the order is pending; this order is paid."` |
 | 503 | `Catalog.Unavailable` | Catalog could not be reached (observed) |
 
-> ⚠ **Changing items after checkout breaks payment** (F-47): see [Frontend notes](#frontend-notes). The same applies
-> to the two item endpoints below.
+**Side effects on payment** (this endpoint and the two below): when a change moves `totalPrice`, Payment is told
+asynchronously and charges the new total. Its recorded amount follows within about 2 s (observed), and if the
+customer has already opened a Stripe payment, that same intent is changed to the new amount, so the open payment form
+keeps working and charges the new total. Observed: an order edited from 84.00 to 126.00 after its intent was
+created; the intent at Stripe read 12600 cents a second later, a test card was charged 126.00, and the order became
+Paid. Setting a quantity to the value it already has changes nothing and tells Payment nothing. See
+[Frontend notes](#frontend-notes) for the one case that cannot follow.
 
 ### `PUT /api/v1/orders/{id}/items/{itemId}`
 
@@ -936,13 +943,13 @@ export interface OrderStatusHistoryEntry {
 
 ## Frontend notes
 
-> ⚠ **Do not let a customer change items after checkout, until F-47 is fixed.** Payment records the amount to charge
-> once, from the total at creation, and is never told about later item changes. Paying then charges the **old**
-> total, and when the payment succeeds Ordering refuses it because the amounts differ: the order **stays Pending for
-> good** while Payment reports `SUCCESS`. Observed: an order edited from 591.99 to 675.99 was settled in Payment at
-> 591.99, and Ordering logged "Paid amount 591.99 does not match the order total 675.99" and kept retrying the
-> message. The item endpoints themselves answer 204, so nothing tells the client. Until this is fixed, offer "cancel
-> and order again" instead of editing items. (F-47)
+> ⚠ **Item changes reach Payment a moment later, so do not edit items while the customer is paying.** Payment's amount
+> (and an open Stripe intent) follows an item change within about 2 s. If the card is charged inside that window, or
+> an admin settles the payment first, the old amount has already been taken: the change cannot follow, the order stays
+> Pending, and staff must reconcile it (the message goes to Payment's error queue). The item endpoints still answer
+> 204, so the client cannot tell. In the UI, do not offer item edits on the screen where the card is being confirmed,
+> and after an edit wait until the payment's `amount` equals the order's `totalPrice` before letting the customer
+> confirm. Before `d29a520`, any edit after creation had this outcome. (F-47, fixed)
 
 > ⚠ **Ordering checks no stock and caps no quantity.** `POST /orders`, adding an item and changing a quantity all
 > accept any positive quantity: 50 units of a product with 5 in stock, and 2 147 483 647 units of another, were both
