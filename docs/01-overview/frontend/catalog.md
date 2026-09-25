@@ -1054,7 +1054,7 @@ carries). The admin panel reads the merged trail from the gateway's `GET /api/v1
 
 | Endpoint | Why |
 |---|---|
-| `GET /api/v1/admin/audit` (on Catalog) | Catalog's own slice of the audit trail (`audit.read`). The gateway serves the merged trail at the same path, so this one is unreachable from outside |
+| `GET /api/v1/admin/audit` (on Catalog) | Catalog's own slice of the audit trail (`audit.read`). The gateway serves the merged trail at the same path ([admin-platform.md](admin-platform.md#get-apiv1adminaudit)), so this one is unreachable from outside. Called directly (at `0d87f3b`): admin 200, customer 403, anonymous 401 |
 
 ---
 

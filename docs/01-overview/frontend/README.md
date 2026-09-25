@@ -34,8 +34,8 @@ together with [conventions.md](conventions.md).
 | [basket.md](basket.md) | complete |
 | [ordering.md](ordering.md) | complete |
 | [payment.md](payment.md) | complete |
-| [notification.md](notification.md) | outline only |
-| [admin-platform.md](admin-platform.md) | outline only |
+| [notification.md](notification.md) | complete |
+| [admin-platform.md](admin-platform.md) | complete |
 | [flows.md](flows.md) | outline only |
 | [endpoint-index.md](endpoint-index.md) | outline only |
 

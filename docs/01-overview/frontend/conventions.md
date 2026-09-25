@@ -7,7 +7,9 @@ an endpoint departs from them.
 the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation-errors-three-shapes) were corrected at
 `1fcb630`; the login-throttle sentence in §7 was updated at `bb8c148`; Ordering's row in
 [§10](#enum-filters) was corrected at `530fe5d`; Payment's malformed-query note in §2 and the delays in
-[§9](#9-consistency-and-caching) were updated at `0b7f826`.
+[§9](#9-consistency-and-caching) were updated at `0b7f826`; [§3.2](#32-responses-with-no-body) (the 504 row),
+[§3.4](#34-errorcode-values) (`MalformedRequest`) and [§6.5](#65-audit-page-gatewayauditlogpagedto) were updated at
+`0d87f3b`.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -219,8 +221,9 @@ These responses carry **no body at all**. Handle them from the status code alone
 | 403 | Signed in, but a role or permission is missing, at either layer |
 | 404 | No gateway route matches, or a `{id:guid}` segment is not a GUID |
 | 429 | Rate limited, everywhere except Identity; see [§7](#7-rate-limits) |
-| 400 | Malformed JSON body sent to Basket or Payment (F-20) |
+| 400 | Malformed JSON body sent to Basket or Payment; a query value of the wrong type sent to Payment or to the gateway's audit endpoint (F-20) |
 | 502 | Payment is unreachable; the gateway does not rewrite Payment's 502 (F-13) |
+| 504 | The service did not answer within the gateway's 10 s (every service except Payment, whose route keeps YARP's default of 100 s). Observed on Notification's resend and retry-failed; see [notification.md](notification.md#frontend-notes) (F-56) |
 
 ### 3.3 Validation errors: three shapes
 
@@ -276,7 +279,7 @@ show `detail` as a form-level message.
 |---|---|---|
 | `Validation.Failed` | 400 | Validation shape (a) |
 | `ValidationError` | 400 | Validation shapes (b) and (c) |
-| `MalformedRequest` | 400 | The body is not valid JSON, or has an unknown property (Catalog only). **Also** returned by Catalog for a bad **query** value such as `?status=active`, with a `detail` that wrongly blames the request body (F-25) |
+| `MalformedRequest` | 400 | The body is not valid JSON, or has an unknown property (Catalog only). **Also** returned by Catalog, Ordering and Notification for a **query** value of the wrong type, such as `?status=active` or `?pageSize=abc`, with a `detail` that wrongly blames the request body (F-25) |
 | `DomainError` | 400 | A business rule rejected the request; `detail` says which rule |
 | `NotFound` | 404 | Generic not-found; most services use their own `*.NotFound` code instead |
 | `Unauthorized` | 401 | Authentication was required inside a handler |
@@ -571,7 +574,8 @@ Used by `GET /api/v1/basket/admin/outbox/dead-letters/details`. The parameters a
 
 Used by `GET /api/v1/admin/audit` on the gateway. The parameters are `cursor` and `pageSize` (default 50, 1–100). The
 response is `{ items, nextCursor, unavailableServices }`. `nextCursor` is `null` once every service has been read to
-its end. Details are in [admin-platform.md](admin-platform.md).
+its end, so it **stays non-null while a service is unavailable**: stop paging at an empty page (F-57). Details are in
+[admin-platform.md](admin-platform.md#get-apiv1adminaudit).
 
 ### 6.6 Bare arrays
 
