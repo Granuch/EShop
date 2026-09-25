@@ -33,7 +33,7 @@ together with [conventions.md](conventions.md).
 | [catalog.md](catalog.md) | complete |
 | [basket.md](basket.md) | complete |
 | [ordering.md](ordering.md) | complete |
-| [payment.md](payment.md) | outline only |
+| [payment.md](payment.md) | complete |
 | [notification.md](notification.md) | outline only |
 | [admin-platform.md](admin-platform.md) | outline only |
 | [flows.md](flows.md) | outline only |

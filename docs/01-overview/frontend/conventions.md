@@ -6,7 +6,8 @@ an endpoint departs from them.
 **Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`, and
 the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation-errors-three-shapes) were corrected at
 `1fcb630`; the login-throttle sentence in §7 was updated at `bb8c148`; Ordering's row in
-[§10](#enum-filters) was corrected at `530fe5d`.
+[§10](#enum-filters) was corrected at `530fe5d`; Payment's malformed-query note in §2 and the delays in
+[§9](#9-consistency-and-caching) were updated at `0b7f826`.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -112,7 +113,8 @@ as "the JSON was malformed".
 > ⚠ Only Catalog rejects unknown properties, so a request that works against Ordering can fail against Catalog.
 > (F-02)
 >
-> ⚠ Basket and Payment answer a malformed body with a bare 400: no problem+json, no `errorCode`. (F-20)
+> ⚠ Basket and Payment answer a malformed body with a bare 400: no problem+json, no `errorCode`. Payment answers a
+> query value of the wrong type the same way (`?pageSize=abc`, `?from=yesterday`). (F-20)
 
 ### Identifiers
 
@@ -713,8 +715,9 @@ the call that caused them:
 | Action | What appears later | Observed delay (local stack) |
 |---|---|---|
 | Basket checkout (`POST /basket/{userId}/checkout`) | The order, in `GET /api/v1/users/{userId}/orders` | about 1 s |
-| Order created | Its payment record, in `GET /api/v1/users/{userId}/payments` | about 8 s after the order |
-| Stripe confirms a payment | The order's status becomes Paid | after the Stripe webhook; measured in [payment.md](payment.md) |
+| Order created | Its payment record, in `GET /api/v1/users/{userId}/payments` | 1 s to about 15 s after the order (observed 1 s, 8 s and 14 s) |
+| Stripe confirms a payment | The order's status becomes Paid | about 14 s after Stripe's webhook ([payment.md](payment.md#how-a-customer-pays-the-card-flow)) |
+| An admin refunds a payment | The order's status becomes Refunded | about 9 s after the refund |
 
 Poll with a short back-off (for example 1 s, 2 s, 4 s, up to about 30 s) rather than assuming the result is there.
 [flows.md](flows.md) gives the full sequences.
