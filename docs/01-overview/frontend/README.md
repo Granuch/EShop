@@ -31,7 +31,7 @@ together with [conventions.md](conventions.md).
 | [conventions.md](conventions.md) | complete |
 | [identity.md](identity.md) | complete |
 | [catalog.md](catalog.md) | complete |
-| [basket.md](basket.md) | outline only |
+| [basket.md](basket.md) | complete |
 | [ordering.md](ordering.md) | outline only |
 | [payment.md](payment.md) | outline only |
 | [notification.md](notification.md) | outline only |
