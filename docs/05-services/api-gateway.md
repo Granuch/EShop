@@ -96,9 +96,13 @@ Gateway defines route policies such as:
 - `Authenticated`
 - `Admin`
 
-### Internal Service Resolution
+### Operational Notices
 
-Gateway can resolve account email information through Identity service with internal API key/header configuration.
+The gateway emails operational notices (downstream failures, rate limiting, simulated failures, and successful writes
+under `Gateway:CriticalSuccessPathPrefixes`) to the operators listed in `Gateway:OperationsEmailRecipients`, and to no
+one else. The list is empty in the tracked configuration, so nothing is sent until an operator is configured; compose
+sets it from `GATEWAY_OPERATIONS_EMAIL` (default `ops@eshop.local`, captured by Mailpit). The gateway no longer
+resolves user email addresses through Identity and holds no internal API key.
 
 ---
 
@@ -164,5 +168,5 @@ Gateway exposes:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-25

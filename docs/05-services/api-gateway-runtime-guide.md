@@ -105,7 +105,8 @@ This is useful for resilience testing and operational drills without changing do
 
 ## 6. Email Trigger Pipeline
 
-Gateway can enqueue notification events based on response outcomes (for example failure categories or critical success paths).
+Gateway can enqueue notification events based on response outcomes: downstream failures (5xx), rate limiting (429),
+simulated failures, and successful **writes** under `Gateway:CriticalSuccessPathPrefixes` (reads never qualify).
 
 Runtime components:
 
@@ -113,9 +114,10 @@ Runtime components:
 - Background dispatcher
 - Template engine
 - SMTP sender
-- Optional Identity-based recipient resolution
 
-This allows asynchronous operational notifications without blocking request flow.
+Notices go only to the operators in `Gateway:OperationsEmailRecipients`, never to the user whose request caused them.
+With the list empty (the tracked default) nothing is queued. This allows asynchronous operational notifications
+without blocking request flow.
 
 ---
 
@@ -126,12 +128,6 @@ Minimum required security configuration:
 - `JwtSettings:SecretKey` (>= 32 chars)
 - `JwtSettings:Issuer`
 - `JwtSettings:Audience`
-
-For identity resolver integration:
-
-- `IdentityService:BaseUrl`
-- `IdentityService:ApiKey`
-- `IdentityService:ApiKeyHeaderName`
 
 Use local override files for local-only secrets/config and keep non-local values secure.
 
@@ -188,5 +184,5 @@ Telemetry stack:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-25

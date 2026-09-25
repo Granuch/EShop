@@ -8,8 +8,9 @@ simulator diagnostics.
 (a payment's amount now follows its order's total), and it is covered below. Every endpoint in this file was checked
 against the C# source and the service's OpenAPI document, and called on the compose `sandbox` stack: through the
 gateway, or directly on the service where the gateway does not route it. The card flow was run against the real
-Stripe test mode, with webhooks delivered by the Stripe CLI listener. Shared rules (errors, paging, rate limits, CORS)
-are in [conventions.md](conventions.md) and are not repeated here.
+Stripe test mode, with webhooks delivered by the Stripe CLI listener. `create-intent`'s resume and 409 wording were
+re-verified at `f507f85`, which fixed F-52. Shared rules (errors, paging, rate limits, CORS) are in
+[conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
 
@@ -136,14 +137,13 @@ stateDiagram-v2
    it depends on how long the message outbox has been idle).
 2. **`POST /api/v1/payments/create-intent`** with the order id. While the record does not exist yet the answer is
    **409 `PAYMENT_NOT_READY`**: retry with back-off (1 s, 2 s, 4 s … up to about 30 s). The 200 answer carries the
-   intent's `clientSecret`, **which is returned only once** (see the ⚠ below).
+   intent's `clientSecret`. **Calling it again returns the same intent and the same secret** while the payment is
+   open, so after a reload or in a second tab, just call it again.
 3. **Confirm the payment in the browser with Stripe.js** (Payment Element, or `stripe.confirmPayment`) using that
    `clientSecret` and the Stripe **publishable** key. The API does not serve the publishable key; the frontend needs it
    in its own configuration, from the same Stripe account as the server's secret key.
 4. **Stripe calls Payment's webhook.** The payment turns `SUCCESS` at once; the order turns Paid about 14 s later.
-   Poll `GET /api/v1/orders/{id}` with back-off. Observed: webhook at 16:54:05, order Paid at 16:54:19. **Do not poll
-   `GET /api/v1/payments/{id}`**: every successful call under `/api/v1/payments/` makes the gateway email the caller
-   (F-55, below).
+   Poll `GET /api/v1/orders/{id}` with back-off. Observed: webhook at 16:54:05, order Paid at 16:54:19.
 5. **A declined card** is reported by Stripe.js in the browser. The payment stays `PROCESSING`, and the customer can
    retry with the same client secret.
 
@@ -151,8 +151,17 @@ The amount charged is always Payment's recorded amount, in USD. The request cann
 
 ### `POST /api/v1/payments/create-intent`
 
-Create the Stripe payment intent for an order and return its client secret. Source: `CreatePaymentIntentCommand`.
-**Service:** any signed-in user; a non-admin may only pay their own order.
+Create the Stripe payment intent for an order, or **resume** the one already created, and return its client secret.
+Source: `CreatePaymentIntentCommand`. **Service:** any signed-in user; a non-admin may only pay their own order.
+
+**Create or resume:**
+- A `PENDING` payment: an intent is created at Stripe, and the payment turns `PROCESSING`.
+- A `PROCESSING` card payment (an intent was created earlier, by this call): the **same intent** is read back from
+  Stripe and its client secret returned. Nothing is created or written. Observed: calls made about 45 minutes after
+  the intent was created, twice in a row, returned the original intent and secret; paying it then made the order
+  Paid. Its `status` is Stripe's current one: after a declined card it is `requires_payment_method` again; if
+  it reads `succeeded` or `processing`, do not confirm again, poll the order.
+- Anything else is 409 `PAYMENT_ALREADY_EXISTS` (below).
 
 **Body** [`CreatePaymentIntentRequest`](#createpaymentintentrequest):
 
@@ -181,13 +190,14 @@ is now `PROCESSING`.
 | 401 | — | No token (the gateway answers) |
 | 404 | `PAYMENT_NOT_FOUND` | The order belongs to another user: `"Payment not found."` |
 | 409 | `PAYMENT_NOT_READY` | Payment has no record for this order yet: `"The order's payment is not ready yet. Retry shortly."`. **Also for an order id that does not exist at all** |
-| 409 | `PAYMENT_ALREADY_EXISTS` | The payment is not a fresh `PENDING` Stripe payment: an intent was already created (**including by this same customer a moment ago**), or it was paid, settled offline, cancelled or refunded. Always `"Payment already exists for this order."` |
+| 409 | `PAYMENT_ALREADY_EXISTS` | The payment cannot be paid by card: it was paid, settled offline, refunded, cancelled or failed, or an admin is settling it through the simulator. `detail` names the status: `"This order's payment is SUCCESS and cannot be paid by card."` (observed for `SUCCESS`, `REFUNDED` and `CANCELLED`) |
 | 500 | `InternalServerError` | Stripe refused the request for a reason a retry cannot fix. Observed for an order of 90 194 313 174.00 (Stripe: "Amount must be no more than $9,999,999,999.99"). Nothing was recorded; the payment stays `PENDING` (F-53) |
-| 503 | `PAYMENT_PROVIDER_UNAVAILABLE` | Stripe could not be reached, timed out or was rate limited: `"The payment provider is unavailable. Retry shortly."`. Nothing was recorded; retry (from source) |
+| 503 | `PAYMENT_PROVIDER_UNAVAILABLE` | Stripe could not be reached, timed out or was rate limited, when creating or when resuming: `"The payment provider is unavailable. Retry shortly."`. Nothing was recorded; retry (from source) |
 | 503 | `STRIPE_NOT_ENABLED` | Stripe is switched off in this deployment; orders are then settled by the simulator (from source) |
 
-- **Side effects:** the payment turns `PROCESSING`, and its timeline gets a row naming the caller. Payment publishes
-  `PaymentCreated`, which Notification turns into a "payment started" email. Not audited.
+- **Side effects** of a create: the payment turns `PROCESSING`, and its timeline gets a row naming the caller. Payment
+  publishes `PaymentCreated`, which Notification turns into a "payment started" email. A resume has no side effects.
+  Not audited.
 - An **admin** may call it for any user's order (observed 200). The Stripe customer is always the order's owner.
 
 ### `GET /api/v1/payments/{id}`
@@ -212,7 +222,6 @@ One payment. Source: `GetPaymentByIdQuery`. **Service:** any signed-in user; a n
 - There is no "payment for this order" endpoint for a customer. Find it in [the user's list](#get-apiv1usersuseridpayments)
   by `orderId`. Admins can filter the [admin list](#get-apiv1payments) by `orderId`.
 - Not cached: every read is current.
-- ⚠ Each successful call emails the caller a gateway notice (F-55). Do not poll this endpoint.
 
 ### `GET /api/v1/users/{userId}/payments`
 
@@ -621,7 +630,7 @@ decimals; unlike other services, Payment carries an explicit `currency`, always 
 |---|---|---|---|
 | `paymentId` | string (GUID) | no | The payment record |
 | `paymentIntentId` | string | no | Stripe's intent id (`pi_…`) |
-| `clientSecret` | string | no | For Stripe.js. Returned only by this call, once |
+| `clientSecret` | string | no | For Stripe.js. The same secret on every call while the payment is `PROCESSING` |
 | `status` | string | no | **Stripe's** intent status, lower case |
 
 #### Payment
@@ -815,7 +824,7 @@ export interface UserPaymentsQuery {
 export interface CreatePaymentIntentResponse {
   paymentId: string;
   paymentIntentId: string;
-  /** For Stripe.js. Returned once: a second create-intent call is a 409. */
+  /** For Stripe.js. A repeat call while the payment is PROCESSING returns the same secret. */
   clientSecret: string;
   /** Stripe's status, not a PaymentStatus. */
   status: StripeIntentStatus;
@@ -984,27 +993,18 @@ export interface PaymentSimulationDiagnostics {
 
 ## Frontend notes
 
-> ⚠ **The client secret is returned once.** A second `create-intent` for the same order answers 409
-> `PAYMENT_ALREADY_EXISTS`, and no endpoint returns the secret again. A page reload, a second tab, or a retry after a
-> lost response therefore cannot resume the payment. Keep the `clientSecret` for the order (for example in
-> `sessionStorage`, keyed by order id) until Stripe.js reports success, and reuse it after a declined card. If it is
-> lost, the customer cannot pay that order through the storefront; the way out is to cancel the order and check out
-> again. The same `PAYMENT_ALREADY_EXISTS` also answers a paid, cancelled or refunded order, so read the payment's
-> `status` to tell them apart. (F-52)
+> ⚠ **Do not store the client secret; ask for it again.** `create-intent` is safe to repeat: for an open card payment it
+> returns the same intent and secret, so a page reload, a second tab or a retry after a lost response just calls it
+> again. A 409 `PAYMENT_ALREADY_EXISTS` means the order can no longer be paid by card, and its `detail` names the
+> payment's status. Before `f507f85` the secret was returned only once, and a customer who lost it could not pay the
+> order. (F-52, fixed)
 
 > ⚠ **`PAYMENT_NOT_READY` also means "no such order".** Retry it with back-off, but stop after about 30 s and show an
 > error, since an order id that does not exist gets the same answer forever.
 
-> ⚠ **Every successful call under `/api/v1/payments/` emails the caller.** The gateway sends the signed-in user a
-> technical message, `[Gateway] CriticalOperationCompleted on payments-route`, naming the path, status, user id and
-> correlation id, for **each** 2xx response under that path, reads included: `create-intent`, `GET /payments/{id}`,
-> and every admin call. A 5xx on any route sends `[Gateway] DownstreamFailure` the same way. Observed: the test
-> customer's 8 successful Payment calls produced 8 such emails, and the admin received 56. The per-user list
-> (`/api/v1/users/{userId}/payments`) is not affected. Until this is changed, keep Payment calls to what the user
-> asked for: never poll `GET /payments/{id}`; poll the order instead. (F-55)
-
 > ⚠ **Paid and Refunded reach the order about 10–15 s after the payment.** After Stripe.js reports success, poll
-> `GET /api/v1/orders/{id}` with back-off.
+> `GET /api/v1/orders/{id}` with back-off, or poll the payment, which turns `SUCCESS` as soon as Stripe's webhook
+> arrives.
 
 > ⚠ **`create-intent` can answer a generic 500** when Stripe refuses the request outright, for example for an amount
 > above Stripe's maximum. Nothing was recorded, and retrying does not help. (F-53)
