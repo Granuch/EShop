@@ -123,17 +123,45 @@ public class CreatePaymentIntentTests : AuthenticatedIntegrationTestBase
         VerifyStripeNeverAsked();
     }
 
+    /// <summary>
+    /// Frontend-contracts F-52, over HTTP. A customer who reloads while paying asks again; the answer is the recorded
+    /// intent's client secret, read back from Stripe, with no second intent created. It used to be a 409, and the lost
+    /// secret could never be recovered.
+    /// </summary>
     [Test]
-    public async Task APaymentAlreadyStarted_IsAConflict()
+    public async Task APaymentAlreadyStarted_IsResumed_WithItsIntentsClientSecret()
     {
         var seeded = await SeedAsync(status: PaymentStatus.Processing, intentId: "pi_existing");
+        Stripe.Stripe
+            .Setup(x => x.GetPaymentIntentAsync("pi_existing", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripePaymentIntentResult("pi_existing", "cs_again", "requires_payment_method"));
+
+        var response = await Client.PostAsJsonAsync(Endpoint, new { seeded.OrderId });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<IntentResponse>();
+        Assert.That(body!.ClientSecret, Is.EqualTo("cs_again"));
+        Assert.That((await Stripe.FindByOrderIdAsync(seeded.OrderId))!.PaymentIntentId, Is.EqualTo("pi_existing"));
+        VerifyStripeNeverAsked();
+    }
+
+    [Test]
+    public async Task APaidOrdersPayment_IsAConflict_ThatNamesItsStatus()
+    {
+        var seeded = await SeedAsync(status: PaymentStatus.Success, intentId: "pi_paid");
 
         var response = await Client.PostAsJsonAsync(Endpoint, new { seeded.OrderId });
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
-        Assert.That(await response.Content.ReadAsStringAsync(), Does.Contain("PAYMENT_ALREADY_EXISTS"));
-        Assert.That((await Stripe.FindByOrderIdAsync(seeded.OrderId))!.PaymentIntentId, Is.EqualTo("pi_existing"));
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("PAYMENT_ALREADY_EXISTS"));
+            Assert.That(text, Does.Contain("SUCCESS"));
+        });
         VerifyStripeNeverAsked();
+        Stripe.Stripe.Verify(
+            x => x.GetPaymentIntentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     /// <summary>

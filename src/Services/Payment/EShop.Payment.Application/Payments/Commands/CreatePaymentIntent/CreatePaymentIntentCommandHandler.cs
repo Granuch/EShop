@@ -54,11 +54,24 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
                 "Payment not found."));
         }
 
+        // Frontend-contracts F-52. The payment's intent is already recorded, so this is the customer coming back to it: a
+        // reload, a second tab, a retry whose first response never arrived. The client secret is not stored here, so it
+        // is read back from Stripe, and nothing is written — the same intent, the same secret, for its current amount
+        // (an item change updates the intent in place). This used to be a 409, and a customer who lost the secret
+        // could not pay the order at all.
+        if (payment.Status == PaymentStatus.Processing
+            && payment.PaymentMethod == PaymentMethodType.Stripe
+            && !string.IsNullOrEmpty(payment.PaymentIntentId))
+        {
+            var existing = await _stripePaymentService.GetPaymentIntentAsync(payment.PaymentIntentId, cancellationToken);
+            return Started(payment.Id, existing);
+        }
+
         if (payment.Status != PaymentStatus.Pending
             || payment.PaymentMethod != PaymentMethodType.Stripe
             || !string.IsNullOrEmpty(payment.PaymentIntentId))
         {
-            return AlreadyExists();
+            return AlreadyExists(payment.Status);
         }
 
         // Payment audit D7. No transaction is open here (the command is not an ITransactionalCommand), so no pooled
@@ -127,7 +140,7 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
                 orderId);
         }
 
-        return AlreadyExists();
+        return AlreadyExists(current?.Status);
     }
 
     private static Result<CreatePaymentIntentDto> Started(Guid paymentId, StripePaymentIntentResult stripeIntent)
@@ -137,8 +150,15 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
             stripeIntent.ClientSecret,
             stripeIntent.Status));
 
-    private static Result<CreatePaymentIntentDto> AlreadyExists()
+    /// <summary>
+    /// The payment cannot be paid by card: it is settled, refunded, cancelled, failed, or being settled another way. The
+    /// code is kept for existing clients; the detail names the status (F-52), because "already exists" used to be all a
+    /// client heard whether the order was paid or cancelled.
+    /// </summary>
+    private static Result<CreatePaymentIntentDto> AlreadyExists(PaymentStatus? status)
         => Result<CreatePaymentIntentDto>.Failure(new Error(
             "PAYMENT_ALREADY_EXISTS",
-            "Payment already exists for this order."));
+            status is { } known
+                ? $"This order's payment is {known.ToString().ToUpperInvariant()} and cannot be paid by card."
+                : "This order's payment can no longer be paid by card."));
 }

@@ -27,6 +27,14 @@ public interface IStripePaymentService
     Task<string> GetPaymentIntentStatusAsync(string paymentIntentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads an existing intent back from Stripe, client secret included (frontend-contracts F-52). This is how
+    /// <c>/create-intent</c> resumes a payment whose intent is already recorded: the secret is never stored here, so a
+    /// customer who lost it — a reload, a second tab, a response that never arrived — gets it from Stripe again. A
+    /// failure a retry can fix is <see cref="PaymentProviderUnavailableException"/>.
+    /// </summary>
+    Task<StripePaymentIntentResult> GetPaymentIntentAsync(string paymentIntentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cancels an intent that has not been captured. An intent Stripe reports as already canceled
     /// counts as success. The intent is first tagged as cancelled at EShop's request, so the
     /// <c>payment_intent.canceled</c> webhook that follows reads <see cref="StripeWebhookEvent.CancelRequestedByEShop"/>

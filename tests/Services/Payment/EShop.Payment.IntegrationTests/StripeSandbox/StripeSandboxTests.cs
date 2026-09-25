@@ -362,6 +362,48 @@ public class StripeSandboxTests
     }
 
     /// <summary>
+    /// frontend-contracts F-52. <c>/create-intent</c> resumes a started payment by reading its intent back, because the
+    /// client secret is never stored. That only works if Stripe returns the secret on a read with the secret key, and
+    /// returns the same one each time — a claim about Stripe, so it is pinned against Stripe. The secret then pays the
+    /// intent.
+    /// </summary>
+    [Test]
+    public async Task OurIntentReadBack_ReturnsTheSameClientSecret_WhichStillPaysTheIntent()
+    {
+        var intents = new PaymentIntentService(_client);
+        var intent = await AnUncapturedIntentAsync();
+        PaymentIntent? paid = null;
+        try
+        {
+            var first = await _service.GetPaymentIntentAsync(intent.Id);
+            var second = await _service.GetPaymentIntentAsync(intent.Id);
+
+            paid = await intents.ConfirmAsync(intent.Id, new PaymentIntentConfirmOptions { PaymentMethod = "pm_card_visa" });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(first.PaymentIntentId, Is.EqualTo(intent.Id));
+                Assert.That(first.ClientSecret, Is.Not.Empty);
+                Assert.That(first.ClientSecret, Is.EqualTo(intent.ClientSecret), "the secret the intent was created with");
+                Assert.That(second.ClientSecret, Is.EqualTo(first.ClientSecret), "every read returns the same secret");
+                Assert.That(first.Status, Is.EqualTo("requires_payment_method"));
+                Assert.That(paid.Status, Is.EqualTo("succeeded"));
+            });
+        }
+        finally
+        {
+            if (paid?.Status == "succeeded")
+            {
+                await RefundUnderAFreshKeyAsync(intent.Id);
+            }
+            else
+            {
+                await intents.CancelAsync(intent.Id);
+            }
+        }
+    }
+
+    /// <summary>
     /// frontend-contracts F-47. When an order's items change after the customer opened the payment form, Payment changes
     /// the open intent's amount. Checked against Stripe: the update is accepted, the client secret still pays the same
     /// intent, and a card confirmed afterwards is charged the <b>new</b> amount.

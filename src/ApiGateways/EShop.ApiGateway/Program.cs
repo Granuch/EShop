@@ -49,7 +49,6 @@ builder.Services.Configure<SimulationOptions>(builder.Configuration.GetSection(S
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.Configure<EmailQueueHealthOptions>(builder.Configuration.GetSection(EmailQueueHealthOptions.SectionName));
 builder.Services.Configure<RateLimitingOptions>(builder.Configuration.GetSection(RateLimitingOptions.SectionName));
-builder.Services.Configure<IdentityServiceOptions>(builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
 builder.Services.Configure<IdentityProxyOptions>(builder.Configuration.GetSection(IdentityProxyOptions.SectionName));
 builder.Services.Configure<CatalogProxyOptions>(builder.Configuration.GetSection(CatalogProxyOptions.SectionName));
 builder.Services.Configure<OrderingProxyOptions>(builder.Configuration.GetSection(OrderingProxyOptions.SectionName));
@@ -188,23 +187,6 @@ builder.Services.AddSingleton<GatewayEmailQueue>();
 builder.Services.AddSingleton<IEmailNotificationService, EmailNotificationService>();
 builder.Services.AddSingleton<IEmailTemplateEngine, EmailTemplateEngine>();
 builder.Services.AddScoped<IEmailSender, MailKitEmailSender>();
-builder.Services.AddHttpClient<IAccountEmailResolver, IdentityAccountEmailResolver>((sp, client) =>
-{
-    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<IdentityServiceOptions>>().Value;
-
-    if (!string.IsNullOrWhiteSpace(options.BaseUrl))
-    {
-        client.BaseAddress = new Uri(options.BaseUrl);
-    }
-
-    if (!string.IsNullOrWhiteSpace(options.ApiKey) && !string.IsNullOrWhiteSpace(options.ApiKeyHeaderName))
-    {
-        client.DefaultRequestHeaders.Remove(options.ApiKeyHeaderName);
-        client.DefaultRequestHeaders.Add(options.ApiKeyHeaderName, options.ApiKey);
-    }
-
-    client.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds));
-});
 builder.Services.AddHostedService<GatewayEmailDispatcher>();
 
 builder.Services.AddHealthChecks()

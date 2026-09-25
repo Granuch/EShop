@@ -345,11 +345,9 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
-      # Internal identity resolver for email recipients
-      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
-      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
-      IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+      # Operational notices (failures, rate limiting, critical writes) go to operators only, never to the user
+      # whose request caused them (frontend-contracts F-55). Empty means no notice is sent.
+      Gateway__OperationsEmailRecipients__0: ${GATEWAY_OPERATIONS_EMAIL:-ops@eshop.local}
 
       # Email notifications via Mailpit in local profiles
       Email__Host: ${GATEWAY_SMTP_HOST:-mailpit}

@@ -160,6 +160,28 @@ public sealed class StripePaymentService : IStripePaymentService
         return intent.Status ?? string.Empty;
     }
 
+    public async Task<StripePaymentIntentResult> GetPaymentIntentAsync(
+        string paymentIntentId,
+        CancellationToken cancellationToken = default)
+    {
+        PaymentIntent intent;
+        try
+        {
+            // A read with the secret key returns the intent's client secret; StripeSandboxTests pins that against the
+            // real sandbox, because a mock would only repeat our belief about it.
+            intent = await new PaymentIntentService(_client).GetAsync(paymentIntentId, cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (StripeErrors.IsTransient(ex, cancellationToken))
+        {
+            throw new PaymentProviderUnavailableException("read payment intent", ex);
+        }
+
+        return new StripePaymentIntentResult(
+            intent.Id,
+            intent.ClientSecret ?? string.Empty,
+            intent.Status ?? string.Empty);
+    }
+
     /// <summary>
     /// Stripe's answer to refunding a charge that has no refundable amount left. A structured code, not
     /// the message text.

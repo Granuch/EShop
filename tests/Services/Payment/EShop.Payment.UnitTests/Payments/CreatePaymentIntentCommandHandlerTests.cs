@@ -155,7 +155,8 @@ public class CreatePaymentIntentCommandHandlerTests
         _customers.Verify(x => x.CreateOrGetCustomerAsync("user-2", null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [TestCase(PaymentStatus.Processing, PaymentMethodType.Stripe, "pi_existing")]
+    // A simulated payment in flight: an admin is settling it through the simulator, so there is no card to pay.
+    [TestCase(PaymentStatus.Processing, PaymentMethodType.Mock, "")]
     [TestCase(PaymentStatus.Pending, PaymentMethodType.Stripe, "pi_existing")]
     [TestCase(PaymentStatus.Success, PaymentMethodType.Stripe, "pi_existing")]
     [TestCase(PaymentStatus.Cancelled, PaymentMethodType.None, "")]
@@ -171,9 +172,85 @@ public class CreatePaymentIntentCommandHandlerTests
         var result = await Handler().Handle(
             new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, null), CancellationToken.None);
 
-        Assert.That(result.Error!.Code, Is.EqualTo("PAYMENT_ALREADY_EXISTS"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Error!.Code, Is.EqualTo("PAYMENT_ALREADY_EXISTS"));
+            // F-52: the detail names the state, so a client can tell a paid order from a cancelled one.
+            Assert.That(result.Error.Message, Does.Contain(status.ToString().ToUpperInvariant()));
+        });
         _stripe.VerifyNoOtherCalls();
         _customers.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// Frontend-contracts F-52. The customer comes back to a payment whose intent is recorded — a reload, a second tab, a
+    /// retry after a lost response. The secret is read back from Stripe for the same intent; nothing is created and
+    /// nothing is written. This used to be a 409, and a customer who had lost the secret could not pay at all.
+    /// </summary>
+    [Test]
+    public async Task Handle_WhenTheIntentIsAlreadyRecorded_ReturnsItsClientSecretFromStripe_AndWritesNothing()
+    {
+        var seeded = await SeedAsync(status: PaymentStatus.Processing, intentId: "pi_existing");
+        _stripe
+            .Setup(x => x.GetPaymentIntentAsync("pi_existing", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripePaymentIntentResult("pi_existing", "cs_again", "requires_payment_method"));
+
+        var result = await Handler().Handle(
+            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, "user@test.com"), CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Value!.PaymentId, Is.EqualTo(seeded.Id));
+            Assert.That(result.Value.PaymentIntentId, Is.EqualTo("pi_existing"));
+            Assert.That(result.Value.ClientSecret, Is.EqualTo("cs_again"));
+            Assert.That(result.Value.Status, Is.EqualTo("requires_payment_method"));
+        });
+
+        var stored = await StoredAsync(seeded.OrderId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Processing));
+            Assert.That(stored.PaymentIntentId, Is.EqualTo("pi_existing"));
+        });
+        _stripe.Verify(x => x.GetPaymentIntentAsync("pi_existing", It.IsAny<CancellationToken>()), Times.Once);
+        _stripe.VerifyNoOtherCalls();
+        _customers.VerifyNoOtherCalls();
+        _outbox.VerifyNoOtherCalls();
+    }
+
+    /// <summary>The ownership check runs first: resuming must not hand another customer's client secret out.</summary>
+    [Test]
+    public async Task Handle_ForAnotherUsersStartedPayment_IsNotFound_AndStripeIsNotAsked()
+    {
+        var seeded = await SeedAsync(userId: "user-2", status: PaymentStatus.Processing, intentId: "pi_theirs");
+
+        var result = await Handler().Handle(
+            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, null), CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("PAYMENT_NOT_FOUND"));
+        _stripe.VerifyNoOtherCalls();
+        _customers.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task Handle_WhenStripeIsUnavailableWhileResuming_Propagates_AndWritesNothing()
+    {
+        var seeded = await SeedAsync(status: PaymentStatus.Processing, intentId: "pi_existing");
+        _stripe
+            .Setup(x => x.GetPaymentIntentAsync("pi_existing", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new PaymentProviderUnavailableException("test", new HttpRequestException("timeout")));
+
+        Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Handler().Handle(
+            new CreatePaymentIntentCommand(seeded.OrderId, "user-1", false, null), CancellationToken.None));
+
+        var stored = await StoredAsync(seeded.OrderId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Processing));
+            Assert.That(stored.PaymentIntentId, Is.EqualTo("pi_existing"));
+        });
+        _outbox.VerifyNoOtherCalls();
     }
 
     /// <summary>

@@ -60,6 +60,14 @@ public sealed class EmailTriggerMiddleware
             GatewayTelemetry.RecordRateLimited(notification.Route);
         }
 
+        // Frontend-contracts F-55. Notices go to operators only, so with nobody configured there is nothing to queue.
+        // The check sits after the telemetry above on purpose: the rate-limit and simulated-failure counters must not
+        // depend on whether anyone is subscribed to the email.
+        if (_options.EffectiveOperationsEmailRecipients.Count == 0)
+        {
+            return;
+        }
+
         GatewayTelemetry.RecordEmailQueued(notification.EventType);
 
         await _emailNotificationService.QueueAsync(notification, context.RequestAborted);
@@ -99,8 +107,11 @@ public sealed class EmailTriggerMiddleware
             {
                 eventType = "DownstreamFailure";
             }
+            // A critical *operation* is a write. A read under the same prefix used to qualify too, so polling a payment
+            // queued one notice per poll (frontend-contracts F-55).
             else if (_options.EnableCriticalSuccessEmailNotifications
                 && statusCode is >= 200 and < 300
+                && IsWrite(context.Request.Method)
                 && IsCriticalRoute(context.Request.Path, _options.CriticalSuccessPathPrefixes))
             {
                 eventType = "CriticalOperationCompleted";
@@ -127,6 +138,9 @@ public sealed class EmailTriggerMiddleware
 
         return true;
     }
+
+    private static bool IsWrite(string method)
+        => !(HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method));
 
     private static bool IsCriticalRoute(PathString requestPath, IReadOnlyList<string> prefixes)
     {

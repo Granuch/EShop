@@ -211,6 +211,7 @@ public class StripeProviderCallsTests
         await payments.GetPaymentIntentStatusAsync("pi_1");
         await payments.CancelPaymentIntentAsync("pi_1");
         await payments.UpdatePaymentIntentAmountAsync("pi_1", 12m, "USD");
+        await payments.GetPaymentIntentAsync("pi_1");
         await Customers(NoCustomerYet()).CreateOrGetCustomerAsync("user-1", null);
 
         Assert.Multiple(() =>
@@ -223,10 +224,31 @@ public class StripeProviderCallsTests
                 "/v1/payment_intents/pi_1",
                 "/v1/payment_intents/pi_1/cancel",
                 "/v1/payment_intents/pi_1",
+                "/v1/payment_intents/pi_1",
                 "/v1/customers"
             }));
             Assert.That(StripeConfiguration.ApiKey, Is.EqualTo(ProcessWideKey),
                 "building and using the services must not write the process-wide key");
+        });
+    }
+
+    /// <summary>
+    /// frontend-contracts F-52. <c>/create-intent</c> resumes a started payment by reading its intent back, so the read
+    /// must return the client secret Stripe sends, not the empty string the status-only read ignores it into.
+    /// </summary>
+    [Test]
+    public async Task AnIntentReadBack_CarriesItsClientSecret_AndIsAGetOfThatIntent()
+    {
+        _stripe.Respond = _ => FakeStripe.Json(HttpStatusCode.OK,
+            """{"id":"pi_7","object":"payment_intent","client_secret":"pi_7_secret_abc","status":"requires_payment_method"}""");
+
+        var intent = await Payments().GetPaymentIntentAsync("pi_7");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(intent, Is.EqualTo(new StripePaymentIntentResult("pi_7", "pi_7_secret_abc", "requires_payment_method")));
+            Assert.That(_stripe.Calls.Single().Path, Is.EqualTo("/v1/payment_intents/pi_7"));
+            Assert.That(_stripe.Calls.Single().Body, Is.Empty, "a read, with no body");
         });
     }
 
@@ -241,6 +263,7 @@ public class StripeProviderCallsTests
         Assert.Multiple(() =>
         {
             Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Payments().CreatePaymentIntentAsync(IntentFor(Guid.NewGuid())));
+            Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Payments().GetPaymentIntentAsync("pi_1"));
             Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Customers(NoCustomerYet()).CreateOrGetCustomerAsync("user-1", null));
         });
     }
@@ -253,6 +276,7 @@ public class StripeProviderCallsTests
         Assert.Multiple(() =>
         {
             Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Payments().CreatePaymentIntentAsync(IntentFor(Guid.NewGuid())));
+            Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Payments().GetPaymentIntentAsync("pi_1"));
             Assert.ThrowsAsync<PaymentProviderUnavailableException>(() => Customers(NoCustomerYet()).CreateOrGetCustomerAsync("user-1", null));
         });
     }
