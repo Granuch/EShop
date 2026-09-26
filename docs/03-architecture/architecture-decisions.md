@@ -321,6 +321,75 @@ Cons: slower onboarding and higher barrier for contributors.
 
 ---
 
+## ADR-008: Layer a Fine-Grained Permission Model Under Role-Based Authorization
+
+**Status**: Accepted  
+**Date**: 2026-09-26  
+**Deciders**: Core maintainers
+
+### Context
+
+ADR-005 established JWT authentication with role-based route policies (`Authenticated`, `Admin`)
+enforced at the gateway and re-checked in each service. The admin panel work (Identity's admin
+users API onward) needed access control finer than "is this caller an Admin" — for example, an
+operator who can read payment data but not settle or refund it, or a support role that can read
+user accounts but not modify roles — without breaking every already-issued token or requiring a
+new claim type per capability.
+
+### Decision
+
+Introduce a named permission model, `EShopPermissions` (`BuildingBlocks.Infrastructure/Authorization/`):
+15 permissions (`users.read`, `users.manage`, `payments.write`, `system.manage`, `audit.read`, …),
+where the permission string **is** the ASP.NET Core policy name, so there is no second table that
+can drift out of sync with the code. `RolePermissionBundles` maps the existing `Admin` role to all
+15 permissions. A caller is authorized for a permission if they present either an explicit
+`permission` claim **or** a role claim with a bundle that includes it — so every existing
+role-based token keeps working unmodified. `AddEShopPermissions()` is called in all seven
+components (the gateway and all six services). The gateway's route-level policy stays
+role-based (`Admin`); the service layer is where a permission is actually checked.
+
+### Consequences
+
+**Positive:**
+- New admin capabilities can be scoped more precisely than an all-or-nothing `Admin` role, without
+  reissuing tokens or touching the gateway's route table.
+- The permission string doubling as the policy name removes an entire class of "the permission
+  name in code doesn't match the string in the docs/database" drift.
+- Existing role-based tokens and the `Admin` role continue to work with no migration.
+
+**Negative:**
+- Two authorization layers (gateway role gate, service permission check) must now be kept
+  consistent by hand for every new admin endpoint; nothing enforces that a service-level
+  permission also gets a matching gateway-level route policy.
+- No component issues a `permission` claim today and there is no permission-discovery endpoint, so
+  a client cannot yet ask "what can I do" — it can only infer capabilities from `user.roles`, which
+  today distinguishes nothing finer than `Admin` vs. everyone else.
+
+**Risks:**
+- **Realized, not merely theoretical**: Ordering's and Payment's entire admin surface, and
+  Catalog's `GET /categories/{id}/stats`, have a service-level permission/role check but no
+  matching gateway-level `Admin` route — the redundant defense-in-depth every other admin surface
+  gets is absent there. No live bypass has been found (the service backstops every case tried),
+  but the gap is structural, not just an unlucky endpoint. See
+  [Security Architecture — Permission Model](security-architecture.md#permission-model).
+- A role deletion or role-membership change is not retroactive on an already-issued access token,
+  and a deleted role's claim can persist in a cached role list for up to 5 minutes after deletion —
+  a caller can act on a permission bundle they were just stripped of, for a bounded window.
+
+### Alternatives Considered
+
+#### Replace roles with permissions entirely
+Pros: one authorization model instead of two overlapping ones.  
+Cons: a breaking change for every already-issued token and every client reading `user.roles`; no
+incremental adoption path for the admin panel's staged rollout.
+
+#### Per-endpoint ad-hoc policy names, no central permission catalogue
+Pros: no upfront design, fastest to add a single endpoint.  
+Cons: the exact failure mode `RolePermissionBundles` was built to avoid — policy-name drift between
+services, and no single place to see what `Admin` actually grants.
+
+---
+
 ## References
 
 - [Microservices.io patterns](https://microservices.io/)
@@ -330,5 +399,5 @@ Cons: slower onboarding and higher barrier for contributors.
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

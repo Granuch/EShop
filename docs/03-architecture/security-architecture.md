@@ -48,6 +48,9 @@ The gateway enforces route-level authorization policies (for example authenticat
 
 ### Permission Model
 
+See [ADR-008](architecture-decisions.md#adr-008-layer-a-fine-grained-permission-model-under-role-based-authorization)
+for the decision record (context, alternatives considered, and the risks accepted on adoption).
+
 Underneath the gateway's role checks sits a fine-grained permission layer,
 `EShopPermissions` (`BuildingBlocks/…/Authorization/`): 15 named permissions
 (`users.read`, `users.manage`, `payments.write`, `system.manage`, `audit.read`, …), where the
