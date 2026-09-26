@@ -76,11 +76,24 @@ MassTransit + RabbitMQ integration is enabled for asynchronous identity-related 
 
 ## API Areas (High Level)
 
-Common endpoint groups include:
-- Auth endpoints (sign-in, token lifecycle)
-- Account endpoints (profile/password/identity operations)
-- Role/admin endpoints
-- Internal account lookup endpoints for trusted service calls
+**Full endpoint-by-endpoint contracts (routes, both auth layers, request/response shapes, error
+tables, TypeScript types) live in
+[frontend/identity.md](../01-overview/frontend/identity.md), the authoritative source. This
+section is a summary, not a duplicate.**
+
+42 endpoints in four groups:
+- **Auth** (`/api/v1/auth/*`, anonymous, rate limits `auth`/`login`): register, login (with a
+  `requires2FA` branch), refresh/revoke-token, confirm-email, forgot/reset-password.
+- **Account** (`/api/v1/account/*`, any signed-in user): profile GET/PUT, change-password,
+  enable/verify/disable 2FA.
+- **Admin users** (`/api/v1/admin/users/*`, gateway `Admin` role, service `users.read`/
+  `users.manage`/`roles.manage`): list/stats/detail/roles/sessions, create/update, activate/
+  deactivate/restore/lock/unlock, admin-initiated reset-password and confirm-email, disable-2FA,
+  revoke-tokens, delete.
+- **Roles** (`/api/v1/roles/*`, gateway and service both `[Authorize(Roles="Admin")]`): CRUD plus
+  membership add/remove. Its list endpoints return a bare array with no total (no cap either).
+- **Internal**: `GET /api/v1/users/{userId}/contact` is not routed through the gateway; it is
+  called service-to-service with the `InternalService` API key.
 
 Gateway policy controls determine external accessibility for protected paths.
 
@@ -93,7 +106,13 @@ Admin-reachable commands are recorded in this service's `audit_log` and served o
 
 - JWT bearer authentication
 - Role-based and policy-based access checks
+- The permission model (`EShopPermissions`, 15 named permissions; `Admin` role bundles all of
+  them) gates the admin-users and roles-management surface — see
+  [Admin Audit Trail](../03-architecture/audit-log.md) and
+  [frontend/conventions.md](../01-overview/frontend/conventions.md#5-permissions-and-admin-access)
 - Additional internal API key checks for designated internal scenarios
+- No token carries a `permission` claim and there is no permission-discovery endpoint; a client
+  derives what it can do from `user.roles`
 
 ---
 
@@ -116,11 +135,12 @@ Identity service exposes health endpoints and emits:
 
 ## Related Documents
 
+- [Frontend contracts: Identity](../01-overview/frontend/identity.md) — the authoritative endpoint reference
 - [API Gateway](api-gateway.md)
 - [Ordering Service](ordering-service.md)
 - [Infrastructure - Security and Resilience](../06-infrastructure/resilience.md)
 
 ---
 
-**Version**: 2.1  
-**Last Updated**: 2026-09-16
+**Version**: 2.2  
+**Last Updated**: 2026-09-26

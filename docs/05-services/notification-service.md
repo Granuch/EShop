@@ -216,11 +216,12 @@ And emits structured logs, traces, and metrics for operational diagnostics.
 
 ## Related Documents
 
+- [Frontend contracts: Notification](../01-overview/frontend/notification.md) — the authoritative endpoint reference, including the failure/retry ⚠ around the broker's missing delayed-message plugin
 - [Ordering Service](ordering-service.md)
 - [Identity Service](identity-service.md)
 - [Infrastructure - Message Broker](../06-infrastructure/message-broker.md)
 
 ---
 
-**Version**: 2.2  
-**Last Updated**: 2026-09-21
+**Version**: 2.3  
+**Last Updated**: 2026-09-26

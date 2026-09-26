@@ -195,6 +195,7 @@ The shipping address is redacted from request logs.
 
 ## Related Documents
 
+- [Frontend contracts: Basket](../01-overview/frontend/basket.md) — the authoritative endpoint reference
 - [Catalog Service](catalog-service.md)
 - [Ordering Service](ordering-service.md)
 - [Infrastructure - Caching](../06-infrastructure/caching.md)
@@ -202,5 +203,5 @@ The shipping address is redacted from request logs.
 
 ---
 
-**Version**: 3.1  
-**Last Updated**: 2026-09-22
+**Version**: 3.2  
+**Last Updated**: 2026-09-26

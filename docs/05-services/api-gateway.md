@@ -9,7 +9,10 @@ Single entry point for backend API traffic, implemented with ASP.NET Core + YARP
 The API Gateway is responsible for:
 - Reverse proxy routing to downstream services
 - JWT authentication and authorization policy enforcement
-- Global and route-specific rate limiting
+- Global rate limiting, partitioned per client address. There is **no per-route limiting at the
+  gateway** today: a `simulation` limiter policy is declared but attached to no route, and the
+  named per-endpoint limits (Identity `auth`/`login`, Catalog `search`/`bulk`) all live in the
+  services, not here — see [Rate Limiting](#rate-limiting) below
 - CORS policy enforcement
 - Correlation and request logging middleware
 - Optional simulation middleware for controlled failure/latency scenarios
@@ -36,8 +39,10 @@ The API Gateway is responsible for:
 Gateway routes map API path patterns to service clusters defined in configuration.
 
 Common routed areas include:
-- `/api/v1/auth/*` -> identity
+- `/api/v1/auth/*` -> identity (anonymous)
+- `/api/v1/account/*` -> identity (`Authenticated`)
 - `/api/v1/admin/users/*` -> identity (`Admin`)
+- `/api/v1/roles/*` -> identity (`Admin`)
 - `/api/v1/products/*` and `/api/v1/categories/*` -> catalog (writes `Admin`, reads anonymous — except
   `GET /api/v1/products/deleted` and `GET /api/v1/products/export`, which have their own `Admin` routes at `Order: 19`
   so they win over the anonymous read route at 21). The product import alone gets a larger request-body cap than the
@@ -46,8 +51,14 @@ Common routed areas include:
 - `/api/v1/admin/catalog/*` -> catalog (`Admin`)
 - `/api/v1/basket/admin/*` -> basket (`Admin`; wins over the next route because its `Order` is lower)
 - `/api/v1/basket/*` -> basket
-- `/api/v1/orders/*` -> ordering
-- `/api/v1/payments/*` -> payment
+- `/api/v1/orders/*` -> ordering (`Authenticated`; no dedicated `Admin` route for its own admin
+  paths — see the note below)
+- `/api/v1/users/{userId}/orders` (GET/HEAD/OPTIONS only) -> ordering (`Authenticated`; the
+  service checks same-user-or-admin)
+- `/api/v1/payments/*` -> payment (`Authenticated`; same no-dedicated-`Admin`-route gap as
+  Ordering). No proxy guard covers this prefix (a known, recorded hole — see the Middleware
+  Pipeline section)
+- `/api/v1/users/{userId}/payments` -> payment (`Authenticated`; same-user-or-admin, service-checked)
 - `/api/v1/notifications/*` -> notification (`Admin`)
 - `/api/v1/admin/audit` -> **served by the gateway itself** (`audit.read`): it asks all five audited services for a
   page and merges them. Not a YARP route, so it is absent from the routing-table test and pinned by
@@ -95,6 +106,12 @@ Gateway requires valid JWT configuration (`SecretKey`, `Issuer`, `Audience`) and
 Gateway defines route policies such as:
 - `Authenticated`
 - `Admin`
+- The gateway's own three endpoints (`/api/v1/admin/audit`, `/api/v1/admin/health`,
+  `/api/v1/admin/settings`, `/api/v1/admin/feature-flags`) use the permission policies
+  `audit.read` and `system.manage` directly, rather than the `Admin` role — see
+  [Route and Cluster Model](#route-and-cluster-model) above and
+  [frontend/conventions.md](../01-overview/frontend/conventions.md#5-permissions-and-admin-access)
+  for the full 15-permission model these compose with
 
 ### Operational Notices
 
@@ -161,6 +178,9 @@ Gateway exposes:
 
 ## Related Documents
 
+- [Frontend contracts: conventions](../01-overview/frontend/conventions.md) and
+  [endpoint index](../01-overview/frontend/endpoint-index.md) — the authoritative cross-service
+  reference (all 141 endpoints, both auth layers)
 - [Gateway Runtime Guide](api-gateway-runtime-guide.md)
 - [Identity Service](identity-service.md)
 - [Catalog Service](catalog-service.md)
@@ -168,5 +188,5 @@ Gateway exposes:
 
 ---
 
-**Version**: 2.1  
-**Last Updated**: 2026-09-25
+**Version**: 2.2  
+**Last Updated**: 2026-09-26

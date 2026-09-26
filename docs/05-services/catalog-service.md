@@ -80,9 +80,31 @@ MassTransit integration supports publishing/consuming integration events for cro
 
 ## API Areas (High Level)
 
-Typical route groups include:
-- Products (read and admin write operations)
-- Categories (read and admin write operations)
+**Full endpoint-by-endpoint contracts (routes, both auth layers, request/response shapes, error
+tables, TypeScript types) live in
+[frontend/catalog.md](../01-overview/frontend/catalog.md), the authoritative source. This section
+and the ones below it are a summary, not a duplicate.**
+
+42 endpoints:
+- **Products, public reads** (anonymous; admins also see drafts): list (`search` rate limit),
+  cursor-paged `/newest`, detail.
+- **Products, admin writes**: create, update, delete/restore, the recycle bin
+  (`GET /api/v1/products/deleted`, ordered by creation time, not deletion time — see
+  [frontend/catalog.md](../01-overview/frontend/catalog.md#get-apiv1productsdeleted)), stock
+  adjustment, publish/unpublish, discount set/clear, images and attributes (see
+  [Product Images and Attributes](#product-images-and-attributes) below).
+- **Categories**: public tree and detail (three levels deep at most, see
+  [frontend/catalog.md](../01-overview/frontend/catalog.md#get-apiv1categories) for the cap),
+  paged products-by-category; admin create/update/delete/restore/move/reorder,
+  `GET /{id}/stats`.
+- **Bulk, import, export, low stock, cache**: see
+  [Bulk Actions, Import and Export](#bulk-actions-import-and-export-admin-panel-s16) below and
+  `GET /api/v1/admin/catalog/low-stock`.
+
+A product's lifecycle is `Draft` → `Active` ⇄ `Discontinued` (soft-deleted); status is sent as an
+**integer**, not a name. See the state diagram and the two ⚠ traps around it (a deleted product's
+category being deleted too, and create/update trimming differently) in
+[frontend/catalog.md](../01-overview/frontend/catalog.md#product-lifecycle).
 
 Gateway enforces route-level authorization on protected write paths.
 
@@ -116,7 +138,7 @@ a bad image rolls the whole product back), and images are separately editable th
 sub-resource endpoints (`POST`/`DELETE .../images`, `PUT .../images/{imageId}/main`) with
 `POST .../attributes` for attributes. All are `Admin`-only and covered by the gateway's
 existing products write route. See
-[Data Contracts](../01-overview/Data%20Contracts.md#catalog-service) for exact shapes.
+[frontend/catalog.md](../01-overview/frontend/catalog.md#product-images) for exact shapes.
 
 Two enforcement details worth knowing:
 
@@ -130,9 +152,11 @@ Two enforcement details worth knowing:
   composite `IX_ProductImages_ProductId (ProductId, IsMain, DisplayOrder) INCLUDE (Url)`
   index for an index-only scan, and is bounded by the page-size cap of 100.
 
-Image and attribute mutations raise **no domain or integration events**, and image edits
-stay stale in paged list results for up to the 5-minute cache TTL (the `products:list:*`
-key family cannot be invalidated).
+Image and attribute mutations raise **no domain or integration events**, so nothing evicts the
+`products:list:*` family automatically for them the way a price or stock change does; image and
+attribute edits stay stale in paged list results for up to the 5-minute cache TTL. An admin can
+still bump that family (and any other) on demand through
+`POST /api/v1/admin/cache/invalidate` — see [Cache Strategy](#cache-strategy) above.
 
 ---
 
@@ -215,6 +239,7 @@ Catalog service exposes health endpoints and emits:
 
 ## Related Documents
 
+- [Frontend contracts: Catalog](../01-overview/frontend/catalog.md) — the authoritative endpoint reference
 - [API Gateway](api-gateway.md)
 - [Basket Service](basket-service.md)
 - [Infrastructure - Databases](../06-infrastructure/databases.md)
@@ -222,5 +247,5 @@ Catalog service exposes health endpoints and emits:
 
 ---
 
-**Version**: 2.2  
-**Last Updated**: 2026-09-16
+**Version**: 2.3  
+**Last Updated**: 2026-09-26

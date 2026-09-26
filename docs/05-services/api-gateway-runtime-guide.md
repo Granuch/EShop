@@ -137,10 +137,18 @@ Use local override files for local-only secrets/config and keep non-local values
 
 Current runtime supports:
 
-- Global fixed-window limits
-- Dedicated simulation limiter
+- Global fixed-window limits, partitioned per client address
+- A named `simulation` limiter policy, declared in configuration but **attached to no route** —
+  there are zero `RequireRateLimiting`/`EnableRateLimiting` calls in the gateway today, so it
+  throttles nothing
+
+Per-endpoint limits (Identity's `auth`/`login`, Catalog's `search`/`bulk`) are enforced in the
+services themselves, not at the gateway — see
+[frontend/conventions.md](../01-overview/frontend/conventions.md#7-rate-limits).
 
 Expected behavior on rejection: `429 Too Many Requests` with gateway-side observability signals.
+The gateway's own 429 has an empty body and no `Retry-After` header (unlike Identity's, which
+returns problem+json with `Retry-After: 60`).
 
 ---
 
@@ -178,11 +186,13 @@ Telemetry stack:
 
 ## Related Documents
 
+- [Frontend contracts: conventions](../01-overview/frontend/conventions.md) — the authoritative
+  reference for routing, rate limits, errors and auth as observed live
 - [API Gateway Overview](api-gateway.md)
 - [Infrastructure - Observability](../06-infrastructure/observability.md)
 - [Infrastructure - Resilience](../06-infrastructure/resilience.md)
 
 ---
 
-**Version**: 2.1  
-**Last Updated**: 2026-09-25
+**Version**: 2.2  
+**Last Updated**: 2026-09-26

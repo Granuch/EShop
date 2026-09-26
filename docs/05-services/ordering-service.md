@@ -58,10 +58,28 @@ Uses role/policy-based authorization, including user-scoped access policies.
 
 ## API Areas (High Level)
 
-Typical capabilities include:
-- User order list/detail
-- Order lifecycle actions (where allowed)
-- Admin-focused order visibility/management paths
+**Full endpoint-by-endpoint contracts (routes, both auth layers, request/response shapes, error
+tables, TypeScript types, the `OrderStatus` state machine) live in
+[frontend/ordering.md](../01-overview/frontend/ordering.md), the authoritative source. This
+section is a summary, not a duplicate.**
+
+17 endpoints:
+- **Storefront** (owner or admin; `userId` is forced to the caller for non-admins on create):
+  create an order, get by id, `GET /api/v1/users/{userId}/orders` (filtered/paged), item
+  add/update/remove, shipping-address update, cancel. Item and address changes are refused
+  (409) once the order is paid.
+  - An order is normally created asynchronously from a basket checkout, so the client polls
+    `GET /api/v1/users/{userId}/orders` for it rather than getting one back from checkout.
+  - `OrderStatus` is sent as an **integer** everywhere except the admin list's `status` filter,
+    which takes the name.
+- **Admin** (gateway `Authenticated` only — see the note below — service's own `Admin` check):
+  list (name-only status filter), stats (buckets and window totals), notes (add/list), status
+  history (with the actor), ship, deliver.
+
+⚠ **Ordering's whole admin surface relies only on the service's own `Admin` check — the gateway
+has no dedicated role-gated route for it**, unlike Identity/Basket/Notification/most of Catalog
+(confirmed for all 6 admin endpoints, not a bypass — see
+[frontend/ordering.md](../01-overview/frontend/ordering.md#frontend-notes)).
 
 Exact route exposure is mediated by gateway policy and service authorization rules.
 
@@ -103,6 +121,7 @@ Ordering service exposes health endpoints and emits:
 
 ## Related Documents
 
+- [Frontend contracts: Ordering](../01-overview/frontend/ordering.md) — the authoritative endpoint reference
 - [Basket Service](basket-service.md)
 - [Payment Service](payment-service.md)
 - [Notification Service](notification-service.md)
@@ -110,5 +129,5 @@ Ordering service exposes health endpoints and emits:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26
