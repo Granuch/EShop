@@ -36,8 +36,8 @@ together with [conventions.md](conventions.md).
 | [payment.md](payment.md) | complete |
 | [notification.md](notification.md) | complete |
 | [admin-platform.md](admin-platform.md) | complete |
-| [flows.md](flows.md) | outline only |
-| [endpoint-index.md](endpoint-index.md) | outline only |
+| [flows.md](flows.md) | complete |
+| [endpoint-index.md](endpoint-index.md) | complete |
 
 ---
 
