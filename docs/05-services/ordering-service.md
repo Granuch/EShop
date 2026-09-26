@@ -70,8 +70,8 @@ section is a summary, not a duplicate.**
   (409) once the order is paid.
   - An order is normally created asynchronously from a basket checkout, so the client polls
     `GET /api/v1/users/{userId}/orders` for it rather than getting one back from checkout.
-  - `OrderStatus` is sent as an **integer** everywhere except the admin list's `status` filter,
-    which takes the name.
+  - `OrderStatus` is sent as its PascalCase **name** (`"Pending"`), which is also what the admin list's
+    `status` filter takes, in any case.
 - **Admin** (gateway `Authenticated` only — see the note below — service's own `Admin` check):
   list (name-only status filter), stats (buckets and window totals), notes (add/list), status
   history (with the actor), ship, deliver.

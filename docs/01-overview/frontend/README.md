@@ -59,14 +59,8 @@ permission. For example, "gateway: `Admin` role · service: `notifications.read`
 **Names are wire names.** Tables and TypeScript use the camelCase names actually sent (`stockQuantity`). The C# type
 is named once, as a source reference (`ProductDto`).
 
-**Enums are written as they are sent**, because the services differ
-([conventions.md §2](conventions.md#enums)):
-- numeric enums become a `const` object plus a type:
-  ```ts
-  export const OrderStatus = { Pending: 0, Paid: 1 /* … */ } as const;
-  export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
-  ```
-- string enums become a string-literal union: `type PaymentStatus = 'PENDING' | 'SUCCESS' | …`.
+**Enums are string-literal unions of their PascalCase names**, which is how every service sends them
+([conventions.md §2](conventions.md#enums)): `type OrderStatus = 'Pending' | 'Paid' | …`.
 
 **Nullable means present with the value `null`.** Responses write nulls out, so a nullable field is typed `T | null`.
 An optional (`?`) property appears only in request types.

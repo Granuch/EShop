@@ -139,7 +139,7 @@ sequenceDiagram
     U->>STR: Stripe.js confirmPayment(clientSecret) — in the browser
     alt card accepted
         STR--)PAY: webhook payment_intent.succeeded
-        PAY-->>PAY: payment turns SUCCESS
+        PAY-->>PAY: payment turns Success
         PAY--)ORD: PaymentSuccessEvent (async)
         Note over PAY,ORD: ~14 s later (observed)
         loop poll with back-off
@@ -149,7 +149,7 @@ sequenceDiagram
         end
     else card declined
         STR-->>U: declined, reported by Stripe.js in the browser
-        Note over PAY: payment stays PROCESSING, errorMessage set.<br/>Same clientSecret still works — offer "try another card".
+        Note over PAY: payment stays Processing, errorMessage set.<br/>Same clientSecret still works — offer "try another card".
     end
 ```
 
@@ -194,7 +194,7 @@ sequenceDiagram
     alt order is Pending
         ORD-->>U: 204 — status becomes Cancelled (4)
         ORD--)PAY: order-cancelled message (async)
-        PAY-->>PAY: payment turns CANCELLED (no money was ever taken)
+        PAY-->>PAY: payment turns Cancelled (no money was ever taken)
     else order is Paid or later
         ORD-->>U: 409 Order.NotCancellable
         Note over U: "Only pending orders can be cancelled,<br/>this order is paid." — offer a refund instead
@@ -202,12 +202,12 @@ sequenceDiagram
     end
 
     rect rgb(255, 245, 235)
-    Note over U,PAY: Refund — admin only, on a captured (SUCCESS) payment
+    Note over U,PAY: Refund — admin only, on a captured (Success) payment
     actor A as Admin
     A->>GW: POST /api/v1/payments/{id}/refund { reason? }
     GW->>PAY: (proxied, Admin role)
-    alt payment is SUCCESS
-        PAY-->>A: 200 Payment { status: "REFUNDED" }
+    alt payment is Success
+        PAY-->>A: 200 Payment { status: "Refunded" }
         PAY--)ORD: refund message (async)
         Note over PAY,ORD: ~9 s later (observed)
         ORD-->>ORD: order becomes Refunded (5)
@@ -223,7 +223,7 @@ sequenceDiagram
 - **Refunds are always full**, never partial: `amount`, if sent at all, must equal the payment's own amount exactly
   ([`POST /{id}/refund`](payment.md#post-apiv1paymentsidrefund)).
 - **A refund moves real money only for a card payment.** Stripe refunds in about 1 s. An offline or
-  simulator-settled payment is only marked `REFUNDED` in the database — the money must be returned outside the
+  simulator-settled payment is only marked `Refunded` in the database — the money must be returned outside the
   system.
 - **The order's status change is asynchronous either way**, by message, not by the cancel/refund call itself: expect
   the order to still read its old status for a few seconds after a 204/200. Poll
@@ -314,8 +314,7 @@ sequenceDiagram
   silent update — there is no bulk-edit-by-CSV path.
 - **Export shares the product list's filters** ([`GET /products/export`](catalog.md#product-export)), so a
   filtered admin grid and its "export this view" button should send the same query string. The CSV writes the enum
-  by name (`Active`), unlike the JSON list's integer — do not assume the two representations match without checking
-  ([conventions.md, enum table](conventions.md#enums)).
+  by name (`Active`), exactly as the JSON list does ([conventions.md, enum table](conventions.md#enums)).
 - **The gateway's general 1 MiB body cap does not apply to import** — it gets its own 8 MiB cap, big enough for
   about 1 000 rows; bulk actions and everything else stay under the general cap.
 - **A cache family is bumped once per request, not once per row** — a 1 000-item bulk publish costs one

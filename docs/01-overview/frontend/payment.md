@@ -10,7 +10,7 @@ against the C# source and the service's OpenAPI document, and called on the comp
 gateway, or directly on the service where the gateway does not route it. The card flow was run against the real
 Stripe test mode, with webhooks delivered by the Stripe CLI listener. `create-intent`'s resume and 409 wording were
 re-verified at `f507f85`, which fixed F-52. The malformed-request rows were re-verified at `5980146`, which fixed
-F-20. Shared rules (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated
+F-20, and the statuses (JSON, CSV and the 409 wording) at `30e1221`, which fixed F-01. Shared rules (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated
 here.
 
 ## Base paths through the gateway
@@ -38,10 +38,9 @@ Not routed through the gateway (see [Not callable by clients](#not-callable-by-c
 
 - **`errorCode`s are `SCREAMING_SNAKE`** (`PAYMENT_NOT_FOUND`, `PAYMENT_NOT_READY`), not `Service.Reason` (F-24).
   The shared codes (`ValidationError`, `InternalServerError`) keep their usual form.
-- **Enums are strings, and not all cased alike.** `status` is upper case (`"SUCCESS"`), `paymentMethod` is
-  PascalCase (`"Stripe"`), the timeline's `kind` and the replay's `outcome` are PascalCase, and create-intent's
-  `status` is **Stripe's own** lower-case value (`"requires_payment_method"`), not a payment status (F-01). Filters
-  take the PascalCase **name** in any case.
+- **One `status` field is not ours.** Every enum is a PascalCase name, as in every service (`"Success"`,
+  `"Stripe"`), but create-intent's `status` is **Stripe's own** lower-case value (`"requires_payment_method"`), not a
+  payment status. Filters take the **name** in any case.
 - **A body that is missing or not valid JSON, and a query value of the wrong type, get 400 `MalformedRequest`**, for
   example `?pageSize=abc`, `?from=yesterday`, `?orderId=nope` or a truncated body. Its `detail` speaks of the request
   body even when the problem is in the query (F-25). Unknown body properties are ignored.
@@ -84,41 +83,41 @@ the gateway and again in the service ([conventions.md §7](conventions.md#7-rate
 Every order gets exactly **one** payment record, created by Payment itself when it hears that the order was created.
 No endpoint creates a payment. Source: `PaymentTransaction` in `EShop.Payment.Domain/Entities/PaymentTransaction.cs`.
 
-`status` is an **upper-case string**:
+`status` is a PascalCase **name**:
 
 | Value | Meaning | How it is reached |
 |---|---|---|
-| `PENDING` | Recorded; nothing started, nothing charged | When the order is created |
-| `PROCESSING` | A Stripe payment intent exists and the customer may be paying; or the simulator is running | [`create-intent`](#post-apiv1paymentscreate-intent); an admin [simulator settle](#post-apiv1payments) |
-| `SUCCESS` | The money was taken (or recorded as received) | Stripe's webhook; an offline or simulator settle |
-| `FAILED` | The simulator declined it, or the Stripe intent was cancelled outside the shop (for example from Stripe's Dashboard). **A declined card is not `FAILED`** (see below) | Simulator; Stripe's webhook |
-| `REFUNDED` | Refunded in full | Admin [refund](#post-apiv1paymentsidrefund) |
-| `CANCELLED` | The order was cancelled before the money was taken; any Stripe intent was cancelled too | Order cancellation (by message) |
+| `Pending` | Recorded; nothing started, nothing charged | When the order is created |
+| `Processing` | A Stripe payment intent exists and the customer may be paying; or the simulator is running | [`create-intent`](#post-apiv1paymentscreate-intent); an admin [simulator settle](#post-apiv1payments) |
+| `Success` | The money was taken (or recorded as received) | Stripe's webhook; an offline or simulator settle |
+| `Failed` | The simulator declined it, or the Stripe intent was cancelled outside the shop (for example from Stripe's Dashboard). **A declined card is not `Failed`** (see below) | Simulator; Stripe's webhook |
+| `Refunded` | Refunded in full | Admin [refund](#post-apiv1paymentsidrefund) |
+| `Cancelled` | The order was cancelled before the money was taken; any Stripe intent was cancelled too | Order cancellation (by message) |
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING: order created (message from Ordering)
-    PENDING --> PROCESSING: POST /create-intent, or admin simulator settle
-    PENDING --> SUCCESS: admin offline settle
-    PENDING --> CANCELLED: order cancelled
-    PROCESSING --> PROCESSING: card declined (errorMessage set)
-    PROCESSING --> SUCCESS: Stripe webhook payment_intent.succeeded, or simulator success
-    PROCESSING --> FAILED: simulator decline, or intent cancelled outside the shop
-    PROCESSING --> CANCELLED: order cancelled
-    SUCCESS --> REFUNDED: admin refund
-    FAILED --> [*]
-    REFUNDED --> [*]
-    CANCELLED --> [*]
+    [*] --> Pending: order created (message from Ordering)
+    Pending --> Processing: POST /create-intent, or admin simulator settle
+    Pending --> Success: admin offline settle
+    Pending --> Cancelled: order cancelled
+    Processing --> Processing: card declined (errorMessage set)
+    Processing --> Success: Stripe webhook payment_intent.succeeded, or simulator success
+    Processing --> Failed: simulator decline, or intent cancelled outside the shop
+    Processing --> Cancelled: order cancelled
+    Success --> Refunded: admin refund
+    Failed --> [*]
+    Refunded --> [*]
+    Cancelled --> [*]
 ```
 
-- **A declined card leaves the payment `PROCESSING`**, with Stripe's reason in `errorMessage` (observed: `"Your card
+- **A declined card leaves the payment `Processing`**, with Stripe's reason in `errorMessage` (observed: `"Your card
   was declined."`). The same intent stays payable, so the customer can try another card with the same client secret.
   A later success clears `errorMessage`.
-- **`amount` can change while the payment is `PENDING` or `PROCESSING`.** When the customer changes the order's items,
+- **`amount` can change while the payment is `Pending` or `Processing`.** When the customer changes the order's items,
   Payment updates the amount to the order's new total within about 2 s, and changes an open Stripe intent to match, so
   the client secret keeps working and charges the new total ([ordering.md](ordering.md#post-apiv1ordersiditems)).
-- `SUCCESS` and `REFUNDED` reach the order **by message**: the order became Paid about **14 s** after Stripe's webhook,
-  and Refunded about 9 s after the refund (observed). A simulator `FAILED` cancels the order (from source).
+- `Success` and `Refunded` reach the order **by message**: the order became Paid about **14 s** after Stripe's webhook,
+  and Refunded about 9 s after the refund (observed). A simulator `Failed` cancels the order (from source).
 
 `paymentMethod` is a **PascalCase string**:
 
@@ -131,7 +130,7 @@ stateDiagram-v2
 ### How a customer pays: the card flow
 
 1. **The order is created**, normally by Basket [checkout](basket.md#post-apiv1basketuseridcheckout). Payment records a
-   `PENDING` `Stripe` payment for the order total **from about 1 s to about 15 s later** (observed 1 s, 8 s and 14 s;
+   `Pending` `Stripe` payment for the order total **from about 1 s to about 15 s later** (observed 1 s, 8 s and 14 s;
    it depends on how long the message outbox has been idle).
 2. **`POST /api/v1/payments/create-intent`** with the order id. While the record does not exist yet the answer is
    **409 `PAYMENT_NOT_READY`**: retry with back-off (1 s, 2 s, 4 s … up to about 30 s). The 200 answer carries the
@@ -140,9 +139,9 @@ stateDiagram-v2
 3. **Confirm the payment in the browser with Stripe.js** (Payment Element, or `stripe.confirmPayment`) using that
    `clientSecret` and the Stripe **publishable** key. The API does not serve the publishable key; the frontend needs it
    in its own configuration, from the same Stripe account as the server's secret key.
-4. **Stripe calls Payment's webhook.** The payment turns `SUCCESS` at once; the order turns Paid about 14 s later.
+4. **Stripe calls Payment's webhook.** The payment turns `Success` at once; the order turns Paid about 14 s later.
    Poll `GET /api/v1/orders/{id}` with back-off. Observed: webhook at 16:54:05, order Paid at 16:54:19.
-5. **A declined card** is reported by Stripe.js in the browser. The payment stays `PROCESSING`, and the customer can
+5. **A declined card** is reported by Stripe.js in the browser. The payment stays `Processing`, and the customer can
    retry with the same client secret.
 
 The amount charged is always Payment's recorded amount, in USD. The request cannot set an amount or currency.
@@ -153,8 +152,8 @@ Create the Stripe payment intent for an order, or **resume** the one already cre
 Source: `CreatePaymentIntentCommand`. **Service:** any signed-in user; a non-admin may only pay their own order.
 
 **Create or resume:**
-- A `PENDING` payment: an intent is created at Stripe, and the payment turns `PROCESSING`.
-- A `PROCESSING` card payment (an intent was created earlier, by this call): the **same intent** is read back from
+- A `Pending` payment: an intent is created at Stripe, and the payment turns `Processing`.
+- A `Processing` card payment (an intent was created earlier, by this call): the **same intent** is read back from
   Stripe and its client secret returned. Nothing is created or written. Observed: calls made about 45 minutes after
   the intent was created, twice in a row, returned the original intent and secret; paying it then made the order
   Paid. Its `status` is Stripe's current one: after a declined card it is `requires_payment_method` again; if
@@ -179,7 +178,7 @@ Anything else in the body (`amount`, `currency`, `userId`) is ignored: an order 
 ```
 
 `status` here is **Stripe's intent status**, not a [`PaymentStatus`](#payment-status-and-method). The payment itself
-is now `PROCESSING`.
+is now `Processing`.
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -188,12 +187,12 @@ is now `PROCESSING`.
 | 401 | — | No token (the gateway answers) |
 | 404 | `PAYMENT_NOT_FOUND` | The order belongs to another user: `"Payment not found."` |
 | 409 | `PAYMENT_NOT_READY` | Payment has no record for this order yet: `"The order's payment is not ready yet. Retry shortly."`. **Also for an order id that does not exist at all** |
-| 409 | `PAYMENT_ALREADY_EXISTS` | The payment cannot be paid by card: it was paid, settled offline, refunded, cancelled or failed, or an admin is settling it through the simulator. `detail` names the status: `"This order's payment is SUCCESS and cannot be paid by card."` (observed for `SUCCESS`, `REFUNDED` and `CANCELLED`) |
-| 500 | `InternalServerError` | Stripe refused the request for a reason a retry cannot fix. Observed for an order of 90 194 313 174.00 (Stripe: "Amount must be no more than $9,999,999,999.99"). Nothing was recorded; the payment stays `PENDING` (F-53) |
+| 409 | `PAYMENT_ALREADY_EXISTS` | The payment cannot be paid by card: it was paid, settled offline, refunded, cancelled or failed, or an admin is settling it through the simulator. `detail` names the status: `"This order's payment is Success and cannot be paid by card."` (observed for `Success`, `Refunded` and `Cancelled`) |
+| 500 | `InternalServerError` | Stripe refused the request for a reason a retry cannot fix. Observed for an order of 90 194 313 174.00 (Stripe: "Amount must be no more than $9,999,999,999.99"). Nothing was recorded; the payment stays `Pending` (F-53) |
 | 503 | `PAYMENT_PROVIDER_UNAVAILABLE` | Stripe could not be reached, timed out or was rate limited, when creating or when resuming: `"The payment provider is unavailable. Retry shortly."`. Nothing was recorded; retry (from source) |
 | 503 | `STRIPE_NOT_ENABLED` | Stripe is switched off in this deployment; orders are then settled by the simulator (from source) |
 
-- **Side effects** of a create: the payment turns `PROCESSING`, and its timeline gets a row naming the caller. Payment
+- **Side effects** of a create: the payment turns `Processing`, and its timeline gets a row naming the caller. Payment
   publishes `PaymentCreated`, which Notification turns into a "payment started" email. A resume has no side effects.
   Not audited.
 - An **admin** may call it for any user's order (observed 200). The Stripe customer is always the order's owner.
@@ -207,7 +206,7 @@ One payment. Source: `GetPaymentByIdQuery`. **Service:** any signed-in user; a n
 ```json
 {"id":"e3bdb53e-bb0a-45ef-9db2-22f0a944b718","orderId":"0001a08c-eb11-40e4-a23d-fae2f1e14e95",
  "userId":"0749b287-0897-408f-b248-5f133aab1796","amount":42.00,"currency":"USD","paymentMethod":"Stripe",
- "status":"PROCESSING","paymentIntentId":"pi_3UJcNWElFusFvdtI1WfvFn1U","errorMessage":"Your card was declined.",
+ "status":"Processing","paymentIntentId":"pi_3UJcNWElFusFvdtI1WfvFn1U","errorMessage":"Your card was declined.",
  "createdAt":"2026-09-25T16:52:44.545095Z","processedAt":null,"updatedAt":"2026-09-25T16:54:31.67038Z"}
 ```
 
@@ -239,7 +238,7 @@ reading a customer's list, `pageSize=1`):
 ```json
 {"items":[{"id":"fd3814fd-6679-4ff4-8d50-fb7a3cbb77ee","orderId":"214c3db9-80bf-45a5-8499-3eb1f4c58f77",
    "userId":"0749b287-0897-408f-b248-5f133aab1796","amount":126.00,"currency":"USD","paymentMethod":"Stripe",
-   "status":"SUCCESS","paymentIntentId":"pi_3UJX7yElFusFvdtI154TBErS","errorMessage":null,
+   "status":"Success","paymentIntentId":"pi_3UJX7yElFusFvdtI154TBErS","errorMessage":null,
    "createdAt":"2026-09-25T11:17:09.918471Z","processedAt":"2026-09-25T11:17:52.288058Z",
    "updatedAt":"2026-09-25T11:17:52.296198Z"}],
  "pageNumber":1,"pageSize":1,"totalCount":14,"totalPages":14,"hasPreviousPage":false,"hasNextPage":true}
@@ -293,7 +292,7 @@ Every payment, filtered and paged, newest first (`createdAt` descending, then `i
 |---|---|---|---|
 | `pageNumber` | integer | `1` | ≥ 1 |
 | `pageSize` | integer | `10` | 1–100 |
-| `status` | string, repeatable | — | A status **name**, any case (`Refunded`, `CANCELLED`). Repeat for a union: `?status=Refunded&status=Cancelled`. A number is refused |
+| `status` | string, repeatable | — | A status **name**, any case (`refunded`, `CANCELLED`). Repeat for a union: `?status=Refunded&status=Cancelled`. A number is refused |
 | `userId` | string | — | **Exact** match on the owner's id, case-sensitive, at most 100 characters. Not a search |
 | `orderId` | string (GUID) | — | Exact match; at most one payment per order |
 | `paymentMethod` | string | — | `None`, `Mock` or `Stripe`, any case |
@@ -328,20 +327,20 @@ Dashboard totals, a per-status breakdown and time buckets. Source: `GetPaymentSt
 ```json
 {"from":"2026-09-25T00:00:00Z","to":"2026-09-25T23:59:59Z","currency":"USD","groupBy":"Day","totalPayments":21,
  "grossAmount":90194317957.97,"capturedRevenue":3311.98,"refundedAmount":126.00,"failedAmount":0,
- "byStatus":[{"status":"PENDING","count":6,"amount":90194314351.99},{"status":"PROCESSING","count":2,"amount":84.00},
-   {"status":"SUCCESS","count":8,"amount":3311.98},{"status":"FAILED","count":0,"amount":0},
-   {"status":"REFUNDED","count":3,"amount":126.00},{"status":"CANCELLED","count":2,"amount":84.00}],
+ "byStatus":[{"status":"Pending","count":6,"amount":90194314351.99},{"status":"Processing","count":2,"amount":84.00},
+   {"status":"Success","count":8,"amount":3311.98},{"status":"Failed","count":0,"amount":0},
+   {"status":"Refunded","count":3,"amount":126.00},{"status":"Cancelled","count":2,"amount":84.00}],
  "buckets":[{"periodStart":"2026-09-25T00:00:00Z","paymentCount":21,"grossAmount":90194317957.97,
    "capturedRevenue":3311.98,"refundedAmount":126.00}]}
 ```
 
 (The large gross amount comes from a test order for 2 147 483 647 units; see [ordering.md](ordering.md#frontend-notes).)
 
-- `groupBy` comes back as the **name** (`"Day"`, `"Month"`, `"Year"`), unlike Ordering's stats, which send an integer.
+- `groupBy` comes back as the **name** (`"Day"`, `"Month"`, `"Year"`).
 - `currency` echoes the currency applied, upper-cased (`?currency=usd` → `"USD"`).
 - `from`/`to` echo the window as applied (a date-only value comes back as `…T00:00:00Z`), or `null` when unbounded.
-- `grossAmount` counts every status. `capturedRevenue` is `SUCCESS` only; refunded, failed, cancelled and in-flight
-  money is never counted as revenue. `refundedAmount` and `failedAmount` are `REFUNDED` and `FAILED`. Cancelled and
+- `grossAmount` counts every status. `capturedRevenue` is `Success` only; refunded, failed, cancelled and in-flight
+  money is never counted as revenue. `refundedAmount` and `failedAmount` are `Refunded` and `Failed`. Cancelled and
   in-flight amounts appear only in `byStatus`.
 - `byStatus` always has **six** entries, one per status, including zeros.
 - `buckets` has one entry per **non-empty** period, oldest first. `periodStart` is midnight UTC of the day, the first
@@ -367,11 +366,11 @@ row):
 
 ```text
 Id,OrderId,UserId,Amount,Currency,PaymentMethod,Status,PaymentIntentId,ErrorMessage,CreatedAt,ProcessedAt
-"021d215d-251e-441f-a3e5-e781f95b3c0d","2c3e2e97-361c-451e-a7e2-444c4f93365a","0749b287-0897-408f-b248-5f133aab1796","42.00","USD","Mock","REFUNDED","pi_a267801d171e4ca38872326a2060e8b9","'=1+1, ""fe-contracts"" S7 csv","2026-09-25T16:52:45.4332230Z","2026-09-25T16:57:24.8699190Z"
+"021d215d-251e-441f-a3e5-e781f95b3c0d","2c3e2e97-361c-451e-a7e2-444c4f93365a","0749b287-0897-408f-b248-5f133aab1796","42.00","USD","Mock","Refunded","pi_a267801d171e4ca38872326a2060e8b9","'=1+1, ""fe-contracts"" S7 csv","2026-09-25T16:52:45.4332230Z","2026-09-25T16:57:24.8699190Z"
 ```
 
-- The columns are the [`Payment`](#payment) fields without `updatedAt`, in the order shown. `Status` is upper case, as
-  in JSON.
+- The columns are the [`Payment`](#payment) fields without `updatedAt`, in the order shown. `Status` is the same name as
+  in JSON (`Refunded`).
 - Every value is quoted, and `"` is doubled. A `null` is an **empty unquoted** field (`…,"offline:ref",,"2026-…`).
 - A value starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'` (above: a refund reason `=1+1, …`).
 - Timestamps have **seven** fractional digits, one more than the JSON.
@@ -395,18 +394,18 @@ One payment's timeline, **oldest first**, unpaged. Source: `GetPaymentEventsQuer
 
 ```json
 [{"id":"321c0ae7-a54f-429e-963b-2f86b96a19ec","kind":"Transition","stripeEventId":null,"fromStatus":null,
-  "toStatus":"PENDING","detail":"Payment of 42.00 USD recorded for the order, to be settled by Stripe.",
+  "toStatus":"Pending","detail":"Payment of 42.00 USD recorded for the order, to be settled by Stripe.",
   "actorId":"system","occurredAt":"2026-09-25T16:52:44.462388Z"},
- {"id":"716d1b87-982c-4c84-95bf-4f12a94471dd","kind":"Transition","stripeEventId":null,"fromStatus":"PENDING",
-  "toStatus":"PROCESSING","detail":"Stripe payment intent 'pi_3UJcNWElFusFvdtI1WfvFn1U' created; Stripe reports 'requires_payment_method'.",
+ {"id":"716d1b87-982c-4c84-95bf-4f12a94471dd","kind":"Transition","stripeEventId":null,"fromStatus":"Pending",
+  "toStatus":"Processing","detail":"Stripe payment intent 'pi_3UJcNWElFusFvdtI1WfvFn1U' created; Stripe reports 'requires_payment_method'.",
   "actorId":"0749b287-0897-408f-b248-5f133aab1796","occurredAt":"2026-09-25T16:53:39.468746Z"},
  {"id":"8d8041cf-1dc3-4ffb-ba64-39a5d3c13e94","kind":"Webhook","stripeEventId":"evt_3UJcNWElFusFvdtI1JQjeDQl",
-  "fromStatus":"PROCESSING","toStatus":"PROCESSING","detail":"Card declined, intent still payable: Your card was declined.",
+  "fromStatus":"Processing","toStatus":"Processing","detail":"Card declined, intent still payable: Your card was declined.",
   "actorId":null,"occurredAt":"2026-09-25T16:54:31.670009Z"}]
 ```
 
-- The first row always has `fromStatus: null` and `toStatus: "PENDING"`, except for a method-`None` placeholder, whose
-  only row goes straight to `"CANCELLED"`.
+- The first row always has `fromStatus: null` and `toStatus: "Pending"`, except for a method-`None` placeholder, whose
+  only row goes straight to `"Cancelled"`.
 - **`toStatus` equals `fromStatus` when something other than the status changed**: a declined card, an amount revised
   after an item change (`"Amount revised from 84.00 to 126.00 USD because the order's items changed."`), a refund
   reason (`"Refund reason recorded: …"`), or a Stripe event that arrived after the payment had already moved
@@ -438,13 +437,13 @@ Record an order as paid outside the system (bank transfer, cash). Source: `Settl
 
 There is **no amount**: the payment settles for its recorded amount, which is the order's current total.
 
-**200** [`Payment`](#payment): `status: "SUCCESS"`, `paymentMethod: "Mock"`,
+**200** [`Payment`](#payment): `status: "Success"`, `paymentMethod: "Mock"`,
 `paymentIntentId: "offline:<reference>"`. Captured:
 
 ```json
 {"id":"bb082b33-6fda-4d64-927b-61d6130c934b","orderId":"a4bfa1bb-aa0b-43d0-9586-3ccd08a5033f",
  "userId":"0749b287-0897-408f-b248-5f133aab1796","amount":42.00,"currency":"USD","paymentMethod":"Mock",
- "status":"SUCCESS","paymentIntentId":"offline:fe-contracts-s7-offline-1","errorMessage":null,
+ "status":"Success","paymentIntentId":"offline:fe-contracts-s7-offline-1","errorMessage":null,
  "createdAt":"2026-09-25T16:52:45.420438Z","processedAt":"2026-09-25T16:55:38.9123316Z",
  "updatedAt":"2026-09-25T16:55:38.9131861Z"}
 ```
@@ -455,7 +454,7 @@ There is **no amount**: the payment settles for its recorded amount, which is th
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous (gateway) / not allowed (service) |
 | 404 | `PAYMENT_NOT_FOUND` | No payment recorded for this order (also for an unknown order): `"No payment has been recorded for this order."` |
-| 409 | `PAYMENT_NOT_PENDING` | The payment is not `PENDING`: already `PROCESSING` (the customer opened a card payment), settled, refunded or cancelled. `"Only a pending payment can be settled."` |
+| 409 | `PAYMENT_NOT_PENDING` | The payment is not `Pending`: already `Processing` (the customer opened a card payment), settled, refunded or cancelled. `"Only a pending payment can be settled."` |
 | 409 | `PAYMENT_REFERENCE_IN_USE` | The reference (after trimming) is already recorded: `"Reference 'fe-contracts-s7-offline-1' is already recorded against order a4bfa1bb-…."` |
 
 - **Side effects:** the order becomes Paid by message (about 9 s in S6). Notification sends the "payment received"
@@ -465,7 +464,7 @@ There is **no amount**: the payment settles for its recorded amount, which is th
 
 ### `POST /api/v1/payments`
 
-Settle an order's `PENDING` payment through the **payment simulator**. An admin testing tool; it does not create a
+Settle an order's `Pending` payment through the **payment simulator**. An admin testing tool; it does not create a
 payment. Source: `CreatePaymentCommand`. **Service:** the `Admin` role.
 
 **Body** [`SettlePaymentRequest`](#settlepaymentrequest): `{ "orderId": string }`. Any other field (`amount`,
@@ -473,8 +472,8 @@ payment. Source: `CreatePaymentCommand`. **Service:** the `Admin` role.
 
 **200** [`Payment`](#payment), **synchronously after the simulator's delay** (1–3 s in the sandbox; observed 1.2 s to
 2.4 s). Its `status` is the simulator's outcome:
-- `SUCCESS` (observed four times out of four), with `paymentMethod: "Mock"` and a fake `pi_<32 hex>` intent id;
-- or `FAILED` (from source), with the simulator's reason in `errorMessage`. **A `FAILED` settle cancels the order.** In
+- `Success` (observed four times out of four), with `paymentMethod: "Mock"` and a fake `pi_<32 hex>` intent id;
+- or `Failed` (from source), with the simulator's reason in `errorMessage`. **A `Failed` settle cancels the order.** In
   the sandbox 20 % of settles fail (`successRatePercent: 80`; see [simulator diagnostics](#get-apiv1paymentssimulation)).
 
 A 200 therefore does not mean the payment succeeded: read `status`.
@@ -485,7 +484,7 @@ A 200 therefore does not mean the payment succeeded: read `status`.
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous (gateway) / not an admin (service) |
 | 404 | `PAYMENT_NOT_FOUND` | No payment recorded for this order |
-| 409 | `PAYMENT_NOT_PENDING` | The payment is not `PENDING`: `"Only a pending payment can be settled."` |
+| 409 | `PAYMENT_NOT_PENDING` | The payment is not `Pending`: `"Only a pending payment can be settled."` |
 
 ### `POST /api/v1/payments/{id}/refund`
 
@@ -499,7 +498,7 @@ Refund a captured payment **in full**. `{id}` is the **payment** id, not the ord
 | `amount` | number | no | If sent, must equal the payment's `amount` exactly (`42.000` equals `42.00`); at most two decimals. Omitted or `null` means the full amount |
 | `reason` | string | no | At most 500 characters. Stored trimmed as the payment's **`errorMessage`** and on the timeline |
 
-**200** [`Payment`](#payment) with `status: "REFUNDED"` and, when a reason was given, `errorMessage` set to it.
+**200** [`Payment`](#payment) with `status: "Refunded"` and, when a reason was given, `errorMessage` set to it.
 
 - **Card payments** are refunded at Stripe (observed: 200 in about 1 s). **Offline and simulator payments** are only
   recorded as refunded after the simulator's refund delay (2 s in the sandbox): **no money moves**, so an offline
@@ -516,7 +515,7 @@ Refund a captured payment **in full**. `{id}` is the **payment** id, not the ord
 | 401 / 403 | — | Anonymous (gateway) / not an admin (service) |
 | 404 | `PAYMENT_NOT_FOUND` | Unknown payment |
 | 409 | `PAYMENT_ALREADY_REFUNDED` | `"The payment has already been refunded."` |
-| 409 | `PAYMENT_NOT_CAPTURED` | The payment is not `SUCCESS`: `"Only a captured payment can be refunded. This one is Pending."` (or `Processing`, `Failed`, `Cancelled`, named in the message) |
+| 409 | `PAYMENT_NOT_CAPTURED` | The payment is not `Success`: `"Only a captured payment can be refunded. This one is Pending."` (or `Processing`, `Failed`, `Cancelled`, named in the message) |
 
 A cancelled order is never refunded automatically in this deployment. A customer's "cancel after payment" request is
 an admin refund.
@@ -600,7 +599,7 @@ decimals; unlike other services, Payment carries an explicit `currency`, always 
 
 | Enum | Sent as | Values | In query filters |
 |---|---|---|---|
-| `PaymentStatus` | upper-case string | `"PENDING"` · `"PROCESSING"` · `"SUCCESS"` · `"FAILED"` · `"REFUNDED"` · `"CANCELLED"` | name, any case (`Pending`, `SUCCESS`); repeatable |
+| `PaymentStatus` | PascalCase string | `"Pending"` · `"Processing"` · `"Success"` · `"Failed"` · `"Refunded"` · `"Cancelled"` | name, any case (`pending`, `SUCCESS`); repeatable |
 | `PaymentMethod` | PascalCase string | `"None"` · `"Mock"` · `"Stripe"` | name, any case |
 | `PaymentEventKind` | PascalCase string | `"Transition"` · `"Webhook"` | — |
 | `PaymentStatsGroupBy` | PascalCase string | `"Day"` · `"Month"` · `"Year"` | name, any case |
@@ -629,7 +628,7 @@ decimals; unlike other services, Payment carries an explicit `currency`, always 
 |---|---|---|---|
 | `paymentId` | string (GUID) | no | The payment record |
 | `paymentIntentId` | string | no | Stripe's intent id (`pi_…`) |
-| `clientSecret` | string | no | For Stripe.js. The same secret on every call while the payment is `PROCESSING` |
+| `clientSecret` | string | no | For Stripe.js. The same secret on every call while the payment is `Processing` |
 | `status` | string | no | **Stripe's** intent status, lower case |
 
 #### Payment
@@ -641,7 +640,7 @@ Source: `PaymentDto`. The response of every payment endpoint that returns one pa
 | `id` | string (GUID) | no | The payment id (used by refund and events) |
 | `orderId` | string (GUID) | no | One payment per order |
 | `userId` | string | no | The owner's Identity user id |
-| `amount` | number | no | What is charged: the order's current total. Can change while `PENDING`/`PROCESSING` |
+| `amount` | number | no | What is charged: the order's current total. Can change while `Pending`/`Processing` |
 | `currency` | string | no | Always `"USD"` |
 | `paymentMethod` | [`PaymentMethod`](#enums) | no | |
 | `status` | [`PaymentStatus`](#enums) | no | |
@@ -699,9 +698,9 @@ Source: `PaymentStatsDto`.
 | `groupBy` | [`PaymentStatsGroupBy`](#enums) | no | The bucket size used, as a name |
 | `totalPayments` | number | no | Payments created in the window, any status |
 | `grossAmount` | number | no | Sum of their amounts, any status. Not revenue |
-| `capturedRevenue` | number | no | `SUCCESS` only |
-| `refundedAmount` | number | no | `REFUNDED` only |
-| `failedAmount` | number | no | `FAILED` only |
+| `capturedRevenue` | number | no | `Success` only |
+| `refundedAmount` | number | no | `Refunded` only |
+| `failedAmount` | number | no | `Failed` only |
 | `byStatus` | [`PaymentStatusBreakdown`](#paymentstatusbreakdown)[] | no | Always six entries |
 | `buckets` | [`PaymentStatsBucket`](#paymentstatsbucket)[] | no | Non-empty periods only, oldest first |
 
@@ -773,20 +772,14 @@ Source: `PaymentSimulationDiagnosticsResponse`.
 // ---- Enums (sent as strings) ----
 
 export type PaymentStatus =
-  | 'PENDING'
-  | 'PROCESSING'
-  | 'SUCCESS'
-  | 'FAILED'
-  | 'REFUNDED'
-  | 'CANCELLED';
-/** The form the admin filters accept (any case works; send this one). */
-export type PaymentStatusName =
   | 'Pending'
   | 'Processing'
   | 'Success'
   | 'Failed'
   | 'Refunded'
   | 'Cancelled';
+/** The form the admin filters accept (any case works; send this one). */
+export type PaymentStatusName = PaymentStatus;
 
 export type PaymentMethod = 'None' | 'Mock' | 'Stripe';
 export type PaymentEventKind = 'Transition' | 'Webhook';
@@ -823,7 +816,7 @@ export interface UserPaymentsQuery {
 export interface CreatePaymentIntentResponse {
   paymentId: string;
   paymentIntentId: string;
-  /** For Stripe.js. A repeat call while the payment is PROCESSING returns the same secret. */
+  /** For Stripe.js. A repeat call while the payment is Processing returns the same secret. */
   clientSecret: string;
   /** Stripe's status, not a PaymentStatus. */
   status: StripeIntentStatus;
@@ -833,7 +826,7 @@ export interface Payment {
   id: string;
   orderId: string;
   userId: string;
-  /** The order's current total; can change while PENDING or PROCESSING. */
+  /** The order's current total; can change while Pending or Processing. */
   amount: number;
   /** Always "USD". */
   currency: string;
@@ -933,7 +926,7 @@ export interface PaymentStats {
   totalPayments: number;
   /** Every status. Not revenue. */
   grossAmount: number;
-  /** SUCCESS only. */
+  /** Success only. */
   capturedRevenue: number;
   refundedAmount: number;
   failedAmount: number;
@@ -1002,17 +995,17 @@ export interface PaymentSimulationDiagnostics {
 > error, since an order id that does not exist gets the same answer forever.
 
 > ⚠ **Paid and Refunded reach the order about 10–15 s after the payment.** After Stripe.js reports success, poll
-> `GET /api/v1/orders/{id}` with back-off, or poll the payment, which turns `SUCCESS` as soon as Stripe's webhook
+> `GET /api/v1/orders/{id}` with back-off, or poll the payment, which turns `Success` as soon as Stripe's webhook
 > arrives.
 
 > ⚠ **`create-intent` can answer a generic 500** when Stripe refuses the request outright, for example for an amount
 > above Stripe's maximum. Nothing was recorded, and retrying does not help. (F-53)
 
-> ⚠ **Two different `status` fields.** `Payment.status` is upper case (`"PROCESSING"`); create-intent's `status` is
-> Stripe's lower-case intent status (`"requires_payment_method"`). Type them separately. (F-01)
+> **Two different `status` fields.** `Payment.status` is one of ours (`"Processing"`); create-intent's `status` is
+> Stripe's lower-case intent status (`"requires_payment_method"`). Type them separately.
 
-> ⚠ **`errorMessage` is not always an error.** On a `REFUNDED` payment it can hold the admin's refund reason, and on a
-> `CANCELLED` one the cancellation note. Label it by `status`.
+> ⚠ **`errorMessage` is not always an error.** On a `Refunded` payment it can hold the admin's refund reason, and on a
+> `Cancelled` one the cancellation note. Label it by `status`.
 
 > ⚠ **`"Mock"` is not a card.** An offline payment shows method `"Mock"` with `paymentIntentId` `offline:<reference>`,
 > and a simulator payment shows `"Mock"` with a `pi_…` id that Stripe does not know. Label offline payments from the

@@ -6,7 +6,8 @@ statistics and cache invalidation are also Catalog endpoints.
 
 **Verified at:** `5c6c3b0` (`feature/admin-panel`, 2026-09-24). Catalog's code has not changed since `105d647`. Every
 endpoint in this file was checked against the C# source and the service's OpenAPI document, and called through the
-gateway on the compose `sandbox` stack. The 429 rows were re-verified at `5980146`, which fixed F-05. Shared rules
+gateway on the compose `sandbox` stack. The 429 rows were re-verified at `5980146`, which fixed F-05, and `status`, `sortBy` and the export's `Status` at
+`30e1221`, which fixed F-01. Shared rules
 (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
@@ -21,14 +22,11 @@ gateway on the compose `sandbox` stack. The 429 rows were re-verified at `598014
 
 Not routed through the gateway: Catalog's own `GET /api/v1/admin/audit` (see [admin-platform.md](admin-platform.md)).
 
-**Catalog differs from the other services in five ways.** Read these once before using any endpoint below:
+**Catalog differs from the other services in four ways.** Read these once before using any endpoint below:
 
 - **Unknown body properties are rejected** with 400 `MalformedRequest`, and `detail` names the JSON path
   (`'$.bogus'`). So is `null` for a field that cannot be null (`{"discountPrice":null}`), with the same "unknown or
   invalid property" wording. Send exactly the documented fields (F-02).
-- **`status` is an integer** (`0` Draft, `1` Active, `2` Discontinued), but the `status` and `sortBy` **query
-  filters** take the exact-case name or the integer. `?status=active` is a 400 `MalformedRequest` whose `detail`
-  wrongly blames the request body (F-01, F-25).
 - **Validation errors use the one shape**: 400 `ValidationError`, with an `errors` map keyed by the camelCase field
   name and every message in `detail` ([conventions.md §3.3](conventions.md#33-validation-errors)).
 - **A domain rule refusal is 400 `DomainError`**, with the rule in `detail` ("Discount price must be less than the
@@ -96,9 +94,9 @@ The product list, paged by offset. Source: `GetProductsQuery` (filters on `Produ
 | `categoryId` | GUID | — | Products **directly** in this category. Products in its subcategories are not included |
 | `minPrice` | number | — | ≥ 0. Compared with the **effective price** (`discountPrice ?? price`) |
 | `maxPrice` | number | — | Must be greater than `minPrice` when both are sent. Effective price, like `minPrice` |
-| `sortBy` | `Name` \| `Price` \| `CreatedAt` | `Name` | Exact-case name, or `0`/`1`/`2`. `Price` sorts by the effective price. Ties are broken by id, so pages never repeat or skip a row |
+| `sortBy` | `Name` \| `Price` \| `CreatedAt` | `Name` | Name in any case; a number is refused. `Price` sorts by the effective price. Ties are broken by id, so pages never repeat or skip a row |
 | `isDescending` | boolean | `false` | |
-| `status` | `Draft` \| `Active` \| `Discontinued` | — | Exact-case name, or `0`/`1`/`2`. It **narrows** the visibility rule and never widens it: anonymous `?status=Draft` gives an empty page. `Discontinued` always gives an empty page, because only deleted products carry it |
+| `status` | `Draft` \| `Active` \| `Discontinued` | — | Name in any case; a number is refused. It **narrows** the visibility rule and never widens it: anonymous `?status=Draft` gives an empty page. `Discontinued` always gives an empty page, because only deleted products carry it |
 | `hasDiscount` | boolean | — | `true`: products with a `discountPrice`; `false`: without |
 | `stockBelow` | integer | — | Strictly less than: `stockBelow=1` means "out of stock" |
 | `createdFrom`, `createdTo` | date-time | — | Inclusive range on `createdAt`. A date without a zone is read as UTC |
@@ -108,7 +106,7 @@ with `?pageSize=1`:
 
 ```json
 {"items":[{"id":"9316561d-b960-46e2-862d-b7aceea4b77d","name":"Domain-Driven Design","description":null,
-  "sku":"BOOK-DDD-001","price":42.00,"discountPrice":null,"stockQuantity":200,"status":1,
+  "sku":"BOOK-DDD-001","price":42.00,"discountPrice":null,"stockQuantity":200,"status":"Active",
   "categoryId":"5747ee57-f779-4e0b-82b3-0171930cb2d1","mainImageUrl":null,"createdAt":"2026-09-16T10:55:12.139241Z"}],
  "pageNumber":1,"pageSize":1,"totalCount":5,"totalPages":5,"hasPreviousPage":false,"hasNextPage":true}
 ```
@@ -118,8 +116,8 @@ A list item carries the main image's URL only. The gallery and the attributes ar
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | `pageNumber` < 1; `pageSize` outside 1–100; `searchTerm` shorter than 2 or longer than 200; `minPrice` < 0; `maxPrice` ≤ `minPrice`; any `cursor` value (see below). Several failures are joined in one `detail` |
-| 400 | `MalformedRequest` | A value of the wrong type: `pageSize=abc`, `categoryId=nope`, `isDescending=maybe`, an unparseable date, or an enum name in the wrong case (`sortBy=price`, `status=draft`). `detail` says "The request body is not valid JSON…", although the problem is in the query (F-25) |
+| 400 | `ValidationError` | `pageNumber` < 1; `pageSize` outside 1–100; `searchTerm` shorter than 2 or longer than 200; `minPrice` < 0; `maxPrice` ≤ `minPrice`; a `sortBy` or `status` that is not a name, such as `status=1` or `sortBy=Bogus` (key `status`, `sortBy`); any `cursor` value (see below). Several failures are joined in one `detail` |
+| 400 | `MalformedRequest` | A value of the wrong type: `pageSize=abc`, `categoryId=nope`, `isDescending=maybe`, an unparseable date. `detail` says "The request body is not valid JSON…", although the problem is in the query (F-25) |
 | 429 | `Request.RateLimited` | `search` or global bucket spent |
 
 - **`cursor` is refused, not ignored.** `?cursor=…` answers 400 with "Cursor paging is served by GET
@@ -174,7 +172,7 @@ One product with its gallery and attributes. **200** [`ProductDetails`](#product
 
 ```json
 {"id":"114176e0-23c3-418f-847c-440744ff2fdc","name":"Phantom X12","description":"Flagship smartphone with an OLED display",
- "sku":"PHN-X12-001","price":899.99,"discountPrice":799.99,"stockQuantity":50,"status":1,
+ "sku":"PHN-X12-001","price":899.99,"discountPrice":799.99,"stockQuantity":50,"status":"Active",
  "categoryId":"86a032e8-5242-41f5-9afb-9c963cb4388b","mainImageUrl":"https://picsum.photos/seed/phn-x12-1/800/800",
  "createdAt":"2026-09-16T10:55:12.139241Z",
  "images":[{"id":"4693e7a5-fce2-4e72-9369-9e51d1af1101","url":"https://picsum.photos/seed/phn-x12-1/800/800",
@@ -312,7 +310,7 @@ checks again when called directly: every admin endpoint in this section, `/categ
 
 ### Product lifecycle
 
-`status` is sent as an integer. Soft deletion is a separate flag (`isDeleted`, not sent), shown here as its own state:
+`status` is sent as its name. Soft deletion is a separate flag (`isDeleted`, not sent), shown here as its own state:
 
 ```mermaid
 stateDiagram-v2
@@ -933,9 +931,7 @@ Id,Sku,Name,Description,CategoryId,Status,Price,DiscountPrice,StockQuantity,Main
 "c2c64e41-…","FE-S4-BULK-B","fe-contracts S4 Bulk B",,"5747ee57-…","Draft","25.75",,"5",,"2026-09-24T18:31:42.9901400Z"
 ```
 
-- **`Status` is the enum's NAME here** (`Active`, `Draft`, `Discontinued`), unlike the JSON API's integer — a
-  spreadsheet has no client-side lookup table to turn `1` back into `Active`. This is the one Catalog response where
-  the wire form of `ProductStatus` differs from the rest of this file.
+- **`Status` is the enum's name** (`Active`, `Draft`, `Discontinued`), the same as in the JSON responses.
   `Price`/`DiscountPrice` are decimal strings quoted like every field; empty fields (`Description`, `DiscountPrice`
   when absent, `MainImageUrl`) are simply empty between the commas.
 - **Not cached.** Every call reads live, which is also why it has no ETag or conditional-GET support.
@@ -1065,23 +1061,24 @@ Money is a JSON number with two decimals, in USD ([conventions.md §2](conventio
 
 #### ProductStatus
 
-Sent as an **integer**. In a query filter, send the exact-case name or the integer.
+Sent as its **name**. A query filter takes the name in any case and refuses a number.
 
-| Integer | Name | Meaning |
-|---|---|---|
-| `0` | `Draft` | Not visible to the storefront. Every new and every restored product |
-| `1` | `Active` | Published |
-| `2` | `Discontinued` | Deleted. Seen only in the recycle bin |
+| Name | Meaning |
+|---|---|
+| `Draft` | Not visible to the storefront. Every new and every restored product |
+| `Active` | Published |
+| `Discontinued` | Deleted. Seen only in the recycle bin |
 
 #### ProductSortBy
 
-A request-only enum: the `sortBy` value of `GET /products`. Send the exact-case name; `0`, `1`, `2` also work.
+A request-only enum: the `sortBy` value of `GET /products` and the export. Send the name; any case works, and a
+number is refused.
 
-| Name | Integer | Sorts by |
-|---|---|---|
-| `Name` | 0 | Name (default) |
-| `Price` | 1 | The effective price, `discountPrice ?? price` |
-| `CreatedAt` | 2 | Creation time |
+| Name | Sorts by |
+|---|---|
+| `Name` | Name (default) |
+| `Price` | The effective price, `discountPrice ?? price` |
+| `CreatedAt` | Creation time |
 
 ### Storefront types
 
@@ -1107,7 +1104,7 @@ A list item. Source: `ProductDto`.
 | `price` | number | no | The list price |
 | `discountPrice` | number | yes | Below `price` when set. Charge and show `discountPrice ?? price` |
 | `stockQuantity` | number | no | ≥ 0 |
-| `status` | [`ProductStatus`](#productstatus) | no | Integer |
+| `status` | [`ProductStatus`](#productstatus) | no | The name |
 | `categoryId` | string (GUID) | no | |
 | `mainImageUrl` | string | yes | `null` when the product has no image |
 | `createdAt` | string (date-time) | no | |
@@ -1312,15 +1309,14 @@ always `"catalog"`) and `families` (string[], the families actually bumped, in o
 ```ts
 // ---- Enums ----
 
-/** Sent as an integer. Query filters take the exact-case name or the integer. */
-export const ProductStatus = { Draft: 0, Active: 1, Discontinued: 2 } as const;
-export type ProductStatus = (typeof ProductStatus)[keyof typeof ProductStatus];
+/** Sent as its name. Query filters take the name in any case and refuse a number. */
+export type ProductStatus = 'Draft' | 'Active' | 'Discontinued';
 
-/** Request-only: the sortBy value of GET /api/v1/products. Send the exact-case name. */
+/** Request-only: the sortBy value of GET /api/v1/products and the export. Any case works. */
 export type ProductSortBy = 'Name' | 'Price' | 'CreatedAt';
 
-/** Query filter form of ProductStatus: the exact-case name. */
-export type ProductStatusName = 'Draft' | 'Active' | 'Discontinued';
+/** The same names: what the status filter takes. */
+export type ProductStatusName = ProductStatus;
 
 // ---- Storefront: queries ----
 
@@ -1676,8 +1672,7 @@ export interface CacheInvalidationReport {
 > ⚠ **The OpenAPI document lists members the server ignores or refuses.** Every command body schema shows
 > `cacheKeysToInvalidate` and `cacheFamiliesToInvalidate` (ignored if sent), the sub-resource bodies show `productId`
 > (the route wins), and `GET /products` lists `includeUnpublished` (overwritten) and `cursor` (always 400).
-> `ProductStatus` and `ProductSortBy` are typed as plain integers, although the filters also take names. Do not
-> generate a client from it without these corrections. (F-36)
+> Do not generate a client from it without these corrections. (F-36)
 
 > ⚠ **Several statuses are missing from the OpenAPI document**: the 400 for an all-zero id on the discount, image and
 > main-image deletes, the 409 on a category move and on an attribute add, and the 404 on

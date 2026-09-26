@@ -12,7 +12,8 @@ the date rule in [§2](#dates-and-times) and Identity's binding 400 in [§3.3](#
 `0d87f3b`. Malformed requests ([§2](#unknown-and-malformed-request-bodies), [§3.4](#34-errorcode-values)), the
 no-body list ([§3.2](#32-responses-with-no-body)), 429s ([§3.5](#35-recommended-client-handling),
 [§7](#7-rate-limits)) and CORS ([§8](#cors), [§11](#11-csv-downloads)) were re-verified at `5980146`, which fixed
-F-04, F-05 and F-20.
+F-04, F-05 and F-20. Enums ([§2](#enums), [§10](#enum-filters), [§11](#11-csv-downloads)) were re-verified at
+`30e1221`, which fixed F-01.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -154,23 +155,27 @@ Identity, including the gateway's own endpoints. So is a missing body where one 
 
 ### Enums
 
-The services send enums in **different forms**. Some send integers, some send names, and the names are not all cased
-the same way. Use the form given here; each service file repeats its own enums with a TypeScript type.
+**Every enum is sent as its PascalCase name**, by every service, in JSON and in the CSV exports alike. Each service
+file repeats its own enums as a TypeScript string-literal union. The main ones:
 
-| Enum | Where | Sent as | Values |
-|---|---|---|---|
-| `ProductStatus` | Catalog `status` | **integer** | `0` Draft · `1` Active · `2` Discontinued |
-| `OrderStatus` | Ordering `status` | **integer** | `0` Pending · `1` Paid · `2` Shipped · `3` Delivered · `4` Cancelled · `5` Refunded |
-| `PaymentStatus` | Payment `status` | **upper-case string** | `"PENDING"` · `"PROCESSING"` · `"SUCCESS"` · `"FAILED"` · `"REFUNDED"` · `"CANCELLED"` |
-| `PaymentMethodType` | Payment `paymentMethod` | **PascalCase string** | for example `"Stripe"`; full list in [payment.md](payment.md) |
-| `NotificationStatus` | Notification `status` | **PascalCase string** | `"Pending"` · `"Sent"` · `"Failed"` · `"Sending"` · `"Undeliverable"` |
-| `AuditOutcome` | Audit `outcome` | **PascalCase string** | `"Succeeded"` · `"Rejected"` · `"Failed"` |
+| Enum | Where | Values |
+|---|---|---|
+| `ProductStatus` | Catalog `status` | `"Draft"` · `"Active"` · `"Discontinued"` |
+| `OrderStatus` | Ordering `status`, `fromStatus`, `toStatus` | `"Pending"` · `"Paid"` · `"Shipped"` · `"Delivered"` · `"Cancelled"` · `"Refunded"` |
+| `PaymentStatus` | Payment `status`, `fromStatus`, `toStatus` | `"Pending"` · `"Processing"` · `"Success"` · `"Failed"` · `"Refunded"` · `"Cancelled"` |
+| `PaymentMethodType` | Payment `paymentMethod` | for example `"Stripe"`; full list in [payment.md](payment.md) |
+| `NotificationStatus` | Notification `status` | `"Pending"` · `"Sent"` · `"Failed"` · `"Sending"` · `"Undeliverable"` |
+| `AuditOutcome` | Audit `outcome` | `"Succeeded"` · `"Rejected"` · `"Failed"` |
 
-The same enum can also take a different form **in a query filter** ([§10](#10-query-parameters)) and **in a CSV
-export** ([§11](#11-csv-downloads)). Catalog's CSV writes `Active`, not `1`.
+A query parameter takes the same name in any case and refuses a number ([§10](#enum-filters)), so a value read from a
+response can be sent straight back.
 
-> ⚠ Catalog and Ordering send integers while Payment and Notification send strings. Payment even mixes casings inside
-> one DTO: `"status": "PENDING"` next to `"paymentMethod": "Stripe"`. (F-01)
+Three strings look like enums and follow other rules: create-intent's `status` is **Stripe's** lower-case vocabulary
+(`"requires_payment_method"`), a notification's template name is lower-case kebab (`"order-created"`), and the merged
+audit's `service` is lower case (`"catalog"`).
+
+> Until 2026-09-26 (frontend-contracts F-01), Catalog and Ordering sent integers (`"status": 1`) and Payment sent
+> upper-case statuses (`"SUCCESS"`). Code written against those forms must be updated.
 
 ---
 
@@ -772,16 +777,12 @@ A bare date is handled differently per service:
 
 ### Enum filters
 
-Enum query filters accept different forms per service:
+Every enum query parameter, in every service, takes the **name in any case** (`Active`, `active`, `ACTIVE`): the
+filters (`status`, Ordering's `statuses`), the sort columns (`sortBy`) and the stats buckets (`groupBy`). A number, or a
+name that does not exist, is a 400 `ValidationError` keyed by the parameter (`errors.status`, `errors.sortBy`). Send
+the PascalCase name, which is what the responses carry.
 
-| Service | Accepts | Rejects |
-|---|---|---|
-| Catalog (`status`) | exact-case name (`Active`) or number (`1`) | `active` → 400 `MalformedRequest` (F-25) |
-| Ordering (`status`, and the repeatable `statuses`) | name in any case (`Cancelled`, `cancelled`) | a number → 400 `ValidationError` |
-| Payment, Notification (`status`) | name in any case (`PENDING`, `Pending`); the parameter may repeat | a number → 400 `ValidationError` |
-
-Send the **exact PascalCase name** everywhere, since every service accepts it. Note that this means sending `Active`
-to Catalog, which sends the same status back as `1`.
+Where a filter may repeat (Ordering's `statuses`, Payment's and Notification's `status`), every value is checked.
 
 ---
 
@@ -794,7 +795,7 @@ the same filters as the matching list endpoint. Observed on both:
 - The body starts with a **UTF-8 byte-order mark** (`EF BB BF`), so Excel reads non-ASCII text correctly.
 - `Content-Disposition: attachment; filename=<name>-<yyyyMMdd-HHmmss>.csv; filename*=UTF-8''<same>`.
 - A header row with **PascalCase** column names, then one quoted row per item, with CRLF line endings.
-- Enums are written as **names** (`Active`, `PENDING`), money as `0.00`, and timestamps in round-trip UTC
+- Enums are written as **names** (`Active`, `Success`), exactly as in JSON, money as `0.00`, and timestamps in round-trip UTC
   (`2026-09-16T10:55:12.1392410Z`).
 - A text value that starts with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`. This stops spreadsheet formula
   injection, so do not strip the apostrophe when you parse the file.

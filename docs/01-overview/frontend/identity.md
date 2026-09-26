@@ -3,7 +3,7 @@
 Accounts, sign-in, tokens, two-factor authentication and the user's own profile, plus the admin user and role
 management screens.
 
-**Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23); [Failed logins and lockout](#failed-logins-and-lockout) was re-verified after the F-28 fix, at `bb8c148`. Every endpoint was checked against the C# source and
+**Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23); [Failed logins and lockout](#failed-logins-and-lockout) was re-verified after the F-28 fix, at `bb8c148`; the admin list's `sortBy` at `30e1221`, which fixed F-01. Every endpoint was checked against the C# source and
 the service's OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors,
 paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
@@ -503,19 +503,19 @@ The paged user list. Response: [`PagedResult<AdminUser>`](conventions.md#61-page
 | `twoFactorEnabled` | boolean | — | |
 | `createdFrom`, `createdTo` | date-time | — | Inclusive range on `createdAt`. **Send `Z` or an offset** (F-15) |
 | `lastLoginFrom`, `lastLoginTo` | date-time | — | Inclusive range on `lastLoginAt`; users who never logged in are excluded. Same `Z` rule |
-| `sortBy` | `CreatedAt` \| `Email` \| `LastLoginAt` | `CreatedAt` | Name in any case; the integers `0`/`1`/`2` also work. Ties are broken by id |
+| `sortBy` | `CreatedAt` \| `Email` \| `LastLoginAt` | `CreatedAt` | Name in any case. A number is refused. Ties are broken by id |
 | `isDescending` | boolean | `true` | |
 | `pageNumber` | integer | `1` | ≥ 1 |
 | `pageSize` | integer | `20` | 1–100 |
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | `pageNumber` < 1, `pageSize` outside 1–100, `search` or `role` too long, a `…From` after its `…To` (key `$`, a rule about the whole request); a value of the wrong type, for example `isActive=yes` or `sortBy=Bogus` (key `sortBy`) |
+| 400 | `ValidationError` | `pageNumber` < 1, `pageSize` outside 1–100, `search` or `role` too long, a `…From` after its `…To` (key `$`, a rule about the whole request); a `sortBy` that is not a name, for example `sortBy=1` or `sortBy=Bogus` (key `sortBy`); a value of the wrong type, for example `isActive=yes` (key `isActive`) |
 | 500 | `InternalServerError` | A date without a zone, such as `createdFrom=2026-09-23` (F-15) |
 
 > ⚠ The OpenAPI document also lists `EffectiveSortBy`, `EffectiveIsDescending`, `EffectivePageNumber` and
-> `EffectivePageSize`. They are computed on the server and **ignored** if sent. It also types `sortBy` as an integer
-> with no values, although names work. (F-31)
+> `EffectivePageSize`. They are computed on the server and **ignored** if sent. (F-31) `sortBy` is typed as a
+> plain string; its values are the names above.
 
 #### `GET /api/v1/admin/users/stats`
 
@@ -973,14 +973,13 @@ The body of verify-2fa and disable-2fa. `code` (string, exactly 6 digits).
 
 #### AdminUserSortBy
 
-A request-only enum: the `sortBy` query value. Send the name. The server also accepts it in any case, or as the
-integers `0`, `1`, `2`.
+A request-only enum: the `sortBy` query value. Send the name; any case works, and a number is refused.
 
-| Name | Integer | Sorts by |
-|---|---|---|
-| `CreatedAt` | 0 | Creation time (default) |
-| `Email` | 1 | Email |
-| `LastLoginAt` | 2 | Last login; never-logged-in users sort as `null` |
+| Name | Sorts by |
+|---|---|
+| `CreatedAt` | Creation time (default) |
+| `Email` | Email |
+| `LastLoginAt` | Last login; never-logged-in users sort as `null` |
 
 #### AdminUserListQuery
 

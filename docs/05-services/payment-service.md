@@ -79,8 +79,8 @@ is a summary, not a duplicate.**
   order **resumes** the existing intent rather than erroring, fixed after the frontend-contracts
   audit — see [frontend/payment.md](../01-overview/frontend/payment.md#post-apiv1paymentscreate-intent));
   get by id (another user's payment is 404, not 403); `GET /api/v1/users/{userId}/payments`.
-  `status` and `paymentMethod` are sent as **upper-case strings**, unlike Catalog's/Ordering's
-  integer enums. USD only.
+  `status` and `paymentMethod` are sent as PascalCase names (`"Success"`, `"Stripe"`), like every
+  service's enums. USD only.
 - **Admin**: list, stats, CSV export (all `payments.read`), offline settle and failed-webhook
   replay (`payments.write`), `POST /payments` settle, refund and the simulation diagnostics
   (`Admin` role — one of two authorization styles Payment mixes, see

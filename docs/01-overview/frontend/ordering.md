@@ -7,7 +7,8 @@ and cancelling. Plus the admin order list, statistics, internal notes, status hi
 have not changed since `105d647`. Every endpoint in this file was checked against the C# source and the service's
 OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors, paging, rate
 limits, CORS) are in [conventions.md](conventions.md) and are not repeated here. The item endpoints' effect on payment
-(F-47) was re-verified at `d29a520`, which fixed it.
+(F-47) was re-verified at `d29a520`, which fixed it, and every enum (`status`, `groupBy`, `fromStatus`/`toStatus`)
+at `30e1221`, which fixed F-01.
 
 ## Base paths through the gateway
 
@@ -27,11 +28,8 @@ the same (a customer gets 403 on every admin endpoint, verified at both layers),
 Not routed through the gateway: Ordering's own `GET /api/v1/admin/settings` and `GET /api/v1/admin/audit` (see
 [Not callable by clients](#not-callable-by-clients)).
 
-**Ordering differs from the other services in six ways.** Read these once before using any endpoint below:
+**Ordering differs from the other services in five ways.** Read these once before using any endpoint below:
 
-- **`status` is an integer** (`0` Pending … `5` Refunded), but the admin list's `status`/`statuses` filters take the
-  **name** (any case) and refuse the integer. The stats endpoint's `groupBy` works the same way: a name in, an integer
-  out (F-01).
 - **Validation errors use the one shape**: 400 `ValidationError`, with an `errors` map keyed by the camelCase field
   name and every message in `detail` ([conventions.md §3.3](conventions.md#33-validation-errors)).
 - **Someone else's order is a 403, not a 404.** For a non-admin, an order that belongs to another user **and an order
@@ -78,16 +76,16 @@ the gateway and again in the service ([conventions.md §7](conventions.md#7-rate
 
 ### Order status and what each status allows
 
-`status` is sent as an **integer**. Source: `OrderStatus` in `EShop.Ordering.Domain/Entities/Order.cs`.
+`status` is sent as its **name**. Source: `OrderStatus` in `EShop.Ordering.Domain/Entities/Order.cs`.
 
-| Value | Name | Reached by | Items | Shipping address | Cancel |
-|---|---|---|---|---|---|
-| `0` | Pending | Creation (checkout or `POST /orders`) | add, change, remove | yes | yes |
-| `1` | Paid | **Payment only**, asynchronously (see below) | no (409) | yes | no (409) |
-| `2` | Shipped | Admin `POST /{id}/ship` | no | no (409) | no |
-| `3` | Delivered | Admin `POST /{id}/deliver` | no | no | no |
-| `4` | Cancelled | `POST /{id}/cancel`, or Payment reporting a failed payment | no | no | no |
-| `5` | Refunded | **Payment only**, after a full refund | no | no | no |
+| Value | Reached by | Items | Shipping address | Cancel |
+|---|---|---|---|---|
+| `Pending` | Creation (checkout or `POST /orders`) | add, change, remove | yes | yes |
+| `Paid` | **Payment only**, asynchronously (see below) | no (409) | yes | no (409) |
+| `Shipped` | Admin `POST /{id}/ship` | no | no (409) | no |
+| `Delivered` | Admin `POST /{id}/deliver` | no | no | no |
+| `Cancelled` | `POST /{id}/cancel`, or Payment reporting a failed payment | no | no | no |
+| `Refunded` | **Payment only**, after a full refund | no | no | no |
 
 ```mermaid
 stateDiagram-v2
@@ -109,7 +107,7 @@ stateDiagram-v2
   at 10:35:04, the order Paid at 10:35:13 (about 9 s). Poll `GET /orders/{id}` with back-off after a payment.
 - Each timestamp (`paidAt`, `shippedAt`, `deliveredAt`, `cancelledAt`) is set by its transition and never cleared.
   There is no `refundedAt`; use [the status history](#get-apiv1ordersidhistory) for when a refund arrived.
-- A cancelled order's pending payment is cancelled too, asynchronously (observed: the Payment row turned `CANCELLED`).
+- A cancelled order's pending payment is cancelled too, asynchronously (observed: the Payment row turned `Cancelled`).
   Payment never refunds a cancelled order by itself.
 
 ### How an order normally appears: checkout
@@ -176,7 +174,7 @@ One order. Source: `GetOrderByIdQuery`. **Service:** the `OrderOwnerOrAdmin` pol
 
 ```json
 {"id":"67435990-209a-41b6-8623-13cb86d3d5ad","userId":"0749b287-0897-408f-b248-5f133aab1796","totalPrice":84.00,
- "status":3,"paymentIntentId":"offline:fe-contracts-s6-paid-1","createdAt":"2026-09-25T10:32:37.272299Z",
+ "status":"Delivered","paymentIntentId":"offline:fe-contracts-s6-paid-1","createdAt":"2026-09-25T10:32:37.272299Z",
  "paidAt":"2026-09-25T10:35:13.201357Z","shippedAt":"2026-09-25T10:36:21.942185Z",
  "deliveredAt":"2026-09-25T10:36:22.863316Z","cancelledAt":null,"cancellationReason":null,
  "shippingAddress":{"street":"1 Second Street","city":"Salem","state":"Oregon","zipCode":"97301","country":"US"},
@@ -215,7 +213,7 @@ must be the caller's own id, or the caller must have the `Admin` role.
 
 ```json
 {"items":[{"id":"16329385-1eac-473a-83cb-00debea088c1","userId":"0749b287-0897-408f-b248-5f133aab1796",
-   "totalPrice":42.00,"status":0,"paymentIntentId":null,"createdAt":"2026-09-25T10:32:38.430265Z","paidAt":null,
+   "totalPrice":42.00,"status":"Pending","paymentIntentId":null,"createdAt":"2026-09-25T10:32:38.430265Z","paidAt":null,
    "shippedAt":null,"deliveredAt":null,"cancelledAt":null,"cancellationReason":null,
    "shippingAddress":{"street":"12 Example Street","city":"Springfield","state":"Illinois","zipCode":"62701","country":"US"},
    "items":[{"id":"24e48657-b342-43d9-a967-0ce4dba0ac47","productId":"9316561d-b960-46e2-862d-b7aceea4b77d",
@@ -391,7 +389,7 @@ user's list.
 | 401 / 403 | — | Anonymous (gateway) / not an admin (service) |
 
 > ⚠ `sortBy=Status` sorts by the status **name**, alphabetically: ascending gives Cancelled, Delivered, Paid,
-> Pending, Refunded, Shipped. That is neither the lifecycle order nor the order of the integers the API sends (F-50).
+> Pending, Refunded, Shipped. That is not the lifecycle order (F-50).
 
 ### `GET /api/v1/orders/stats`
 
@@ -404,17 +402,17 @@ does not exist, and a number is refused).
 **200** [`OrderStats`](#orderstats). Captured live, one day's window:
 
 ```json
-{"from":"2026-09-25T10:00:00Z","to":"2026-09-25T23:59:59Z","groupBy":0,"totalOrders":10,
+{"from":"2026-09-25T10:00:00Z","to":"2026-09-25T23:59:59Z","groupBy":"Day","totalOrders":10,
  "grossValue":90194316443.98,"paidRevenue":84.00,"refundedValue":0,"cancelledValue":84.00,
- "byStatus":[{"status":0,"count":7,"value":90194316275.98},{"status":1,"count":0,"value":0},
-   {"status":2,"count":0,"value":0},{"status":3,"count":1,"value":84.00},{"status":4,"count":2,"value":84.00},
-   {"status":5,"count":0,"value":0}],
+ "byStatus":[{"status":"Pending","count":7,"value":90194316275.98},{"status":"Paid","count":0,"value":0},
+   {"status":"Shipped","count":0,"value":0},{"status":"Delivered","count":1,"value":84.00},{"status":"Cancelled","count":2,"value":84.00},
+   {"status":"Refunded","count":0,"value":0}],
  "buckets":[{"periodStart":"2026-09-25T00:00:00Z","orderCount":10,"grossValue":90194316443.98,"paidRevenue":84.00}]}
 ```
 
 (The large gross value comes from a test order for 2 147 483 647 units; see the stock ⚠ below.)
 
-- `groupBy` comes back as an **integer**: `0` Day, `1` Month, `2` Year, although the query takes only names (F-01).
+- `groupBy` comes back as the **name** of the bucket size used (`"Day"`, `"Month"`, `"Year"`).
 - `from`/`to` echo the window as applied (a date-only `from` comes back as `…T00:00:00Z`), or `null` when unbounded.
 - `grossValue` counts every status. `paidRevenue` counts only Paid, Shipped and Delivered, and excludes Refunded,
   Cancelled and Pending, which are reported separately (`refundedValue`, `cancelledValue`, and `byStatus`).
@@ -478,13 +476,13 @@ customer, paid by event, shipped and delivered by the admin):
 
 ```json
 [{"id":"665b2b1d-9466-42fe-9814-37ccf830c63b","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":null,
-  "toStatus":0,"reason":null,"actorId":"0749b287-0897-408f-b248-5f133aab1796","occurredAt":"2026-09-25T10:32:37.271516Z"},
- {"id":"8546b2ed-e78e-4686-b338-2836cf0544e2","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":0,
-  "toStatus":1,"reason":null,"actorId":"system","occurredAt":"2026-09-25T10:35:13.201372Z"},
- {"id":"9a87c740-4c21-4bff-8336-59a0600acbd9","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":1,
-  "toStatus":2,"reason":null,"actorId":"16459cc5-f155-4ef2-a782-b611abab746e","occurredAt":"2026-09-25T10:36:21.942254Z"},
- {"id":"99bc1862-5335-4005-8f25-2f871e684f71","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":2,
-  "toStatus":3,"reason":null,"actorId":"16459cc5-f155-4ef2-a782-b611abab746e","occurredAt":"2026-09-25T10:36:22.863364Z"}]
+  "toStatus":"Pending","reason":null,"actorId":"0749b287-0897-408f-b248-5f133aab1796","occurredAt":"2026-09-25T10:32:37.271516Z"},
+ {"id":"8546b2ed-e78e-4686-b338-2836cf0544e2","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":"Pending",
+  "toStatus":"Paid","reason":null,"actorId":"system","occurredAt":"2026-09-25T10:35:13.201372Z"},
+ {"id":"9a87c740-4c21-4bff-8336-59a0600acbd9","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":"Paid",
+  "toStatus":"Shipped","reason":null,"actorId":"16459cc5-f155-4ef2-a782-b611abab746e","occurredAt":"2026-09-25T10:36:21.942254Z"},
+ {"id":"99bc1862-5335-4005-8f25-2f871e684f71","orderId":"67435990-209a-41b6-8623-13cb86d3d5ad","fromStatus":"Shipped",
+  "toStatus":"Delivered","reason":null,"actorId":"16459cc5-f155-4ef2-a782-b611abab746e","occurredAt":"2026-09-25T10:36:22.863364Z"}]
 ```
 
 - The first row always has `fromStatus: null` and `toStatus: 0`.
@@ -550,8 +548,8 @@ UTC with `Z`. Money is a JSON number with two decimals, always USD, with no `cur
 
 | Enum | Sent as | Values | In query filters |
 |---|---|---|---|
-| `OrderStatus` | integer | `0` Pending · `1` Paid · `2` Shipped · `3` Delivered · `4` Cancelled · `5` Refunded | names only, any case |
-| `OrderStatsGroupBy` | integer | `0` Day · `1` Month · `2` Year | names only, any case |
+| `OrderStatus` | PascalCase string | `"Pending"` · `"Paid"` · `"Shipped"` · `"Delivered"` · `"Cancelled"` · `"Refunded"` | names only, any case |
+| `OrderStatsGroupBy` | PascalCase string | `"Day"` · `"Month"` · `"Year"` | names only, any case |
 | `OrderSortBy` | never sent | `CreatedAt` · `TotalPrice` · `Status` | names only, any case |
 
 ### Storefront: requests
@@ -622,7 +620,7 @@ Source: `OrderDto`.
 | `id` | string (GUID) | no | |
 | `userId` | string | no | The owner's Identity user id |
 | `totalPrice` | number | no | Sum of the lines' `subTotal`; no tax, no shipping |
-| `status` | [`OrderStatus`](#enums) (integer) | no | |
+| `status` | [`OrderStatus`](#enums) | no | |
 | `paymentIntentId` | string | yes | `null` until Paid. Stripe's intent id, or `offline:<reference>` |
 | `createdAt` | string (date-time) | no | |
 | `paidAt` | string (date-time) | yes | |
@@ -671,7 +669,7 @@ Source: `OrderStatsDto`.
 |---|---|---|---|
 | `from` | string (date-time) | yes | The applied lower bound; `null` when unbounded |
 | `to` | string (date-time) | yes | The applied upper bound; `null` when unbounded |
-| `groupBy` | [`OrderStatsGroupBy`](#enums) (integer) | no | The bucket size used |
+| `groupBy` | [`OrderStatsGroupBy`](#enums) | no | The bucket size used |
 | `totalOrders` | number | no | Orders created in the window, any status |
 | `grossValue` | number | no | Sum of their totals, any status |
 | `paidRevenue` | number | no | Paid + Shipped + Delivered only |
@@ -682,7 +680,7 @@ Source: `OrderStatsDto`.
 
 #### OrderStatusBreakdown
 
-`status` ([`OrderStatus`](#enums), integer), `count` (number), `value` (number).
+`status` ([`OrderStatus`](#enums)), `count` (number), `value` (number).
 
 #### OrderStatsBucket
 
@@ -714,8 +712,8 @@ Source: `OrderStatusHistoryDto`.
 |---|---|---|---|
 | `id` | string (GUID) | no | |
 | `orderId` | string (GUID) | no | |
-| `fromStatus` | [`OrderStatus`](#enums) (integer) | yes | `null` on the first row only |
-| `toStatus` | [`OrderStatus`](#enums) (integer) | no | |
+| `fromStatus` | [`OrderStatus`](#enums) | yes | `null` on the first row only |
+| `toStatus` | [`OrderStatus`](#enums) | no | |
 | `reason` | string | yes | Only on a cancellation |
 | `actorId` | string | yes | A user id, or `"system"` for a message-driven transition |
 | `occurredAt` | string (date-time) | no | |
@@ -730,23 +728,14 @@ gateway's merged settings are documented in [admin-platform.md](admin-platform.m
 `PagedResult<T>` and `ProblemDetails` are in [conventions.md](conventions.md).
 
 ```ts
-// ---- Enums (sent as integers; filters take the names) ----
+// ---- Enums (sent as names; filters take the same names in any case) ----
 
-export const OrderStatus = {
-  Pending: 0,
-  Paid: 1,
-  Shipped: 2,
-  Delivered: 3,
-  Cancelled: 4,
-  Refunded: 5,
-} as const;
-export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
-/** The form the admin list's status/statuses filters accept. */
-export type OrderStatusName = keyof typeof OrderStatus;
+export type OrderStatus = 'Pending' | 'Paid' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded';
+/** The form the admin list's status/statuses filters accept: the same names. */
+export type OrderStatusName = OrderStatus;
 
-export const OrderStatsGroupBy = { Day: 0, Month: 1, Year: 2 } as const;
-export type OrderStatsGroupBy = (typeof OrderStatsGroupBy)[keyof typeof OrderStatsGroupBy];
-export type OrderStatsGroupByName = keyof typeof OrderStatsGroupBy;
+export type OrderStatsGroupBy = 'Day' | 'Month' | 'Year';
+export type OrderStatsGroupByName = OrderStatsGroupBy;
 
 export type OrderSortBy = 'CreatedAt' | 'TotalPrice' | 'Status';
 
