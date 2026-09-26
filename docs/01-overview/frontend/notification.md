@@ -691,8 +691,8 @@ export interface RetryFailedNotificationsResult {
 > stopping. Do not read a high `retryCount` as "gave up"; only `Undeliverable` means that. (F-56)
 
 > ⚠ **202 is not delivered.** Resend and retry-failed only queue the email. Poll the row (or the statistics) until
-> `status` is final, with back-off up to about 30 s. The resend's `Location` header is a relative path, and a browser
-> on another origin cannot read it anyway (F-04); build the URL from the id.
+> `status` is final, with back-off up to about 30 s. The resend's `Location` header is a relative path to the row;
+> the id you already hold gives the same URL.
 
 > ⚠ **`isResendable: true` does not guarantee a resend is accepted.** While an attempt holds the row (up to 5
 > minutes), resend and mark-undeliverable answer 409 `Notification.AttemptInProgress`. Show the button, and handle the

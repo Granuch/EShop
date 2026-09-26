@@ -44,8 +44,8 @@ Not routed through the gateway: Ordering's own `GET /api/v1/admin/settings` and 
   sent by the client is silently ignored. Once stored, a line's `unitPrice` never changes.
 - **Unknown body properties are ignored**, unlike Catalog. A body that is not valid JSON, or `null` for a number, is
   400 `MalformedRequest`, and its `detail` misleadingly speaks of "an unknown or invalid property" (F-25).
-- **`Location` on a 201 is a relative path** (`/api/v1/orders/{id}`). A browser on another origin cannot read it
-  (F-04), so take the id from the body.
+- **`Location` on a 201 is a relative path** (`/api/v1/orders/{id}`). The body carries the same id, so take it from
+  there.
 
 **Rate limit:** none of Ordering's own. Only the global limiter applies: 100 requests per 60 seconds per client IP, at
 the gateway and again in the service ([conventions.md §7](conventions.md#7-rate-limits)).

@@ -137,10 +137,9 @@ for the current, code-verified numbers):
   limiter and is not reset by it.
 - Catalog: `search` (product list/newest) 30/min; `bulk` (bulk actions, import, export) 10/min.
 
-A 429 response's shape differs by component: Identity returns problem+json with `errorCode`
-`Request.RateLimited` and a `Retry-After` header; the gateway and every other service return an
-empty 429 body with no `Retry-After`. A client cannot rely on a uniform 429 shape across the
-platform today.
+Every component answers a rejected request the same way, through the shared
+`EShopRateLimiting.UseEShopRejectionResponse()`: a problem+json 429 with `errorCode`
+`Request.RateLimited` and a `Retry-After` header in whole seconds.
 
 This applies at ingress level before downstream service execution, and again inside each service
 as a second line of defense against a caller that reaches it directly.

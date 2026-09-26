@@ -9,7 +9,8 @@ services behind it, in parallel, and merges the answers:
 - [`GET /api/v1/admin/feature-flags`](#get-apiv1adminfeature-flags): the read-only feature flags.
 
 **Verified at:** `0d87f3b` (`feature/admin-panel`, 2026-09-25). The gateway changed in `f507f85` (operator-only
-notices); none of these endpoints did. Every endpoint was checked against the source
+notices); none of these endpoints did. The audit endpoint's malformed-query row was re-verified at `5980146`, which
+fixed F-20. Every endpoint was checked against the source
 (`EShop.ApiGateway/AuditLog/*`, `EShop.ApiGateway/SystemAdmin/*`, `EShop.BuildingBlocks.Infrastructure/Auditing/*`)
 and the gateway's OpenAPI document, and called on the compose `sandbox` stack, including with one service paused so
 that it could not answer. Shared rules (errors, auth, CORS) are in [conventions.md](conventions.md).
@@ -131,7 +132,7 @@ started with Ordering's newest rows, and `unavailableServices` was `["payment"]`
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `Validation.Failed` | `pageSize` outside 1–100 (`"'pageSize' must be between 1 and 100."`); an unknown `service` (`"'service' must be one of: catalog, identity, notification, ordering, payment."`); a bad `outcome` (`"'outcome' must be one of: Succeeded, Rejected, Failed."`); `from` not before `to` (`"'from' must be earlier than 'to'."`); a filter over its length (`"'action' must be at most 100 characters."`); a cursor it did not issue (`"'cursor' is not a cursor this endpoint issued."`) |
-| 400 | — (empty body) | A value of the wrong type (`pageSize=abc`, `from=yesterday`) (F-20) |
+| 400 | `MalformedRequest` | A value of the wrong type (`pageSize=abc`, `from=yesterday`); `detail` wrongly blames the request body (F-25) |
 | 401 / 403 | — | Anonymous / no `audit.read` (gateway) |
 
 Note the messages name parameters in quotes and camelCase (`'pageSize'`), unlike the services' `PageSize: …`.
@@ -486,9 +487,6 @@ export interface FeatureFlags {
 
 > ⚠ **These pages can take 5 s** when one service hangs, because the gateway waits up to 5 s for each service. Show a
 > loading state rather than a spinner that times out sooner.
-
-> ⚠ **A query value of the wrong type gets a bare 400 with no body** on the audit endpoint (`pageSize=abc`,
-> `from=yesterday`). Validate on the client. (F-20)
 
 > ⚠ **The OpenAPI document promises problem+json bodies on 401 and 403** for all four endpoints; the gateway sends
 > none. (F-11)

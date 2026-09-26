@@ -12,8 +12,9 @@ of the EShop platform, for the storefront and the admin panel, with field tables
     responses captured through the gateway on the local compose stack.
   - Casing, `null` rendering, enum forms and error bodies are copied from captured responses, never inferred.
 - **The code still wins.** If a response differs from these docs, the docs are wrong. Report it and fix the docs.
-- **Quirks are recorded, not fixed.** Where the API behaves awkwardly, the docs describe what it actually does and mark
-  it with ⚠. Each ⚠ carries an id such as `(F-04)`, which identifies the underlying code issue.
+- **Quirks are recorded.** Where the API behaves awkwardly, the docs describe what it actually does and mark it with ⚠.
+  Each ⚠ carries an id such as `(F-25)`, which identifies the underlying code issue. When one is fixed, the ⚠ goes
+  and the docs describe the fixed behaviour.
 - **Keeping it in sync.** Any change to an endpoint, request or DTO must update the matching file here in the same
   change.
 - **Verified at:** `105d647` on `feature/admin-panel` (2026-09-23), unless a file states its own commit.

@@ -73,12 +73,10 @@ What remains is wiring `ui/` (or another client) against that contract set:
   `Paid` polling sequence documented in `frontend/flows.md`.
 
 ### 4) Operational concerns
-- Handle rate-limit and transient-failure responses gracefully — note the 429 shape differs by
-  component (Identity returns problem+json with `Retry-After`; the gateway and other services
-  return an empty body).
-- Surface correlation IDs in client diagnostics where possible (note: no CORS policy exposes
-  `X-Correlation-ID`, `Location`, `Retry-After` or `Content-Disposition` to browser JavaScript
-  today — a client cannot read them cross-origin without a gateway change).
+- Handle rate-limit and transient-failure responses gracefully — every 429 is problem+json
+  `Request.RateLimited` with a `Retry-After` header.
+- Surface correlation IDs in client diagnostics where possible — the CORS policy exposes
+  `X-Correlation-ID`, `Location`, `Retry-After` and `Content-Disposition` to browser JavaScript.
 
 ---
 

@@ -5,8 +5,9 @@ baskets and the checkout outbox's dead letters.
 
 **Verified at:** `ec600da` (`feature/admin-panel`, 2026-09-25). Basket's code, `BuildingBlocks` and the gateway have
 not changed since `105d647`. Every endpoint in this file was checked against the C# source and the service's
-OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors, paging, rate
-limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
+OpenAPI document, and called through the gateway on the compose `sandbox` stack. The malformed-body answer was
+re-verified at `5980146`, which fixed F-20. Shared rules (errors, paging, rate limits, CORS) are in
+[conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
 
@@ -135,7 +136,7 @@ be client-settable and the OpenAPI document still lists them — send them and t
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `quantity` ≤ 0 or > 999 (`"Quantity: Quantity must be greater than zero"` / `"...cannot exceed 999"`); malformed JSON gives a **bare 400 with an empty body**, not this shape ([conventions.md §2](conventions.md#unknown-and-malformed-request-bodies), F-20) |
+| 400 | `Validation.Failed` | `quantity` ≤ 0 or > 999 (`"Quantity: Quantity must be greater than zero"` / `"...cannot exceed 999"`); malformed JSON gives `MalformedRequest` instead ([conventions.md §2](conventions.md#unknown-and-malformed-request-bodies)) |
 | 400 | `Basket.ValidationFailed` | A domain rule the validator cannot see: the **merged** quantity would exceed 999 (validator only checks this request's own number), or the basket would exceed 100 distinct products. From source, not observed live |
 | 404 | `Basket.ProductNotFound` | `productId` does not exist, or is not **Active** in the public catalog (draft, discontinued, deleted all read as "not found" here) |
 | 409 | `Basket.InsufficientStock` | The merged quantity exceeds Catalog's current stock. Checked again, authoritatively, at [checkout](#post-apiv1basketuseridcheckout) |

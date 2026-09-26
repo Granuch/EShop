@@ -6,8 +6,8 @@ statistics and cache invalidation are also Catalog endpoints.
 
 **Verified at:** `5c6c3b0` (`feature/admin-panel`, 2026-09-24). Catalog's code has not changed since `105d647`. Every
 endpoint in this file was checked against the C# source and the service's OpenAPI document, and called through the
-gateway on the compose `sandbox` stack. Shared rules (errors, paging, rate limits, CORS) are in
-[conventions.md](conventions.md) and are not repeated here.
+gateway on the compose `sandbox` stack. The 429 rows were re-verified at `5980146`, which fixed F-05. Shared rules
+(errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
 
@@ -35,8 +35,8 @@ Not routed through the gateway: Catalog's own `GET /api/v1/admin/audit` (see [ad
   ([conventions.md §3.3](conventions.md#33-validation-errors-three-shapes)). Each error table names the shape.
 - **A domain rule refusal is 400 `DomainError`**, with the rule in `detail` ("Discount price must be less than the
   product price."). Show `detail`; it is written for people.
-- **`Location` on a 201 is a relative path** (`/api/v1/products/{id}`), unlike Identity's. A browser on another origin
-  still cannot read it (F-04), so take the new id from the body.
+- **`Location` on a 201 is a relative path** (`/api/v1/products/{id}`), unlike Identity's. The body carries the same
+  id, so take it from there.
 
 ## Contents
 
@@ -86,7 +86,7 @@ request runs as anonymous ([conventions.md §4](conventions.md#4-authentication)
 The product list, paged by offset. Source: `GetProductsQuery` (filters on `ProductFilterQuery`).
 
 **Rate limit:** `search`, **30 / 60 s per client IP**, on top of the global limit. The 31st call in a minute is a 429
-with an empty body ([conventions.md §7](conventions.md#7-rate-limits)). Debounce search-as-you-type.
+`Request.RateLimited` with `Retry-After` ([conventions.md §7](conventions.md#7-rate-limits)). Debounce search-as-you-type.
 
 **Query** ([`ProductListQuery`](#productlistquery)); all optional:
 
@@ -122,7 +122,7 @@ A list item carries the main image's URL only. The gallery and the attributes ar
 |---|---|---|
 | 400 | `Validation.Failed` | `pageNumber` < 1; `pageSize` outside 1–100; `searchTerm` shorter than 2 or longer than 200; `minPrice` < 0; `maxPrice` ≤ `minPrice`; any `cursor` value (see below). Several failures are joined in one `detail` |
 | 400 | `MalformedRequest` | A value of the wrong type: `pageSize=abc`, `categoryId=nope`, `isDescending=maybe`, an unparseable date, or an enum name in the wrong case (`sortBy=price`, `status=draft`). `detail` says "The request body is not valid JSON…", although the problem is in the query (F-25) |
-| 429 | — (empty body) | `search` or global bucket spent |
+| 429 | `Request.RateLimited` | `search` or global bucket spent |
 
 - **`cursor` is refused, not ignored.** `?cursor=…` answers 400 with "Cursor paging is served by GET
   /api/v1/products/newest". Use [`/newest`](#get-apiv1productsnewest) for cursor paging.
@@ -167,7 +167,7 @@ There is no `sortBy`, `status` or other filter here: those parameters are ignore
 |---|---|---|
 | 400 | `Validation.Failed` | A cursor the server did not issue ("Cursor is not valid. Pass the nextCursor…"); `pageSize` outside 1–100; the `searchTerm` and price rules of `GET /products` |
 | 400 | `MalformedRequest` | A value of the wrong type (F-25) |
-| 429 | — (empty body) | `search` or global bucket spent |
+| 429 | `Request.RateLimited` | `search` or global bucket spent |
 
 #### `GET /api/v1/products/{id}`
 
@@ -760,7 +760,7 @@ the seeded ones included.
 **Rate limit.** The five bulk actions, the import and the export **share one `bulk` bucket, 10 requests per 60 s per
 client IP**, on top of the global limit ([conventions.md §7](conventions.md#7-rate-limits)). It is registered once, on
 the whole `/api/v1/products` bulk group, so ten calls to any mix of these seven endpoints in a minute exhausts it for
-all of them; the 11th is a 429 with an empty body. Observed: 10 calls across `bulk/publish`, `bulk/unpublish`,
+all of them; the 11th is a 429 `Request.RateLimited` with `Retry-After`. Observed: 10 calls across `bulk/publish`, `bulk/unpublish`,
 `bulk/category`, `bulk/price` and `bulk/delete` in one minute, then a 429 on the 11th.
 
 **Two size caps, both refused whole, never truncated:**

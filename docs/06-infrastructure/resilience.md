@@ -37,7 +37,7 @@ still throttled. Representative limits, all per client IP:
 Both layers depend on `ForwardedHeaders:KnownNetworks`/`KnownProxies` being configured correctly —
 without it, every client behind the gateway shares one bucket regardless of which layer applies
 the limit. See [Security Architecture](../03-architecture/security-architecture.md) for the full
-picture, including the 429 response-shape inconsistency across components.
+picture, including the one 429 shape every component answers with.
 
 ### Service Runtime
 

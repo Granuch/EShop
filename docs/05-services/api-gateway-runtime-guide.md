@@ -147,8 +147,8 @@ services themselves, not at the gateway — see
 [frontend/conventions.md](../01-overview/frontend/conventions.md#7-rate-limits).
 
 Expected behavior on rejection: `429 Too Many Requests` with gateway-side observability signals.
-The gateway's own 429 has an empty body and no `Retry-After` header (unlike Identity's, which
-returns problem+json with `Retry-After: 60`).
+The gateway's own 429 is the same as every service's: problem+json with `errorCode`
+`Request.RateLimited` and a `Retry-After` header in whole seconds.
 
 ---
 

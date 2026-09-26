@@ -66,8 +66,8 @@ All seven `/auth` endpoints are anonymous at both layers. A token sent with them
 - **The buckets are shared.** Endpoints with the same policy spend one allowance: `register`, `refresh-token`,
   `revoke-token` and `confirm-email` together get 10 calls a minute per IP, and `login`, `forgot-password` and
   `reset-password` together get 5.
-- **429 bodies.** A 429 here is problem+json with `errorCode` `Request.RateLimited` and `Retry-After: 60`
-  ([conventions.md §7](conventions.md#7-rate-limits)).
+- **429 bodies.** A 429 here is problem+json with `errorCode` `Request.RateLimited` and a `Retry-After` in seconds, as
+  everywhere ([conventions.md §7](conventions.md#7-rate-limits)).
 - **Padding.** The six padded endpoints never answer faster than about 0.8 s, even for a validation error. This hides
   whether an account exists. Show a spinner rather than treating the delay as a fault.
 
@@ -595,8 +595,8 @@ Creates an account on a user's behalf. Source: `CreateUserCommand`.
 | 404 | `Role.NotFound` | A role in `roles` does not exist. Nothing is created |
 | 409 | `User.EmailConflict` | The email is taken, in any case, **including by a deleted account** |
 
-> ⚠ `Location` points at the internal service host (`http://identity-api:8080/api/v1/admin/users/{id}`), and a browser
-> on another origin cannot read it anyway. Use `userId` from the body. (F-32, F-04)
+> ⚠ `Location` points at the internal service host (`http://identity-api:8080/api/v1/admin/users/{id}`). Use `userId`
+> from the body. (F-32)
 
 #### `PUT /api/v1/admin/users/{id}`
 
@@ -1409,7 +1409,7 @@ export interface UserInRole {
 > ⚠ **Roles lists are bare arrays**, with `page`/`pageSize` but no total, and `page=0` answers 500. Call `GET /roles`
 > without parameters. (F-12)
 
-> ⚠ **`Location` names an internal host.** On a 201, read the new id from the body. (F-32, F-04)
+> ⚠ **`Location` names an internal host.** On a 201, read the new id from the body. (F-32)
 
 > ⚠ **The OpenAPI document is misleading here.** Its paths are PascalCase (F-19), it lists four ignored `Effective*`
 > parameters (F-31), and it declares no 401 on `/account/*` and no 400 or 500 on `GET /roles` (F-11).

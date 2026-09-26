@@ -9,7 +9,10 @@ the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation
 [§10](#enum-filters) was corrected at `530fe5d`; Payment's malformed-query note in §2 and the delays in
 [§9](#9-consistency-and-caching) were updated at `0b7f826`; [§3.2](#32-responses-with-no-body) (the 504 row),
 [§3.4](#34-errorcode-values) (`MalformedRequest`) and [§6.5](#65-audit-page-gatewayauditlogpagedto) were updated at
-`0d87f3b`.
+`0d87f3b`. Malformed requests ([§2](#unknown-and-malformed-request-bodies), [§3.4](#34-errorcode-values)), the
+no-body list ([§3.2](#32-responses-with-no-body)), 429s ([§3.5](#35-recommended-client-handling),
+[§7](#7-rate-limits)) and CORS ([§8](#cors), [§11](#11-csv-downloads)) were re-verified at `5980146`, which fixed
+F-04, F-05 and F-20.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -102,21 +105,19 @@ response. These service paths exist but are deliberately not routed:
 
 ### Unknown and malformed request bodies
 
-The services disagree here, so the client must never send extra properties, and must treat a 400 with an empty body
-as "the JSON was malformed".
+The services disagree about unknown properties, so the client must never send extra ones.
 
 | Service | Unknown property in the body | Body that is not valid JSON |
 |---|---|---|
 | Catalog | **400** `MalformedRequest`, `detail` names the JSON path (`'$.bogusField'`) | 400 `MalformedRequest` |
-| Ordering, Notification | ignored | 400 `MalformedRequest` |
+| Ordering, Notification, Basket, Payment | ignored | 400 `MalformedRequest` |
 | Identity | ignored | 400 `ValidationError`, the MVC shape ([§3.3](#33-validation-errors-three-shapes)) |
-| Basket, Payment | ignored | **400 with an empty body** |
+
+A query value of the wrong type (`?pageSize=abc`, `?from=yesterday`) is also 400 `MalformedRequest` everywhere except
+Identity, including the gateway's own endpoints. So is a missing body where one is required.
 
 > ⚠ Only Catalog rejects unknown properties, so a request that works against Ordering can fail against Catalog.
 > (F-02)
->
-> ⚠ Basket and Payment answer a malformed body with a bare 400: no problem+json, no `errorCode`. Payment answers a
-> query value of the wrong type the same way (`?pageSize=abc`, `?from=yesterday`). (F-20)
 
 ### Identifiers
 
@@ -220,8 +221,6 @@ These responses carry **no body at all**. Handle them from the status code alone
 | 401 | No token, or an invalid or expired one, on a protected route. The header is `WWW-Authenticate: Bearer`, plus `error="invalid_token"` when a token was sent. The gateway and the services answer the same way |
 | 403 | Signed in, but a role or permission is missing, at either layer |
 | 404 | No gateway route matches, or a `{id:guid}` segment is not a GUID |
-| 429 | Rate limited, everywhere except Identity; see [§7](#7-rate-limits) |
-| 400 | Malformed JSON body sent to Basket or Payment; a query value of the wrong type sent to Payment or to the gateway's audit endpoint (F-20) |
 | 502 | Payment is unreachable; the gateway does not rewrite Payment's 502 (F-13) |
 | 504 | The service did not answer within the gateway's 10 s (every service except Payment, whose route keeps YARP's default of 100 s). Observed on Notification's resend and retry-failed; see [notification.md](notification.md#frontend-notes) (F-56) |
 
@@ -279,14 +278,14 @@ show `detail` as a form-level message.
 |---|---|---|
 | `Validation.Failed` | 400 | Validation shape (a) |
 | `ValidationError` | 400 | Validation shapes (b) and (c) |
-| `MalformedRequest` | 400 | The body is not valid JSON, or has an unknown property (Catalog only). **Also** returned by Catalog, Ordering and Notification for a **query** value of the wrong type, such as `?status=active` or `?pageSize=abc`, with a `detail` that wrongly blames the request body (F-25) |
+| `MalformedRequest` | 400 | The body is missing or not valid JSON, or has an unknown property (Catalog only). **Also** returned for a **query** value of the wrong type, such as `?status=active` or `?pageSize=abc`, by every component except Identity, with a `detail` that wrongly blames the request body (F-25) |
 | `DomainError` | 400 | A business rule rejected the request; `detail` says which rule |
 | `NotFound` | 404 | Generic not-found; most services use their own `*.NotFound` code instead |
 | `Unauthorized` | 401 | Authentication was required inside a handler |
 | `ConcurrencyConflict` | 409 | Another request changed the resource first. Reload and retry |
 | `DuplicateResource` | 409 | A unique value is already taken |
 | `InternalServerError` | 500 | Unexpected failure. `detail` is always `"An unexpected error occurred."` |
-| `Request.RateLimited` | 429 | Identity only; see [§7](#7-rate-limits) |
+| `Request.RateLimited` | 429 | Rate limited, by the gateway or a service; see [§7](#7-rate-limits) |
 
 **Codes the gateway generates itself:**
 
@@ -327,8 +326,8 @@ from `POST /api/v1/categories`:
    - 409 codes: reload, then offer a retry;
    - `Gateway.UpstreamUnavailable`: retry after 5 s with back-off;
    - anything else: show `detail` and keep `traceId` for support.
-6. **429**: back off. `Retry-After` is present only on Identity's 429 and, cross-origin, the browser cannot read it
-   ([§8](#8-headers-and-cors)). Wait 60 s when it is missing.
+6. **429** (`Request.RateLimited`): back off for the `Retry-After` seconds, which every 429 carries and the browser
+   can read cross-origin ([§8](#8-headers-and-cors)).
 
 ```ts
 /**
@@ -627,27 +626,21 @@ Separately from these limiters, Identity's login throttles an account after thre
 after five. That answers **401 `Auth.TooManyAttempts`**, with the real time left in `detail`; see
 [identity.md](identity.md#failed-logins-and-lockout).
 
-What a 429 looks like depends on where it comes from:
-
-| Source | Body | `Retry-After` |
-|---|---|---|
-| Gateway | **empty** | none |
-| Catalog, Ordering, Payment, Basket, Notification | **empty** | none |
-| Identity | problem+json, `errorCode` `Request.RateLimited` | yes (seconds, for example `60`) |
-
-Identity's 429, captured from the sixth login in one minute:
+Every 429, from the gateway or from a service, is the same: problem+json with `errorCode` `Request.RateLimited`, and a
+`Retry-After` header giving the whole seconds left in the window (at least `1`). The gateway's global 429, captured
+from the 101st request in one minute:
 
 ```json
 {"title":"Too Many Requests","status":429,"detail":"Too many requests. Please retry later.",
- "traceId":"0HNOPIAQHPUEG:00000006","errorCode":"Request.RateLimited"}
+ "errorCode":"Request.RateLimited","traceId":"00-5f08ff69db685519b2bd4b1b879af664-c41a7d50f8ce1dad-00"}
 ```
+
+It came with `Retry-After: 60`. There is no `type` member on a 429.
 
 "Per client IP" holds at both layers. The gateway passes the caller's address to the services in
 `X-Forwarded-For`, and each service partitions on it. So one client using up its `login` allowance does not affect
 another. This was verified after `0e1bc06`: after one client IP spent its `login` and `search` buckets, a second IP
 got 401 and 200, not 429. Several browsers behind one NAT address still share a bucket.
-
-> ⚠ Most 429s have no body and no `Retry-After`. Assume the full 60 s window when the header is missing. (F-05)
 
 ---
 
@@ -683,16 +676,13 @@ No endpoint accepts an idempotency key. Whether a write is safe to repeat is doc
 - **Other origins.** A preflight from an origin not on the list still answers 204, but without any
   `Access-Control-Allow-*` header, so the browser blocks the call.
 - **Outside Development.** The gateway refuses to start if the list is empty.
+- **Readable response headers.** Every actual response to an allowed origin (not the preflight, which does not need
+  it) carries `Access-Control-Expose-Headers: Location,Retry-After,X-Correlation-ID,Content-Disposition`, errors and
+  429s included, so browser JavaScript on the frontend's origin can read those four. Any other non-safelisted header
+  stays hidden.
 
-> ⚠ **No response header is exposed to cross-origin scripts.** No `Access-Control-Expose-Headers` is sent, so browser
-> JavaScript on another origin cannot read `Location`, `Retry-After`, `X-Correlation-ID` or `Content-Disposition`. The
-> server sends them; the browser hides them.
-> - Take a new resource's id from the response body, not from `Location`. A product create, for example, answers
->   `201` with `{ "id": "…" }`; each create documents its own body.
-> - Use a fixed back-off instead of `Retry-After`.
-> - Name CSV downloads yourself.
->
-> A Next.js route handler that proxies server-side is not affected. (F-04)
+Even so, take a new resource's id from the response body rather than from `Location`: Identity's `Location` names the
+internal service host (F-32), and every create returns the id in its body anyway.
 
 ---
 
@@ -782,8 +772,8 @@ the same filters as the matching list endpoint. Observed on both:
   cap.
 
 Downloading one: `fetch` with the bearer token, then `response.blob()`, then `URL.createObjectURL`, then a temporary
-`<a download="products.csv">`. Because of F-04 the browser cannot read `Content-Disposition` cross-origin, so choose
-the filename on the client.
+`<a download="…">` named from the `filename` in `Content-Disposition`, which the browser can read cross-origin
+([§8](#8-headers-and-cors)).
 
 ---
 
