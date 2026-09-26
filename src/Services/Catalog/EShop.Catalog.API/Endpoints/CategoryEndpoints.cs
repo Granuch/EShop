@@ -95,7 +95,7 @@ public static class CategoryEndpoints
                 IncludeUnpublished = CanSeeUnpublished(http)
             });
 
-            // Discriminates: an out-of-range page size is a Validation.Failed Result and owes a
+            // Discriminates: an out-of-range page size is a ValidationError Result and owes a
             // 400. The blanket 404 mapping this replaced would have reported it as a missing category.
             return result.Match(
                 value => Results.Ok(value),

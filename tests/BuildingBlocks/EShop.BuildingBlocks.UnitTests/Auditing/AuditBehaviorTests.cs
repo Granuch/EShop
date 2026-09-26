@@ -370,13 +370,13 @@ public class AuditBehaviorTests
         // Validation refused it: no item was acted on, so there is nothing to record per item.
         await Send<RetireWidgetsCommand, Result<WidgetBatchReport>>(
             new RetireWidgetsCommand { WidgetIds = [Guid.NewGuid()] },
-            _ => Task.FromResult(Result<WidgetBatchReport>.Failure(new Error("Validation.Failed", "too many"))));
+            _ => Task.FromResult(Result<WidgetBatchReport>.Failure(new Error("ValidationError", "too many"))));
 
         var row = Rows().Single();
         Assert.Multiple(() =>
         {
             Assert.That(row.Outcome, Is.EqualTo(AuditOutcome.Rejected));
-            Assert.That(row.ErrorCode, Is.EqualTo("Validation.Failed"));
+            Assert.That(row.ErrorCode, Is.EqualTo("ValidationError"));
             Assert.That(row.EntityId, Is.Null);
             Assert.That(row.PayloadJson, Does.Contain("widgetIds"), "the whole request is the payload, as for any command");
         });

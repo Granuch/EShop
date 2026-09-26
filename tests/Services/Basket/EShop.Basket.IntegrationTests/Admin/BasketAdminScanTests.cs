@@ -299,7 +299,7 @@ public class BasketAdminScanTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorCode").GetString()
-            .Should().Be("Validation.Failed");
+            .Should().Be("ValidationError");
     }
 
     // ---------- /abandoned ----------

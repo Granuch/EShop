@@ -446,7 +446,10 @@ try
             tags: ["live"]);
 
     // Add Controllers and OpenAPI
-    builder.Services.AddControllers();
+    // Frontend-contracts F-03: the automatic 400 answers the same validation envelope as every other service.
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+            options.InvalidModelStateResponseFactory = EShopMvcValidation.InvalidModelStateResponse);
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 

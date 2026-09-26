@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using Microsoft.AspNetCore.Builder;
@@ -29,19 +30,19 @@ public static class AuditLogQueryRules
 {
     public const int DefaultPageSize = 50;
     public const int MaxPageSize = 100;
-    public const string InvalidQueryCode = "Validation.Failed";
 
     /// <summary>
     /// Validates <paramref name="request"/> into a filter, or explains why not. Only <see cref="AuditLogRequest.Before"/>
-    /// is service-specific; everything else is checked identically wherever the query arrives.
+    /// is service-specific; everything else is checked identically wherever the query arrives. A refusal is the one
+    /// validation shape every endpoint answers with (frontend-contracts F-03), keyed by the query parameter.
     /// </summary>
-    public static bool TryCreateFilter(AuditLogRequest request, out AuditLogFilter filter, out string? error)
+    public static bool TryCreateFilter(AuditLogRequest request, out AuditLogFilter filter, out FieldValidationError? error)
     {
         filter = null!;
 
         if (request.Before is <= 0)
         {
-            error = "'before' must be a positive audit entry id.";
+            error = FieldValidationError.For("before", "'before' must be a positive audit entry id.");
             return false;
         }
 
@@ -70,7 +71,7 @@ public static class AuditLogQueryRules
         out AuditOutcome? outcome,
         out DateTime? from,
         out DateTime? to,
-        out string? error)
+        out FieldValidationError? error)
     {
         pageSize = request.PageSize ?? DefaultPageSize;
         outcome = null;
@@ -79,7 +80,7 @@ public static class AuditLogQueryRules
 
         if (pageSize is < 1 or > MaxPageSize)
         {
-            error = $"'pageSize' must be between 1 and {MaxPageSize}.";
+            error = FieldValidationError.For("pageSize", $"'pageSize' must be between 1 and {MaxPageSize}.");
             return false;
         }
 
@@ -90,7 +91,8 @@ public static class AuditLogQueryRules
                 .FirstOrDefault(n => string.Equals(n, request.Outcome.Trim(), StringComparison.OrdinalIgnoreCase));
             if (name is null)
             {
-                error = $"'outcome' must be one of: {string.Join(", ", Enum.GetNames<AuditOutcome>())}.";
+                error = FieldValidationError.For(
+                    "outcome", $"'outcome' must be one of: {string.Join(", ", Enum.GetNames<AuditOutcome>())}.");
                 return false;
             }
 
@@ -99,7 +101,8 @@ public static class AuditLogQueryRules
 
         if (from is { } f && to is { } t && f >= t)
         {
-            error = "'from' must be earlier than 'to'.";
+            // About two parameters at once, so keyed to the request as a whole.
+            error = FieldValidationError.For(FieldValidationError.RequestKey, "'from' must be earlier than 'to'.");
             return false;
         }
 
@@ -128,9 +131,11 @@ public static class AuditLogQueryRules
         { } v => DateTime.SpecifyKind(v, DateTimeKind.Utc)
     };
 
-    private static bool TooLong(string? value, int max, string name, out string? error)
+    private static bool TooLong(string? value, int max, string name, out FieldValidationError? error)
     {
-        error = value is not null && value.Length > max ? $"'{name}' must be at most {max} characters." : null;
+        error = value is not null && value.Length > max
+            ? FieldValidationError.For(name, $"'{name}' must be at most {max} characters.")
+            : null;
         return error is not null;
     }
 
@@ -156,7 +161,7 @@ public static class AuditLogEndpoints
             {
                 if (!AuditLogQueryRules.TryCreateFilter(request, out var filter, out var error))
                 {
-                    return ProblemResults.For(AuditLogQueryRules.InvalidQueryCode, error!, StatusCodes.Status400BadRequest);
+                    return ProblemResults.For(error!, StatusCodes.Status400BadRequest);
                 }
 
                 return Results.Ok(await reader.ReadAsync(filter, cancellationToken));

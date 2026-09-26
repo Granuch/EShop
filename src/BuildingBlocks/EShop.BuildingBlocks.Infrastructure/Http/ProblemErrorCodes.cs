@@ -8,7 +8,8 @@ namespace EShop.BuildingBlocks.Infrastructure.Http;
 /// </summary>
 public static class ProblemErrorCodes
 {
-    public const string ValidationError = "ValidationError";
+    /// <summary>Every validation failure, returned or thrown (frontend-contracts F-03); see <c>FieldValidationError</c>.</summary>
+    public const string ValidationError = EShop.BuildingBlocks.Application.FieldValidationError.ErrorCode;
     public const string NotFound = "NotFound";
     public const string DomainError = "DomainError";
     public const string Unauthorized = "Unauthorized";

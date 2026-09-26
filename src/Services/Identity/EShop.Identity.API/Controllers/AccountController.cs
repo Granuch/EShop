@@ -50,7 +50,7 @@ public class AccountController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status404NotFound);
+            return ProblemForError(result.Error!, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -85,7 +85,7 @@ public class AccountController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -119,7 +119,7 @@ public class AccountController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -147,7 +147,7 @@ public class AccountController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -180,7 +180,7 @@ public class AccountController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -213,7 +213,7 @@ public class AccountController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);

@@ -114,7 +114,7 @@ public class CategoryProductsPaginationTests : AuthenticatedIntegrationTestBase
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.ErrorCode.Should().Be("Validation.Failed");
+        problem!.ErrorCode.Should().Be("ValidationError");
     }
 
     [Test]

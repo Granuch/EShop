@@ -367,11 +367,11 @@ public class AdminUsersController : ApiControllerBase
     /// and picking Identity's own precedent keeps the two role surfaces answering alike.
     /// </para>
     /// <para>
-    /// <c>Validation.Failed</c> lands in the default 400 arm. It reaches here at all because these
-    /// commands return the <b>generic</b> <c>Result&lt;Unit&gt;</c>: <c>ValidationBehavior</c>
-    /// converts a failure into a <c>Result</c> for <c>Result&lt;T&gt;</c> and throws for the
-    /// non-generic <c>Result</c>, so the same validator produces a different error code depending
-    /// on the response type.
+    /// A validation failure (<c>ValidationError</c>) lands in the default 400 arm. It reaches here at
+    /// all because these commands return the <b>generic</b> <c>Result&lt;Unit&gt;</c>:
+    /// <c>ValidationBehavior</c> converts a failure into a <c>Result</c> for <c>Result&lt;T&gt;</c> and
+    /// throws for the non-generic <c>Result</c>. Both paths answer the same envelope since
+    /// frontend-contracts F-03; they differ only in which code maps them to a status.
     /// </para>
     /// </remarks>
     private static int StatusFor(string errorCode) => errorCode switch

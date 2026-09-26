@@ -19,7 +19,7 @@ namespace EShop.Basket.IntegrationTests.Checkout;
 /// Both requests below are 400s (the fixture's Redis holds no basket), so status alone cannot tell
 /// them apart. What does is <c>errorCode</c>: a request that failed to bind is <c>MalformedRequest</c>
 /// (frontend-contracts F-20; before that it was a bare 400 with no code at all), while every answer
-/// from the checkout pipeline carries <c>Validation.Failed</c> or a <c>Basket.*</c> code. The
+/// from the checkout pipeline carries <c>ValidationError</c> or a <c>Basket.*</c> code. The
 /// structured control proves the discriminator works; without it the string test could pass for the
 /// wrong reason.
 /// </para>

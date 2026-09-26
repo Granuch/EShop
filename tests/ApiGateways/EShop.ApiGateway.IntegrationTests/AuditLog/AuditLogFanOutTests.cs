@@ -215,17 +215,19 @@ public sealed class AuditLogFanOutTests
         });
     }
 
-    [TestCase("?cursor=not-a-cursor")]
-    [TestCase("?service=basket")]
-    [TestCase("?pageSize=0")]
-    [TestCase("?outcome=7")]
-    public async Task AnInvalidQuery_IsA400_AndNoServiceIsAsked(string query)
+    [TestCase("?cursor=not-a-cursor", "cursor")]
+    [TestCase("?service=basket", "service")]
+    [TestCase("?pageSize=0", "pageSize")]
+    [TestCase("?outcome=7", "outcome")]
+    public async Task AnInvalidQuery_IsA400_AndNoServiceIsAsked(string query, string errorKey)
     {
         using var response = await GetAsync(Path + query);
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.That(body.RootElement.GetProperty("errorCode").GetString(), Is.EqualTo("Validation.Failed"));
+        Assert.That(body.RootElement.GetProperty("errorCode").GetString(), Is.EqualTo("ValidationError"));
+        // Frontend-contracts F-03: keyed by the parameter, like every other validation failure.
+        Assert.That(body.RootElement.GetProperty("errors").TryGetProperty(errorKey, out _), Is.True);
         Assert.That(_factory.Services_.Requests, Is.Empty);
     }
 

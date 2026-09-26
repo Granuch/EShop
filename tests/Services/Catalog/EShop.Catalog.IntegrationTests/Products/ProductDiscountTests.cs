@@ -124,7 +124,7 @@ public class ProductDiscountTests : AuthenticatedIntegrationTestBase
 
     /// <summary>
     /// This one is caught by the validator rather than the domain, because it needs nothing but the
-    /// request — so it surfaces as a Validation.Failed Result, which the endpoint maps to 400.
+    /// request — so it surfaces as a ValidationError Result, which the endpoint maps to 400.
     /// </summary>
     [Test]
     public async Task ANonPositiveDiscount_IsRejected()

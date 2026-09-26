@@ -156,7 +156,7 @@ public class NotificationJournalTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-        problem.GetProperty("errorCode").GetString().Should().Be("Validation.Failed");
+        problem.GetProperty("errorCode").GetString().Should().Be("ValidationError");
         problem.TryGetProperty("traceId", out _).Should().BeTrue();
     }
 
@@ -248,7 +248,7 @@ public class NotificationJournalTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-        problem.GetProperty("errorCode").GetString().Should().Be("Validation.Failed");
+        problem.GetProperty("errorCode").GetString().Should().Be("ValidationError");
     }
 
     [Test]

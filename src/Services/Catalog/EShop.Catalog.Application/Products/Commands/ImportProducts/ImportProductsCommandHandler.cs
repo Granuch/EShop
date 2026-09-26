@@ -63,7 +63,7 @@ public class ImportProductsCommandHandler : IRequestHandler<ImportProductsComman
             }
             else
             {
-                results[index] = Refused(index, rows[index].Sku, "Validation.Failed",
+                results[index] = Refused(index, rows[index].Sku, FieldValidationError.ErrorCode,
                     string.Join(" ", validation.Errors.Select(e => e.ErrorMessage)));
             }
         }

@@ -72,7 +72,7 @@ public class NotificationActionsWithoutABusTests
         await ShouldBeProblemAsync(
             await _admin.PostAsJsonAsync("/api/v1/notifications/retry-failed", new { limit }),
             HttpStatusCode.BadRequest,
-            "Validation.Failed");
+            "ValidationError");
     }
 
     private const int RetryLimitOverTheCap =
@@ -140,7 +140,7 @@ public class NotificationActionsWithoutABusTests
         await ShouldBeProblemAsync(
             await _admin.PostAsJsonAsync($"/api/v1/notifications/{id}/mark-undeliverable", new { reason = "  " }),
             HttpStatusCode.BadRequest,
-            "Validation.Failed");
+            "ValidationError");
         (await FindAsync(id)).Status.Should().Be(NotificationStatus.Failed);
     }
 

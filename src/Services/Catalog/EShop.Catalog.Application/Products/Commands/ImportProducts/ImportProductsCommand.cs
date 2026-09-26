@@ -90,7 +90,7 @@ public sealed record ProductImportReport(int Requested, int Created, int Failed,
 /// <param name="Index">The row's zero-based position in the request.</param>
 /// <param name="ProductId">The new product's id; <c>null</c> for a refused row.</param>
 /// <param name="ErrorCode">
-/// <c>Validation.Failed</c>, <c>Product.SkuConflict</c> (a live product holds it, or another row of this import does),
+/// <c>ValidationError</c>, <c>Product.SkuConflict</c> (a live product holds it, or another row of this import does),
 /// <c>Category.NotFound</c>, or <c>DomainError</c>.
 /// </param>
 public sealed record ProductImportRowResult(

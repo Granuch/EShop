@@ -313,7 +313,7 @@ public static class OrderEndpoints
     /// One mapping from a handler's <see cref="Error"/> to a status, for every endpoint that addresses
     /// an order. Every code ending in <c>.NotFound</c> is a 404; a state conflict (the order is past the
     /// point where the request applies) is a 409; Catalog being unreachable is a 503, since the request
-    /// may be perfectly valid; anything else — including <c>Validation.Failed</c> and
+    /// may be perfectly valid; anything else — including <c>ValidationError</c> and
     /// <c>Order.ProductUnavailable</c> — is a 400. Before this, each endpoint hard-coded one status, so
     /// a missing order came back as 400 from cancel and the item endpoints, and a validation failure as
     /// 404 from GET.

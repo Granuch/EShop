@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.IntegrationTests.Helpers;
 using EShop.Catalog.IntegrationTests.Models;
@@ -238,15 +239,16 @@ public class UpdateProductDetailsTests : AuthenticatedIntegrationTestBase
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
 
-        // "ValidationError", not "Validation.Failed", and the difference is structural rather than
-        // cosmetic: ValidationBehavior only converts a failure into a Result when TResponse is the
-        // GENERIC Result<T>. UpdateProductCommand returns the non-generic Result, so validation
-        // falls through to `throw new ValidationException(...)` and is mapped by AddCommon() instead
-        // — which means ProductEndpoints.ProblemForError's "Validation.Failed" discrimination can
-        // never fire for a command shaped like this one.
-        problem!.ErrorCode.Should().Be("ValidationError");
+        // UpdateProductCommand returns the non-generic Result, so ValidationBehavior throws rather than returning a
+        // failure, and AddCommon() maps the exception. Until frontend-contracts F-03 that path answered a different
+        // shape from a returned failure (PascalCase `errors`, generic detail); both now answer this one.
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be("ValidationError");
+        problem.RootElement.GetProperty("errors").TryGetProperty("name", out _).Should().BeTrue(
+            "the errors map is keyed by the camelCase wire name");
+        problem.RootElement.GetProperty("detail").GetString().Should().NotBe("One or more validation errors occurred.",
+            "detail carries the messages themselves");
     }
 
     [Test]

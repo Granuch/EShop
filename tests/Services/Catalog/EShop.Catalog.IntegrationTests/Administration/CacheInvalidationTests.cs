@@ -97,7 +97,7 @@ public class CacheInvalidationTests : AuthenticatedIntegrationTestBase
         using var response = await InvalidateAsync(family);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await ErrorCodeOf(response)).Should().Be("Validation.Failed");
+        (await ErrorCodeOf(response)).Should().Be("ValidationError");
         Counting.Bumps.Values.Sum().Should().Be(before);
     }
 

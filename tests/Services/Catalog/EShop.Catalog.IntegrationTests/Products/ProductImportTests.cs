@@ -88,7 +88,7 @@ public class ProductImportTests : AuthenticatedIntegrationTestBase
 
         report.Rows.Select(r => r.Index).Should().Equal(0, 1, 2, 3, 4, 5, 6);
         report.Rows.Select(r => r.ErrorCode).Should().Equal(
-            null, "Validation.Failed", "Product.SkuConflict", "Product.SkuConflict", "Category.NotFound", "Product.SkuConflict", null);
+            null, "ValidationError", "Product.SkuConflict", "Product.SkuConflict", "Category.NotFound", "Product.SkuConflict", null);
         (report.Requested, report.Created, report.Failed).Should().Be((7, 2, 5));
 
         var stored = await StoredWithSkuPrefixAsync(marker);
@@ -128,7 +128,7 @@ public class ProductImportTests : AuthenticatedIntegrationTestBase
             .Which.Outcome.Should().Be(AuditOutcome.Succeeded);
         var refused = rows.Single(r => r.EntityId == null);
         refused.Outcome.Should().Be(AuditOutcome.Rejected);
-        refused.ErrorCode.Should().Be("Validation.Failed");
+        refused.ErrorCode.Should().Be("ValidationError");
         refused.PayloadJson.Should().Contain($"{marker}-X").And.Contain("\"index\":1");
     }
 

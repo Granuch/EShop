@@ -110,7 +110,7 @@ public class RoleEndpointContractTests : IntegrationTestBase
         var response = await Client.PostAsJsonAsync(RolesEndpoint, new { Name = "", Description = "x" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await ErrorCodeOf(response)).Should().Be("Validation.Failed");
+        (await ErrorCodeOf(response)).Should().Be("ValidationError");
     }
 
     [Test]

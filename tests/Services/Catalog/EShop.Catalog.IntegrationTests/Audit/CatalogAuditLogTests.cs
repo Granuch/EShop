@@ -147,7 +147,7 @@ public class CatalogAuditLogTests : AuthenticatedIntegrationTestBase
         using var response = await Client.GetAsync("/api/v1/admin/audit?pageSize=0");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("Validation.Failed");
+        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("ValidationError");
     }
 
     [Test]

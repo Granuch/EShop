@@ -203,7 +203,7 @@ public static class NotificationEndpoints
     /// </summary>
     private static int StatusFor(Error error) => error.Code switch
     {
-        "Validation.Failed" => StatusCodes.Status400BadRequest,
+        FieldValidationError.ErrorCode => StatusCodes.Status400BadRequest,
         NotificationErrors.NotFoundCode or NotificationErrors.TemplateNotFoundCode => StatusCodes.Status404NotFound,
         NotificationErrors.FinalCode
             or NotificationErrors.AttemptInProgressCode

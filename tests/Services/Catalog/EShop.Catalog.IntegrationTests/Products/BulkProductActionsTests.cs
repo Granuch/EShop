@@ -235,7 +235,7 @@ public class BulkProductActionsTests : AuthenticatedIntegrationTestBase
             new BulkProductIdsRequest { ProductIds = [product, product] });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("Validation.Failed");
+        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("ValidationError");
         (await StoredAsync(product)).IsDeleted.Should().BeFalse();
     }
 

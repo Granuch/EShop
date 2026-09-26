@@ -154,12 +154,12 @@ public class BasketCheckedOutConsumerTests
         var rejecting = new Mock<IMediator>();
         rejecting
             .Setup(x => x.Send(It.IsAny<CreateCheckedOutOrderCommand>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Result<Guid>.Failure(new Error("Validation.Failed", "Order must have at least one item")));
+            .ReturnsAsync(Result<Guid>.Failure(new Error("ValidationError", "Order must have at least one item")));
 
         var ex = Assert.ThrowsAsync<InvalidCheckoutEventException>(() =>
             ConsumerWith(rejecting.Object).Consume(ContextFor(Checkout(Kyiv())).Object));
 
-        Assert.That(ex!.Message, Does.Contain("Validation.Failed"));
+        Assert.That(ex!.Message, Does.Contain("ValidationError"));
         Assert.That(StoredClaims, Is.EqualTo(0));
     }
 

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using EShop.ApiGateway.Middleware;
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
@@ -98,18 +99,18 @@ public sealed class AuditLogFanOut
 
         if (!AuditLogQueryRules.TryCreateFilter(shared, out var filter, out var error))
         {
-            return Invalid(error!);
+            return ProblemResults.For(error!, StatusCodes.Status400BadRequest);
         }
 
         if (!AuditLogCursor.TryDecode(request.Cursor, Sources.Keys.ToList(), out var cursor))
         {
-            return Invalid("'cursor' is not a cursor this endpoint issued.");
+            return Invalid("cursor", "'cursor' is not a cursor this endpoint issued.");
         }
 
         var service = string.IsNullOrWhiteSpace(request.Service) ? null : request.Service.Trim().ToLowerInvariant();
         if (service is not null && !Sources.ContainsKey(service))
         {
-            return Invalid($"'service' must be one of: {string.Join(", ", Sources.Keys)}.");
+            return Invalid("service", $"'service' must be one of: {string.Join(", ", Sources.Keys)}.");
         }
 
         var targets = Sources.Keys
@@ -201,8 +202,8 @@ public sealed class AuditLogFanOut
         }
     }
 
-    private static IResult Invalid(string detail)
-        => ProblemResults.For(AuditLogQueryRules.InvalidQueryCode, detail, StatusCodes.Status400BadRequest);
+    private static IResult Invalid(string parameter, string message)
+        => ProblemResults.For(FieldValidationError.For(parameter, message), StatusCodes.Status400BadRequest);
 }
 
 public static class AuditLogFanOutEndpoints

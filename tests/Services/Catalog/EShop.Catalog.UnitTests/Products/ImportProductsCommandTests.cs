@@ -79,7 +79,7 @@ public class ImportProductsCommandTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(report.Rows.Select(r => r.ErrorCode), Is.EqualTo(new[] { "Validation.Failed", "Validation.Failed", null }));
+            Assert.That(report.Rows.Select(r => r.ErrorCode), Is.EqualTo(new[] { "ValidationError", "ValidationError", null }));
             Assert.That(report.Rows[0].Error, Does.Contain("SKU"));
             Assert.That(_added.Select(p => p.Sku), Is.EqualTo(new[] { "IMP-GOOD" }));
         });

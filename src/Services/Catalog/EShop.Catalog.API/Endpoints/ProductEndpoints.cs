@@ -38,7 +38,7 @@ public static class ProductEndpoints
     /// <summary>
     /// Maps a failed Result to a problem response. A read or sub-resource endpoint can fail two
     /// ways: the product or image genuinely does not exist (404), or the request was rejected by
-    /// ValidationBehavior, which surfaces as a "Validation.Failed" Result error rather than an
+    /// ValidationBehavior, which surfaces as a "ValidationError" Result error rather than an
     /// exception (400). Mapping every error to one status gets one of those cases wrong.
     ///
     /// Used by GET /{id}, the image/attribute/publish/discount sub-resource endpoints, and
@@ -160,7 +160,7 @@ public static class ProductEndpoints
             });
 
             // Discriminates rather than mapping every error to 404: a Guid.Empty id is rejected
-            // by ValidationBehavior as a "Validation.Failed" Result, which owes a 400. Mapping
+            // by ValidationBehavior as a "ValidationError" Result, which owes a 400. Mapping
             // it to 404 reported a malformed request as a missing product.
             return result.Match(
                 value => Results.Ok(value),

@@ -296,7 +296,7 @@ public class NotificationActionsTests
         await ShouldBeProblemAsync(
             await _admin.PostAsJsonAsync("/api/v1/notifications/templates/order-created/test", new { email = "not-an-address" }),
             HttpStatusCode.BadRequest,
-            "Validation.Failed");
+            "ValidationError");
     }
 
     // ---------- helpers ----------
