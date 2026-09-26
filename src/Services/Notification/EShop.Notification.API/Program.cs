@@ -170,6 +170,8 @@ try
     // - AddMalformedJsonBody() with ThrowOnBadRequest: the actions take JSON bodies. Without ThrowOnBadRequest a
     //   malformed one is a bare 400 with an empty body outside Development; throwing routes it to the branch, which
     //   answers problem+json naming the offending JSON path — Ordering's pairing.
+    // Enums as PascalCase names, in and out (frontend-contracts F-01).
+    builder.Services.AddEShopJson();
     builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
     builder.Services.AddEShopProblemDetails(options => options
         .AddCommon()

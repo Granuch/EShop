@@ -173,6 +173,30 @@ public class AdminUserReadsTests : AuthenticatedIntegrationTestBase
         page.Items.Select(u => u.Email).Should().BeInAscendingOrder();
     }
 
+    /// <summary>Frontend-contracts F-01: the sort column is a name in any case.</summary>
+    [Test]
+    public async Task List_TakesTheSortNameInAnyCase()
+    {
+        var page = await ListAsync("?sortBy=email&isDescending=false&pageSize=100");
+
+        page.Items.Select(u => u.Email).Should().BeInAscendingOrder();
+    }
+
+    /// <summary>
+    /// Frontend-contracts F-01: never a number. MVC's enum binder took <c>1</c> for Email, and the OpenAPI document
+    /// typed the parameter as an integer, so a client following the document would have sorted by a number.
+    /// </summary>
+    [TestCase("1")]
+    [TestCase("Bogus")]
+    public async Task List_RefusesANumberOrAnUnknownSortName(string sortBy)
+    {
+        var response = await Client.GetAsync($"{Endpoint}?sortBy={sortBy}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("\"errorCode\":\"ValidationError\"").And.Contain("\"sortBy\":");
+    }
+
     [Test]
     public async Task List_RejectsAnOversizedPage()
     {

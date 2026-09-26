@@ -298,6 +298,8 @@ try
     // naming the offending member. Unknown properties are deliberately still ignored (no
     // UnmappedMemberHandling.Disallow, unlike Catalog): the C1 contract is that a client still sending
     // the old ProductName/Price fields gets them ignored in favour of Catalog's, not rejected.
+    // Enums as PascalCase names, in and out (frontend-contracts F-01).
+    builder.Services.AddEShopJson();
     builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 
     // AddEfConcurrency must precede AddEfDuplicateKey: DbUpdateConcurrencyException derives

@@ -8,7 +8,8 @@ namespace EShop.Payment.Application.Payments.Common;
 /// <param name="Kind">
 /// <c>Transition</c> or <c>Webhook</c>. Serialized as its name for the same reason
 /// <see cref="PaymentDto.Status"/> is: System.Text.Json writes a bare enum as a <b>number</b>, so one payment endpoint
-/// would report <c>"SUCCESS"</c> and its timeline <c>2</c> for the same fact.
+/// would report <c>"Success"</c> and its timeline <c>2</c> for the same fact. Statuses are PascalCase names, like every
+/// enum on the wire (frontend-contracts F-01).
 /// </param>
 /// <param name="FromStatus">
 /// Null on the row a payment's creation writes. Equal to <paramref name="ToStatus"/> when the event changed something
@@ -39,8 +40,8 @@ internal static class PaymentEventMapping
             paymentEvent.Id,
             paymentEvent.Kind.ToString(),
             paymentEvent.StripeEventId,
-            paymentEvent.FromStatus?.ToString().ToUpperInvariant(),
-            paymentEvent.ToStatus.ToString().ToUpperInvariant(),
+            paymentEvent.FromStatus?.ToString(),
+            paymentEvent.ToStatus.ToString(),
             paymentEvent.Detail,
             paymentEvent.CreatedBy,
             paymentEvent.OccurredAt);

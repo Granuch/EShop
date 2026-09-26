@@ -176,7 +176,7 @@ public class CreatePaymentIntentCommandHandlerTests
         {
             Assert.That(result.Error!.Code, Is.EqualTo("PAYMENT_ALREADY_EXISTS"));
             // F-52: the detail names the state, so a client can tell a paid order from a cancelled one.
-            Assert.That(result.Error.Message, Does.Contain(status.ToString().ToUpperInvariant()));
+            Assert.That(result.Error.Message, Does.Contain($"payment is {status} and"));
         });
         _stripe.VerifyNoOtherCalls();
         _customers.VerifyNoOtherCalls();

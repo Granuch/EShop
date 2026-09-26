@@ -40,12 +40,21 @@ public record GetAdminUsersQuery : IRequest<Result<PagedResult<AdminUserDto>>>
     public DateTime? CreatedTo { get; init; }
     public DateTime? LastLoginFrom { get; init; }
     public DateTime? LastLoginTo { get; init; }
-    public AdminUserSortBy? SortBy { get; init; }
+    /// <summary>
+    /// An <see cref="AdminUserSortBy"/> name in any case (frontend-contracts F-01). A string rather than the enum so the
+    /// validator can refuse a number, which MVC's enum binder accepted.
+    /// </summary>
+    public string? SortBy { get; init; }
     public bool? IsDescending { get; init; }
     public int? PageNumber { get; init; }
     public int? PageSize { get; init; }
 
-    public AdminUserSortBy EffectiveSortBy => SortBy ?? AdminUserSortBy.CreatedAt;
+    /// <summary>The sort column, or <see cref="AdminUserSortBy.CreatedAt"/>. The validator has already refused anything
+    /// that is not a name, so the fallback is for the omitted case.</summary>
+    public AdminUserSortBy EffectiveSortBy
+        => Enum.GetNames<AdminUserSortBy>().Contains(SortBy, StringComparer.OrdinalIgnoreCase)
+            ? Enum.Parse<AdminUserSortBy>(SortBy!, ignoreCase: true)
+            : AdminUserSortBy.CreatedAt;
 
     /// <summary>Newest first by default: an admin list is read to find recent activity.</summary>
     public bool EffectiveIsDescending => IsDescending ?? true;

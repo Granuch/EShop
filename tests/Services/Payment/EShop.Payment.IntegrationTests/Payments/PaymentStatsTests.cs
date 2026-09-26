@@ -57,7 +57,7 @@ public class PaymentStatsTests : AuthenticatedIntegrationTestBase
     }
 
     private static decimal Of(Stats stats, PaymentStatus status)
-        => stats.ByStatus.Single(s => s.Status == status.ToString().ToUpperInvariant()).Amount;
+        => stats.ByStatus.Single(s => s.Status == status.ToString()).Amount;
 
     // ---- Totals ----
 
@@ -102,15 +102,15 @@ public class PaymentStatsTests : AuthenticatedIntegrationTestBase
         Assert.Multiple(() =>
         {
             Assert.That(stats.ByStatus.Select(s => s.Status),
-                Is.EquivalentTo(Enum.GetValues<PaymentStatus>().Select(s => s.ToString().ToUpperInvariant())));
+                Is.EquivalentTo(Enum.GetValues<PaymentStatus>().Select(s => s.ToString())));
             Assert.That(Of(stats, PaymentStatus.Cancelled), Is.Zero);
-            Assert.That(stats.ByStatus.Single(s => s.Status == "CANCELLED").Count, Is.Zero);
+            Assert.That(stats.ByStatus.Single(s => s.Status == "Cancelled").Count, Is.Zero);
         });
     }
 
     /// <summary>
-    /// The status reaches the client as the same upper-case string <c>PaymentDto.Status</c> uses. Serializing the
-    /// enum instead would put a number here, so one payment endpoint would report "SUCCESS" and its dashboard 2.
+    /// The status reaches the client as the same PascalCase name <c>PaymentDto.Status</c> uses. Serializing the
+    /// enum instead would put a number here, so one payment endpoint would report "Success" and its dashboard 2.
     /// </summary>
     [Test]
     public async Task AStatus_IsTheSameStringThePaymentItselfReports()
@@ -119,7 +119,7 @@ public class PaymentStatsTests : AuthenticatedIntegrationTestBase
 
         var stats = await StatsAsync();
 
-        Assert.That(stats.ByStatus.Select(s => s.Status), Does.Contain("SUCCESS"));
+        Assert.That(stats.ByStatus.Select(s => s.Status), Does.Contain("Success"));
     }
 
     // ---- The window ----

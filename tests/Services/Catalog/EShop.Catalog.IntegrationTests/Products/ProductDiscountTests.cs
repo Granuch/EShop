@@ -252,7 +252,7 @@ public class ProductDiscountTests : AuthenticatedIntegrationTestBase
         var discounted = await CreatePublishedProductAsync(100m);
         await SetDiscountAsync(discounted, 10m);
 
-        var items = (await ListAsync("&MinPrice=5&MaxPrice=60&SortBy=1&IsDescending=false")).Items.ToList();
+        var items = (await ListAsync("&MinPrice=5&MaxPrice=60&SortBy=Price&IsDescending=false")).Items.ToList();
 
         items.Select(p => p.DiscountPrice ?? p.Price).Should().BeInAscendingOrder();
         items.FindIndex(p => p.Id == discounted).Should().BeLessThan(items.FindIndex(p => p.Id == plain),

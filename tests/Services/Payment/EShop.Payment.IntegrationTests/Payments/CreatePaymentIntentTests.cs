@@ -157,7 +157,7 @@ public class CreatePaymentIntentTests : AuthenticatedIntegrationTestBase
         Assert.Multiple(() =>
         {
             Assert.That(text, Does.Contain("PAYMENT_ALREADY_EXISTS"));
-            Assert.That(text, Does.Contain("SUCCESS"));
+            Assert.That(text, Does.Contain("This order's payment is Success and"));
         });
         VerifyStripeNeverAsked();
         Stripe.Stripe.Verify(

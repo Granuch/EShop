@@ -449,7 +449,12 @@ try
     // Frontend-contracts F-03: the automatic 400 answers the same validation envelope as every other service.
     builder.Services.AddControllers()
         .ConfigureApiBehaviorOptions(options =>
-            options.InvalidModelStateResponseFactory = EShopMvcValidation.InvalidModelStateResponse);
+            options.InvalidModelStateResponseFactory = EShopMvcValidation.InvalidModelStateResponse)
+        .AddEShopJson();
+
+    // Enums as PascalCase names, in and out (frontend-contracts F-01). The controllers above read MVC's own
+    // JsonOptions; this covers the minimal endpoints (the root, health) as well.
+    builder.Services.AddEShopJson();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 

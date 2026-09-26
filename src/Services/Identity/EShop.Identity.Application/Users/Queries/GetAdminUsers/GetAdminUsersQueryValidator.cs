@@ -1,3 +1,4 @@
+using EShop.Identity.Domain.Interfaces;
 using FluentValidation;
 
 namespace EShop.Identity.Application.Users.Queries.GetAdminUsers;
@@ -9,6 +10,8 @@ namespace EShop.Identity.Application.Users.Queries.GetAdminUsers;
 /// </summary>
 public class GetAdminUsersQueryValidator : AbstractValidator<GetAdminUsersQuery>
 {
+    private static readonly string[] SortNames = Enum.GetNames<AdminUserSortBy>();
+
     public GetAdminUsersQueryValidator()
     {
         RuleFor(x => x.PageNumber)
@@ -27,6 +30,13 @@ public class GetAdminUsersQueryValidator : AbstractValidator<GetAdminUsersQuery>
         RuleFor(x => x.Role)
             .MaximumLength(256).WithMessage("Role name must not exceed 256 characters")
             .When(x => !string.IsNullOrWhiteSpace(x.Role));
+
+        // Frontend-contracts F-01: a name in any case, never a number. MVC's enum binder took "1" as well, and the
+        // OpenAPI document typed the parameter as an integer.
+        RuleFor(x => x.SortBy)
+            .Must(sortBy => SortNames.Contains(sortBy, StringComparer.OrdinalIgnoreCase))
+            .WithMessage($"SortBy must be one of: {string.Join(", ", SortNames)}")
+            .When(x => !string.IsNullOrEmpty(x.SortBy));
 
         RuleFor(x => x)
             .Must(x => x.CreatedFrom is null || x.CreatedTo is null || x.CreatedFrom <= x.CreatedTo)

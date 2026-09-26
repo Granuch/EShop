@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using EShop.Catalog.Domain.Entities;
 
 namespace EShop.Catalog.IntegrationTests.Models;
@@ -145,6 +146,7 @@ public record ProductResponse
     public decimal Price { get; init; }
     public decimal? DiscountPrice { get; init; }
     public int StockQuantity { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<ProductStatus>))]
     public ProductStatus Status { get; init; }
     public Guid CategoryId { get; init; }
     public string? MainImageUrl { get; init; }
@@ -164,6 +166,7 @@ public record ProductDetailsResponse
     public decimal Price { get; init; }
     public decimal? DiscountPrice { get; init; }
     public int StockQuantity { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<ProductStatus>))]
     public ProductStatus Status { get; init; }
     public Guid CategoryId { get; init; }
     public string? MainImageUrl { get; init; }

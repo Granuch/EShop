@@ -26,7 +26,7 @@ namespace EShop.Payment.API.Endpoints;
 
 /// <summary>
 /// Payment audit Stage 12. Every payment endpoint answers <see cref="PaymentDto"/> itself. The API used to copy it, field
-/// for field, into a <c>PaymentResponse</c>, and the copy re-applied the upper-casing and the empty-intent-to-null
+/// for field, into a <c>PaymentResponse</c>, and the copy re-applied the status formatting and the empty-intent-to-null
 /// mapping that <c>ToDto</c> had already done. The JSON is unchanged.
 /// </summary>
 public static class PaymentEndpoints

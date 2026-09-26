@@ -159,6 +159,6 @@ public sealed class CreatePaymentIntentCommandHandler : IRequestHandler<CreatePa
         => Result<CreatePaymentIntentDto>.Failure(new Error(
             "PAYMENT_ALREADY_EXISTS",
             status is { } known
-                ? $"This order's payment is {known.ToString().ToUpperInvariant()} and cannot be paid by card."
+                ? $"This order's payment is {known} and cannot be paid by card."
                 : "This order's payment can no longer be paid by card."));
 }

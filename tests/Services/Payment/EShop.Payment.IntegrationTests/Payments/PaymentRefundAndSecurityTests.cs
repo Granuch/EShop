@@ -35,7 +35,7 @@ public class PaymentRefundAndSecurityTests : AuthenticatedIntegrationTestBase
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
 
         var current = await Client.GetFromJsonAsync<PaymentResponse>($"{PaymentsEndpoint}/{seeded.Id}");
-        Assert.That(current!.Status, Is.EqualTo("SUCCESS"));
+        Assert.That(current!.Status, Is.EqualTo("Success"));
     }
 
     [Test]

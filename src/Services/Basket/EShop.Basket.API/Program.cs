@@ -166,6 +166,8 @@ builder.Services.AddOpenApi();
 //
 // ThrowOnBadRequest + AddMalformedJsonBody (frontend-contracts F-20): without them a malformed body or an unbindable
 // query value is a bare 400 with an empty body outside Development, with no errorCode. Ordering's pairing.
+// Enums as PascalCase names, in and out (frontend-contracts F-01).
+builder.Services.AddEShopJson();
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()

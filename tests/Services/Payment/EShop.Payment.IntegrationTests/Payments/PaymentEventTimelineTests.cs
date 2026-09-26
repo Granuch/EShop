@@ -44,8 +44,8 @@ public class PaymentEventTimelineTests : AuthenticatedIntegrationTestBase
         {
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].Kind, Is.EqualTo("Transition"));
-            Assert.That(rows[0].FromStatus, Is.EqualTo("PENDING"));
-            Assert.That(rows[0].ToStatus, Is.EqualTo("SUCCESS"));
+            Assert.That(rows[0].FromStatus, Is.EqualTo("Pending"));
+            Assert.That(rows[0].ToStatus, Is.EqualTo("Success"));
             Assert.That(rows[0].Detail, Does.Contain("TRF-99"));
         });
     }
@@ -81,9 +81,9 @@ public class PaymentEventTimelineTests : AuthenticatedIntegrationTestBase
         var rows = await TimelineAsync(seeded.Id);
         Assert.Multiple(() =>
         {
-            Assert.That(rows.Select(r => r.ToStatus), Is.EqualTo(new[] { "PROCESSING", "SUCCESS" }));
-            Assert.That(rows[0].FromStatus, Is.EqualTo("PENDING"));
-            Assert.That(rows[1].FromStatus, Is.EqualTo("PROCESSING"));
+            Assert.That(rows.Select(r => r.ToStatus), Is.EqualTo(new[] { "Processing", "Success" }));
+            Assert.That(rows[0].FromStatus, Is.EqualTo("Pending"));
+            Assert.That(rows[1].FromStatus, Is.EqualTo("Processing"));
         });
     }
 
@@ -102,7 +102,7 @@ public class PaymentEventTimelineTests : AuthenticatedIntegrationTestBase
         Assert.Multiple(() =>
         {
             Assert.That(rows, Has.Count.EqualTo(2));
-            Assert.That(rows[0].ToStatus, Is.EqualTo("REFUNDED"));
+            Assert.That(rows[0].ToStatus, Is.EqualTo("Refunded"));
             Assert.That(rows[1].Detail, Does.Contain("RMA-17"));
         });
     }

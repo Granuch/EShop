@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.RateLimiting;
@@ -32,4 +33,26 @@ public class HttpConventionsTests : IntegrationTestBase
         Assert.That(policy, Is.Not.Null);
         Assert.That(policy!.ExposedHeaders, Is.EquivalentTo(EShopCors.ExposedHeaders));
     }
+
+    /// <summary>
+    /// Frontend-contracts F-01: an enum is its PascalCase name on the wire, read in any case, and a number is refused.
+    /// </summary>
+    [Test]
+    public void Enums_AreWrittenAsNames_AndReadOnlyAsNames()
+    {
+        var json = Factory.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions;
+        AssertEnumsAreNames(json);
+
+        // The controllers serialize through MVC's own options, which the minimal-API ones do not reach.
+        var mvc = Factory.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>().Value.JsonSerializerOptions;
+        AssertEnumsAreNames(mvc);
+    }
+
+    private static void AssertEnumsAreNames(JsonSerializerOptions json) => Assert.Multiple(() =>
+    {
+        Assert.That(JsonSerializer.Serialize(DayOfWeek.Tuesday, json), Is.EqualTo("\"Tuesday\""));
+        Assert.That(JsonSerializer.Deserialize<DayOfWeek>("\"tuesday\"", json), Is.EqualTo(DayOfWeek.Tuesday));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<DayOfWeek>("2", json));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<DayOfWeek>("\"2\"", json));
+    });
 }

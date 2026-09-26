@@ -65,9 +65,9 @@ public class PaymentDiagnosticsQueryTests
     }
 
     /// <summary>
-    /// The statuses reach the client as the same upper-case strings <c>PaymentDto.Status</c> uses, and the kind as its
+    /// The statuses reach the client as the same PascalCase names <c>PaymentDto.Status</c> uses, and the kind as its
     /// name — serializing either enum straight out would put a <b>number</b> in the response, so one payment endpoint
-    /// would report <c>"SUCCESS"</c> and its timeline <c>2</c> for the same fact.
+    /// would report <c>"Success"</c> and its timeline <c>2</c> for the same fact.
     /// </summary>
     [Test]
     public async Task TheDto_ReportsStatusesAndKindsAsStrings()
@@ -86,11 +86,11 @@ public class PaymentDiagnosticsQueryTests
         Assert.Multiple(() =>
         {
             Assert.That(rows[0].FromStatus, Is.Null);
-            Assert.That(rows[0].ToStatus, Is.EqualTo("PENDING"));
+            Assert.That(rows[0].ToStatus, Is.EqualTo("Pending"));
             Assert.That(rows[0].Kind, Is.EqualTo("Transition"));
             Assert.That(rows[0].StripeEventId, Is.Null);
-            Assert.That(rows[1].FromStatus, Is.EqualTo("PENDING"));
-            Assert.That(rows[1].ToStatus, Is.EqualTo("SUCCESS"));
+            Assert.That(rows[1].FromStatus, Is.EqualTo("Pending"));
+            Assert.That(rows[1].ToStatus, Is.EqualTo("Success"));
             Assert.That(rows[1].Kind, Is.EqualTo("Webhook"));
             Assert.That(rows[1].StripeEventId, Is.EqualTo("evt_1"));
         });

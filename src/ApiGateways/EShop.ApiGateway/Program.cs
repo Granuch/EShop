@@ -207,6 +207,8 @@ builder.Services.AddOpenApi();
 // AddMalformedJsonBody() is the one branch it takes (frontend-contracts F-20), paired with ThrowOnBadRequest, for its
 // own endpoints: a query value of the wrong type on /api/v1/admin/audit was a bare 400 with an empty body.
 // BadHttpRequestException is always the client's fault, so the branch cannot reclassify a server failure.
+// Enums as PascalCase names, in and out (frontend-contracts F-01).
+builder.Services.AddEShopJson();
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddEShopProblemDetails(options => options.AddMalformedJsonBody());
 

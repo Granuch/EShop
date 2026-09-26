@@ -26,7 +26,13 @@ public abstract record ProductFilterQuery
     public string? SearchTerm { get; init; }
     public decimal? MinPrice { get; init; }
     public decimal? MaxPrice { get; init; }
-    public ProductSortBy? SortBy { get; init; }
+    /// <summary>
+    /// A <see cref="ProductSortBy"/> name in any case. A string rather than the enum (frontend-contracts F-01): minimal-API
+    /// binding of an enum is case-sensitive and also takes <c>0</c>/<c>1</c>/<c>2</c>, and a bad value was refused as
+    /// "The request body is not valid JSON". <see cref="ProductFilterRules"/> refuses anything but a name, as Ordering,
+    /// Payment and Notification do.
+    /// </summary>
+    public string? SortBy { get; init; }
     public bool? IsDescending { get; init; }
 
     // Admin panel S4 — four admin list filters. Every one is nullable, including the bool and the
@@ -39,13 +45,21 @@ public abstract record ProductFilterQuery
     // rule rather than replacing it (see ProductQueryService.ApplyFilter), so a public caller
     // filtering for Draft gets an empty page. Visibility itself is decided at the endpoint and passed
     // to ToFilter, never bound.
-    public ProductStatus? Status { get; init; }
+    //
+    // A ProductStatus name in any case, for the same reason as SortBy.
+    public string? Status { get; init; }
     public bool? HasDiscount { get; init; }
     public int? StockBelow { get; init; }
     public DateTime? CreatedFrom { get; init; }
     public DateTime? CreatedTo { get; init; }
 
-    public ProductSortBy EffectiveSortBy => SortBy ?? ProductSortBy.Name;
+    /// <summary>The sort column, or <see cref="ProductSortBy.Name"/>. The validator has already refused anything that is
+    /// not a name, so the fallback is for the omitted case, not for a typo.</summary>
+    public ProductSortBy EffectiveSortBy => ParseName<ProductSortBy>(SortBy) ?? ProductSortBy.Name;
+
+    /// <summary>The status filter, or none.</summary>
+    public ProductStatus? EffectiveStatus => ParseName<ProductStatus>(Status);
+
     public bool EffectiveIsDescending => IsDescending ?? false;
 
     /// <summary>
@@ -68,7 +82,7 @@ public abstract record ProductFilterQuery
         MinPrice,
         MaxPrice,
         includeUnpublished,
-        Status: Status,
+        Status: EffectiveStatus,
         HasDiscount: HasDiscount,
         StockBelow: StockBelow,
         CreatedFrom: AsUtc(CreatedFrom),
@@ -81,6 +95,13 @@ public abstract record ProductFilterQuery
         { Kind: DateTimeKind.Local } local => local.ToUniversalTime(),
         var unspecified => DateTime.SpecifyKind(unspecified.Value, DateTimeKind.Utc)
     };
+
+    // By name only: Enum.TryParse would also take "1" or "-1".
+    internal static bool IsName<TEnum>(string? value) where TEnum : struct, Enum
+        => Enum.GetNames<TEnum>().Contains(value, StringComparer.OrdinalIgnoreCase);
+
+    private static TEnum? ParseName<TEnum>(string? value) where TEnum : struct, Enum
+        => IsName<TEnum>(value) ? Enum.Parse<TEnum>(value!, ignoreCase: true) : null;
 }
 
 /// <summary>
@@ -93,8 +114,22 @@ public abstract record ProductFilterQuery
 /// </remarks>
 public static class ProductFilterRules
 {
+    private static readonly string[] StatusNames = Enum.GetNames<ProductStatus>();
+    private static readonly string[] SortNames = Enum.GetNames<ProductSortBy>();
+
     public static void Apply<T>(AbstractValidator<T> validator) where T : ProductFilterQuery
     {
+        // Frontend-contracts F-01: names in any case, never a number — the rule Ordering, Payment and Notification use.
+        validator.RuleFor(x => x.Status)
+            .Must(ProductFilterQuery.IsName<ProductStatus>)
+            .WithMessage($"Status must be one of: {string.Join(", ", StatusNames)}")
+            .When(x => !string.IsNullOrEmpty(x.Status));
+
+        validator.RuleFor(x => x.SortBy)
+            .Must(ProductFilterQuery.IsName<ProductSortBy>)
+            .WithMessage($"SortBy must be one of: {string.Join(", ", SortNames)}")
+            .When(x => !string.IsNullOrEmpty(x.SortBy));
+
         validator.RuleFor(x => x.MinPrice)
             .GreaterThanOrEqualTo(0).When(x => x.MinPrice.HasValue)
             .WithMessage("Minimum price cannot be negative");

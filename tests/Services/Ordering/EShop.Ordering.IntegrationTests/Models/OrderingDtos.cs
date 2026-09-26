@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using EShop.Ordering.Application.Abstractions;
 using EShop.Ordering.Domain.Entities;
 
@@ -58,6 +59,7 @@ public record OrderStatsResponse
 {
     public DateTime? From { get; init; }
     public DateTime? To { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatsGroupBy>))]
     public OrderStatsGroupBy GroupBy { get; init; }
     public int TotalOrders { get; init; }
     public decimal GrossValue { get; init; }
@@ -70,6 +72,7 @@ public record OrderStatsResponse
 
 public record OrderStatusBreakdownResponse
 {
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
     public OrderStatus Status { get; init; }
     public int Count { get; init; }
     public decimal Value { get; init; }
@@ -88,6 +91,7 @@ public record OrderResponse
     public Guid Id { get; init; }
     public string UserId { get; init; } = string.Empty;
     public decimal TotalPrice { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
     public OrderStatus Status { get; init; }
     public string? PaymentIntentId { get; init; }
     public DateTime CreatedAt { get; init; }
@@ -146,7 +150,9 @@ public record OrderStatusHistoryResponse
 {
     public Guid Id { get; init; }
     public Guid OrderId { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
     public OrderStatus? FromStatus { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
     public OrderStatus ToStatus { get; init; }
     public string? Reason { get; init; }
     public string? ActorId { get; init; }

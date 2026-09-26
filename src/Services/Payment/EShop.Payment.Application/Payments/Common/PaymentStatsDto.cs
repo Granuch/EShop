@@ -7,9 +7,9 @@ namespace EShop.Payment.Application.Payments.Common;
 ///
 /// <para>
 /// It exists rather than serializing <see cref="PaymentStats"/> straight out of Domain for one reason: the status has
-/// to reach the client as the same upper-case string <see cref="PaymentDto.Status"/> uses. Serializing the enum would
-/// put a <i>number</i> in the response — System.Text.Json's default — so one payment endpoint would report
-/// <c>"SUCCESS"</c> and its dashboard <c>2</c>, for the same fact.
+/// to reach the client as the same PascalCase name <see cref="PaymentDto.Status"/> uses (<c>"Success"</c>). It was
+/// written before the shared <c>EShopJson</c> enum converter (frontend-contracts F-01), when serializing the enum would
+/// have put a <i>number</i> in the response; the string types are kept so the DTOs do not depend on that registration.
 /// </para>
 /// </summary>
 /// <param name="Currency">The currency every figure below is in, echoed so a chart can label its axis.</param>
@@ -56,7 +56,7 @@ internal static class PaymentStatsMapping
         stats.RefundedAmount,
         stats.FailedAmount,
         stats.ByStatus
-            .Select(s => new PaymentStatusBreakdownDto(s.Status.ToString().ToUpperInvariant(), s.Count, s.Amount))
+            .Select(s => new PaymentStatusBreakdownDto(s.Status.ToString(), s.Count, s.Amount))
             .ToList(),
         stats.Buckets
             .Select(b => new PaymentStatsBucketDto(

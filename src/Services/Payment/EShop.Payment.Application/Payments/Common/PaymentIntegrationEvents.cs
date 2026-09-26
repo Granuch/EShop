@@ -37,6 +37,7 @@ public static class PaymentIntegrationEvents
             UserId = payment.UserId,
             Amount = payment.Amount,
             Currency = payment.Currency,
+            // Upper case on purpose: a message contract, unchanged when the HTTP surface moved to PascalCase (F-01).
             Status = payment.Status.ToString().ToUpperInvariant(),
             CreatedAt = payment.CreatedAt
         }, correlationId);

@@ -26,7 +26,7 @@ public class ProductFilterQueryTests
             [nameof(ProductFilterQuery.SearchTerm)] = "lamp",
             [nameof(ProductFilterQuery.MinPrice)] = 1m,
             [nameof(ProductFilterQuery.MaxPrice)] = 2m,
-            [nameof(ProductFilterQuery.Status)] = ProductStatus.Draft,
+            [nameof(ProductFilterQuery.Status)] = "draft",
             [nameof(ProductFilterQuery.HasDiscount)] = true,
             [nameof(ProductFilterQuery.StockBelow)] = 5,
             [nameof(ProductFilterQuery.CreatedFrom)] = DateTime.UtcNow,
@@ -79,6 +79,46 @@ public class ProductFilterQueryTests
             Assert.That(fromList.CreatedTo!.Value.Kind, Is.EqualTo(DateTimeKind.Utc));
             Assert.That(fromList.CreatedFrom, Is.EqualTo(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc)), "same wall time, now UTC");
             Assert.That(fromExport.CreatedFrom!.Value.Kind, Is.EqualTo(DateTimeKind.Utc));
+        });
+    }
+
+    /// <summary>Frontend-contracts F-01: the enum filters take a name in any case.</summary>
+    [TestCase("draft", ProductStatus.Draft)]
+    [TestCase("DISCONTINUED", ProductStatus.Discontinued)]
+    [TestCase("Active", ProductStatus.Active)]
+    public void AStatusName_InAnyCase_ReachesTheFilter(string status, ProductStatus expected)
+    {
+        Assert.That(new ExportProductsQuery { Status = status }.ToFilter(true).Status, Is.EqualTo(expected));
+    }
+
+    [TestCase("price", ProductSortBy.Price)]
+    [TestCase("CREATEDAT", ProductSortBy.CreatedAt)]
+    [TestCase(null, ProductSortBy.Name)]
+    public void ASortName_InAnyCase_IsTheSortColumn(string? sortBy, ProductSortBy expected)
+    {
+        Assert.That(new GetProductsQuery { SortBy = sortBy }.EffectiveSortBy, Is.EqualTo(expected));
+    }
+
+    /// <summary>
+    /// Frontend-contracts F-01: never a number. Minimal-API enum binding took <c>1</c>, and <c>Enum.TryParse</c> would
+    /// too, so the rule matches names only — the Ordering, Payment and Notification rule.
+    /// </summary>
+    [TestCase(nameof(ProductFilterQuery.Status), "1")]
+    [TestCase(nameof(ProductFilterQuery.Status), "-1")]
+    [TestCase(nameof(ProductFilterQuery.Status), "Bogus")]
+    [TestCase(nameof(ProductFilterQuery.SortBy), "0")]
+    [TestCase(nameof(ProductFilterQuery.SortBy), "Bogus")]
+    public void ANumberOrAnUnknownName_IsRefused_ByBothValidators(string property, string value)
+    {
+        var list = new GetProductsQuery();
+        var export = new ExportProductsQuery();
+        typeof(ProductFilterQuery).GetProperty(property)!.SetValue(list, value);
+        typeof(ProductFilterQuery).GetProperty(property)!.SetValue(export, value);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(new GetProductsQueryValidator().Validate(list).Errors.Select(e => e.PropertyName), Does.Contain(property));
+            Assert.That(new ExportProductsQueryValidator().Validate(export).Errors.Select(e => e.PropertyName), Does.Contain(property));
         });
     }
 

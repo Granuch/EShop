@@ -22,7 +22,7 @@ public class PaymentCsvWriterTests
             amount,
             "USD",
             "Stripe",
-            "SUCCESS",
+            "Success",
             "pi_1",
             errorMessage,
             Created,

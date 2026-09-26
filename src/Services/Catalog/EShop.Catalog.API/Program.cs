@@ -366,6 +366,9 @@ try
         options.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     });
 
+    // Enums as PascalCase names, in and out (frontend-contracts F-01): ProductDto.Status was an integer before.
+    builder.Services.AddEShopJson();
+
     // Without this, minimal API binding swallows the JsonException and writes a bare 400 with
     // an EMPTY body — the caller learns the request was rejected but not which property caused
     // it, which is the same opacity problem as the old DomainError responses. Throwing instead

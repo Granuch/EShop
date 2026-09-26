@@ -24,7 +24,8 @@ public record GetProductsQuery : ProductFilterQuery, IRequest<Result<PagedResult
     public int? PageSize { get; init; }
 
     // The eleven filter and sort properties live on ProductFilterQuery (admin panel S16), shared with the export so the
-    // two cannot drift. Their names, types and query-string spelling are unchanged.
+    // two cannot drift. Their names and query-string spelling are unchanged; Status and SortBy became name strings in
+    // frontend-contracts F-01.
 
     /// <summary>
     /// H4. <b>Not supported here — any value is rejected with 400.</b> Keyset paging lives at
@@ -82,7 +83,7 @@ public record GetProductsQuery : ProductFilterQuery, IRequest<Result<PagedResult
         $"products:list:cat={CategoryId}:s={SearchTerm}:min={MinPrice}:max={MaxPrice}" +
         $":sort={EffectiveSortBy}:desc={EffectiveIsDescending}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
         $":unpub={EffectiveIncludeUnpublished}" +
-        $":st={Status}:disc={HasDiscount}:sb={StockBelow}:cf={CreatedFrom:O}:ct={CreatedTo:O}";
+        $":st={EffectiveStatus}:disc={HasDiscount}:sb={StockBelow}:cf={CreatedFrom:O}:ct={CreatedTo:O}";
 
     /// <summary>
     /// DEBT-16. The key above embeds ten filter/sort/page parameters, so the set of live keys is

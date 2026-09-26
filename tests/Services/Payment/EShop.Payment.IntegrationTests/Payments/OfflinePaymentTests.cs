@@ -45,7 +45,7 @@ public class OfflinePaymentTests : AuthenticatedIntegrationTestBase
         var body = await response.Content.ReadFromJsonAsync<PaymentResponse>();
         Assert.Multiple(() =>
         {
-            Assert.That(body!.Status, Is.EqualTo("SUCCESS"));
+            Assert.That(body!.Status, Is.EqualTo("Success"));
             Assert.That(body.Amount, Is.EqualTo(250m));
             Assert.That(body.Currency, Is.EqualTo("USD"));
             Assert.That(body.PaymentMethod, Is.EqualTo("Mock"));
