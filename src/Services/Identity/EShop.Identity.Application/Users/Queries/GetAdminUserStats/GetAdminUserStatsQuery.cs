@@ -46,7 +46,8 @@ public class GetAdminUserStatsQueryHandler
         GetAdminUserStatsQuery request,
         CancellationToken cancellationToken)
     {
-        var stats = await _queryService.GetUserStatsAsync(request.From, request.To, cancellationToken);
+        var stats = await _queryService.GetUserStatsAsync(
+            AdminQueryDates.AsUtc(request.From), AdminQueryDates.AsUtc(request.To), cancellationToken);
 
         return Result<AdminUserStatsDto>.Success(new AdminUserStatsDto(
             stats.Total,

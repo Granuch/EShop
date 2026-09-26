@@ -117,8 +117,8 @@ public class RoleEndpointContractTests : IntegrationTestBase
     public async Task DeleteRole_ForSystemRole_Returns400WithCannotDelete()
     {
         var admin = await Client.GetAsync(RolesEndpoint);
-        var roles = await admin.Content.ReadFromJsonAsync<List<RoleDto>>();
-        var adminRoleId = roles!.Single(r => r.Name == "Admin").Id;
+        var roles = await admin.Content.ReadFromJsonAsync<Page<RoleDto>>();
+        var adminRoleId = roles!.Items.Single(r => r.Name == "Admin").Id;
 
         var response = await Client.DeleteAsync($"{RolesEndpoint}/{adminRoleId}");
 
@@ -137,13 +137,92 @@ public class RoleEndpointContractTests : IntegrationTestBase
         (await ErrorCodeOf(response)).Should().Be("Role.NotFound");
     }
 
+    /// <summary>
+    /// Frontend-contracts F-12: a <c>PagedResult</c> with <c>pageNumber</c>/<c>pageSize</c>, like every
+    /// other list. It used to be a bare array taking <c>page</c>, so a client could not tell the last
+    /// page from a full one.
+    /// </summary>
     [Test]
-    public async Task GetRoles_IsPaged()
+    public async Task GetRoles_IsAPagedResult()
     {
-        var response = await Client.GetAsync($"{RolesEndpoint}?page=1&pageSize=1");
+        var response = await Client.GetAsync($"{RolesEndpoint}?pageNumber=1&pageSize=1");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await response.Content.ReadFromJsonAsync<List<RoleDto>>())!.Should().HaveCount(1);
+        var page = (await response.Content.ReadFromJsonAsync<Page<RoleDto>>())!;
+        page.Items.Should().HaveCount(1);
+        page.PageNumber.Should().Be(1);
+        page.PageSize.Should().Be(1);
+        page.TotalCount.Should().BeGreaterThanOrEqualTo(2, "Admin and User are seeded");
+        page.TotalPages.Should().Be(page.TotalCount);
+        page.HasNextPage.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task GetRoles_WithoutParameters_IsTheFirstPageOfFifty()
+    {
+        var page = (await Client.GetFromJsonAsync<Page<RoleDto>>(RolesEndpoint))!;
+
+        page.PageNumber.Should().Be(1);
+        page.PageSize.Should().Be(50);
+        page.Items.Select(r => r.Name).Should().Contain(["Admin", "User"]).And.BeInAscendingOrder();
+        page.Items.Should().HaveCount(page.TotalCount);
+    }
+
+    [Test]
+    public async Task GetRoles_PastTheLastPage_IsAnEmptyPageThatStillCounts()
+    {
+        var page = (await Client.GetFromJsonAsync<Page<RoleDto>>($"{RolesEndpoint}?pageNumber=1000"))!;
+
+        page.Items.Should().BeEmpty();
+        page.TotalCount.Should().BeGreaterThanOrEqualTo(2);
+        page.HasNextPage.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task GetUsersInRole_IsAPagedResult()
+    {
+        var page = (await Client.GetFromJsonAsync<Page<UserInRoleDto>>(
+            $"{RolesEndpoint}/Admin/users?pageNumber=1&pageSize=1"))!;
+
+        page.Items.Should().ContainSingle().Which.Email.Should().Be("admin@test.com");
+        page.PageNumber.Should().Be(1);
+        page.PageSize.Should().Be(1);
+        page.TotalCount.Should().BeGreaterThanOrEqualTo(1);
+    }
+
+    /// <summary>
+    /// Frontend-contracts F-12. <c>GET /roles?page=0</c> and <c>?pageSize=-1</c> used to reach Postgres
+    /// as a negative <c>OFFSET</c>/<c>LIMIT</c> and answer 500, and <c>pageSize=100000</c> was served.
+    /// The members list pages in memory, so it answered 200 to the same values. Both now refuse them
+    /// with the shared validation envelope, keyed by the parameter — and the members list refuses them
+    /// before it looks the role up, so an unknown role does not turn a bad page into a 404.
+    /// </summary>
+    [TestCase("", "pageNumber=0", "pageNumber")]
+    [TestCase("", "pageNumber=-1", "pageNumber")]
+    [TestCase("", "pageSize=0", "pageSize")]
+    [TestCase("", "pageSize=-1", "pageSize")]
+    [TestCase("", "pageSize=101", "pageSize")]
+    [TestCase("", "pageSize=100000", "pageSize")]
+    [TestCase("/Admin/users", "pageNumber=0", "pageNumber")]
+    [TestCase("/Admin/users", "pageSize=-1", "pageSize")]
+    [TestCase("/Admin/users", "pageSize=101", "pageSize")]
+    [TestCase("/NoSuchRole/users", "pageSize=101", "pageSize")]
+    public async Task RoleLists_RefuseAnOutOfRangePage(string path, string query, string key)
+    {
+        var response = await Client.GetAsync($"{RolesEndpoint}{path}?{query}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        (await ErrorCodeOf(response)).Should().Be("ValidationError");
+        using var document = JsonDocument.Parse(body);
+        document.RootElement.GetProperty("errors").TryGetProperty(key, out _).Should().BeTrue(body);
+    }
+
+    [Test]
+    public async Task RoleLists_AcceptTheLargestPage()
+    {
+        (await Client.GetAsync($"{RolesEndpoint}?pageSize=100")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client.GetAsync($"{RolesEndpoint}/Admin/users?pageSize=100")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Test]
@@ -165,6 +244,23 @@ public class RoleEndpointContractTests : IntegrationTestBase
         (await Client.GetAsync($"{RolesEndpoint}/Admin/users")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.PostAsync($"{RolesEndpoint}/Admin/users/{Guid.NewGuid()}", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.DeleteAsync($"{RolesEndpoint}/Admin/users/{Guid.NewGuid()}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    private record Page<T>
+    {
+        public List<T> Items { get; init; } = [];
+        public int PageNumber { get; init; }
+        public int PageSize { get; init; }
+        public int TotalCount { get; init; }
+        public int TotalPages { get; init; }
+        public bool HasPreviousPage { get; init; }
+        public bool HasNextPage { get; init; }
+    }
+
+    private record UserInRoleDto
+    {
+        public string Id { get; init; } = string.Empty;
+        public string Email { get; init; } = string.Empty;
     }
 
     private record RoleDto

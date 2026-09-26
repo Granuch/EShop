@@ -107,6 +107,51 @@ public class RoleMembershipCacheTests : IntegrationTestBase
             "a revoked role must not survive in a token minted after the revocation");
     }
 
+    /// <summary>
+    /// Frontend-contracts F-07. <c>GET /account/profile</c> is cached for five minutes under
+    /// <c>profile:{userId}</c> and carries the roles and the permissions they grant, so both membership
+    /// verbs must evict it. Before F-07 neither did, so a demoted admin's profile kept listing Admin —
+    /// and now every permission — until the entry expired. The profile is read with the user's own,
+    /// unchanged token: it is looked up by id, so only the cache can make it stale.
+    /// </summary>
+    [Test]
+    public async Task AddingAndRemovingARole_IsVisibleInTheCachedProfileImmediately()
+    {
+        var target = await LoginAsync(TargetEmail, TargetPassword);
+        var userToken = target.AccessToken;
+
+        async Task<UserProfileResponse> ProfileAsync()
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/account/profile");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
+            var response = await Client.SendAsync(request);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await response.Content.ReadFromJsonAsync<UserProfileResponse>())!;
+        }
+
+        (await ProfileAsync()).Permissions.Should().BeEmpty("warms the cache for the plain user");
+
+        await AuthenticateAsAdminAsync();
+        try
+        {
+            (await Client.PostAsync($"{RolesEndpoint}/Admin/users/{target.User!.Id}", null))
+                .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+            var granted = await ProfileAsync();
+            granted.Roles.Should().Contain("Admin");
+            granted.Permissions.Should().NotBeEmpty("a granted role must reach the cached profile at once");
+        }
+        finally
+        {
+            (await Client.DeleteAsync($"{RolesEndpoint}/Admin/users/{target.User!.Id}"))
+                .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        }
+
+        var revoked = await ProfileAsync();
+        revoked.Roles.Should().NotContain("Admin");
+        revoked.Permissions.Should().BeEmpty("a revoked role must leave the cached profile at once");
+    }
+
     [Test]
     public async Task RemoveUserFromRole_WithUnknownRole_ShouldReturnNotFound()
     {

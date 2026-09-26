@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Identity.IntegrationTests.Helpers;
 using EShop.Identity.IntegrationTests.Models;
 using FluentAssertions;
@@ -43,6 +44,8 @@ public class LoginTests : IntegrationTestBase
         result.User.FirstName.Should().Be(TestUsers.Admin.FirstName);
         result.User.LastName.Should().Be(TestUsers.Admin.LastName);
         result.User.Roles.Should().Contain(TestUsers.Roles.Admin);
+        result.User.Permissions.Should().Equal(EShopPermissions.All,
+            "frontend-contracts F-07: an admin holds every permission, in the vocabulary's order");
     }
 
     [Test]
@@ -66,6 +69,7 @@ public class LoginTests : IntegrationTestBase
         result!.User.Should().NotBeNull();
         result.User!.Roles.Should().Contain(TestUsers.Roles.User);
         result.User.Roles.Should().NotContain(TestUsers.Roles.Admin);
+        result.User.Permissions.Should().BeEmpty("only Admin has a permission bundle");
     }
 
     [Test]

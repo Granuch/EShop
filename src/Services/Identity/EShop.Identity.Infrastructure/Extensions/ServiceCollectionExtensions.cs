@@ -159,6 +159,7 @@ public static class ServiceCollectionExtensions
         // Add cached services for performance optimization
         services.AddScoped<ICachedUserRolesService, CachedUserRolesService>();
         services.AddSingleton<IRevokedTokenCache, RevokedTokenCache>();
+        services.AddSingleton<IRolePermissionResolver, RolePermissionResolver>();
 
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();

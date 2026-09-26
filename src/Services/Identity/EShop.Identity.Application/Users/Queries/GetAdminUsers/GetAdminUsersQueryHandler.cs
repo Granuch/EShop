@@ -26,10 +26,10 @@ public class GetAdminUsersQueryHandler
             request.IsDeleted,
             request.EmailConfirmed,
             request.TwoFactorEnabled,
-            request.CreatedFrom,
-            request.CreatedTo,
-            request.LastLoginFrom,
-            request.LastLoginTo);
+            AdminQueryDates.AsUtc(request.CreatedFrom),
+            AdminQueryDates.AsUtc(request.CreatedTo),
+            AdminQueryDates.AsUtc(request.LastLoginFrom),
+            AdminQueryDates.AsUtc(request.LastLoginTo));
 
         var (rows, totalCount) = await _queryService.GetUsersAsync(
             filter,

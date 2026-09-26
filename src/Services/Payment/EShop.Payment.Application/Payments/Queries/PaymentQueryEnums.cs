@@ -49,7 +49,7 @@ internal static class PaymentQueryEnums
     /// <see cref="DateTime"/> with <see cref="DateTimeKind.Unspecified"/>, and Npgsql refuses to send one as a
     /// <c>timestamp with time zone</c> parameter. Without this the most obvious filter on the screen is a 500 rather
     /// than a filter, and only a value carrying <c>Z</c> or an offset works — a rule no caller can guess from the URL.
-    /// Ordering's <c>QueryEnums.AsUtc</c> is the same function; Catalog's and Identity's date filters still lack it.
+    /// Ordering's <c>QueryEnums.AsUtc</c> is the same function, as are Catalog's and Identity's.
     /// </para>
     /// </summary>
     public static DateTime? AsUtc(DateTime? value) => value switch

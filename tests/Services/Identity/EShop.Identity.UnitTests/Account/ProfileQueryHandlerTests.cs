@@ -3,6 +3,8 @@ using EShop.Identity.Application.Account.Queries.GetProfile;
 using EShop.Identity.Application.Users.Queries.GetUserContact;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
+using EShop.Identity.Infrastructure.Services;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -62,13 +64,15 @@ public class ProfileQueryHandlerTests
         userManager.Setup(x => x.FindByIdAsync(UserId)).ReturnsAsync(user);
         userManager.Setup(x => x.GetRolesAsync(user)).ReturnsAsync(new List<string> { "User", "Admin" });
 
-        var result = await new GetProfileQueryHandler(userManager.Object)
+        var result = await new GetProfileQueryHandler(userManager.Object, new RolePermissionResolver())
             .Handle(new GetProfileQuery { UserId = UserId }, CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value.Id, Is.EqualTo(UserId));
         Assert.That(result.Value.Email, Is.EqualTo("user@test.com"));
         Assert.That(result.Value.Roles, Is.EqualTo(new[] { "User", "Admin" }));
+        Assert.That(result.Value.Permissions, Is.EqualTo(EShopPermissions.All),
+            "frontend-contracts F-07: the roles' permissions, from the table the services authorize against");
     }
 
     /// <summary>
@@ -84,7 +88,7 @@ public class ProfileQueryHandlerTests
         userManager.Setup(x => x.FindByIdAsync(UserId)).ReturnsAsync(user);
         userManager.Setup(x => x.GetRolesAsync(user)).ReturnsAsync(new List<string>());
 
-        var result = await new GetProfileQueryHandler(userManager.Object)
+        var result = await new GetProfileQueryHandler(userManager.Object, new RolePermissionResolver())
             .Handle(new GetProfileQuery { UserId = UserId }, CancellationToken.None);
 
         AssertCarriesNoSecrets(result.Value);
@@ -104,7 +108,7 @@ public class ProfileQueryHandlerTests
         var userManager = MockUserManager();
         userManager.Setup(x => x.FindByIdAsync(UserId)).ReturnsAsync(user);
 
-        var result = await new GetProfileQueryHandler(userManager.Object)
+        var result = await new GetProfileQueryHandler(userManager.Object, new RolePermissionResolver())
             .Handle(new GetProfileQuery { UserId = UserId }, CancellationToken.None);
 
         Assert.That(result.IsFailure, Is.True);
@@ -118,7 +122,7 @@ public class ProfileQueryHandlerTests
         var userManager = MockUserManager();
         userManager.Setup(x => x.FindByIdAsync(It.IsAny<string>())).ReturnsAsync((ApplicationUser?)null);
 
-        var result = await new GetProfileQueryHandler(userManager.Object)
+        var result = await new GetProfileQueryHandler(userManager.Object, new RolePermissionResolver())
             .Handle(new GetProfileQuery { UserId = UserId }, CancellationToken.None);
 
         Assert.That(result.IsFailure, Is.True);

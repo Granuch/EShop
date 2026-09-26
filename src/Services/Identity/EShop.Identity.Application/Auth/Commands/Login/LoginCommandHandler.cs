@@ -21,6 +21,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly ITokenService _tokenService;
     private readonly ILoginAttemptTracker _loginAttemptTracker;
     private readonly IUserRepository _userRepository;
+    private readonly IRolePermissionResolver _permissionResolver;
     private readonly ILogger<LoginCommandHandler> _logger;
 
     public LoginCommandHandler(
@@ -29,6 +30,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         ITokenService tokenService,
         ILoginAttemptTracker loginAttemptTracker,
         IUserRepository userRepository,
+        IRolePermissionResolver permissionResolver,
         ILogger<LoginCommandHandler> logger)
     {
         _userManager = userManager;
@@ -36,6 +38,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         _tokenService = tokenService;
         _loginAttemptTracker = loginAttemptTracker;
         _userRepository = userRepository;
+        _permissionResolver = permissionResolver;
         _logger = logger;
     }
 
@@ -252,7 +255,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 Email = user.Email!,
                 FirstName = user.FirstName,
                 LastName = user.LastName,
-                Roles = roles.ToList()
+                Roles = roles.ToList(),
+                Permissions = _permissionResolver.PermissionsFor(roles).ToList()
             }
         });
     }

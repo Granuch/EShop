@@ -1,12 +1,13 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Identity.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 
 namespace EShop.Identity.Application.Roles.Queries.GetUsersInRole;
 
 public class GetUsersInRoleQueryHandler
-    : IRequestHandler<GetUsersInRoleQuery, Result<IReadOnlyList<UserInRoleResponse>>>
+    : IRequestHandler<GetUsersInRoleQuery, Result<PagedResult<UserInRoleResponse>>>
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<ApplicationRole> _roleManager;
@@ -19,7 +20,7 @@ public class GetUsersInRoleQueryHandler
         _roleManager = roleManager;
     }
 
-    public async Task<Result<IReadOnlyList<UserInRoleResponse>>> Handle(
+    public async Task<Result<PagedResult<UserInRoleResponse>>> Handle(
         GetUsersInRoleQuery request,
         CancellationToken cancellationToken)
     {
@@ -27,7 +28,7 @@ public class GetUsersInRoleQueryHandler
         // list — indistinguishable from a real role that happens to have no members.
         if (!await _roleManager.RoleExistsAsync(request.RoleName))
         {
-            return Result<IReadOnlyList<UserInRoleResponse>>.Failure(RoleErrors.NotFound);
+            return Result<PagedResult<UserInRoleResponse>>.Failure(RoleErrors.NotFound);
         }
 
         // GetUsersInRoleAsync materialises the whole membership, so the paging below is in
@@ -35,10 +36,16 @@ public class GetUsersInRoleQueryHandler
         // that to matter needs a projection query, not a bigger page.
         var users = await _userManager.GetUsersInRoleAsync(request.RoleName);
 
+        var pageNumber = request.EffectivePageNumber();
+        var pageSize = request.EffectivePageSize();
+
+        // Id breaks ties so a user whose email is null (or shared, before normalisation) cannot
+        // appear on two pages or on none.
         var page = users
             .OrderBy(u => u.Email)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
+            .ThenBy(u => u.Id)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
             .Select(u => new UserInRoleResponse
             {
                 Id = u.Id,
@@ -48,6 +55,7 @@ public class GetUsersInRoleQueryHandler
             })
             .ToList();
 
-        return Result<IReadOnlyList<UserInRoleResponse>>.Success(page);
+        return Result<PagedResult<UserInRoleResponse>>.Success(
+            PagedResult<UserInRoleResponse>.Create(page, pageNumber, pageSize, users.Count));
     }
 }

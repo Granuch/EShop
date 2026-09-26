@@ -215,6 +215,30 @@ public class AdminUserReadsTests : AuthenticatedIntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    /// <summary>
+    /// Frontend-contracts F-15. A date with no zone binds as <see cref="DateTimeKind.Unspecified"/>,
+    /// which Npgsql refuses as a <c>timestamptz</c> parameter, so each of these answered 500. They are
+    /// now read as UTC. This suite runs on real Postgres, so it is the behavioural half of the guard.
+    /// </summary>
+    [TestCase("createdFrom=2000-01-01")]
+    [TestCase("createdTo=2999-01-01")]
+    [TestCase("lastLoginFrom=2000-01-01")]
+    [TestCase("lastLoginTo=2999-01-01T00:00:00")]
+    public async Task List_ADateWithNoTimeZone_IsAcceptedAndReadAsUtc(string query)
+    {
+        var page = await ListAsync($"?{query}&pageSize=100");
+
+        page.TotalCount.Should().BeGreaterThan(0, "every seeded user falls inside the window");
+    }
+
+    [Test]
+    public async Task List_ADateWithNoTimeZone_StillFilters()
+    {
+        var page = await ListAsync("?createdFrom=2999-01-01&pageSize=100");
+
+        page.TotalCount.Should().Be(0, "no user was created in 2999");
+    }
+
     [Test]
     public async Task List_OmittingEveryOptionalParameter_StillBinds()
     {
@@ -400,6 +424,18 @@ public class AdminUserReadsTests : AuthenticatedIntegrationTestBase
 
         stats!.NewInPeriod.Should().Be(0, "no user was created ten years from now");
         stats.Total.Should().BeGreaterThan(0, "but the total is not bounded by the period");
+    }
+
+    /// <summary>Frontend-contracts F-15, for the dashboard tile: this answered 500.</summary>
+    [Test]
+    public async Task Stats_ADateWithNoTimeZone_IsAcceptedAndReadAsUtc()
+    {
+        var response = await Client.GetAsync($"{Endpoint}/stats?from=2999-01-01&to=2999-12-31");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+
+        var stats = (await response.Content.ReadFromJsonAsync<AdminUserStatsResponse>())!;
+        stats.NewInPeriod.Should().Be(0);
+        stats.Total.Should().BeGreaterThan(0);
     }
 
     [Test]
