@@ -161,7 +161,7 @@ A fine-grained access right (`EShopPermissions`, 15 in total, e.g. `users.manage
 `payments.write`) checked by a service in addition to the gateway's coarser role-based route
 policy. The `Admin` role is bundled with all 15, so existing role-based tokens keep working; a
 caller can also be granted a single permission via a `permission` claim, though no component today
-issues one and there is no discovery endpoint for "what can I do." See
+issues one. A client reads what it holds from `permissions` on the login response and the profile. See
 [Security Architecture](../03-architecture/security-architecture.md#permission-model).
 
 ### ProblemDetails / errorCode

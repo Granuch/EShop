@@ -3,7 +3,8 @@
 Accounts, sign-in, tokens, two-factor authentication and the user's own profile, plus the admin user and role
 management screens.
 
-**Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23); [Failed logins and lockout](#failed-logins-and-lockout) was re-verified after the F-28 fix, at `bb8c148`; the admin list's `sortBy` at `30e1221`, which fixed F-01. Every endpoint was checked against the C# source and
+**Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23); [Failed logins and lockout](#failed-logins-and-lockout) was re-verified after the F-28 fix, at `bb8c148`; the admin list's `sortBy` at `30e1221`, which fixed F-01; `permissions` on login and profile, the role lists and the
+admin date filters at `e2ec172`, which fixed F-07, F-12 and F-15. Every endpoint was checked against the C# source and
 the service's OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors,
 paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
@@ -118,8 +119,12 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
    ```json
    {"accessToken":"eyJhbGciOi…","refreshToken":"FfbrHl18…","expiresIn":3600,"tokenType":"Bearer","requires2FA":false,
     "user":{"id":"afc10747-33cb-491d-bf78-7de7ed9da476","email":"fe-contracts-s2a@example.com","firstName":"José",
-    "lastName":"O'Brien-Müller","roles":["User"]}}
+    "lastName":"O'Brien-Müller","roles":["User"],"permissions":[]}}
    ```
+
+   For an admin, `permissions` lists all 15, in the order of
+   [conventions.md §5](conventions.md#the-permission-vocabulary):
+   `"roles":["Admin"],"permissions":["catalog.read","catalog.write","orders.read",…,"system.manage"]`.
 
 2. **Second factor needed.** The password was right and the account has 2FA on, but the request had no
    `twoFactorCode`:
@@ -142,7 +147,9 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
 
 - **Side effects.** A successful login records `lastLoginAt` and the client IP, and resets the account's failed-login
   counter. Refusals count as failed attempts, as described in [Failed logins and lockout](#failed-logins-and-lockout).
-- **Roles.** Use `user.roles` to decide what to show, not the JWT ([conventions.md §4](conventions.md#claims-and-roles)).
+- **Permissions.** Use `user.permissions` to decide which admin screens and actions to show, and `user.roles` only to
+  display the role names. Do not decode the JWT for either: it carries the roles under a long claim type and no
+  permissions at all ([conventions.md §4](conventions.md#claims-and-roles), [§5](conventions.md#5-permissions-and-admin-access)).
 
 #### `POST /api/v1/auth/refresh-token`
 
@@ -279,11 +286,15 @@ For a token whose account has since been deleted or deactivated, they answer wit
 ```json
 {"id":"afc10747-33cb-491d-bf78-7de7ed9da476","email":"fe-contracts-s2a@example.com","firstName":"José",
  "lastName":"O'Brien-Müller","profilePictureUrl":null,"emailConfirmed":false,"twoFactorEnabled":false,"isActive":true,
- "createdAt":"2026-09-23T17:51:11.674841Z","lastLoginAt":"2026-09-23T17:51:49.314042Z","roles":["User"]}
+ "createdAt":"2026-09-23T17:51:11.674841Z","lastLoginAt":"2026-09-23T17:51:49.314042Z","roles":["User"],
+ "permissions":[]}
 ```
 
-- **Cached for 5 minutes.** A profile edit and a 2FA change clear the cache. A login does not, so `lastLoginAt` can lag
-  by up to 5 minutes.
+- **`permissions`** is what `roles` grant, as on the login response. Re-read the profile to refresh it during a long
+  session instead of logging in again.
+- **Cached for 5 minutes.** A profile edit, a 2FA change and any change to the user's roles (by
+  `PUT /admin/users/{id}/roles` or either `/roles/{roleName}/users/{userId}` call) clear the cache, so `roles` and
+  `permissions` are current on the next read. A login does not, so `lastLoginAt` can lag by up to 5 minutes.
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -501,8 +512,8 @@ The paged user list. Response: [`PagedResult<AdminUser>`](conventions.md#61-page
 | `isDeleted` | boolean | — | `true` lists **only** deleted users. `false` or omitted lists only live users |
 | `emailConfirmed` | boolean | — | |
 | `twoFactorEnabled` | boolean | — | |
-| `createdFrom`, `createdTo` | date-time | — | Inclusive range on `createdAt`. **Send `Z` or an offset** (F-15) |
-| `lastLoginFrom`, `lastLoginTo` | date-time | — | Inclusive range on `lastLoginAt`; users who never logged in are excluded. Same `Z` rule |
+| `createdFrom`, `createdTo` | date-time | — | Inclusive range on `createdAt`. A date without a zone is read as UTC |
+| `lastLoginFrom`, `lastLoginTo` | date-time | — | Inclusive range on `lastLoginAt`; users who never logged in are excluded. A date without a zone is read as UTC |
 | `sortBy` | `CreatedAt` \| `Email` \| `LastLoginAt` | `CreatedAt` | Name in any case. A number is refused. Ties are broken by id |
 | `isDescending` | boolean | `true` | |
 | `pageNumber` | integer | `1` | ≥ 1 |
@@ -511,7 +522,6 @@ The paged user list. Response: [`PagedResult<AdminUser>`](conventions.md#61-page
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `ValidationError` | `pageNumber` < 1, `pageSize` outside 1–100, `search` or `role` too long, a `…From` after its `…To` (key `$`, a rule about the whole request); a `sortBy` that is not a name, for example `sortBy=1` or `sortBy=Bogus` (key `sortBy`); a value of the wrong type, for example `isActive=yes` (key `isActive`) |
-| 500 | `InternalServerError` | A date without a zone, such as `createdFrom=2026-09-23` (F-15) |
 
 > ⚠ The OpenAPI document also lists `EffectiveSortBy`, `EffectiveIsDescending`, `EffectivePageNumber` and
 > `EffectivePageSize`. They are computed on the server and **ignored** if sent. (F-31) `sortBy` is typed as a
@@ -522,13 +532,13 @@ The paged user list. Response: [`PagedResult<AdminUser>`](conventions.md#61-page
 Counts for the dashboard tile. **200** [`AdminUserStats`](#adminuserstats):
 `{"total":10,"newInPeriod":10,"active":9,"locked":0,"unconfirmed":8,"deleted":0}`.
 
-**Query:** `from`, `to` (date-time, optional). They bound **only** `newInPeriod`; every other number covers all
-users. `total`, `active`, `locked` and `unconfirmed` exclude deleted users, and `deleted` counts only them.
+**Query:** `from`, `to` (date-time, optional; a date without a zone is read as UTC). They bound **only**
+`newInPeriod`; every other number covers all users. `total`, `active`, `locked` and `unconfirmed` exclude deleted
+users, and `deleted` counts only them.
 
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `ValidationError` | `from` is after `to` (key `$`: "'from' must not be after 'to'") |
-| 500 | `InternalServerError` | A date without a zone (F-15) |
 
 #### `GET /api/v1/admin/users/{id}`
 
@@ -740,21 +750,21 @@ Every write is recorded in the [audit trail](#audit-trail).
 
 #### `GET /api/v1/roles`
 
-All roles, sorted by name, as a **bare array** of [`Role`](#role):
+One page of roles, sorted by name, as a
+[`PagedResult<Role>`](conventions.md#61-pagedresultt-offset-pages-the-common-case):
 
 ```json
-[{"id":"c12baa2c-f292-417f-b1da-69a5131be679","name":"Admin","description":"Admin role for the application"},
- {"id":"82dbd2dd-d48a-4c02-a8ea-f671ff07c725","name":"User","description":"User role for the application"}]
+{"items":[{"id":"c12baa2c-f292-417f-b1da-69a5131be679","name":"Admin","description":"Admin role for the application"},
+ {"id":"82dbd2dd-d48a-4c02-a8ea-f671ff07c725","name":"User","description":"User role for the application"}],
+ "pageNumber":1,"pageSize":50,"totalCount":2,"totalPages":1,"hasPreviousPage":false,"hasNextPage":false}
 ```
 
-**Query:** `page` (default 1) and `pageSize` (default 50). There is no total and no maximum.
+**Query** ([`RoleListQuery`](#rolelistquery)): `pageNumber` (default 1, ≥ 1) and `pageSize` (default **50**, 1–100).
+Only two roles exist by default, so one request without parameters normally returns them all.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | A non-integer `page` or `pageSize` (key `page`) |
-| 500 | `InternalServerError` | `page=0`, or a negative `pageSize` (F-12) |
-
-> ⚠ Only two roles exist by default. Request it without parameters and treat the array as the whole list. (F-12)
+| 400 | `ValidationError` | `pageNumber` < 1 or `pageSize` outside 1–100 (keyed by the parameter), or a value that is not an integer (for example `pageSize=abc`) |
 
 #### `POST /api/v1/roles`
 
@@ -801,9 +811,14 @@ Errors: 400 `ValidationError`; 404 `Role.NotFound`; 400 `Role.UpdateFailed` (fro
 
 #### `GET /api/v1/roles/{roleName}/users`
 
-Members of a role, sorted by email, as a **bare array** of [`UserInRole`](#userinrole). `page` and `pageSize` work as
-in `GET /roles`, with no total. Here, out-of-range values do not fail (observed: `page=0&pageSize=-5` gave `[]`). 404
-`Role.NotFound` for an unknown name.
+One page of a role's members, sorted by email, as a
+[`PagedResult<UserInRole>`](conventions.md#61-pagedresultt-offset-pages-the-common-case). `pageNumber` and `pageSize`
+work exactly as in `GET /roles` (default 50, at most 100).
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 400 | `ValidationError` | `pageNumber` or `pageSize` out of range, as in `GET /roles`. Checked before the role, so it wins over the 404 |
+| 404 | `Role.NotFound` | Unknown role name |
 
 #### `POST /api/v1/roles/{roleName}/users/{userId}`
 
@@ -824,8 +839,9 @@ Removes one role from a user. **204.**
 | 400 | `Role.RemoveUserFailed` | The user does not have the role |
 | 404 | `User.NotFound`, `Role.NotFound` | As above |
 
-Both membership calls clear the user's role cache, as `PUT /admin/users/{id}/roles` does. For the admin user screen,
-prefer that endpoint: it sets the whole list in one call.
+Both membership calls clear the user's role cache and cached profile, as `PUT /admin/users/{id}/roles` does: the
+user's next login and next profile read show the new `roles` and `permissions`. For the admin user screen, prefer
+that endpoint: it sets the whole list in one call.
 
 ### Audit trail
 
@@ -892,7 +908,9 @@ A union of two shapes. Branch on `requires2FA`.
 
 #### UserSummary
 
-Source: `UserDto`. `id`, `email`, `firstName`, `lastName` (strings) and `roles` (string[]).
+Source: `UserDto`. `id`, `email`, `firstName`, `lastName` (strings), `roles` (string[]) and `permissions` (string[]:
+what the roles grant, each [permission](conventions.md#the-permission-vocabulary) once, in the vocabulary's order;
+empty for a role with no bundle).
 
 #### RefreshTokenRequest
 
@@ -955,6 +973,7 @@ Source: `UserProfileResponse`.
 | `createdAt` | string (date-time) | no | |
 | `lastLoginAt` | string (date-time) | yes | Can lag by up to 5 minutes (cache) |
 | `roles` | string[] | no | |
+| `permissions` | string[] | no | What `roles` grant; see [`UserSummary`](#usersummary) |
 
 #### Enable2FAResponse
 
@@ -1064,6 +1083,11 @@ Everything in [`AdminUser`](#adminuser), plus:
 
 `roles` (string[] or `null`, optional). The complete new set.
 
+#### RoleListQuery
+
+`pageNumber` (integer, optional, ≥ 1, default 1) and `pageSize` (integer, optional, 1–100, default 50). Used by
+`GET /roles` and `GET /roles/{roleName}/users`.
+
 #### Role
 
 `id` (string), `name` (string), `description` (string | null).
@@ -1082,7 +1106,8 @@ Everything in [`AdminUser`](#adminuser), plus:
 
 ### TypeScript
 
-`PagedResult<T>` and `ProblemDetails` are in [conventions.md](conventions.md#6-paging).
+`PagedResult<T>` and `ProblemDetails` are in [conventions.md](conventions.md#6-paging), and `Permission` in
+[conventions.md §5](conventions.md#the-permission-vocabulary).
 
 ```ts
 // ---- Storefront: requests ----
@@ -1156,6 +1181,8 @@ export interface UserSummary {
   firstName: string;
   lastName: string;
   roles: string[];
+  /** What the roles grant, each once, in the vocabulary's order. Empty for a customer. */
+  permissions: Permission[];
 }
 
 export interface LoginSuccess {
@@ -1209,6 +1236,7 @@ export interface UserProfile {
   createdAt: string;
   lastLoginAt: string | null;
   roles: string[];
+  permissions: Permission[];
 }
 
 export interface Enable2FAResponse {
@@ -1241,7 +1269,7 @@ export interface AdminUserListQuery {
   isDeleted?: boolean;
   emailConfirmed?: boolean;
   twoFactorEnabled?: boolean;
-  /** ISO-8601 with Z or an offset. A bare date answers 500 (F-15). */
+  /** ISO-8601; a date without a zone is read as UTC. */
   createdFrom?: string;
   createdTo?: string;
   lastLoginFrom?: string;
@@ -1353,6 +1381,13 @@ export interface SetUserRolesRequest {
 
 // ---- Admin: roles ----
 
+/** GET /roles and GET /roles/{roleName}/users. Both answer PagedResult<Role> / PagedResult<UserInRole>. */
+export interface RoleListQuery {
+  pageNumber?: number;
+  /** 1-100; default 50. */
+  pageSize?: number;
+}
+
 export interface Role {
   id: string;
   name: string;
@@ -1381,6 +1416,10 @@ export interface UserInRole {
 
 ## Frontend notes
 
+> **Admin navigation.** Show an admin screen when `user.permissions` holds the permission its endpoints need
+> ([conventions.md §5](conventions.md#what-an-admin-screen-needs)). The gateway still asks for the `Admin` role on most
+> admin routes (F-08), which today is the only role with permissions, so the two agree.
+
 > ⚠ **Failed logins.** After three failures a login is refused for a short, growing delay (2 s, then 4 s), and the
 > fifth failure locks the account for 10 minutes. On `Auth.TooManyAttempts`, show `detail` (it gives the real wait)
 > and offer a password reset. See [Failed logins and lockout](#failed-logins-and-lockout).
@@ -1397,18 +1436,12 @@ export interface UserInRole {
 > statuses depending on the endpoint (`Account.NotFound`, `Account.UserNotFound`, `Auth.AccountDisabled`; 404, 400 or
 > 401). Treat all of them as "sign out". (F-34)
 
-> ⚠ **Dates in admin filters need `Z`.** A bare date on `/admin/users` or `/admin/users/stats` answers 500. Send
-> `toISOString()`. (F-15)
-
 > ⚠ **`lockoutEnd` ends in `+00:00`, not `Z`.** Parse it with `new Date()`, never by string comparison. (F-35)
-
-> ⚠ **Roles lists are bare arrays**, with `page`/`pageSize` but no total, and `page=0` answers 500. Call `GET /roles`
-> without parameters. (F-12)
 
 > ⚠ **`Location` names an internal host.** On a 201, read the new id from the body. (F-32)
 
 > ⚠ **The OpenAPI document is misleading here.** Its paths are PascalCase (F-19), it lists four ignored `Effective*`
-> parameters (F-31), and it declares no 401 on `/account/*` and no 400 or 500 on `GET /roles` (F-11).
+> parameters (F-31), and it declares no 401 on `/account/*` (F-11).
 
 > ⚠ **Error bodies have no `type`/`title`** except the binding 400 (F-21). Branch on `errorCode`.
 
@@ -1423,4 +1456,4 @@ export interface UserInRole {
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-23
+**Last Updated**: 2026-09-27

@@ -361,9 +361,11 @@ role-based (`Admin`); the service layer is where a permission is actually checke
 - Two authorization layers (gateway role gate, service permission check) must now be kept
   consistent by hand for every new admin endpoint; nothing enforces that a service-level
   permission also gets a matching gateway-level route policy.
-- No component issues a `permission` claim today and there is no permission-discovery endpoint, so
-  a client cannot yet ask "what can I do" — it can only infer capabilities from `user.roles`, which
-  today distinguishes nothing finer than `Admin` vs. everyone else.
+- No component issues a `permission` claim today. A client learns what it may do from the
+  `permissions` list on the login response and on `GET /api/v1/account/profile`, which Identity
+  derives from the caller's roles through the same `RolePermissionBundles` table the services
+  authorize against (added 2026-09-27, frontend-contracts F-07). Until then a client could only
+  infer capabilities from `user.roles`.
 
 **Risks:**
 - **Realized, not merely theoretical**: Ordering's and Payment's entire admin surface, and

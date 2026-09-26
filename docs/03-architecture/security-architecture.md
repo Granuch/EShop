@@ -78,9 +78,11 @@ Two layers apply independently and both must pass:
   of both services correctly answers 401/403 whether the gateway or the service is hit directly),
   but the redundant gateway-level check every other admin surface in this platform gets is absent
   here. Catalog's `GET /categories/{id}/stats` has the same single-endpoint gap.
-- **No permission-discovery endpoint.** No component exposes "what can I do," and access tokens
-  carry no `permission` claim — a client must derive what to show from `user.roles`, which today
-  only distinguishes `Admin` from everyone else.
+- **Permissions are reported, not carried.** Access tokens carry no `permission` claim. The login
+  response's `user.permissions` and `GET /api/v1/account/profile`'s `permissions` list what the
+  caller's roles grant, computed from the same `RolePermissionBundles` table the services
+  authorize against, so the UI and the services cannot disagree about the bundle. They report the
+  roles held *now*, which after a role change can differ from the roles in a token already issued.
 - **A role change and a role deletion are not retroactive on an already-issued token**, and a
   deleted role's claim can persist in a member's cached role list for up to 5 minutes after
   deletion.

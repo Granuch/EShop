@@ -91,7 +91,8 @@ section is a summary, not a duplicate.**
   deactivate/restore/lock/unlock, admin-initiated reset-password and confirm-email, disable-2FA,
   revoke-tokens, delete.
 - **Roles** (`/api/v1/roles/*`, gateway and service both `[Authorize(Roles="Admin")]`): CRUD plus
-  membership add/remove. Its list endpoints return a bare array with no total (no cap either).
+  membership add/remove. Its two list endpoints return a `PagedResult` (`pageNumber`/`pageSize`,
+  default 50, at most 100).
 - **Internal**: `GET /api/v1/users/{userId}/contact` is not routed through the gateway; it is
   called service-to-service with the `InternalService` API key.
 
@@ -111,8 +112,8 @@ Admin-reachable commands are recorded in this service's `audit_log` and served o
   [Admin Audit Trail](../03-architecture/audit-log.md) and
   [frontend/conventions.md](../01-overview/frontend/conventions.md#5-permissions-and-admin-access)
 - Additional internal API key checks for designated internal scenarios
-- No token carries a `permission` claim and there is no permission-discovery endpoint; a client
-  derives what it can do from `user.roles`
+- No token carries a `permission` claim. The login response and `GET /api/v1/account/profile`
+  list the caller's `permissions`, derived from their roles through `RolePermissionBundles`
 
 ---
 

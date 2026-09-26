@@ -13,7 +13,9 @@ the date rule in [§2](#dates-and-times) and Identity's binding 400 in [§3.3](#
 no-body list ([§3.2](#32-responses-with-no-body)), 429s ([§3.5](#35-recommended-client-handling),
 [§7](#7-rate-limits)) and CORS ([§8](#cors), [§11](#11-csv-downloads)) were re-verified at `5980146`, which fixed
 F-04, F-05 and F-20. Enums ([§2](#enums), [§10](#enum-filters), [§11](#11-csv-downloads)) were re-verified at
-`30e1221`, which fixed F-01.
+`30e1221`, which fixed F-01. Permissions ([§4](#claims-and-roles), [§5](#5-permissions-and-admin-access)), the role
+lists ([§6](#6-paging)) and Identity's dates ([§10](#dates-always-send-z)) were re-verified at `e2ec172`, which fixed F-07,
+F-12 and F-15.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -467,8 +469,9 @@ The JWT carries:
 
 It has no `iat`, `nbf` or `permission` claims.
 
-**Use `user.roles` from the login response**, not the decoded token. The role claim's type is the long URI above, and
-it is a string for one role but an array for several.
+**Use `user.permissions` and `user.roles` from the login response**, not the decoded token. The role claim's type is
+the long URI above, it is a string for one role but an array for several, and the token carries no permissions.
+`GET /api/v1/account/profile` returns the same two lists ([§5](#5-permissions-and-admin-access)).
 
 > **Token storage (recommendation for Next.js).**
 > - Keep the access token in memory only.
@@ -496,6 +499,12 @@ A request needs both. Each endpoint in the service files lists the two, for exam
 There are 15 permissions. A caller holds a permission through a role bundle. **Today the only bundle is `Admin`, and
 it holds all 15.** The default `User` role holds none.
 
+**What the caller holds** is in `user.permissions` on the login response and in `permissions` on
+`GET /api/v1/account/profile` ([identity.md](identity.md#post-apiv1authlogin)): each permission once, in the order of
+the table below, and `[]` for a customer. Identity computes it from the caller's roles with the same table the services
+authorize against, so show an admin screen exactly when it lists the permission that screen's endpoints need. The
+access token itself carries no `permission` claim.
+
 | Permission | Grants |
 |---|---|
 | `catalog.read` | Catalog data the public cannot see: drafts, soft-deleted products, stock reports |
@@ -513,6 +522,16 @@ it holds all 15.** The default `User` role holds none.
 | `baskets.read` | Read another user's basket |
 | `audit.read` | Read the admin audit trail |
 | `system.manage` | Health page, cache invalidation, feature flags, outbox replay, settings |
+
+```ts
+export type Permission =
+  | 'catalog.read' | 'catalog.write'
+  | 'orders.read' | 'orders.write'
+  | 'payments.read' | 'payments.write' | 'payments.refund'
+  | 'users.read' | 'users.manage' | 'roles.manage'
+  | 'notifications.read' | 'notifications.manage'
+  | 'baskets.read' | 'audit.read' | 'system.manage';
+```
 
 Not every admin endpoint uses a permission yet. Many still require the `Admin` **role** directly, including:
 - Catalog's product and category administration;
@@ -539,9 +558,6 @@ say which one each endpoint uses.
 | Audit log | the gateway itself | `audit.read` |
 | System (health, settings, flags) | the gateway itself | `system.manage` |
 
-> ⚠ **No permission discovery.** No endpoint returns the caller's permissions, and tokens carry no `permission` claim.
-> Show or hide admin UI from `user.roles`: `Admin` means every permission, and any other role means none. (F-07)
->
 > ⚠ The gateway requires the `Admin` **role** on `/api/v1/notifications`, `/api/v1/basket/admin`,
 > `/api/v1/admin/users`, `/api/v1/admin/catalog` and `/api/v1/admin/cache`. A future role granted only some
 > permissions would still be refused there by the gateway. (F-08)
@@ -556,12 +572,12 @@ and its limits.
 ### 6.1 `PagedResult<T>` (offset pages, the common case)
 
 Used by the product, category-product, low-stock and deleted-product lists, the order lists, the payment lists, the
-admin user list and the notification journal.
+admin user list, the two role lists and the notification journal.
 
 | Query parameter | Default | Limit |
 |---|---|---|
 | `pageNumber` | `1` | ≥ 1 |
-| `pageSize` | `10`; `20` for admin users and notifications | 1–100 |
+| `pageSize` | `10`; `20` for admin users and notifications; `50` for the role lists | 1–100 |
 
 A value out of range gets **400 `ValidationError`**, keyed by the parameter ([§3.3](#33-validation-errors)).
 
@@ -614,12 +630,9 @@ its end, so it **stays non-null while a service is unavailable**: stop paging at
 
 ### 6.6 Bare arrays
 
-A few endpoints return a plain JSON array with no paging envelope, for example `GET /api/v1/roles`. Each service file
-marks them.
-
-> ⚠ `GET /api/v1/roles` and `GET /api/v1/roles/{roleName}/users` take `page` and `pageSize` (default 50, **no
-> maximum**) but return a bare array with no total. The only way to find the last page is a page shorter than
-> `pageSize`. Note the parameter is `page` there, not `pageNumber`. (F-12)
+A few endpoints return a plain JSON array with no paging envelope, for example the category tree
+(`GET /api/v1/categories`) and a user's sessions (`GET /api/v1/admin/users/{id}/sessions`). None of them takes paging
+parameters. Each service file marks them.
 
 ```ts
 export interface PagedResult<T> {
@@ -765,15 +778,8 @@ Poll with a short back-off (for example 1 s, 2 s, 4 s, up to about 30 s) rather 
 ### Dates: always send `Z`
 
 Send dates as full ISO-8601 instants with `Z` or an offset: `2026-09-01T00:00:00Z` or `2026-09-01T00:00:00+03:00`.
-A bare date is handled differently per service:
-
-| Service | `?from=2026-09-01` (no zone) |
-|---|---|
-| Catalog, Ordering, Payment, Notification, gateway audit | Read as UTC → 200 |
-| **Identity** (`/admin/users` `createdFrom`/`createdTo`/`lastLoginFrom`/`lastLoginTo`, `/admin/users/stats` `from`/`to`) | **500 `InternalServerError`** |
-
-> ⚠ Always send `new Date(...).toISOString()`. Identity's admin date filters fail with 500 on a date without a zone.
-> (F-15)
+Every service reads a date without a zone (`?from=2026-09-01`) as UTC, so it means midnight UTC at the **start** of
+that day. `new Date(...).toISOString()` is the simplest way to say what you mean.
 
 ### Enum filters
 
@@ -850,4 +856,4 @@ Captured from the gateway:
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-25
+**Last Updated**: 2026-09-27

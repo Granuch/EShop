@@ -44,7 +44,7 @@ sequenceDiagram
         ID-->>U: 200 { accessToken, refreshToken, expiresIn, requires2FA:false, user }
     end
 
-    Note over U: Use accessToken for 60 min. Store user.roles —<br/>do not decode the JWT for authorization.
+    Note over U: Use accessToken for 60 min. Store user.permissions and user.roles —<br/>do not decode the JWT for authorization.
 
     loop Every ~55 min, or on a 401
         U->>GW: POST /api/v1/auth/refresh-token { refreshToken }
@@ -371,7 +371,9 @@ sequenceDiagram
   not two.
 - **A role change is not retroactive on an issued token.** `PUT /{id}/roles` changes what the *next* login's token
   contains; a session already open keeps its old `roles` claim for up to 60 minutes. Don't promise "permissions
-  applied immediately" in the UI copy.
+  applied immediately" in the UI copy. The user's `GET /account/profile` does show the new `roles` and `permissions` at
+  once, so a client that refreshes its menu from the profile can show a screen the old token cannot yet open (403)
+  until the user logs in again.
 - **Deleting a role does not evict members' cached role claim either** (F-33): for up to 5 minutes after
   `DELETE /roles/{id}`, a member's freshly issued token can still carry the deleted role name, even though the same
   response's `user.roles` (from `/auth/login`) already omits it.
@@ -399,4 +401,4 @@ sequenceDiagram
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-25
+**Last Updated**: 2026-09-27
