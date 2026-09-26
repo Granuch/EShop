@@ -29,10 +29,8 @@ Not routed through the gateway: Catalog's own `GET /api/v1/admin/audit` (see [ad
 - **`status` is an integer** (`0` Draft, `1` Active, `2` Discontinued), but the `status` and `sortBy` **query
   filters** take the exact-case name or the integer. `?status=active` is a 400 `MalformedRequest` whose `detail`
   wrongly blames the request body (F-01, F-25).
-- **Validation errors come in two shapes, by endpoint.** Reads and creates (anything that returns a body) use
-  shape (a), `Validation.Failed`, with every message in `detail`. Writes that answer 204 use shape (b),
-  `ValidationError`, with an `errors` map keyed by PascalCase property name
-  ([conventions.md §3.3](conventions.md#33-validation-errors-three-shapes)). Each error table names the shape.
+- **Validation errors use the one shape**: 400 `ValidationError`, with an `errors` map keyed by the camelCase field
+  name and every message in `detail` ([conventions.md §3.3](conventions.md#33-validation-errors)).
 - **A domain rule refusal is 400 `DomainError`**, with the rule in `detail` ("Discount price must be less than the
   product price."). Show `detail`; it is written for people.
 - **`Location` on a 201 is a relative path** (`/api/v1/products/{id}`), unlike Identity's. The body carries the same
@@ -120,7 +118,7 @@ A list item carries the main image's URL only. The gallery and the attributes ar
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1; `pageSize` outside 1–100; `searchTerm` shorter than 2 or longer than 200; `minPrice` < 0; `maxPrice` ≤ `minPrice`; any `cursor` value (see below). Several failures are joined in one `detail` |
+| 400 | `ValidationError` | `pageNumber` < 1; `pageSize` outside 1–100; `searchTerm` shorter than 2 or longer than 200; `minPrice` < 0; `maxPrice` ≤ `minPrice`; any `cursor` value (see below). Several failures are joined in one `detail` |
 | 400 | `MalformedRequest` | A value of the wrong type: `pageSize=abc`, `categoryId=nope`, `isDescending=maybe`, an unparseable date, or an enum name in the wrong case (`sortBy=price`, `status=draft`). `detail` says "The request body is not valid JSON…", although the problem is in the query (F-25) |
 | 429 | `Request.RateLimited` | `search` or global bucket spent |
 
@@ -165,7 +163,7 @@ There is no `sortBy`, `status` or other filter here: those parameters are ignore
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A cursor the server did not issue ("Cursor is not valid. Pass the nextCursor…"); `pageSize` outside 1–100; the `searchTerm` and price rules of `GET /products` |
+| 400 | `ValidationError` | A cursor the server did not issue ("Cursor is not valid. Pass the nextCursor…"); `pageSize` outside 1–100; the `searchTerm` and price rules of `GET /products` |
 | 400 | `MalformedRequest` | A value of the wrong type (F-25) |
 | 429 | `Request.RateLimited` | `search` or global bucket spent |
 
@@ -198,7 +196,7 @@ One product with its gallery and attributes. **200** [`ProductDetails`](#product
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The all-zero id `00000000-0000-0000-0000-000000000000` |
+| 400 | `ValidationError` | The all-zero id `00000000-0000-0000-0000-000000000000` |
 | 404 | `Product.NotFound` | Unknown id; a draft, for a caller without the `Admin` role; a deleted product, for everyone |
 | 404 | — (empty body) | The id is not a GUID (`/products/not-a-guid`): no route matches |
 
@@ -250,7 +248,7 @@ Cached for 5 minutes; a write to the category, its parent or a child evicts it.
 | Status | `errorCode` | When |
 |---|---|---|
 | 404 | `Category.NotFound` | Unknown id, or a deleted category (for admins too) |
-| 404 | `Validation.Failed` | The all-zero id. **404 with a validation code**, unlike the product read's 400 (F-40) |
+| 404 | `ValidationError` | The all-zero id. **404 with a validation code**, unlike the product read's 400 (F-40) |
 | 404 | — (empty body) | The id is not a GUID |
 
 #### `GET /api/v1/categories/{id}/products`
@@ -270,7 +268,7 @@ The products **directly** in one category, paged. **200**
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1, `pageSize` outside 1–100, or the all-zero category id |
+| 400 | `ValidationError` | `pageNumber` < 1, `pageSize` outside 1–100, or the all-zero category id |
 | 400 | `MalformedRequest` | `pageSize=abc` or another value of the wrong type (F-25) |
 | 404 | — (empty body) | The id is not a GUID. The problem+json 404 declared in the OpenAPI document never occurs (F-11) |
 
@@ -304,8 +302,7 @@ checks again when called directly: every admin endpoint in this section, `/categ
   `Product.NotFound` for it, except `PUT /products/{id}`, which answers 400 with the same code. Only
   [restore](#post-apiv1productsidrestore) reaches it.
 - **The all-zero id.** `{id:guid}` accepts `00000000-0000-0000-0000-000000000000`, and most writes reject it with
-  400: `Validation.Failed` on the writes that return a body (image add, attribute add, stock), `ValidationError` on
-  the 204 writes (key `ProductId`, `ImageId`, …). Product restore, category restore and attribute delete have no
+  400 `ValidationError` (key `productId`, `imageId`, …). Product restore, category restore and attribute delete have no
   validator, so there it is simply not found (404).
 - **A malformed id** (`/products/abc/publish`) gets a bare 404 with an empty body.
 - **Concurrent writes** to the same product or category can answer **409 `ConcurrencyConflict`**. Reload and retry.
@@ -348,7 +345,7 @@ substring, case-insensitive; **no length rule** here, so one character works).
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1 ("must be greater than 0"), `pageSize` outside 1–100 |
+| 400 | `ValidationError` | `pageNumber` < 1 ("must be greater than 0"), `pageSize` outside 1–100 |
 | 400 | `MalformedRequest` | A value of the wrong type |
 
 - **Not cached**: a restore disappears from the bin on the next read.
@@ -380,7 +377,7 @@ Creates a product as a **Draft**. Source: `CreateProductCommand`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A rule above fails. Per-item messages name the item: `Images[1].Url: Image URL must be an absolute HTTP/HTTPS URL` |
+| 400 | `ValidationError` | A rule above fails. Per-item keys name the item: `images[1].url` → "Image URL must be an absolute HTTP/HTTPS URL" |
 | 400 | `Product.SkuConflict` | A live product already has this SKU (exact case) |
 | 400 | `Category.NotFound` | Unknown or deleted `categoryId` |
 | 400 | `MalformedRequest` | An unknown property, or malformed JSON |
@@ -408,7 +405,7 @@ Edits a product. Source: `UpdateProductCommand`.
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `Validation.IdMismatch` | `productId` missing or different from `{id}` |
-| 400 | `ValidationError` | Shape (b): a rule above. Keys `Price`, `StockQuantity`, `Name`, `Sku`, `Description`, `CategoryId` |
+| 400 | `ValidationError` | A rule above. Keys `price`, `stockQuantity`, `name`, `sku`, `description`, `categoryId` |
 | 400 | `Product.NotFound` | Unknown or deleted product. **400, not 404**, on this endpoint only |
 | 400 | `Product.SkuConflict` | Another live product has the SKU |
 | 400 | `Category.NotFound` | Unknown or deleted `categoryId` |
@@ -435,7 +432,7 @@ Soft-deletes a product. **204.**
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | The all-zero id (key `ProductId`) |
+| 400 | `ValidationError` | The all-zero id (key `productId`) |
 | 404 | `Product.NotFound` | Unknown or already deleted |
 
 #### `POST /api/v1/products/{id}/restore`
@@ -469,7 +466,7 @@ ignored; the route decides.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | Neither or both of `delta`/`absolute` (`detail` starts with `": "`, F-03); `delta` is 0; `absolute` < 0; `reason` over 500 characters |
+| 400 | `ValidationError` | Neither or both of `delta`/`absolute` (key `$`, a rule about the whole request); `delta` is 0; `absolute` < 0; `reason` over 500 characters |
 | 400 | `DomainError` | The result would be negative ("Stock cannot go negative: 12 adjusted by -100.") or exceed 2 147 483 647 |
 | 404 | `Product.NotFound` | Unknown or deleted product |
 
@@ -495,7 +492,7 @@ required, > 0 and **strictly below** `price`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | `discountPrice` ≤ 0 or omitted (key `DiscountPrice`) |
+| 400 | `ValidationError` | `discountPrice` ≤ 0 or omitted (key `discountPrice`) |
 | 400 | `DomainError` | `discountPrice` ≥ `price`: "Discount price must be less than the product price." |
 | 400 | `MalformedRequest` | `{"discountPrice": null}`: use `DELETE` to remove a discount |
 | 404 | `Product.NotFound` | Unknown or deleted |
@@ -534,7 +531,7 @@ points at the product, `/api/v1/products/{id}`, not at the image.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A rule above |
+| 400 | `ValidationError` | A rule above |
 | 400 | `DomainError` | The product already has 10 images, or already has this URL ("Product image URL already exists for this product.") |
 | 404 | `Product.NotFound` | Unknown or deleted product |
 
@@ -591,7 +588,7 @@ Adds one attribute. **Body** ([`AttributeInput`](#attributeinput)): `{"name":"Ma
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `name` or `value` missing or too long |
+| 400 | `ValidationError` | `name` or `value` missing or too long |
 | 400 | `DomainError` | The name exists already, in any case ("Attribute 'colour' already exists for this product."), or the product has 50 attributes |
 | 409 | `Product.AttributeConflict` | Another request added the same name at the same moment. Reload and retry. From source, not observed: ten parallel adds gave one 201 and nine 400 `DomainError`. Not declared in the OpenAPI document |
 
@@ -608,7 +605,7 @@ Replaces the whole set. **Body** ([`ReplaceAttributesRequest`](#replaceattribute
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | `attributes` missing or `null`, more than 50, duplicate names (ignoring case), or an item rule. Item keys look like `Attributes[0].Value` |
+| 400 | `ValidationError` | `attributes` missing or `null`, more than 50, duplicate names (ignoring case), or an item rule. Item keys look like `attributes[0].value` |
 | 409 | `Product.AttributeConflict` | A concurrent write to the same product's attributes. From source, not observed |
 
 #### `PUT /api/v1/products/{id}/attributes/{attributeId}`
@@ -658,7 +655,7 @@ turned into hyphens: `"fe-contracts S3 Root"` → `fe-contracts-s3-root`. A name
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A rule above |
+| 400 | `ValidationError` | A rule above |
 | 400 | `Category.ParentNotFound` | Unknown or deleted `parentCategoryId` |
 | 400 | `Category.SlugConflict` | A live sibling has this slug, whether sent or generated |
 | 409 | `Category.SlugConflict` | Slug race with another create. From source, not observed |
@@ -679,7 +676,7 @@ The slug and the parent cannot be changed here; a `slug` property is rejected as
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `Validation.IdMismatch` | `id` missing or different from `{id}` |
-| 400 | `ValidationError` | Shape (b), keys `Name`, `Description`, `DisplayOrder` |
+| 400 | `ValidationError` | Keys `name`, `description`, `displayOrder` |
 | 400 | `Category.NotFound` | Unknown or deleted. **400, not 404** |
 | 400 | `MalformedRequest` | An unknown property such as `slug` |
 
@@ -691,7 +688,7 @@ is (F-43).
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | The all-zero id (key `Id`) |
+| 400 | `ValidationError` | The all-zero id (key `id`) |
 | **404** | `Category.HasChildren` | It still has live child categories |
 | **404** | `Category.HasProducts` | It still has live products. Move or delete them first |
 | 404 | `Category.NotFound` | Unknown or already deleted |
@@ -709,7 +706,7 @@ or `{"newParentCategoryId":null}` to make it a root. **204.** Moving to the curr
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | The new parent is the category itself. Note the `errors` key is the **empty string**: `{"":["A category cannot be its own parent"]}` |
+| 400 | `ValidationError` | The new parent is the category itself. It is a rule about the whole request, so its key is `$`: `{"$":["A category cannot be its own parent"]}` |
 | 400 | `DomainError` | The new parent is one of its own descendants: "Cannot move a category beneath one of its own descendants." |
 | 400 | `Category.ParentNotFound` | Unknown, deleted or all-zero `newParentCategoryId` |
 | 400 | `MalformedRequest` | No body at all, or an unknown property |
@@ -766,7 +763,7 @@ all of them; the 11th is a 429 `Request.RateLimited` with `Retry-After`. Observe
 **Two size caps, both refused whole, never truncated:**
 
 - The five bulk actions and the import take at most **1 000 ids or rows** per request
-  (`ProductIds`/`Items`/`Products`). One over the cap is a 400 `Validation.Failed`; nothing is truncated to fit.
+  (`ProductIds`/`Items`/`Products`). One over the cap is a 400 `ValidationError`; nothing is truncated to fit.
 - The export answers at most **10 000 rows**. If more products match the filter, the request is refused with 400
   `Products.ExportTooLarge`, and `detail` gives the actual count. From source, not observed: creating ten thousand
   products was out of scope for this stage.
@@ -833,7 +830,7 @@ same rule (`bulk/price`, a price at or below the product's own active discount):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The id (or item) list is missing, empty, over 1 000 entries, contains the all-zero id, or repeats an id. `bulk/category`: `categoryId` missing. `bulk/price`: an item's `price` is not > 0 |
+| 400 | `ValidationError` | The id (or item) list is missing, empty, over 1 000 entries, contains the all-zero id, or repeats an id. `bulk/category`: `categoryId` missing. `bulk/price`: an item's `price` is not > 0 |
 | 400 | `Category.NotFound` | `bulk/category` only: the whole request, for an unknown or deleted target category |
 
 - **A repeated id is refused, not de-duplicated**, on every action — a client bug is not silently corrected, and for
@@ -891,14 +888,14 @@ Two rows sharing a SKU (both refused, "rows 0, 1" listed in each):
 
 | Status | `errorCode` (per row) | When |
 |---|---|---|
-| — | `Validation.Failed` | A row fails `POST /products`'s own validator (e.g. a blank `name`; observed: `"Product name is required"`) |
+| — | `ValidationError` | A row fails `POST /products`'s own validator (e.g. a blank `name`; observed: `"Product name is required"`) |
 | — | `Product.SkuConflict` | The SKU appears on more than one row of this import, or a **live** product already holds it |
 | — | `Category.NotFound` | Unknown or deleted `categoryId` |
 | — | `DomainError` | The factory's own rules refuse it (from source, not observed for a create) |
 
 | Status | `errorCode` (whole request) | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `products` missing, empty, or over 1 000 rows |
+| 400 | `ValidationError` | `products` missing, empty, or over 1 000 rows |
 | 409 | `Product.SkuConflict` | A SKU taken by a concurrent create between the check and the save. The whole import rolls back. From source, not observed |
 
 - **Caches.** No detail key to evict (the products are new); the `products:list` family is bumped once for the whole
@@ -949,7 +946,7 @@ Id,Sku,Name,Description,CategoryId,Status,Price,DiscountPrice,StockQuantity,Main
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The list's own filter rules (`searchTerm` length, `minPrice`/`maxPrice`) |
+| 400 | `ValidationError` | The list's own filter rules (`searchTerm` length, `minPrice`/`maxPrice`) |
 | 400 | `MalformedRequest` | A malformed query value (F-25) |
 | 400 | `Products.ExportTooLarge` | More than 10 000 products match. `detail` gives the actual count and says to narrow the filters. From source, not observed |
 
@@ -977,7 +974,7 @@ product that is out of stock is exactly what needs seeing before it is published
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `threshold` ≤ 0, `pageNumber` < 1, `pageSize` outside 1–100 |
+| 400 | `ValidationError` | `threshold` ≤ 0, `pageNumber` < 1, `pageSize` outside 1–100 |
 | 400 | `MalformedRequest` | A value of the wrong type |
 
 - **Not cached**, like the recycle bin: one admin screen, and stale stock is worse than an extra query.
@@ -1028,7 +1025,7 @@ entry nothing reads.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `family` is present and not one of the two known names (any case difference included) |
+| 400 | `ValidationError` | `family` is present and not one of the two known names (any case difference included) |
 | 503 | `Cache.Unavailable` | Redis refused a bump. `detail` names which families succeeded before the failure and which one failed. From source, not observed |
 
 - **This is the one command in this file that answers success or failure honestly for the bump itself.** Every
@@ -1289,7 +1286,7 @@ Source: `ProductImportRowResult`.
 | `sku` | string | yes | The row's SKU, even when it failed |
 | `productId` | string (GUID) | yes | `null` for a refused row |
 | `succeeded` | boolean | no | |
-| `errorCode` | string | yes | `Validation.Failed`, `Product.SkuConflict`, `Category.NotFound` or `DomainError` |
+| `errorCode` | string | yes | `ValidationError`, `Product.SkuConflict`, `Category.NotFound` or `DomainError` |
 | `error` | string | yes | |
 
 #### LowStockQuery
@@ -1604,7 +1601,7 @@ export interface ProductImportRowResult {
   /** null for a refused row. */
   productId: string | null;
   succeeded: boolean;
-  /** Validation.Failed, Product.SkuConflict, Category.NotFound or DomainError. */
+  /** ValidationError, Product.SkuConflict, Category.NotFound or DomainError. */
   errorCode: string | null;
   error: string | null;
 }

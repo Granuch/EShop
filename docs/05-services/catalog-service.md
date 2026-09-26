@@ -181,7 +181,7 @@ How they behave:
   request, and at most **10 000** exported rows. Over a cap the request is refused whole with 400 — never truncated.
 - **A 200 always carries the per-row report**, even when every row was refused. Each entry names its product (or import
   row index), whether it succeeded, and if not an error code — `Product.NotFound`, `DomainError` (the product's own rule
-  refused it, e.g. a price at or below an active discount), and for import `Validation.Failed`, `Product.SkuConflict` or
+  refused it, e.g. a price at or below an active discount), and for import `ValidationError`, `Product.SkuConflict` or
   `Category.NotFound`. A non-2xx means nothing was changed.
 - **One transaction per request.** Every refusal is decided before the single save, so every row reported as succeeded is
   committed and no refused row changed anything. A database failure — a SKU taken by a concurrent create between the import's

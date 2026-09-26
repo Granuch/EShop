@@ -33,9 +33,8 @@ is not part of the merged audit trail ([admin-platform.md](admin-platform.md)).
   gave verbatim) is treated as someone else's basket: 403, not 200.
 - **An admin may only read another user's basket** (`GET`/`HEAD`), never write it — not even to clear it. Every
   write path checks the caller against the route `{userId}`, regardless of role.
-- **Every command validates through the generic `Result<T>`, so every validation failure is shape (a),
-  `Validation.Failed`** ([conventions.md §3.3](conventions.md#33-validation-errors-three-shapes)) — Basket has no
-  shape (b) endpoints at all, unlike Catalog and Identity.
+- **Every validation failure is 400 `ValidationError`**, with an `errors` map keyed by camelCase field name
+  ([conventions.md §3.3](conventions.md#33-validation-errors)), as in every other service.
 - **No caching.** There is no `Cache-Control` guidance to give: every read is live against Redis, and every write is
   visible on the very next read.
 - **Basket's own outbox is a Redis list, not the EF outbox the other services use.** Checkout enqueues to it inside
@@ -108,7 +107,7 @@ its `discountPrice`:
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | Never observed in practice: `userId` comes from the route and cannot be empty |
+| 400 | `ValidationError` | Never observed in practice: `userId` comes from the route and cannot be empty |
 | 503 | `Basket.OperationFailed` | Redis is unreachable (from source; not forced live) |
 
 - **`totalItems` is a JSON number that can exceed 2^53 only in theory** — it is serialized from a .NET `long`, kept
@@ -136,7 +135,7 @@ be client-settable and the OpenAPI document still lists them — send them and t
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `quantity` ≤ 0 or > 999 (`"Quantity: Quantity must be greater than zero"` / `"...cannot exceed 999"`); malformed JSON gives `MalformedRequest` instead ([conventions.md §2](conventions.md#unknown-and-malformed-request-bodies)) |
+| 400 | `ValidationError` | `quantity` ≤ 0 or > 999 (key `quantity`: "Quantity must be greater than zero" / "...cannot exceed 999"); malformed JSON gives `MalformedRequest` instead ([conventions.md §2](conventions.md#unknown-and-malformed-request-bodies)) |
 | 400 | `Basket.ValidationFailed` | A domain rule the validator cannot see: the **merged** quantity would exceed 999 (validator only checks this request's own number), or the basket would exceed 100 distinct products. From source, not observed live |
 | 404 | `Basket.ProductNotFound` | `productId` does not exist, or is not **Active** in the public catalog (draft, discontinued, deleted all read as "not found" here) |
 | 409 | `Basket.InsufficientStock` | The merged quantity exceeds Catalog's current stock. Checked again, authoritatively, at [checkout](#post-apiv1basketuseridcheckout) |
@@ -166,7 +165,7 @@ Set a line to an exact quantity. Source: `UpdateBasketItemQuantityCommand`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `quantity` < 0 or > 999 (`"...must be greater than or equal to zero"` / `"...cannot exceed 999"`) |
+| 400 | `ValidationError` | `quantity` < 0 or > 999 ("...must be greater than or equal to zero" / "...cannot exceed 999") |
 | 404 | `Basket.NotFound` | The caller has no stored basket at all |
 | 404 | `Basket.ItemNotFound` | The basket exists but does not hold `productId` |
 | 409 | `Basket.ConcurrentUpdate` | Five internal retries all lost a write race (from source; the basket kept changing under concurrent requests) |
@@ -224,7 +223,7 @@ There is no `paymentMethod` — Payment chooses it when the payment intent is cr
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `shippingAddress` missing or `null` (`"ShippingAddress: Shipping address is required"`); any address field fails its pattern — every failing field's message is joined in one `detail` with `"; "` |
+| 400 | `ValidationError` | `shippingAddress` missing or `null` (key `shippingAddress`: "Shipping address is required"); any address field fails its pattern — each failing field has its own key (`shippingAddress.street`, `shippingAddress.zipCode`, …), and `detail` joins every message with "; " |
 | 400 | `Basket.Empty` | No stored basket, or a stored basket with no items, and no completed-checkout marker to repeat |
 | 409 | `Basket.CheckoutRevalidationFailed` | One or more lines no longer match the catalog (see `lines`, below) |
 | 409 | `Basket.CheckoutInProgress` | A checkout for this user is already running (3-minute internal lock) |
@@ -292,7 +291,7 @@ stored basket:
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageSize` outside 1–100 (`"PageSize: pageSize must be between 1 and 100."`); `cursor` is not a value this API issued (`"Cursor: cursor must be a nextCursor value this API returned."`) |
+| 400 | `ValidationError` | `pageSize` outside 1–100 (key `pageSize`: "pageSize must be between 1 and 100."); `cursor` is not a value this API issued (key `cursor`: "cursor must be a nextCursor value this API returned.") |
 | 503 | `Basket.OperationFailed` | Redis is unreachable (from source; not forced live) |
 
 - **A page can be short, or even empty, while `nextCursor` is still set.** Each request scans a bounded number of
@@ -324,7 +323,7 @@ old enough yet:
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageSize`/`cursor` as above; `olderThan` is not the required form, or exceeds 30 days (`"OlderThan: olderThan must be a whole number of minutes, hours or days (90m, 24h, 3d), at most 30 days."`) |
+| 400 | `ValidationError` | `pageSize`/`cursor` as above; `olderThan` is not the required form, or exceeds 30 days (key `olderThan`: "olderThan must be a whole number of minutes, hours or days (90m, 24h, 3d), at most 30 days.") |
 | 503 | `Basket.OperationFailed` | Redis is unreachable (from source; not forced live) |
 
 - "Changed" is the basket's own last-modified time — a re-price from a Catalog price-change event counts as a
@@ -355,7 +354,7 @@ dead-lettered:
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `offset` < 0 (`"Offset: 'Offset' must be greater than or equal to '0'."`); `limit` outside 1–100 |
+| 400 | `ValidationError` | `offset` < 0 (key `offset`: "'Offset' must be greater than or equal to '0'."); `limit` outside 1–100 |
 | 503 | `Basket.OperationFailed` | Redis is unreachable (from source; not forced live) |
 
 - This is a Redis **list** read (`LRANGE`), offset-paged rather than cursor-paged: a replay or a new dead letter

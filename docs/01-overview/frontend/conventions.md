@@ -4,7 +4,7 @@ The rules in this file apply to every service. The per-service files ([README](R
 an endpoint departs from them.
 
 **Verified at:** `105d647` (`feature/admin-panel`, 2026-09-23); [§7](#7-rate-limits) was re-verified at `0e1bc06`, and
-the date rule in [§2](#dates-and-times) and shape (c) in [§3.3](#33-validation-errors-three-shapes) were corrected at
+the date rule in [§2](#dates-and-times) and Identity's binding 400 in [§3.3](#33-validation-errors) were corrected at
 `1fcb630`; the login-throttle sentence in §7 was updated at `bb8c148`; Ordering's row in
 [§10](#enum-filters) was corrected at `530fe5d`; Payment's malformed-query note in §2 and the delays in
 [§9](#9-consistency-and-caching) were updated at `0b7f826`; [§3.2](#32-responses-with-no-body) (the 504 row),
@@ -111,7 +111,7 @@ The services disagree about unknown properties, so the client must never send ex
 |---|---|---|
 | Catalog | **400** `MalformedRequest`, `detail` names the JSON path (`'$.bogusField'`) | 400 `MalformedRequest` |
 | Ordering, Notification, Basket, Payment | ignored | 400 `MalformedRequest` |
-| Identity | ignored | 400 `ValidationError`, the MVC shape ([§3.3](#33-validation-errors-three-shapes)) |
+| Identity | ignored | 400 `ValidationError`, keyed `$` ([§3.3](#33-validation-errors)) |
 
 A query value of the wrong type (`?pageSize=abc`, `?from=yesterday`) is also 400 `MalformedRequest` everywhere except
 Identity, including the gateway's own endpoints. So is a missing body where one is required.
@@ -197,10 +197,10 @@ Identity adds `; charset=utf-8`). Captured from `GET /api/v1/products/00000000-0
 | `type` | string | not on Identity's command failures | A link to the HTTP status in RFC 9110. Carries no application meaning |
 | `title` | string | not on Identity's command failures | The status reason phrase |
 | `status` | number | always | Same as the HTTP status |
-| `detail` | string | almost always (not on Identity's MVC 400) | A human-readable reason in English. Safe to show, but do not parse it |
+| `detail` | string | almost always | A human-readable reason in English. Safe to show, but do not parse it |
 | `errorCode` | string | always (in every problem body captured) | **The machine-readable discriminator. Branch on this** |
 | `traceId` | string | always | An opaque id for support. Its format differs between Identity and the other services |
-| `errors` | `Record<string, string[]>` | validation shapes only | Per-field messages; see [§3.3](#33-validation-errors-three-shapes) |
+| `errors` | `Record<string, string[]>` | `ValidationError` only | Per-field messages, keyed by camelCase field name; see [§3.3](#33-validation-errors) |
 | other members | any | per endpoint | A few endpoints add their own member, such as Basket's checkout `lines`. Each is documented with its endpoint |
 
 Identity's controller failures (login, refresh, account, roles, admin users) omit `type` and `title`, and use a
@@ -224,51 +224,83 @@ These responses carry **no body at all**. Handle them from the status code alone
 | 502 | Payment is unreachable; the gateway does not rewrite Payment's 502 (F-13) |
 | 504 | The service did not answer within the gateway's 10 s (every service except Payment, whose route keeps YARP's default of 100 s). Observed on Notification's resend and retry-failed; see [notification.md](notification.md#frontend-notes) (F-56) |
 
-### 3.3 Validation errors: three shapes
+### 3.3 Validation errors
 
-A request that fails validation answers **400** in one of three shapes. Which one depends on the endpoint's internals,
-not on anything the client controls. Each endpoint's error table names the shape it returns.
+A request that fails validation answers **400** with `errorCode` **`ValidationError`**, in one shape everywhere:
 
-**(a) `Validation.Failed`: messages joined into `detail`, no `errors` map.** Used by queries and by commands that return
-a value. Captured from `GET /api/v1/products?pageSize=101`:
+- **`errors`** maps each field to its messages. A key is the field's **camelCase wire name**, the same name the client
+  sent (`pageSize`, `name`, `zipCode`; a nested or indexed field reads `items[0].quantity`). A rule about the request as
+  a whole rather than one field is keyed **`$`** — the audit page's "`from` must be earlier than `to`", Identity's
+  user date filters and Catalog's stock rule ("supply either `delta` or `absolute`") are. Ordering's, Payment's and
+  Notification's date filters report their "`to` before `from`" check under **`to`** instead.
+- **`detail`** lists every message once, joined by `"; "`, for a form-level summary.
 
-```json
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"Bad Request","status":400,
- "detail":"PageSize: Page size must not exceed 100","errorCode":"Validation.Failed",
- "traceId":"00-ef2bf4052b2bc3fc97c258e41806a154-ec6481461756b26e-00"}
-```
-
-`detail` is `"<Property>: <message>"` pairs joined by `"; "`. The property names are **PascalCase**.
-
-**(b) `ValidationError`: an `errors` map with PascalCase keys.** Used by commands that return no value. Captured from
-`PUT /api/v1/categories/{id}` with an empty name:
+Captured from `GET /api/v1/products?pageSize=101`:
 
 ```json
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"Bad Request","status":400,
- "detail":"One or more validation errors occurred.","errorCode":"ValidationError",
- "traceId":"00-5f3491738f7c466e8b427d22d9cdf87f-e4f052773a5defc6-00","errors":{"Name":["Category name is required"]}}
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Page size must not exceed 100",
+  "errorCode": "ValidationError",
+  "traceId": "00-5551e5aca603ac2c5c57c98637abe627-8066439ad26fa657-00",
+  "errors": {
+    "pageSize": [
+      "Page size must not exceed 100"
+    ]
+  }
+}
 ```
 
-**(c) Identity's MVC automatic 400.** Returned when an Identity request cannot be bound:
-- the body is not JSON;
-- a required string is `null`;
-- a query value has the wrong type (`isActive=yes`, `sortBy=Bogus`).
-
-`title` carries the message and there is no `detail`. The `errors` keys are binding paths (`$`, `request`, `command`) or
-PascalCase property names (`Email`, `SortBy`). Captured from `POST /api/v1/account/change-password` with the body `{`:
+Captured from `PUT /api/v1/categories/{id}` with an empty name:
 
 ```json
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.",
- "status":400,"errors":{"$":["Expected depth to be zero at the end of the JSON payload. …"],
- "request":["The request field is required."]},"traceId":"00-72dcecbce061707ec65ce78f5746e5bd-3b5d1e2f385d692c-00",
- "errorCode":"ValidationError"}
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Category name is required",
+  "errorCode": "ValidationError",
+  "traceId": "00-6ff336f5af398b6bd601611b088f05aa-d4c4cc19c00d5cae-00",
+  "errors": {
+    "name": [
+      "Category name is required"
+    ]
+  }
+}
 ```
 
-To map field errors onto a form, lower-case the first letter of each key in shape (b) (`Name` → `name`). For shape (a),
-show `detail` as a form-level message.
+Identity answers the same shape when a request cannot be bound at all: a body that is not JSON (keyed `$`, the JSON
+root), a `null` for a required string, or a query value of the wrong type (`isActive=yes`, `sortBy=Bogus`). Its keys
+can also name the bound parameter itself (`request`, `command`) alongside the field. Captured from
+`POST /api/v1/account/change-password` with the body `{`:
 
-> ⚠ The same kind of mistake produces different shapes on different endpoints, and the property names inside them are
-> PascalCase while the JSON is camelCase. (F-03)
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. Path: $ | LineNumber: 0 | BytePositionInLine: 1.; The request field is required.",
+  "traceId": "00-e20000cf76c17841f3b57a27f530cb38-355461c0648e9c6f-00",
+  "errorCode": "ValidationError",
+  "errors": {
+    "$": [
+      "Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. Path: $ | LineNumber: 0 | BytePositionInLine: 1."
+    ],
+    "request": [
+      "The request field is required."
+    ]
+  }
+}
+```
+
+To show errors on a form, match each key to the field's name; show `detail` (or any key that matches no field, such
+as `$`) as a form-level message.
+
+A few endpoints also send their own validation-like codes with no `errors` map, for a check made outside the
+validator: `Validation.IdMismatch` (a body id that differs from the route's) and `Validation.IncompleteReorder`. Each is
+documented with its endpoint.
 
 ### 3.4 `errorCode` values
 
@@ -276,8 +308,7 @@ show `detail` as a form-level message.
 
 | `errorCode` | Status | Meaning |
 |---|---|---|
-| `Validation.Failed` | 400 | Validation shape (a) |
-| `ValidationError` | 400 | Validation shapes (b) and (c) |
+| `ValidationError` | 400 | Every validation failure, with an `errors` map ([§3.3](#33-validation-errors)) |
 | `MalformedRequest` | 400 | The body is missing or not valid JSON, or has an unknown property (Catalog only). **Also** returned for a **query** value of the wrong type, such as `?status=active` or `?pageSize=abc`, by every component except Identity, with a `detail` that wrongly blames the request body (F-25) |
 | `DomainError` | 400 | A business rule rejected the request; `detail` says which rule |
 | `NotFound` | 404 | Generic not-found; most services use their own `*.NotFound` code instead |
@@ -321,7 +352,7 @@ from `POST /api/v1/categories`:
 3. **403**: show "not allowed". Never retry.
 4. **Empty body**: branch on the status alone ([§3.2](#32-responses-with-no-body)).
 5. **problem+json**: branch on `errorCode`:
-   - `Validation.Failed` / `ValidationError`: show the field or form errors;
+   - `ValidationError`: show `errors` on the matching fields, and `detail` at form level;
    - `*.NotFound`: show a not-found state;
    - 409 codes: reload, then offer a retry;
    - `Gateway.UpstreamUnavailable`: retry after 5 s with back-off;
@@ -331,8 +362,8 @@ from `POST /api/v1/categories`:
 
 ```ts
 /**
- * RFC 7807 body as the services send it. `type`/`title` are missing on Identity's controller failures, `detail` on
- * Identity's MVC 400. Endpoints that add members document an interface that extends this one.
+ * RFC 7807 body as the services send it. `type`/`title` are missing on Identity's controller failures, and on a 429
+ * `type` is missing everywhere. Endpoints that add members document an interface that extends this one.
  */
 export interface ProblemDetails {
   type?: string;
@@ -341,7 +372,7 @@ export interface ProblemDetails {
   detail?: string;
   errorCode: string;
   traceId: string;
-  /** Validation shapes (b) and (c). Keys are PascalCase property names, or binding paths such as "$". */
+  /** `ValidationError` only. Keys are camelCase field names; "$" is a rule about the whole request. */
   errors?: Record<string, string[]>;
 }
 
@@ -527,7 +558,7 @@ admin user list and the notification journal.
 | `pageNumber` | `1` | ≥ 1 |
 | `pageSize` | `10`; `20` for admin users and notifications | 1–100 |
 
-A value out of range gets **400 `Validation.Failed`** (shape (a)).
+A value out of range gets **400 `ValidationError`**, keyed by the parameter ([§3.3](#33-validation-errors)).
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -746,8 +777,8 @@ Enum query filters accept different forms per service:
 | Service | Accepts | Rejects |
 |---|---|---|
 | Catalog (`status`) | exact-case name (`Active`) or number (`1`) | `active` → 400 `MalformedRequest` (F-25) |
-| Ordering (`status`, and the repeatable `statuses`) | name in any case (`Cancelled`, `cancelled`) | a number → 400 `Validation.Failed` |
-| Payment, Notification (`status`) | name in any case (`PENDING`, `Pending`); the parameter may repeat | a number → 400 `Validation.Failed` |
+| Ordering (`status`, and the repeatable `statuses`) | name in any case (`Cancelled`, `cancelled`) | a number → 400 `ValidationError` |
+| Payment, Notification (`status`) | name in any case (`PENDING`, `Pending`); the parameter may repeat | a number → 400 `ValidationError` |
 
 Send the **exact PascalCase name** everywhere, since every service accepts it. Note that this means sending `Active`
 to Catalog, which sends the same status back as `1`.

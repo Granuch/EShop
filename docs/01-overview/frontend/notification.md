@@ -174,7 +174,7 @@ live (`?status=Undeliverable`):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1 (`"PageNumber: Page number must be at least 1."`); `pageSize` outside 1–100 (`"PageSize: Page size must not exceed 100."`); a `status` that is not a name (`"Status[0]: Status must each be one of: Pending, Sent, Failed, Sending, Undeliverable"`, also for `status=1`); a filter over its length (`"EventType: EventType must not exceed 200 characters."`); `to` before `from` (`"To: To must not be earlier than From"`) |
+| 400 | `ValidationError` | `pageNumber` < 1 (key `pageNumber`: "Page number must be at least 1."); `pageSize` outside 1–100 (key `pageSize`: "Page size must not exceed 100."); a `status` that is not a name (key `status[0]`: "Status must each be one of: Pending, Sent, Failed, Sending, Undeliverable", also for `status=1`); a filter over its length (key `eventType`: "EventType must not exceed 200 characters."); `to` before `from` (key `to`: "To must not be earlier than From") |
 | 400 | `MalformedRequest` | A value of the wrong type (`pageSize=abc`, `hasError=maybe`, `from=yesterday`). `detail` says "The request body is not valid JSON…" although there is no body (F-25) |
 | 401 / 403 | — | Anonymous / not an admin (both from the gateway) |
 
@@ -204,7 +204,7 @@ Dashboard counts over the same filters, without paging. Source: `GetNotification
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | As for the journal (`status`, lengths, `to` before `from`) |
+| 400 | `ValidationError` | As for the journal (`status`, lengths, `to` before `from`) |
 | 400 | `MalformedRequest` | A value of the wrong type (`to=soon`) (F-25) |
 | 401 / 403 | — | Anonymous / not an admin (gateway) |
 
@@ -286,7 +286,7 @@ The email arrived in Mailpit with that Message-ID and the subject
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `email` missing, `null`, blank, or no body at all (`"Email: Email is required."`); not an address (`"Email: Email is not a valid address."`); over 320 characters; `name` over 100 characters |
+| 400 | `ValidationError` | `email` missing, `null`, blank, or no body at all (key `email`: "Email is required."); not an address (key `email`: "Email is not a valid address."); over 320 characters; `name` over 100 characters |
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous / not an admin (gateway) |
 | 404 | `Notification.TemplateNotFound` | `"There is no template named 'no-such-template'."` |
@@ -332,7 +332,7 @@ event was not kept (password resets) are skipped and not counted in `matching`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `limit` outside 1–100 (`"Limit: Limit must be between 1 and 100."`); a field over its length; `to` before `from` |
+| 400 | `ValidationError` | `limit` outside 1–100 (key `limit`: "Limit must be between 1 and 100."); a field over its length; `to` before `from` |
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous / not an admin (gateway) |
 | 503 | `Notification.BusUnavailable` | This Notification host runs no message bus (test hosts only; from source) |
@@ -407,7 +407,7 @@ surrounding spaces):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `reason` missing, `null`, blank, or no body at all (`"Reason: A reason is required."`); over 500 characters (`"Reason: Reason must not exceed 500 characters."`) |
+| 400 | `ValidationError` | `reason` missing, `null`, blank, or no body at all (key `reason`: "A reason is required."); over 500 characters (key `reason`: "Reason must not exceed 500 characters.") |
 | 400 | `MalformedRequest` | The body is not valid JSON (from source) |
 | 401 / 403 | — | Anonymous / not an admin (gateway) |
 | 404 | `Notification.NotFound` | No such notification |

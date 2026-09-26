@@ -85,10 +85,10 @@ Transaction → Validation → Logging → Caching → handler):
   still commits that write, which is a standing trap for anything implementing
   `ITransactionalCommand`.
 - **`ValidationBehavior`**: FluentValidation. For the generic `Result<T>` response type, a
-  validation failure becomes a `Result` with `errorCode` `Validation.Failed`; for the non-generic
-  `Result`, it throws a `ValidationException` instead, which the shared exception middleware maps
-  to 400 `ValidationError` — two different `errorCode`s for the same underlying failure, decided
-  entirely by which `Result` shape the handler declares.
+  validation failure becomes a `Result` carrying a `FieldValidationError`; for the non-generic
+  `Result`, it throws a `ValidationException` instead, which the shared exception middleware maps.
+  Both paths answer the same 400 `ValidationError` with an `errors` map keyed by camelCase field
+  name, so the handler's `Result` shape no longer shows on the wire.
 - **`LoggingBehavior`**: logs the request at Information, redacting members flagged
   `[SensitiveData]` or matching a hardcoded property-name list (`Password`, `Token`, `Code`, …).
 - **`CachingBehavior`**: read-side caching for `ICacheableQuery` handlers.

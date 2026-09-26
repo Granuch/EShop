@@ -75,7 +75,7 @@ Errors use the shared problem-details envelope with an `errorCode`:
 
 | Status | Codes |
 |--------|-------|
-| 400 | `Validation.Failed`, `Basket.ValidationFailed`, `Basket.Empty` |
+| 400 | `ValidationError`, `Basket.ValidationFailed`, `Basket.Empty` |
 | 404 | `Basket.NotFound`, `Basket.ItemNotFound`, `Basket.ProductNotFound` |
 | 409 | `Basket.ConcurrentUpdate`, `Basket.CheckoutConflict`, `Basket.CheckoutInProgress`, `Basket.InsufficientStock`, `Basket.CheckoutRevalidationFailed` |
 | 503 | `Basket.OperationFailed`, `Basket.PersistenceFailed`, `Basket.ProductVerificationFailed` (Redis or Catalog unavailable) |

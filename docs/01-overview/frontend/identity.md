@@ -23,9 +23,10 @@ Not routed through the gateway: `GET /api/v1/users/{userId}/contact` and Identit
 
 - **Error bodies have no `type` or `title`**, and `traceId` has the form `0HNOPJ7JU6J6S:00000002`
   ([conventions.md §3.1](conventions.md#31-the-envelope), F-21).
-- **Validation errors mostly use shape (a), `Validation.Failed`**, with every message in `detail`. The MVC shape (c)
-  appears when the body cannot be bound: malformed JSON, explicit `null` on a required string, or a query value of the
-  wrong type ([conventions.md §3.3](conventions.md#33-validation-errors-three-shapes)).
+- **Validation errors use the one shape**, 400 `ValidationError` with an `errors` map keyed by camelCase field name.
+  That includes a body that cannot be bound at all: malformed JSON (key `$`), explicit `null` on a required string, or a
+  query value of the wrong type ([conventions.md §3.3](conventions.md#33-validation-errors)). Such a binding error may
+  also carry a key for the bound parameter itself (`command`, `request`).
 - **User ids are strings with no route constraint.** A malformed id such as `/admin/users/not-a-guid` reaches the
   service and gets a problem+json `User.NotFound` (404), not the bare 404 that other services give.
 - **The OpenAPI document lists PascalCase paths** (`/api/v1/Auth/login`). Call the lowercase paths used here (F-19).
@@ -95,8 +96,7 @@ The account can log in immediately.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A rule above fails. All messages are joined in `detail` |
-| 400 | `ValidationError` | Shape (c): the body is not JSON (key `$` and `command`), or a field is `null` (key `Email`, …) |
+| 400 | `ValidationError` | A rule above fails (keyed by field); the body is not JSON (key `$`, plus `command`); or a field is `null` (key `email`, …) |
 | 400 | `Auth.EmailExists` | The email is taken, in any letter case |
 | 400 | `Auth.CreateFailed` | ASP.NET Identity refused the account; `detail` lists its reasons. From source, not observed: the checks above run first |
 | 429 | `Request.RateLimited` | `auth` bucket spent |
@@ -134,8 +134,7 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | Missing email or password, a malformed email, or a `twoFactorCode` that is not 6 digits |
-| 400 | `ValidationError` | Shape (c): the body is not JSON |
+| 400 | `ValidationError` | Missing email or password, a malformed email, a `twoFactorCode` that is not 6 digits, or a body that is not JSON (key `$`) |
 | 401 | `Auth.InvalidCredentials` | `detail` `"Invalid email or password"`. Wrong password, unknown email, **and also** a deactivated, deleted or admin-locked account. The response never says which |
 | 401 | `Auth.Invalid2FA` | `twoFactorCode` was sent and is wrong |
 | 401 | `Auth.TooManyAttempts` | The account is in its post-failure delay or locked, or the client IP is blocked. See [Failed logins and lockout](#failed-logins-and-lockout) |
@@ -159,7 +158,7 @@ Unlike login, it carries no `user` and no `tokenType`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `refreshToken` is empty |
+| 400 | `ValidationError` | `refreshToken` is empty |
 | 401 | `Auth.InvalidToken` | Unknown, expired, revoked or already rotated. This includes every token of a user whose password was changed or reset, or who was deactivated, deleted or signed out by an admin |
 | 401 | `Auth.TokenAlreadyUsed` | Lost a race with a parallel refresh of the same token. From source, not observed |
 | 401 | `Auth.AccountDisabled` | The account was deactivated while the token stayed valid. From source, not observed: deactivating also revokes every token, so the client sees `Auth.InvalidToken` instead |
@@ -178,7 +177,7 @@ access token stays valid until it expires, so drop it on the client too.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `refreshToken` is empty |
+| 400 | `ValidationError` | `refreshToken` is empty |
 | 429 | `Request.RateLimited` | `auth` bucket spent |
 
 #### `POST /api/v1/auth/confirm-email`
@@ -196,7 +195,7 @@ or `"Email already confirmed"`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `userId` or `token` is empty |
+| 400 | `ValidationError` | `userId` or `token` is empty |
 | 400 | `Auth.UserNotFound` | No user has this id |
 | 400 | `Auth.InvalidToken` | The token is wrong or expired |
 | 429 | `Request.RateLimited` | `auth` bucket spent |
@@ -222,7 +221,7 @@ Show that message as it is. No email goes to an unknown or deactivated address.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The email is missing or malformed |
+| 400 | `ValidationError` | The email is missing or malformed |
 | 429 | `Request.RateLimited` | `login` bucket spent |
 
 **The reset link.** The email (sent by the Notification service a few seconds later) links to:
@@ -259,7 +258,7 @@ Sets a new password with the token from the email. Source: `ResetPasswordCommand
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A field is missing, or the password is too weak |
+| 400 | `ValidationError` | A field is missing, or the password is too weak |
 | 400 | `Auth.UserNotFound` | Unknown `userId`. `detail` is `"Invalid password reset request"` |
 | 400 | `Auth.AccountDisabled` | The account is deactivated. From source, not observed |
 | 400 | `Auth.ResetFailed` | The token is wrong, expired or already used (`detail` `"Invalid token."`), or ASP.NET Identity rejected the password |
@@ -320,8 +319,7 @@ the result; the response does not echo it.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A name is missing, too long or has a disallowed character; the URL is not http(s), too long, or blank |
-| 400 | `ValidationError` | Shape (c): the body is not JSON, or `firstName`/`lastName` is `null` (key `FirstName`) |
+| 400 | `ValidationError` | A name is missing, too long or has a disallowed character; the URL is not http(s), too long, or blank; the body is not JSON; or `firstName`/`lastName` is `null` (key `firstName`) |
 | 400 | `Account.NotFound` | The account was deleted |
 | 400 | `Account.UpdateFailed` | ASP.NET Identity refused the save. From source, not observed |
 
@@ -338,7 +336,7 @@ the result; the response does not echo it.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A field is missing, the new password is too weak, or it equals the current one |
+| 400 | `ValidationError` | A field is missing, the new password is too weak, or it equals the current one |
 | 400 | `Account.PasswordChangeFailed` | `detail` `"Incorrect password."`: the current password is wrong. It is **not** a 401, and it does not count as a failed login |
 | 400 | `Account.NotFound` / `Auth.AccountDisabled` | The account was deleted or deactivated |
 
@@ -387,7 +385,7 @@ No body. **200** [`Enable2FAResponse`](#enable2faresponse):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `code` is not exactly 6 digits |
+| 400 | `ValidationError` | `code` is not exactly 6 digits |
 | 400 | `Account.InvalidCode` | The code is wrong, or no key was issued yet |
 | 400 | `Account.UserNotFound` | The account was deleted |
 
@@ -406,7 +404,7 @@ on starts from a new key.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `code` is not exactly 6 digits |
+| 400 | `ValidationError` | `code` is not exactly 6 digits |
 | 400 | `Account.2FANotEnabled` | 2FA is off |
 | 400 | `Account.InvalidCode` | The code is wrong |
 | 400 | `Account.UserNotFound` | The account was deleted |
@@ -512,8 +510,7 @@ The paged user list. Response: [`PagedResult<AdminUser>`](conventions.md#61-page
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1, `pageSize` outside 1–100, `search` or `role` too long, a `…From` after its `…To`. For the last case `detail` starts with `": "`, because the rule has no property name |
-| 400 | `ValidationError` | Shape (c): a value of the wrong type, for example `isActive=yes` or `sortBy=Bogus` (key `SortBy`) |
+| 400 | `ValidationError` | `pageNumber` < 1, `pageSize` outside 1–100, `search` or `role` too long, a `…From` after its `…To` (key `$`, a rule about the whole request); a value of the wrong type, for example `isActive=yes` or `sortBy=Bogus` (key `sortBy`) |
 | 500 | `InternalServerError` | A date without a zone, such as `createdFrom=2026-09-23` (F-15) |
 
 > ⚠ The OpenAPI document also lists `EffectiveSortBy`, `EffectiveIsDescending`, `EffectivePageNumber` and
@@ -530,7 +527,7 @@ users. `total`, `active`, `locked` and `unconfirmed` exclude deleted users, and 
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `from` is after `to` |
+| 400 | `ValidationError` | `from` is after `to` (key `$`: "'from' must not be after 'to'") |
 | 500 | `InternalServerError` | A date without a zone (F-15) |
 
 #### `GET /api/v1/admin/users/{id}`
@@ -578,7 +575,7 @@ Creates an account on a user's behalf. Source: `CreateUserCommand`.
 | `email` | string | Required, an email address, at most 256 characters. Surrounding spaces are trimmed |
 | `firstName`, `lastName` | string | Required; the registration name rules |
 | `phoneNumber` | string \| null | Optional, at most 32 characters. Not otherwise checked |
-| `password` | string \| null | Optional, at most 128 characters. When given, it must pass the password policy (checked by ASP.NET Identity, so a weak one gets `User.CreateFailed`, not `Validation.Failed`) |
+| `password` | string \| null | Optional, at most 128 characters. When given, it must pass the password policy (checked by ASP.NET Identity, so a weak one gets `User.CreateFailed`, not `ValidationError`) |
 | `roles` | string[] \| null | Optional, at most 10 names, none blank. **Omitted means `["User"]`; `[]` means no role at all** |
 | `emailConfirmed` | boolean | Optional, default `false` |
 
@@ -590,7 +587,7 @@ Creates an account on a user's behalf. Source: `CreateUserCommand`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A rule above fails |
+| 400 | `ValidationError` | A rule above fails |
 | 400 | `User.CreateFailed` | The password fails the policy; `detail` lists ASP.NET Identity's messages |
 | 404 | `Role.NotFound` | A role in `roles` does not exist. Nothing is created |
 | 409 | `User.EmailConflict` | The email is taken, in any case, **including by a deleted account** |
@@ -609,7 +606,7 @@ Edits the profile fields. **Every field is optional**: omitted or `null` leaves 
 | `phoneNumber` | At most 32 characters; trimmed | send `""` |
 | `profilePictureUrl` | Absolute http(s) URL, at most 500 characters. Whitespace-only is rejected | send `""` |
 
-**204.** `{}` is accepted and changes nothing. Errors: 400 `Validation.Failed`; 404 `User.NotFound`.
+**204.** `{}` is accepted and changes nothing. Errors: 400 `ValidationError`; 404 `User.NotFound`.
 
 #### `PUT /api/v1/admin/users/{id}/email`
 
@@ -622,7 +619,7 @@ trimmed) and `markConfirmed` (optional boolean).
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `email` is missing or malformed |
+| 400 | `ValidationError` | `email` is missing or malformed |
 | 404 | `User.NotFound` | |
 | 409 | `User.EmailConflict` | Another account, live or deleted, uses the address |
 
@@ -677,7 +674,7 @@ open-ended suspension, use [`deactivate`](#post-apiv1adminusersiddeactivate).
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `until` is missing or not in the future (`detail`: `'until' must be in the future — a past date is an unlock, not a lock`), or `reason` is too long |
+| 400 | `ValidationError` | `until` is missing or not in the future (`detail`: `'until' must be in the future — a past date is an unlock, not a lock`), or `reason` is too long |
 | 404 | `User.NotFound` | |
 
 #### `POST /api/v1/admin/users/{id}/unlock`
@@ -717,7 +714,7 @@ Turns off the user's 2FA and discards the secret, without a code. This is the re
 - **Empty set.** **An omitted `roles`, `null` and `[]` all remove every role.**
 - **Unknown names.** If any name is unknown, nothing changes.
 
-**204.** Errors: 400 `Validation.Failed` (more than 10, or a blank name); 404 `Role.NotFound` (an unknown role); 404
+**204.** Errors: 400 `ValidationError` (more than 10, or a blank name); 404 `Role.NotFound` (an unknown role); 404
 `User.NotFound`.
 
 The user's next token carries the new roles at once (the role cache is cleared). Tokens already issued keep the old
@@ -754,7 +751,7 @@ All roles, sorted by name, as a **bare array** of [`Role`](#role):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | Shape (c): a non-integer `page` or `pageSize` (key `page`) |
+| 400 | `ValidationError` | A non-integer `page` or `pageSize` (key `page`) |
 | 500 | `InternalServerError` | `page=0`, or a negative `pageSize` (F-12) |
 
 > ⚠ Only two roles exist by default. Request it without parameters and treat the array as the whole list. (F-12)
@@ -771,7 +768,7 @@ A new role grants **no permissions**: only `Admin` has a permission bundle
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The name is missing or has a disallowed character, or the description is too long |
+| 400 | `ValidationError` | The name is missing or has a disallowed character, or the description is too long |
 | 400 | `Role.Exists` | A role with this name exists, in any case |
 | 400 | `Role.CreateFailed` | ASP.NET Identity refused it. From source, not observed |
 
@@ -786,7 +783,7 @@ Changes the description; the name cannot be changed. Body ([`UpdateRoleRequest`]
 
 **204.** This **replaces** the description: an omitted or `null` `description` clears it (observed).
 
-Errors: 400 `Validation.Failed`; 404 `Role.NotFound`; 400 `Role.UpdateFailed` (from source).
+Errors: 400 `ValidationError`; 404 `Role.NotFound`; 400 `Role.UpdateFailed` (from source).
 
 #### `DELETE /api/v1/roles/{id}`
 
@@ -1414,7 +1411,7 @@ export interface UserInRole {
 > ⚠ **The OpenAPI document is misleading here.** Its paths are PascalCase (F-19), it lists four ignored `Effective*`
 > parameters (F-31), and it declares no 401 on `/account/*` and no 400 or 500 on `GET /roles` (F-11).
 
-> ⚠ **Error bodies have no `type`/`title`** (F-21), and three validation shapes occur (F-03). Branch on `errorCode`.
+> ⚠ **Error bodies have no `type`/`title`** except the binding 400 (F-21). Branch on `errorCode`.
 
 ---
 

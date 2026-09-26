@@ -34,17 +34,14 @@ Not routed through the gateway (see [Not callable by clients](#not-callable-by-c
 - Payment's own `GET /api/v1/admin/settings`, `/api/v1/admin/feature-flags` and `/api/v1/admin/audit`. The gateway
   serves merged versions at the same paths; see [admin-platform.md](admin-platform.md).
 
-**Payment differs from the other services in six ways.** Read these once before using any endpoint below:
+**Payment differs from the other services in five ways.** Read these once before using any endpoint below:
 
 - **`errorCode`s are `SCREAMING_SNAKE`** (`PAYMENT_NOT_FOUND`, `PAYMENT_NOT_READY`), not `Service.Reason` (F-24).
-  The shared codes (`Validation.Failed`, `InternalServerError`) keep their usual form.
+  The shared codes (`ValidationError`, `InternalServerError`) keep their usual form.
 - **Enums are strings, and not all cased alike.** `status` is upper case (`"SUCCESS"`), `paymentMethod` is
   PascalCase (`"Stripe"`), the timeline's `kind` and the replay's `outcome` are PascalCase, and create-intent's
   `status` is **Stripe's own** lower-case value (`"requires_payment_method"`), not a payment status (F-01). Filters
   take the PascalCase **name** in any case.
-- **Validation errors always use shape (a)**, `Validation.Failed`, with every message in `detail`
-  ([conventions.md §3.3](conventions.md#33-validation-errors-three-shapes)). Every Payment endpoint answers with a
-  body, so shape (b) never occurs here.
 - **A body that is missing or not valid JSON, and a query value of the wrong type, get 400 `MalformedRequest`**, for
   example `?pageSize=abc`, `?from=yesterday`, `?orderId=nope` or a truncated body. Its `detail` speaks of the request
   body even when the problem is in the query (F-25). Unknown body properties are ignored.
@@ -186,7 +183,7 @@ is now `PROCESSING`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `orderId` missing or all-zero (`"OrderId: OrderId is required."`); `email` invalid (`"Email: Email is not a valid e-mail address."`) or over 254 characters |
+| 400 | `ValidationError` | `orderId` missing or all-zero (key `orderId`: "OrderId is required."); `email` invalid (key `email`: "Email is not a valid e-mail address.") or over 254 characters |
 | 400 | `MalformedRequest` | The body is not valid JSON, or there is no body |
 | 401 | — | No token (the gateway answers) |
 | 404 | `PAYMENT_NOT_FOUND` | The order belongs to another user: `"Payment not found."` |
@@ -250,7 +247,7 @@ reading a customer's list, `pageSize=1`):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1 (`"PageNumber: Page number must be at least 1."`) or `pageSize` outside 1–100 (`"PageSize: Page size must not exceed 100."`) |
+| 400 | `ValidationError` | `pageNumber` < 1 (key `pageNumber`: "Page number must be at least 1.") or `pageSize` outside 1–100 (key `pageSize`: "Page size must not exceed 100.") |
 | 400 | `MalformedRequest` | A non-integer `pageNumber`/`pageSize` (F-25) |
 | 401 | — | No token (the gateway answers) |
 | 403 | — | A non-admin asked for another user's payments (empty body) |
@@ -310,7 +307,7 @@ user's list. Unlike the user's list, it **includes** method-`None` placeholders.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | A `status` that is not a name (`"Status[0]: Status must each be one of: Pending, Processing, Success, Failed, Refunded, Cancelled"`, also for `status=2` and for `Paid`); an unknown `paymentMethod`; `userId` over 100; `to` before `from`; `minAmount` < 0; `maxAmount` < `minAmount`; `pageNumber` < 1; `pageSize` outside 1–100 |
+| 400 | `ValidationError` | A `status` that is not a name (key `status[0]`: "Status must each be one of: Pending, Processing, Success, Failed, Refunded, Cancelled", also for `status=2` and for `Paid`); an unknown `paymentMethod`; `userId` over 100; `to` before `from`; `minAmount` < 0; `maxAmount` < `minAmount`; `pageNumber` < 1; `pageSize` outside 1–100 |
 | 400 | `MalformedRequest` | A value of the wrong type (`orderId=nope`, `from=yesterday`, `pageSize=abc`) (F-25) |
 | 401 / 403 | — | Anonymous (gateway) / not allowed (service) |
 
@@ -352,7 +349,7 @@ Dashboard totals, a per-status breakdown and time buckets. Source: `GetPaymentSt
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `groupBy` not `Day`/`Month`/`Year` (`"GroupBy: GroupBy must be one of: Day, Month, Year"`); `currency` not three characters (`"Currency: Currency must be a three-letter code."`); `to` before `from` |
+| 400 | `ValidationError` | `groupBy` not `Day`/`Month`/`Year` (key `groupBy`: "GroupBy must be one of: Day, Month, Year"); `currency` not three characters (key `currency`: "Currency must be a three-letter code."); `to` before `from` |
 | 400 | `MalformedRequest` | A date that does not parse (`from=yesterday`) (F-25) |
 | 401 / 403 | — | Anonymous (gateway) / not allowed (service) |
 
@@ -383,7 +380,7 @@ Id,OrderId,UserId,Amount,Currency,PaymentMethod,Status,PaymentIntentId,ErrorMess
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `EXPORT_TOO_LARGE` | More than 10 000 payments match: `"<n> payments match; an export is limited to 10000. Narrow the date range or the filters."`. The file is refused, never truncated (from source) |
-| 400 | `Validation.Failed` | The same filter rules as the list |
+| 400 | `ValidationError` | The same filter rules as the list |
 | 400 | `MalformedRequest` | A value of the wrong type (F-25) |
 | 401 / 403 | — | Anonymous (gateway) / not allowed (service) |
 
@@ -454,7 +451,7 @@ There is **no amount**: the payment settles for its recorded amount, which is th
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `orderId` missing or all-zero; `reference` omitted, `null`, empty or whitespace (`"Reference: Reference is required."`) or over 100 characters |
+| 400 | `ValidationError` | `orderId` missing or all-zero; `reference` omitted, `null`, empty or whitespace (key `reference`: "Reference is required.") or over 100 characters |
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous (gateway) / not allowed (service) |
 | 404 | `PAYMENT_NOT_FOUND` | No payment recorded for this order (also for an unknown order): `"No payment has been recorded for this order."` |
@@ -484,7 +481,7 @@ A 200 therefore does not mean the payment succeeded: read `status`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `orderId` missing or all-zero (`"OrderId: OrderId is required."`) |
+| 400 | `ValidationError` | `orderId` missing or all-zero (key `orderId`: "OrderId is required.") |
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous (gateway) / not an admin (service) |
 | 404 | `PAYMENT_NOT_FOUND` | No payment recorded for this order |
@@ -512,7 +509,7 @@ Refund a captured payment **in full**. `{id}` is the **payment** id, not the ord
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `amount` ≤ 0 (`"Amount: Refund amount must be greater than 0."`) or with more than two decimals; `reason` over 500 characters; the all-zero id (`"PaymentId: PaymentId is required."`) |
+| 400 | `ValidationError` | `amount` ≤ 0 (key `amount`: "Refund amount must be greater than 0.") or with more than two decimals; `reason` over 500 characters; the all-zero id (key `paymentId`: "PaymentId is required.") |
 | 400 | `PARTIAL_REFUND_NOT_SUPPORTED` | `amount` differs from the payment's: `"Only a full refund of 42.00 USD is supported."` |
 | 400 | `REFUND_FAILED` | Stripe or the simulator refused (`detail` is the provider's reason, for example `"Stripe refund failed with status 'failed'."`), or the provider call failed (`"An error occurred while processing the refund. Please try again later."`). From source, not observed. The payment is unchanged |
 | 400 | `MalformedRequest` | No body, or not valid JSON |
@@ -556,7 +553,7 @@ one unknown id:
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | More than 100 ids (`"Ids: At most 100 webhooks can be replayed in one request."`); an all-zero id (`"Ids: A capture id must not be empty."`) |
+| 400 | `ValidationError` | More than 100 ids (key `ids`: "At most 100 webhooks can be replayed in one request."); an all-zero id (key `ids`: "A capture id must not be empty.") |
 | 400 | `MalformedRequest` | Not valid JSON, or an id that is not a GUID (`detail` names its JSON path) |
 | 401 / 403 | — | Anonymous (gateway) / not allowed (service) |
 

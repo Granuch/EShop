@@ -32,10 +32,8 @@ Not routed through the gateway: Ordering's own `GET /api/v1/admin/settings` and 
 - **`status` is an integer** (`0` Pending … `5` Refunded), but the admin list's `status`/`statuses` filters take the
   **name** (any case) and refuse the integer. The stats endpoint's `groupBy` works the same way: a name in, an integer
   out (F-01).
-- **Validation errors come in two shapes, by endpoint.** Endpoints that answer with a body (create, the reads, adding
-  a note) use shape (a), `Validation.Failed`, with every message in `detail`. Writes that answer 204 (items, address,
-  cancel, ship, deliver) use shape (b), `ValidationError`, with an `errors` map keyed by PascalCase property name
-  ([conventions.md §3.3](conventions.md#33-validation-errors-three-shapes)). Each error table names the shape.
+- **Validation errors use the one shape**: 400 `ValidationError`, with an `errors` map keyed by the camelCase field
+  name and every message in `detail` ([conventions.md §3.3](conventions.md#33-validation-errors)).
 - **Someone else's order is a 403, not a 404.** For a non-admin, an order that belongs to another user **and an order
   that does not exist** both answer an empty 403: the ownership check runs before the order is looked up. Only an
   admin ever sees `404 Order.NotFound`.
@@ -155,7 +153,7 @@ Every address field is trimmed before it is checked and stored (`" us "` is stor
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | Shape (a). No items or `items: null` (`"Items: Order must have at least one item"`); a product twice; an all-zero `productId` (`"Items[0].ProductId: Product ID is required"`); `quantity` ≤ 0; any address field invalid. Every failing field is joined in one `detail` with `"; "` |
+| 400 | `ValidationError` | No items or `items: null` (key `items`: "Order must have at least one item"); a product twice; an all-zero `productId` (key `items[0].productId`: "Product ID is required"); `quantity` ≤ 0; any address field invalid. Each failing field has its own key, and `detail` joins every message with `"; "` |
 | 400 | `Validation.UserIdRequired` | The caller is an admin and sent no `userId` |
 | 400 | `Order.ProductUnavailable` | A product does not exist or is not Active (draft, discontinued, deleted): `"Product '…' does not exist or is not available to order."`. Only the first such product is named |
 | 400 | `DomainError` | The total would exceed 9 999 999 999 999 999.99 (from source, not observed) |
@@ -188,7 +186,7 @@ One order. Source: `GetOrderByIdQuery`. **Service:** the `OrderOwnerOrAdmin` pol
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The all-zero id, for an admin (`"OrderId: Order ID is required"`). A non-admin gets 403 |
+| 400 | `ValidationError` | The all-zero id, for an admin (key `orderId`: "Order ID is required"). A non-admin gets 403 |
 | 403 | — | A non-admin asked for another user's order, **or for an order that does not exist** |
 | 404 | `Order.NotFound` | An admin asked for an unknown id |
 | 404 | — | The id is not a GUID (the route does not match; empty body) |
@@ -227,7 +225,7 @@ must be the caller's own id, or the caller must have the `Admin` role.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1, `pageSize` outside 1–100, or any `cursor` value (`"Cursor: Cursor paging is no longer supported on this endpoint; page with pageNumber and pageSize."`) |
+| 400 | `ValidationError` | `pageNumber` < 1, `pageSize` outside 1–100, or any `cursor` value (key `cursor`: "Cursor paging is no longer supported on this endpoint; page with pageNumber and pageSize.") |
 | 400 | `MalformedRequest` | A non-integer `pageNumber`/`pageSize`, with a `detail` that wrongly blames the request body (F-25) |
 | 403 | — | A non-admin asked for another user's orders |
 | 405 | — | Any method other than GET. The gateway refuses POST, PUT and DELETE; it lets HEAD through, and Ordering then answers 405 |
@@ -251,7 +249,7 @@ required), and optionally `orderId`, which must then equal the route's `{id}`.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | Shape (b). `quantity` ≤ 0 (key `Quantity`); an all-zero `productId` (key `ProductId`); the all-zero order id, for an admin (key `OrderId`) |
+| 400 | `ValidationError` | `quantity` ≤ 0 (key `quantity`); an all-zero `productId` (key `productId`); the all-zero order id, for an admin (key `orderId`) |
 | 400 | `Validation.IdMismatch` | The body's `orderId` is present and differs from the route |
 | 400 | `Order.ProductUnavailable` | The product does not exist or is not Active |
 | 400 | `DomainError` | The product is already on the order (`"Product 'Phantom X12' already exists in this order."`): change that line's quantity instead. Also a total over the maximum (from source) |
@@ -280,7 +278,7 @@ re-priced), and Catalog's stock is not checked.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | Shape (b). `quantity` ≤ 0 or omitted (key `Quantity`: `"Quantity must be greater than 0"`); the all-zero `itemId` (key `ItemId`). There is no "0 removes the line" rule, unlike Basket |
+| 400 | `ValidationError` | `quantity` ≤ 0 or omitted (key `quantity`: "Quantity must be greater than 0"); the all-zero `itemId` (key `itemId`). There is no "0 removes the line" rule, unlike Basket |
 | 400 | `MalformedRequest` | `quantity: null` or not a number (F-25 wording) |
 | 400 | `DomainError` | The total would exceed the maximum (from source) |
 | 403 | — | Not the owner |
@@ -296,7 +294,7 @@ Remove one line. Source: `RemoveOrderItemCommand`. **Service:** `OrderOwnerOrAdm
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | The all-zero `itemId` (key `ItemId`) |
+| 400 | `ValidationError` | The all-zero `itemId` (key `itemId`) |
 | 400 | `DomainError` | It is the order's **last** line: `"Order must have at least one item."`. Cancel the order instead |
 | 403 | — | Not the owner |
 | 404 | `Order.NotFound` | An admin named an unknown order |
@@ -314,7 +312,7 @@ Replace the whole shipping address. Source: `UpdateShippingAddressCommand`. **Se
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | Shape (b), one key per failing field (`Street`, `City`, `State`, `ZipCode`, `Country`). Validation runs first, so an invalid address on a shipped order is 400, not 409 |
+| 400 | `ValidationError` | One key per failing field (`street`, `city`, `state`, `zipCode`, `country`). Validation runs first, so an invalid address on a shipped order is 400, not 409 |
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 403 | — | Not the owner |
 | 404 | `Order.NotFound` | An admin named an unknown order |
@@ -322,12 +320,9 @@ Replace the whole shipping address. Source: `UpdateShippingAddressCommand`. **Se
 
 Captured, a two-field body `{"street":"99 New Avenue","city":"Portland"}`:
 
+<!-- R2-SAMPLE-ORD -->
 ```json
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"Bad Request","status":400,
- "detail":"One or more validation errors occurred.","errorCode":"ValidationError",
- "traceId":"00-2964f5b9214dcf833228b0e3289d2eeb-79df6bf2b6b0bb12-00",
- "errors":{"State":["State must be 2-100 characters and contain only letters and common separators."],
-   "Country":["Country must be a 2-letter ISO code."],"ZipCode":["Zip code must be between 3 and 12 characters."]}}
+(sample pending)
 ```
 
 ### `POST /api/v1/orders/{id}/cancel`
@@ -343,7 +338,7 @@ payment is cancelled in Payment shortly afterwards.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | Shape (b). `reason` missing, empty or whitespace (`"Cancellation reason is required"`), or over 500 characters (key `Reason`) |
+| 400 | `ValidationError` | `reason` missing, empty or whitespace ("Cancellation reason is required"), or over 500 characters (key `reason`) |
 | 400 | `MalformedRequest` | No body, or not valid JSON |
 | 403 | — | Not the owner |
 | 404 | `Order.NotFound` | An admin named an unknown order |
@@ -365,7 +360,7 @@ An admin can also call every storefront endpoint above for any order: the owner 
 
 **Audit:** item changes, address changes, cancel, ship, deliver and adding a note each write one row to the audit
 trail, whoever sends them (a customer's own item change included), with the outcome `Succeeded`, `Rejected` or
-`Failed`. A shape (b) validation error is recorded as `Failed`, not `Rejected`. `POST /orders` is not audited. Read the trail through the gateway's merged
+`Failed`. A validation error on one of these is recorded as `Failed`, not `Rejected`: they answer 204, and their validation throws rather than returning a result. `POST /orders` is not audited. Read the trail through the gateway's merged
 [`GET /api/v1/admin/audit`](admin-platform.md).
 
 ### `GET /api/v1/orders`
@@ -391,7 +386,7 @@ user's list.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageNumber` < 1; `pageSize` outside 1–100; `status` not a name (`"Status: Status must be one of: Pending, Paid, Shipped, Delivered, Cancelled, Refunded"`, also for `status=0`); any bad `statuses` entry (`"Statuses[1]: …"`); an unknown `sortBy`; `search` over 200; `to` before `from`; `minTotal` < 0; `maxTotal` < `minTotal` |
+| 400 | `ValidationError` | `pageNumber` < 1; `pageSize` outside 1–100; `status` not a name (key `status`: "Status must be one of: Pending, Paid, Shipped, Delivered, Cancelled, Refunded", also for `status=0`); any bad `statuses` entry (key `statuses[1]`); an unknown `sortBy`; `search` over 200; `to` before `from`; `minTotal` < 0; `maxTotal` < `minTotal` |
 | 400 | `MalformedRequest` | A value of the wrong type (`isDescending=maybe`, `from=yesterday`, `pageSize=abc`), with the misleading "request body" `detail` (F-25) |
 | 401 / 403 | — | Anonymous (gateway) / not an admin (service) |
 
@@ -429,7 +424,7 @@ does not exist, and a number is refused).
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `groupBy` not `Day`/`Month`/`Year` (`"GroupBy: GroupBy must be one of: Day, Month, Year"`); `to` before `from` |
+| 400 | `ValidationError` | `groupBy` not `Day`/`Month`/`Year` (key `groupBy`: "GroupBy must be one of: Day, Month, Year"); `to` before `from` |
 | 400 | `MalformedRequest` | A date that does not parse (`from=yesterday`, F-25 wording) |
 | 401 / 403 | — | Anonymous (gateway) / not an admin (service) |
 
@@ -447,7 +442,7 @@ is always the caller: `authorId`/`authorName` sent in the body are ignored.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | Shape (a). `body` missing, empty or whitespace (`"Body: Note body is required"`), over 2000 characters, or the all-zero order id |
+| 400 | `ValidationError` | `body` missing, empty or whitespace (key `body`: "Note body is required"), over 2000 characters, or the all-zero order id |
 | 400 | `Order.NoteLimitReached` | The order already has 500 notes (from source, not observed) |
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous / not an admin (the order's owner too) |
@@ -470,7 +465,7 @@ email address. It is not updated if the account changes later.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The all-zero id |
+| 400 | `ValidationError` | The all-zero id |
 | 401 / 403 | — | Anonymous / not an admin |
 | 404 | `Order.NotFound` | Unknown order |
 
@@ -501,7 +496,7 @@ customer, paid by event, shipped and delivered by the admin):
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | The all-zero id |
+| 400 | `ValidationError` | The all-zero id |
 | 401 / 403 | — | Anonymous / not an admin (the order's owner too) |
 | 404 | `Order.NotFound` | Unknown order |
 
@@ -514,7 +509,7 @@ Mark a Paid order as Shipped. Source: `ShipOrderCommand`. No body (one sent is i
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | The all-zero id (key `OrderId`) |
+| 400 | `ValidationError` | The all-zero id (key `orderId`) |
 | 401 / 403 | — | Anonymous / not an admin |
 | 404 | `Order.NotFound` | Unknown order |
 | 409 | `Order.NotPaidYet` | The order is not Paid: `"Order must be paid before shipping."`, **also** for an order that is already Shipped or Delivered (F-51) |
@@ -527,7 +522,7 @@ Mark a Shipped order as Delivered. Source: `DeliverOrderCommand`. No body.
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | The all-zero id (key `OrderId`) |
+| 400 | `ValidationError` | The all-zero id (key `orderId`) |
 | 401 / 403 | — | Anonymous / not an admin |
 | 404 | `Order.NotFound` | Unknown order |
 | 409 | `Order.NotShippedYet` | The order is not Shipped: `"Only a shipped order can be delivered."`, **also** for one already Delivered (F-51) |

@@ -65,7 +65,7 @@ say which), with its outcome:
 | `outcome` | Meaning | `errorCode` |
 |---|---|---|
 | `Succeeded` | The command succeeded | `null` |
-| `Rejected` | The command refused, for example a validation failure or a business rule. **Something may still have been written**; do not read it as "nothing changed" | The refusal's `errorCode`, for example `"Validation.Failed"`, `"Notification.Final"` |
+| `Rejected` | The command refused, for example a validation failure or a business rule. **Something may still have been written**; do not read it as "nothing changed" | The refusal's `errorCode`, for example `"ValidationError"`, `"Notification.Final"`. Rows are kept for good, so a validation refusal recorded before 2026-09-26 still reads `"Validation.Failed"` (the sample below is one) |
 | `Failed` | The command threw | The exception's **type name**, for example `"OperationCanceledException"` (observed) |
 
 A batch command (Catalog's bulk actions) writes one row per item. Reads are not recorded, and neither is Payment's
@@ -131,7 +131,7 @@ started with Ordering's newest rows, and `unavailableServices` was `["payment"]`
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `Validation.Failed` | `pageSize` outside 1–100 (`"'pageSize' must be between 1 and 100."`); an unknown `service` (`"'service' must be one of: catalog, identity, notification, ordering, payment."`); a bad `outcome` (`"'outcome' must be one of: Succeeded, Rejected, Failed."`); `from` not before `to` (`"'from' must be earlier than 'to'."`); a filter over its length (`"'action' must be at most 100 characters."`); a cursor it did not issue (`"'cursor' is not a cursor this endpoint issued."`) |
+| 400 | `ValidationError` | One key, named after the parameter: `pageSize` outside 1–100 (key `pageSize`: "'pageSize' must be between 1 and 100."); an unknown `service` (key `service`: "'service' must be one of: catalog, identity, notification, ordering, payment."); a bad `outcome` (key `outcome`: "'outcome' must be one of: Succeeded, Rejected, Failed."); `from` not before `to` (key `$`, since it concerns two parameters: "'from' must be earlier than 'to'."); a filter over its length (key `action`: "'action' must be at most 100 characters."); a cursor it did not issue (key `cursor`: "'cursor' is not a cursor this endpoint issued.") |
 | 400 | `MalformedRequest` | A value of the wrong type (`pageSize=abc`, `from=yesterday`); `detail` wrongly blames the request body (F-25) |
 | 401 / 403 | — | Anonymous / no `audit.read` (gateway) |
 
