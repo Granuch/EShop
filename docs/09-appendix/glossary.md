@@ -12,8 +12,16 @@ Single ingress service that routes and enforces policies before forwarding reque
 ### Aggregate
 Domain-driven design pattern representing a consistency boundary around related domain objects.
 
+### Audit Log
+A per-service `audit_log` table (plus the gateway's merged `GET /api/v1/admin/audit` view) recording
+one row per audited admin command, with its outcome (`Succeeded`/`Rejected`/`Failed`), the calling
+actor, and a redacted copy of the request payload. Written by `AuditBehavior`, the outermost
+MediatR pipeline behavior. See [Design Patterns](../03-architecture/design-patterns.md) and
+[`frontend/admin-platform.md`](../01-overview/frontend/admin-platform.md).
+
 ### Authorization Policy
-Named rule set used to restrict access to routes or operations.
+Named rule set used to restrict access to routes or operations. See also **Permission** below —
+this repository layers named permissions under role-based policies for admin endpoints.
 
 ---
 
@@ -21,6 +29,12 @@ Named rule set used to restrict access to routes or operations.
 
 ### Bounded Context
 Domain boundary where a specific model and language apply.
+
+### Bulk Report
+The response shape for a bulk admin operation (e.g. Catalog's bulk publish/unpublish/delete,
+import), giving one per-item result rather than a single pass/fail for the whole request — so a
+batch of 100 ids can report 97 successes and 3 named failures in one response. See
+[`frontend/catalog.md`](../01-overview/frontend/catalog.md).
 
 ### Build Pipeline
 Automated process that restores, builds, and validates code changes.
@@ -142,6 +156,21 @@ Reliability pattern for safely persisting and later publishing integration event
 
 ## P
 
+### Permission
+A fine-grained access right (`EShopPermissions`, 15 in total, e.g. `users.manage`,
+`payments.write`) checked by a service in addition to the gateway's coarser role-based route
+policy. The `Admin` role is bundled with all 15, so existing role-based tokens keep working; a
+caller can also be granted a single permission via a `permission` claim, though no component today
+issues one and there is no discovery endpoint for "what can I do." See
+[Security Architecture](../03-architecture/security-architecture.md#permission-model).
+
+### ProblemDetails / errorCode
+The RFC 7807-style error envelope this platform's non-2xx responses use
+(`type`/`title`/`status`/`detail`/`traceId`), extended with a custom `errorCode` field in the
+`Service.Reason` style (e.g. `Product.NotFound`) that a client should switch on instead of
+`status` or `detail` text. Payment is the one exception, using `SCREAMING_SNAKE` codes instead.
+See [`frontend/conventions.md#3-errors`](../01-overview/frontend/conventions.md#3-errors).
+
 ### Prometheus
 Metrics backend that scrapes and stores time-series telemetry.
 
@@ -205,8 +234,9 @@ Domain object defined by value equality rather than identity.
 - [Architecture Decisions](../03-architecture/architecture-decisions.md)
 - [Services](../05-services/)
 - [Infrastructure](../06-infrastructure/)
+- [Frontend API Contracts](../01-overview/frontend/README.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

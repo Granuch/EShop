@@ -64,13 +64,42 @@ Application requests are dispatched via MediatR, reducing controller/endpoint co
 
 ### 6) Pipeline Behavior Pattern
 
-Common behaviors are applied in MediatR pipeline, including request validation.
+Common behaviors are applied in the MediatR pipeline, and **registration order sets execution
+order** — the pipeline runs in the order behaviors are added in each service's `Program.cs`, so
+the four `Add*` calls that wire it up are themselves architecturally significant, not just DI
+plumbing.
 
-**Observed implementation example**
-- FluentValidation-based `ValidationBehavior` in shared building blocks.
+**Behaviors, in the order they run for a service with the full set** (Audit → CacheInvalidation →
+Transaction → Validation → Logging → Caching → handler):
+- **`AuditBehavior`**: writes one `audit_log` row per audited command (`Succeeded`/
+  `Rejected`/`Failed`), through its own database scope so a rolled-back command still produces a
+  row. Registered outermost so it observes the true outcome even if a later behavior throws.
+  Commands opt in via `IAuditedCommand`; every command an admin-authorized endpoint can send is
+  classified as audited or explicitly not, and a new command fails a structural test until it is
+  classified one way or the other.
+- **`CacheInvalidationBehavior`**: evicts or bumps declared cache keys/families. Must run
+  **before** `TransactionBehavior` (i.e. outside the transaction) — evicting inside the
+  transaction would remove a cache entry before the write that should invalidate it has committed.
+- **`TransactionBehavior`**: opens the unit of work. Commits on **any non-exception return,
+  including a `Result` failure** — a handler that writes state and then returns a `Result` failure
+  still commits that write, which is a standing trap for anything implementing
+  `ITransactionalCommand`.
+- **`ValidationBehavior`**: FluentValidation. For the generic `Result<T>` response type, a
+  validation failure becomes a `Result` with `errorCode` `Validation.Failed`; for the non-generic
+  `Result`, it throws a `ValidationException` instead, which the shared exception middleware maps
+  to 400 `ValidationError` — two different `errorCode`s for the same underlying failure, decided
+  entirely by which `Result` shape the handler declares.
+- **`LoggingBehavior`**: logs the request at Information, redacting members flagged
+  `[SensitiveData]` or matching a hardcoded property-name list (`Password`, `Token`, `Code`, …).
+- **`CachingBehavior`**: read-side caching for `ICacheableQuery` handlers.
 
 **Benefits**
-- Uniform validation and cross-cutting execution flow
+- Uniform validation, auditing and transactional execution flow across services
+
+**Risks**
+- A registration-order mistake is invisible to functional tests — nothing fails, nothing logs —
+  and is only caught by a structural test that resolves and compares the registered behavior
+  order (`BehaviorOrderTests`/`AuditRunsOutermost` in each service's integration suite).
 
 ---
 
@@ -153,6 +182,28 @@ Services expose health/readiness/liveness endpoints.
 
 ---
 
+## Authorization Patterns
+
+### 16) Layered Role and Permission Authorization
+
+Two authorization layers apply to every admin-panel request: a coarse role check at the API
+Gateway (route-level `Admin` policy) and a fine-grained permission check in the owning service
+(`EShopPermissions`, a named policy per permission; `Admin` bundles all 15). A caller satisfies the
+service-level check via either an explicit `permission` claim or an `Admin` role claim, so existing
+role-based tokens remain valid without reissue.
+
+**Benefits**
+- New admin capabilities can be gated more precisely than "is this user an Admin" without
+  reworking existing tokens or the gateway route table.
+
+**Risks**
+- The two layers can drift: a service can add a permission check without the gateway gaining a
+  matching route-level gate (Ordering's and Payment's whole admin surface, and Catalog's category
+  stats endpoint, currently rely on the service check alone — see
+  [Security Architecture](security-architecture.md#permission-model)).
+
+---
+
 ## Observability Patterns
 
 ### 14) Structured Logging
@@ -183,8 +234,9 @@ The selected pattern set supports:
 - [C4 Diagrams](c4-diagrams.md)
 - [Data Flow](data-flow.md)
 - [Security Architecture](security-architecture.md)
+- [Frontend API Contracts — Conventions](../01-overview/frontend/conventions.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

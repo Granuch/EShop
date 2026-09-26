@@ -46,6 +46,46 @@ Typical flow:
 
 The gateway enforces route-level authorization policies (for example authenticated and admin-only paths), reducing unauthorized access surface before requests reach downstream services.
 
+### Permission Model
+
+Underneath the gateway's role checks sits a fine-grained permission layer,
+`EShopPermissions` (`BuildingBlocks/…/Authorization/`): 15 named permissions
+(`users.read`, `users.manage`, `payments.write`, `system.manage`, `audit.read`, …), where the
+permission string **is** the policy name. `RolePermissionBundles` maps the `Admin` role to all 15,
+so a caller is granted a permission by either an explicit `permission` claim or an `Admin` role
+claim — existing role-based tokens keep working with no re-issue needed. `AddEShopPermissions()` is
+called in all seven components (gateway + six services).
+
+Two layers apply independently and both must pass:
+- **Gateway layer**: most admin routes require the `Admin` role at the route level
+  (`AuthorizationPolicy: Admin` in the YARP route table). This is a coarse, role-only gate — the
+  gateway does not evaluate permissions.
+- **Service layer**: the service re-checks, either a specific permission (Identity's admin-users
+  endpoints: `users.read`/`users.manage`/`roles.manage`; Payment's read/write endpoints:
+  `payments.read`/`payments.write`; Notification's: `notifications.read`/`notifications.manage`;
+  Catalog's/Ordering's system endpoints: `system.manage`; every service's own audit endpoint:
+  `audit.read`) or, on endpoints that predate the permission model and have not been migrated, the
+  `Admin` role directly (Payment's refund, settle and simulation endpoints; two of Basket's outbox
+  endpoints).
+
+**Known gaps, not yet fixed (docs-only findings, tracked for a decision):**
+- **No gateway-level `Admin` gate on Ordering's or Payment's entire admin surface.** Both route
+  through one catch-all per-service route with policy `Authenticated`; the admin/non-admin
+  decision is made entirely by the service. No live bypass has been found (every admin endpoint
+  of both services correctly answers 401/403 whether the gateway or the service is hit directly),
+  but the redundant gateway-level check every other admin surface in this platform gets is absent
+  here. Catalog's `GET /categories/{id}/stats` has the same single-endpoint gap.
+- **No permission-discovery endpoint.** No component exposes "what can I do," and access tokens
+  carry no `permission` claim — a client must derive what to show from `user.roles`, which today
+  only distinguishes `Admin` from everyone else.
+- **A role change and a role deletion are not retroactive on an already-issued token**, and a
+  deleted role's claim can persist in a member's cached role list for up to 5 minutes after
+  deletion.
+
+See [`docs/01-overview/frontend/conventions.md`](../01-overview/frontend/conventions.md#5-permissions-and-admin-access)
+for the full table of admin screens and the permission/role each needs, verified live against the
+running stack.
+
 ---
 
 ## Internal Service Security
@@ -77,9 +117,30 @@ Gateway and service middlewares enforce:
 
 ## Rate Limiting and Abuse Protection
 
-Rate limiting is configured in gateway runtime and helps reduce abuse and brute-force style traffic pressure.
+Rate limiting is applied **twice**: once at the gateway (a global partitioned limiter, keyed on
+the client's forwarded IP address) and again inside each service (its own global limiter, plus
+named policies on specific hot paths). Both layers are per-client-IP partitioned in every
+deployment that sets `ForwardedHeaders:KnownNetworks`/`KnownProxies` correctly (compose and k8s
+do); without that configuration a limiter degrades to one shared bucket for every caller behind
+the gateway.
 
-This applies at ingress level before downstream service execution.
+Representative limits (see each service's own `CLAUDE.md` and
+[`frontend/conventions.md#7-rate-limits`](../01-overview/frontend/conventions.md#7-rate-limits)
+for the current, code-verified numbers):
+- Global default: 100 requests / 60 s per client IP, enforced at the gateway and independently in
+  each service.
+- Identity: `auth` (register/refresh/revoke/confirm) 10/min; `login` (login/forgot/reset) 5/min —
+  plus a separate per-account login-throttle mechanism (`LoginAttemptTracker`) that is not a rate
+  limiter and is not reset by it.
+- Catalog: `search` (product list/newest) 30/min; `bulk` (bulk actions, import, export) 10/min.
+
+A 429 response's shape differs by component: Identity returns problem+json with `errorCode`
+`Request.RateLimited` and a `Retry-After` header; the gateway and every other service return an
+empty 429 body with no `Retry-After`. A client cannot rely on a uniform 429 shape across the
+platform today.
+
+This applies at ingress level before downstream service execution, and again inside each service
+as a second line of defense against a caller that reaches it directly.
 
 ---
 
@@ -143,15 +204,16 @@ remote address to evaluate.
 
 ### Accepted risk: OpenAPI in production
 
-Identity, Catalog and Ordering serve their OpenAPI document and Scalar UI in **every environment
-except `Testing`**, so the full API schema is published in Production. The gateway, Basket and
-Payment gate the same endpoints on `IsDevelopment()`.
+All seven components (the gateway and all six services) serve their OpenAPI document and Scalar
+UI in **every environment except Production**, through one shared rule, `EShopApiDocs.IsExposedIn`
+(`BuildingBlocks`). This was unified from an earlier, inconsistent state where three services
+exposed the schema in Production too and three gated it on `IsDevelopment()` only — that split no
+longer exists; every component now agrees.
 
-This inconsistency is **known and accepted, not an oversight**: the three permissive services do
-it deliberately, and changing it would alter published behaviour. It is recorded here so the
-divergence is a stated decision rather than something rediscovered during a review. Revisit it
-before any public deployment — a published schema is reconnaissance material, and the split means
-consumers cannot rely on the document being reachable for a given service.
+Exposing the full schema outside Production (including in a shared Sandbox/staging environment)
+is a **known and deliberate choice, not an oversight**: it is recorded here so it is a stated
+decision rather than something rediscovered during a review. Revisit it before any deployment that
+is reachable from outside a trusted network — a published schema is reconnaissance material.
 
 ---
 
@@ -184,8 +246,9 @@ Mitigation is distributed across gateway policy, service validation, configurati
 - [Architecture Decisions](architecture-decisions.md)
 - [Data Flow](data-flow.md)
 - [Infrastructure Security and Resilience](../06-infrastructure/)
+- [Frontend API Contracts — Conventions](../01-overview/frontend/conventions.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

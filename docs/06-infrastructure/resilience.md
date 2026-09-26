@@ -20,9 +20,24 @@ Current resilience posture includes:
 
 ### API Gateway
 
-- Global rate limiting
+- Global rate limiting (partitioned per client IP)
 - Route policy enforcement
 - Middleware guards and controlled failure handling
+
+### Per-Service Rate Limiting
+
+Rate limiting is not gateway-only: each service enforces its **own** global limiter and named
+policies on specific paths, so a caller reaching a service directly (bypassing the gateway) is
+still throttled. Representative limits, all per client IP:
+- Global default across services: 100 requests / 60 s.
+- Identity: `auth` (register/refresh/revoke/confirm-email) 10/min, `login`
+  (login/forgot-password/reset-password) 5/min.
+- Catalog: `search` (product list/newest) 30/min, `bulk` (bulk actions, import, export) 10/min.
+
+Both layers depend on `ForwardedHeaders:KnownNetworks`/`KnownProxies` being configured correctly —
+without it, every client behind the gateway shares one bucket regardless of which layer applies
+the limit. See [Security Architecture](../03-architecture/security-architecture.md) for the full
+picture, including the 429 response-shape inconsistency across components.
 
 ### Service Runtime
 
@@ -79,8 +94,10 @@ Services expose readiness/liveness style endpoints to support orchestration and 
 - [Message Broker](message-broker.md)
 - [Observability](observability.md)
 - [API Gateway](../05-services/api-gateway.md)
+- [Security Architecture](../03-architecture/security-architecture.md)
+- [Frontend API Contracts — Conventions](../01-overview/frontend/conventions.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

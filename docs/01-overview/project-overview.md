@@ -53,7 +53,8 @@ Build and maintain a realistic .NET 10 microservices reference system that suppo
 - **API Gateway**: centralized entrypoint and policy enforcement.
 
 ### Platform Capabilities
-- JWT authentication and role-based authorization.
+- JWT authentication and role-based authorization, with a fine-grained permission layer
+  (`EShopPermissions`) underneath the role checks for admin-panel endpoints.
 - API routing and policy enforcement through YARP.
 - Redis-backed caching and basket persistence.
 - PostgreSQL persistence with service-specific databases.
@@ -70,7 +71,9 @@ Build and maintain a realistic .NET 10 microservices reference system that suppo
 The current repository focuses on backend services and runtime infrastructure.
 
 ### Not in Current Scope
-- UI application source code in this repository.
+- A production-ready UI. `ui/` contains a Next.js 16 / React 19 scaffold (shadcn, zustand) that is
+  **not wired to the backend**: no `fetch` calls, no API client, no token storage. It exists to
+  give client integration a starting point, not as a functioning application.
 - Marketplace and multi-tenant features.
 - Cross-region deployment topology.
 - Advanced shipping integrations.
@@ -125,10 +128,11 @@ Telemetry, health checks, and structured logging are part of service runtime con
 
 - [Architecture Diagram](architecture-diagram.md)
 - [Technology Stack](tech-stack.md)
+- [Frontend API Contracts](frontend/README.md)
 - [Service Documentation](../05-services/)
 - [Roadmap](../09-appendix/roadmap.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26
