@@ -357,27 +357,9 @@ try
     // Add Rate Limiting (Testing uses permissive limits by default, can be hardened for dedicated tests)
     builder.Services.AddRateLimiter(options =>
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-        // DOC-01. A rejected request used to return 429 with an EMPTY body: RejectionStatusCode
-        // sets the status and nothing writes a payload. So the one response a client is most
-        // likely to need to handle programmatically was the only one carrying no errorCode, and
-        // scripts/verify-all.sh could not assert on it at all. Emit the same envelope as every
-        // other error, and advertise Retry-After when the limiter can tell us the window.
-        options.OnRejected = async (context, cancellationToken) =>
-        {
-            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-            {
-                context.HttpContext.Response.Headers.RetryAfter =
-                    ((int)retryAfter.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            await EShopProblem.WriteAsync(context.HttpContext, EShopProblem.Create(
-                context.HttpContext,
-                StatusCodes.Status429TooManyRequests,
-                detail: "Too many requests. Please retry later.",
-                errorCode: "Request.RateLimited"));
-        };
+        // DOC-01, since frontend-contracts F-05 shared by every component: problem+json with
+        // Request.RateLimited and Retry-After, rather than an empty 429.
+        options.UseEShopRejectionResponse();
 
         // Global rate limiter
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
@@ -429,7 +411,8 @@ try
             policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowCredentials()
+                  .WithEShopExposedHeaders();
         });
     });
 

@@ -255,7 +255,8 @@ try
             policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowCredentials()
+                  .WithEShopExposedHeaders();
         });
     });
 
@@ -278,7 +279,7 @@ try
 
     builder.Services.AddRateLimiter(options =>
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.UseEShopRejectionResponse();
 
         if (rateLimitingEnabled)
         {

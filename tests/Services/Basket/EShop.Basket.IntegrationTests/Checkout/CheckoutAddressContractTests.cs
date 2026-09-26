@@ -17,10 +17,11 @@ namespace EShop.Basket.IntegrationTests.Checkout;
 ///
 /// <para>
 /// Both requests below are 400s (the fixture's Redis holds no basket), so status alone cannot tell
-/// them apart. What does is <c>errorCode</c>: every answer from the checkout pipeline carries one
-/// (<c>Validation.Failed</c> or a <c>Basket.*</c> code), and a request that failed to bind never
-/// reaches that pipeline. The structured control proves the discriminator works; without it the string
-/// test could pass for the wrong reason.
+/// them apart. What does is <c>errorCode</c>: a request that failed to bind is <c>MalformedRequest</c>
+/// (frontend-contracts F-20; before that it was a bare 400 with no code at all), while every answer
+/// from the checkout pipeline carries <c>Validation.Failed</c> or a <c>Basket.*</c> code. The
+/// structured control proves the discriminator works; without it the string test could pass for the
+/// wrong reason.
 /// </para>
 /// </summary>
 [TestFixture]
@@ -42,8 +43,9 @@ public class CheckoutAddressContractTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest), body);
-        Assert.That(body, Does.Not.Contain("errorCode"),
-            "an errorCode means the string bound and reached the checkout pipeline — i.e. dual support is back");
+        Assert.That(ErrorCodeOf(body), Is.EqualTo("MalformedRequest"),
+            "any other errorCode means the string bound and reached the checkout pipeline — i.e. dual support is back");
+        Assert.That(body, Does.Contain("$.shippingAddress"), "the refusal names the member that failed to bind");
     }
 
     [Test]
@@ -66,8 +68,15 @@ public class CheckoutAddressContractTests
         });
         var body = await response.Content.ReadAsStringAsync();
 
-        Assert.That(body, Does.Contain("errorCode"),
+        var errorCode = ErrorCodeOf(body);
+        Assert.That(errorCode, Is.Not.Null.And.Not.EqualTo("MalformedRequest"),
             "the control must reach the checkout pipeline, or the string test proves nothing");
+    }
+
+    private static string? ErrorCodeOf(string body)
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        return json.RootElement.TryGetProperty("errorCode", out var code) ? code.GetString() : null;
     }
 
     private static HttpClient AuthenticatedClient(BasketApiFactory factory)

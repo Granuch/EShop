@@ -32,6 +32,11 @@ public static class ProblemErrorCodes
     public const string UpstreamUnavailable = "Gateway.UpstreamUnavailable";
 
     /// <summary>
+    /// A rejected request, from the gateway's limiter or any service's. Identity's value, kept as it was on the wire.
+    /// </summary>
+    public const string RateLimited = "Request.RateLimited";
+
+    /// <summary>
     /// A failure the gateway's traffic simulator injected rather than one that actually happened.
     /// Distinct on purpose: the simulated response has to be shaped like a real one for the
     /// simulation to be worth anything, so the error code is the only thing left that can tell an

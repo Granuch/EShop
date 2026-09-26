@@ -229,6 +229,23 @@ public sealed class AuditLogFanOutTests
         Assert.That(_factory.Services_.Requests, Is.Empty);
     }
 
+    /// <summary>
+    /// Frontend-contracts F-20. A value of the wrong type fails binding before the endpoint runs, and was a bare 400 with
+    /// an empty body; it is now problem+json like every other 400.
+    /// </summary>
+    [TestCase("?pageSize=abc")]
+    [TestCase("?from=yesterday")]
+    public async Task AnUnbindableQueryValue_IsAProblemJson400_AndNoServiceIsAsked(string query)
+    {
+        using var response = await GetAsync(Path + query);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("application/problem+json"));
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.That(body.RootElement.GetProperty("errorCode").GetString(), Is.EqualTo("MalformedRequest"));
+        Assert.That(_factory.Services_.Requests, Is.Empty);
+    }
+
     [Test]
     public void EverySource_NamesAClusterTheGatewayActuallyHas()
     {

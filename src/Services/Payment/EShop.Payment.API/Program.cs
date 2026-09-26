@@ -153,7 +153,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithEShopExposedHeaders();
     });
 });
 
@@ -169,7 +170,7 @@ var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Glo
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.UseEShopRejectionResponse();
 
     if (rateLimitingEnabled)
     {
@@ -204,11 +205,17 @@ builder.Services.AddOpenApi();
 // Payment audit Stage 10 (M6). Only a real conflict is a 409: a lost row-version race, or a unique index. Payment used to
 // map every DbUpdateException to 409, so a value too long for its column told the client to retry a request that could
 // never succeed. Any other persistence failure is now the generic 500, and is logged as one.
+//
+// ThrowOnBadRequest + AddMalformedJsonBody (frontend-contracts F-20): without them a malformed body, a missing body or
+// an unbindable query value is a bare 400 with an empty body outside Development, with no errorCode. The Stripe
+// webhook reads its raw body itself, so it binds nothing and is unaffected.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()
     .AddNotFound()
     .AddEfConcurrency()
-    .AddEfDuplicateKey());
+    .AddEfDuplicateKey()
+    .AddMalformedJsonBody());
 
 var app = builder.Build();
 

@@ -108,7 +108,8 @@ builder.Services.AddCors(options =>
         {
             policy.AllowAnyOrigin()
                 .AllowAnyMethod()
-                .AllowAnyHeader();
+                .AllowAnyHeader()
+                .WithEShopExposedHeaders();
             return;
         }
 
@@ -124,7 +125,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(origins)
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithEShopExposedHeaders();
     });
 });
 
@@ -133,7 +135,7 @@ builder.Services.AddRateLimiter(options =>
     var settings = builder.Configuration.GetSection(RateLimitingOptions.SectionName).Get<RateLimitingOptions>()
         ?? new RateLimitingOptions();
 
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.UseEShopRejectionResponse();
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: EShopForwardedHeaders.GetClientPartitionKey(context),
@@ -198,10 +200,15 @@ builder.Services.AddHealthChecks()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-// Fallback-only: the gateway proxies rather than executing domain logic, so it has never
-// mapped ValidationException/DomainException/UnauthorizedAccessException itself. Registering
+// The gateway proxies rather than executing domain logic, so it has never mapped
+// ValidationException/DomainException/UnauthorizedAccessException itself. Registering
 // AddCommon() here would silently reclassify a proxied UnauthorizedAccessException from 500.
-builder.Services.AddEShopProblemDetails();
+//
+// AddMalformedJsonBody() is the one branch it takes (frontend-contracts F-20), paired with ThrowOnBadRequest, for its
+// own endpoints: a query value of the wrong type on /api/v1/admin/audit was a bare 400 with an empty body.
+// BadHttpRequestException is always the client's fault, so the branch cannot reclassify a server failure.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+builder.Services.AddEShopProblemDetails(options => options.AddMalformedJsonBody());
 
 var app = builder.Build();
 

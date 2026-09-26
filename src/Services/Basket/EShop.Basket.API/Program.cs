@@ -126,13 +126,14 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithEShopExposedHeaders();
     });
 });
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.UseEShopRejectionResponse();
 
     // Partition on GetClientPartitionKey, not on RemoteIpAddress directly: the helper normalises
     // IPv4-mapped IPv6, so ::ffff:1.2.3.4 and 1.2.3.4 share one bucket instead of a dual-stack
@@ -162,7 +163,13 @@ builder.Services.AddOpenApi();
 
 // Basket has never had a NotFoundException branch - its 404s come from Result errors, mapped by
 // BasketEndpoints.StatusFor (Basket audit S8), not from exceptions. AddNotFound() is deliberately not registered.
-builder.Services.AddEShopProblemDetails(options => options.AddCommon());
+//
+// ThrowOnBadRequest + AddMalformedJsonBody (frontend-contracts F-20): without them a malformed body or an unbindable
+// query value is a bare 400 with an empty body outside Development, with no errorCode. Ordering's pairing.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+builder.Services.AddEShopProblemDetails(options => options
+    .AddCommon()
+    .AddMalformedJsonBody());
 
 var app = builder.Build();
 
