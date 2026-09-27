@@ -8,7 +8,8 @@ statistics and cache invalidation are also Catalog endpoints.
 endpoint in this file was checked against the C# source and the service's OpenAPI document, and called through the
 gateway on the compose `sandbox` stack. The 429 rows were re-verified at `5980146`, which fixed F-05, and `status`, `sortBy` and the export's `Status` at
 `30e1221`, which fixed F-01. The category endpoints, `PUT /products/{id}` and product restore were re-verified at
-`0132dcf`, which fixed F-37, F-38, F-39, F-40 and F-43. Shared rules
+`0132dcf`, which fixed F-37, F-38, F-39, F-40 and F-43. The gateway policies were re-verified at `3217d43`, which
+fixed F-08 and F-44. Shared rules
 (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
@@ -16,10 +17,10 @@ gateway on the compose `sandbox` stack. The 429 rows were re-verified at `598014
 | Path | Methods | Gateway policy | Audience |
 |---|---|---|---|
 | `/api/v1/products/**`, `/api/v1/categories/**` | GET, HEAD, OPTIONS | anonymous | Storefront (admins also see drafts) |
-| `/api/v1/products/**`, `/api/v1/categories/**` | POST, PUT, PATCH, DELETE | `Admin` role | Admin panel |
-| `/api/v1/products/deleted`, `/api/v1/products/export` | GET | `Admin` role | Admin panel |
-| `/api/v1/admin/catalog/**` | all | `Admin` role | Admin panel |
-| `/api/v1/admin/cache/**` | all | `Admin` role | Admin panel |
+| `/api/v1/products/**`, `/api/v1/categories/**` | POST, PUT, PATCH, DELETE | `AdminArea` | Admin panel |
+| `/api/v1/products/deleted`, `/api/v1/products/export`, `/api/v1/categories/{id}/stats` | GET | `AdminArea` | Admin panel |
+| `/api/v1/admin/catalog/**` | all | `AdminArea` | Admin panel |
+| `/api/v1/admin/cache/**` | all | `AdminArea` | Admin panel |
 
 Not routed through the gateway: Catalog's own `GET /api/v1/admin/audit` (see [admin-platform.md](admin-platform.md)).
 
@@ -275,17 +276,13 @@ The products **directly** in one category, paged. **200**
 
 ## Admin panel
 
-**Auth, both layers:** every endpoint in this section needs gateway **`Admin` role** · service **`Admin` role**
-(Catalog's `Admin` policy). Two endpoints break that pattern:
+**Auth, both layers:** every endpoint in this section needs gateway **`AdminArea`** (any permission,
+[conventions.md §5](conventions.md#5-permissions-and-admin-access)) · service **`Admin` role** (Catalog's `Admin`
+policy). One endpoint breaks that pattern: `POST /api/v1/admin/cache/invalidate` needs the permission
+**`system.manage`** at the service, not the `Admin` policy.
 
-- `POST /api/v1/admin/cache/invalidate` needs the permission **`system.manage`** at the service, not the `Admin`
-  policy (the gateway still asks the `Admin`-role question, as every `/api/v1/admin/**` route does).
-- `GET /api/v1/categories/{id}/stats` has **no dedicated gateway route**. It falls under the anonymous
-  `catalog-categories-read-route` (there is no `stats`-specific route the way there is for `/products/deleted` and
-  `/products/export`), so the gateway proxies it to Catalog whoever calls it. Only Catalog's own
-  `RequireAuthorization("Admin")` refuses it — which it does (401/403 observed, both through the gateway and
-  directly on :7004), so there is no live gap, but it is the one admin-only Catalog read the gateway itself does not
-  gate. (F-44)
+The three admin-only reads under the anonymous read prefixes, `GET /products/deleted`, `GET /products/export` and
+`GET /categories/{id}/stats`, each have their own gateway route that takes precedence over the anonymous one.
 
 Without a token the gateway answers 401; with a customer token it answers 403. Both have empty bodies. Catalog
 checks again when called directly: every admin endpoint in this section, `/categories/{id}/stats` included, answered
@@ -785,7 +782,7 @@ every row back, so the report is never a mix of real writes and fictitious ones.
 
 #### Bulk product actions
 
-`POST /api/v1/products/bulk/{publish, unpublish, delete, category, price}`. Gateway **`Admin` role** (the ordinary
+`POST /api/v1/products/bulk/{publish, unpublish, delete, category, price}`. Gateway **`AdminArea`** (the ordinary
 products write route) · service **`Admin` role**, rate limit **`bulk`**, gateway body cap the general **1 MiB**
 (1 000 GUIDs is well under it; only the import gets the larger cap).
 
@@ -848,7 +845,7 @@ same rule (`bulk/price`, a price at or below the product's own active discount):
 
 #### Product import
 
-`POST /api/v1/products/import`. Gateway **`Admin` role** (the ordinary products write route) · service **`Admin`
+`POST /api/v1/products/import`. Gateway **`AdminArea`** (the ordinary products write route) · service **`Admin`
 role**, rate limit **`bulk`**, gateway body cap **8 MiB** (the general 1 MiB cap does not apply here — large enough
 for 1 000 rows).
 
@@ -906,7 +903,7 @@ Two rows sharing a SKU (both refused, "rows 0, 1" listed in each):
 
 #### Product export
 
-`GET /api/v1/products/export`. Gateway **`Admin` role** — its **own** gateway route, at a lower `Order` than the
+`GET /api/v1/products/export`. Gateway **`AdminArea`** — its **own** gateway route, at a lower `Order` than the
 anonymous products-read route, the same pattern as `GET /products/deleted` — · service **`Admin` role**, rate limit
 **`bulk`**.
 
@@ -951,7 +948,7 @@ Id,Sku,Name,Description,CategoryId,Status,Price,DiscountPrice,StockQuantity,Main
 
 #### Low stock
 
-`GET /api/v1/admin/catalog/low-stock`. Gateway **`Admin` role** (`/api/v1/admin/catalog/**`) · service **`Admin`
+`GET /api/v1/admin/catalog/low-stock`. Gateway **`AdminArea`** (`/api/v1/admin/catalog/**`) · service **`Admin`
 role**. No named rate limit — only the global one.
 
 The admin dashboard's "what is running out" widget: `?StockBelow=` with an opinionated default and a fixed sort,
@@ -980,8 +977,8 @@ product that is out of stock is exactly what needs seeing before it is published
 
 #### Category statistics
 
-`GET /api/v1/categories/{id}/stats`. Gateway **anonymous** (see the ⚠ at the top of this section, F-44) · service
-**`Admin` role**.
+`GET /api/v1/categories/{id}/stats`. Gateway **`AdminArea`** — its **own** gateway route, ahead of the anonymous
+categories-read route, the same pattern as `GET /products/export` — · service **`Admin` role**.
 
 Per-category counts for the admin panel: **direct members only, not the whole subtree** — a recursive count would
 need the descendant closure on every call, and an admin reading a parent's row expects the number shown to match
@@ -1003,7 +1000,7 @@ what clicking into it shows. Deleted products and categories are excluded throug
 
 #### Cache
 
-`POST /api/v1/admin/cache/invalidate?family=<name>`. Gateway **`Admin` role** (`/api/v1/admin/cache/**`) · service
+`POST /api/v1/admin/cache/invalidate?family=<name>`. Gateway **`AdminArea`** (`/api/v1/admin/cache/**`) · service
 permission **`system.manage`** — the one endpoint in this file that needs a permission rather than the `Admin`
 policy.
 
@@ -1682,11 +1679,6 @@ export interface CacheInvalidationReport {
 
 > ⚠ **A 200 from a bulk action or the import is not "it worked"** — it is a per-row report, success and failure
 > mixed. Read `failed`/`items`/`rows` before telling the admin the action succeeded.
-
-> ⚠ **`GET /categories/{id}/stats` is the one admin-only Catalog read the gateway does not gate**: it falls under the
-> anonymous categories-read route, and only Catalog's own `Admin` check refuses an unauthorized caller. No live gap
-> was found (401/403 both observed), but a future change to the gateway's route table that assumes every
-> `/api/v1/categories/**` GET is safe to leave ungated would be wrong for this one path. (F-44)
 
 ---
 

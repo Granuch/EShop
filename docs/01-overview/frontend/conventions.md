@@ -15,7 +15,8 @@ no-body list ([§3.2](#32-responses-with-no-body)), 429s ([§3.5](#35-recommende
 F-04, F-05 and F-20. Enums ([§2](#enums), [§10](#enum-filters), [§11](#11-csv-downloads)) were re-verified at
 `30e1221`, which fixed F-01. Permissions ([§4](#claims-and-roles), [§5](#5-permissions-and-admin-access)), the role
 lists ([§6](#6-paging)) and Identity's dates ([§10](#dates-always-send-z)) were re-verified at `e2ec172`, which fixed F-07,
-F-12 and F-15.
+F-12 and F-15. The gateway route table ([§1](#gateway-route-table)) and its admin policy
+([§5](#5-permissions-and-admin-access)) were re-verified at `3217d43`, which fixed F-08, F-44 and F-45.
 Every rule here was checked against the source and observed live through the gateway on the docker compose
 `sandbox` stack. Where the code and this file disagree, the
 code wins; see [README](README.md#status).
@@ -54,25 +55,31 @@ The gateway (YARP) **does not rewrite paths**. The path you call on the gateway 
 ### Gateway route table
 
 A route's policy is the gateway's half of the authorization check. Each service then applies its own policy again; the
-service files list both. `{**}` also matches the bare prefix (for example `/api/v1/products` itself).
+service files list both. `{**}` also matches the bare prefix (for example `/api/v1/products` itself). `{id}` is one
+path segment. Where two rows match a path, the more specific one wins: the admin rows under `/api/v1/orders`,
+`/api/v1/payments` and `/api/v1/categories` are separate gateway routes that take precedence over their prefix's row.
+**`AdminArea`** means the caller holds at least one permission ([§5](#5-permissions-and-admin-access)).
 
 | Path | Methods | Service | Gateway policy |
 |---|---|---|---|
 | `/api/v1/auth/{**}` | all | Identity | anonymous |
 | `/api/v1/account/{**}` | all | Identity | signed in |
-| `/api/v1/admin/users/{**}` | all | Identity | `Admin` role |
-| `/api/v1/roles/{**}` | all | Identity | `Admin` role |
-| `/api/v1/products/deleted`, `/api/v1/products/export` | GET, HEAD | Catalog | `Admin` role |
+| `/api/v1/admin/users/{**}` | all | Identity | `AdminArea` |
+| `/api/v1/roles/{**}` | all | Identity | `AdminArea` |
+| `/api/v1/products/deleted`, `/api/v1/products/export`, `/api/v1/categories/{id}/stats` | GET, HEAD | Catalog | `AdminArea` |
 | `/api/v1/products/{**}`, `/api/v1/categories/{**}` | GET, HEAD, OPTIONS | Catalog | anonymous |
-| `/api/v1/products/{**}`, `/api/v1/categories/{**}` | POST, PUT, PATCH, DELETE | Catalog | `Admin` role |
-| `/api/v1/admin/catalog/{**}`, `/api/v1/admin/cache/{**}` | all | Catalog | `Admin` role |
-| `/api/v1/basket/admin/{**}` | all | Basket | `Admin` role |
+| `/api/v1/products/{**}`, `/api/v1/categories/{**}` | POST, PUT, PATCH, DELETE | Catalog | `AdminArea` |
+| `/api/v1/admin/catalog/{**}`, `/api/v1/admin/cache/{**}` | all | Catalog | `AdminArea` |
+| `/api/v1/basket/admin/{**}` | all | Basket | `AdminArea` |
 | `/api/v1/basket/{**}` | all | Basket | signed in |
-| `/api/v1/orders/{**}` | all | Ordering | signed in |
+| `/api/v1/orders` | GET, HEAD | Ordering | `AdminArea` |
+| `/api/v1/orders/stats`, `/api/v1/orders/{id}/notes`, `/{id}/history`, `/{id}/ship`, `/{id}/deliver` | all | Ordering | `AdminArea` |
+| `/api/v1/orders/{**}`: everything else, `POST /api/v1/orders` included | all | Ordering | signed in |
 | `/api/v1/users/{userId}/orders/{**}` | GET, HEAD, OPTIONS | Ordering | signed in |
-| `/api/v1/payments/{**}` | all | Payment | signed in |
+| `/api/v1/payments`, `/offline`, `/stats`, `/export`, `/simulation`, `/webhooks/{**}`, `/{id}/events`, `/{id}/refund` | all | Payment | `AdminArea` |
+| `/api/v1/payments/{**}`: everything else (`/create-intent`, `/{id}`) | all | Payment | signed in |
 | `/api/v1/users/{userId}/payments` | all | Payment | signed in |
-| `/api/v1/notifications/{**}` | all | Notification | `Admin` role |
+| `/api/v1/notifications/{**}` | all | Notification | `AdminArea` |
 | `/api/v1/admin/audit` | GET | the gateway itself | `audit.read` permission |
 | `/api/v1/admin/health`, `/api/v1/admin/settings`, `/api/v1/admin/feature-flags` | GET | the gateway itself | `system.manage` permission |
 
@@ -488,11 +495,16 @@ the long URI above, it is a string for one role but an array for several, and th
 
 Admin endpoints are authorized at **two layers**:
 
-1. **The gateway route policy.** This is anonymous, signed in, or the **`Admin` role** ([§1](#gateway-route-table)).
+1. **The gateway route policy.** This is anonymous, signed in, or **`AdminArea`** ([§1](#gateway-route-table)):
+   the caller holds **at least one** of the permissions below, through a role bundle or a `permission` claim. The
+   gateway does not know which permission an endpoint needs; it only turns away callers who hold none, such as a
+   customer.
 2. **The service policy.** This is the `Admin` role or a named **permission**, and it is checked again inside the service.
 
 A request needs both. Each endpoint in the service files lists the two, for example
-"gateway: `Admin` role · service: `notifications.read`".
+"gateway: `AdminArea` · service: `notifications.read`". A caller who passes the gateway but lacks the service's
+permission gets the service's 403; both layers answer 401 and 403 with an empty body, so a client cannot tell them
+apart and does not need to.
 
 ### The permission vocabulary
 
@@ -544,23 +556,23 @@ say which one each endpoint uses.
 
 | Screen | Gateway | Service |
 |---|---|---|
-| Users | `Admin` role | `users.read`; writes add `users.manage`; setting roles adds `roles.manage` |
-| Roles | `Admin` role | `Admin` role |
-| Products, categories, low stock | `Admin` role (writes, `/deleted`, `/export`, `/admin/catalog`) | `Admin` role |
-| Cache invalidation | `Admin` role | `system.manage` |
-| Orders (list, stats, notes, history, ship, deliver) | signed in | `Admin` role |
-| Payments (list, stats, export, events) | signed in | `payments.read` |
-| Payments (offline settle, webhook replay) | signed in | `payments.write` |
-| Payments (settle, refund, simulation) | signed in | `Admin` role |
-| Baskets (carts, abandoned) | `Admin` role | `baskets.read` |
-| Basket outbox | `Admin` role | `system.manage` (details) or `Admin` role (count, replay) |
-| Notifications | `Admin` role | `notifications.read` / `notifications.manage` |
+| Users | `AdminArea` | `users.read`; writes add `users.manage`; setting roles adds `roles.manage` |
+| Roles | `AdminArea` | `Admin` role |
+| Products, categories, low stock | `AdminArea` (writes, `/deleted`, `/export`, `/categories/{id}/stats`, `/admin/catalog`) | `Admin` role |
+| Cache invalidation | `AdminArea` | `system.manage` |
+| Orders (list, stats, notes, history, ship, deliver) | `AdminArea` | `Admin` role |
+| Payments (list, stats, export, events) | `AdminArea` | `payments.read` |
+| Payments (offline settle, webhook replay) | `AdminArea` | `payments.write` |
+| Payments (settle, refund, simulation) | `AdminArea` | `Admin` role |
+| Baskets (carts, abandoned) | `AdminArea` | `baskets.read` |
+| Basket outbox | `AdminArea` | `system.manage` (details) or `Admin` role (count, replay) |
+| Notifications | `AdminArea` | `notifications.read` / `notifications.manage` |
 | Audit log | the gateway itself | `audit.read` |
 | System (health, settings, flags) | the gateway itself | `system.manage` |
 
-> ⚠ The gateway requires the `Admin` **role** on `/api/v1/notifications`, `/api/v1/basket/admin`,
-> `/api/v1/admin/users`, `/api/v1/admin/catalog` and `/api/v1/admin/cache`. A future role granted only some
-> permissions would still be refused there by the gateway. (F-08)
+Today `AdminArea` and the `Admin` role admit the same people, because `Admin` is the only role with a bundle. A
+future role that bundles only some permissions passes the gateway on every admin path, and each service then admits it
+exactly where it holds the permission the endpoint names.
 
 ---
 

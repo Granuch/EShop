@@ -6,7 +6,7 @@ baskets and the checkout outbox's dead letters.
 **Verified at:** `ec600da` (`feature/admin-panel`, 2026-09-25). Basket's code, `BuildingBlocks` and the gateway have
 not changed since `105d647`. Every endpoint in this file was checked against the C# source and the service's
 OpenAPI document, and called through the gateway on the compose `sandbox` stack. The malformed-body answer was
-re-verified at `5980146`, which fixed F-20. Shared rules (errors, paging, rate limits, CORS) are in
+re-verified at `5980146`, which fixed F-20, and the admin gateway policy at `3217d43`, which fixed F-08. Shared rules (errors, paging, rate limits, CORS) are in
 [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
@@ -15,10 +15,10 @@ re-verified at `5980146`, which fixed F-20. Shared rules (errors, paging, rate l
 |---|---|---|---|---|
 | `/api/v1/basket/{userId}`, `/{userId}/items/**` | GET, HEAD | `Authenticated` | owner **or** admin | Storefront |
 | `/api/v1/basket/{userId}`, `/{userId}/items/**`, `/{userId}/checkout` | POST, PUT, DELETE | `Authenticated` | owner only | Storefront |
-| `/api/v1/basket/admin/carts`, `/abandoned` | GET | `Admin` role | `baskets.read` | Admin panel |
-| `/api/v1/basket/admin/outbox/dead-letters/details` | GET | `Admin` role | `system.manage` | Admin panel |
-| `/api/v1/basket/admin/outbox/dead-letters` | GET | `Admin` role | `Admin` role | Admin panel |
-| `/api/v1/basket/admin/outbox/dead-letters/replay` | POST | `Admin` role | `Admin` role | Admin panel |
+| `/api/v1/basket/admin/carts`, `/abandoned` | GET | `AdminArea` | `baskets.read` | Admin panel |
+| `/api/v1/basket/admin/outbox/dead-letters/details` | GET | `AdminArea` | `system.manage` | Admin panel |
+| `/api/v1/basket/admin/outbox/dead-letters` | GET | `AdminArea` | `Admin` role | Admin panel |
+| `/api/v1/basket/admin/outbox/dead-letters/replay` | POST | `AdminArea` | `Admin` role | Admin panel |
 
 Not routed through the gateway: Basket's own `GET /api/v1/admin/audit` does not exist — Basket has no database and
 is not part of the merged audit trail ([admin-platform.md](admin-platform.md)).
@@ -269,7 +269,7 @@ content is ever written by these endpoints.
 
 #### `GET /api/v1/basket/admin/carts`
 
-Every stored basket, a page at a time. **Gateway:** `Admin` role. **Service:** permission `baskets.read`. Source:
+Every stored basket, a page at a time. **Gateway:** `AdminArea`. **Service:** permission `baskets.read`. Source:
 `GetBasketsQuery`.
 
 **Query** [`BasketScanQuery`](#basketscanquery); both optional:
@@ -304,7 +304,7 @@ stored basket:
 
 #### `GET /api/v1/basket/admin/abandoned`
 
-Stored baskets nobody has changed for at least a given age. **Gateway:** `Admin` role. **Service:** permission
+Stored baskets nobody has changed for at least a given age. **Gateway:** `AdminArea`. **Service:** permission
 `baskets.read`. Source: `GetAbandonedBasketsQuery`.
 
 **Query**: `cursor`, `pageSize` as above, plus:
@@ -336,7 +336,7 @@ old enough yet:
 ### Outbox dead letters
 
 A dead letter is a checkout whose integration event could not be published after retrying for hours — an order
-Ordering never received. **Gateway:** `Admin` role for all three endpoints below.
+Ordering never received. **Gateway:** `AdminArea` for all three endpoints below.
 
 #### `GET /api/v1/basket/admin/outbox/dead-letters/details`
 

@@ -345,8 +345,11 @@ can drift out of sync with the code. `RolePermissionBundles` maps the existing `
 15 permissions. A caller is authorized for a permission if they present either an explicit
 `permission` claim **or** a role claim with a bundle that includes it — so every existing
 role-based token keeps working unmodified. `AddEShopPermissions()` is called in all seven
-components (the gateway and all six services). The gateway's route-level policy stays
-role-based (`Admin`); the service layer is where a permission is actually checked.
+components (the gateway and all six services). The service layer is where a permission is
+actually checked. The gateway's admin routes use one coarse policy, `AdminArea` ("holds at least
+one permission", by claim or bundle), rather than a role: until 2026-09-27 they required the
+`Admin` role, which would have turned away an operator whose role bundles only some permissions
+even where the service admits them (frontend-contracts F-08).
 
 ### Consequences
 
@@ -358,9 +361,11 @@ role-based (`Admin`); the service layer is where a permission is actually checke
 - Existing role-based tokens and the `Admin` role continue to work with no migration.
 
 **Negative:**
-- Two authorization layers (gateway role gate, service permission check) must now be kept
-  consistent by hand for every new admin endpoint; nothing enforces that a service-level
-  permission also gets a matching gateway-level route policy.
+- Two authorization layers (gateway `AdminArea` gate, service permission check) apply to every
+  admin endpoint. A new admin endpoint on a path the gateway proxies under a storefront route needs
+  its own `AdminArea` route; each service's integration suite checks that against the gateway's
+  shipped route table (`EveryAdminEndpoint_IsBehindTheGatewaysAdminGate`), so a missing one fails
+  the build.
 - No component issues a `permission` claim today. A client learns what it may do from the
   `permissions` list on the login response and on `GET /api/v1/account/profile`, which Identity
   derives from the caller's roles through the same `RolePermissionBundles` table the services
@@ -368,12 +373,11 @@ role-based (`Admin`); the service layer is where a permission is actually checke
   infer capabilities from `user.roles`.
 
 **Risks:**
-- **Realized, not merely theoretical**: Ordering's and Payment's entire admin surface, and
-  Catalog's `GET /categories/{id}/stats`, have a service-level permission/role check but no
-  matching gateway-level `Admin` route — the redundant defense-in-depth every other admin surface
-  gets is absent there. No live bypass has been found (the service backstops every case tried),
-  but the gap is structural, not just an unlucky endpoint. See
-  [Security Architecture — Permission Model](security-architecture.md#permission-model).
+- The gateway's gate is deliberately coarse: an operator holding any permission reaches every
+  admin service, and only the service's exact check stands between that operator and an endpoint
+  they lack the permission for. Ordering's and Payment's admin surfaces and Catalog's
+  `GET /categories/{id}/stats` had no gateway gate at all until 2026-09-27 (frontend-contracts
+  F-44, F-45). See [Security Architecture — Permission Model](security-architecture.md#permission-model).
 - A role deletion or role-membership change is not retroactive on an already-issued access token,
   and a deleted role's claim can persist in a cached role list for up to 5 minutes after deletion —
   a caller can act on a permission bundle they were just stripped of, for a bounded window.

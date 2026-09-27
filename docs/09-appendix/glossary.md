@@ -158,8 +158,8 @@ Reliability pattern for safely persisting and later publishing integration event
 
 ### Permission
 A fine-grained access right (`EShopPermissions`, 15 in total, e.g. `users.manage`,
-`payments.write`) checked by a service in addition to the gateway's coarser role-based route
-policy. The `Admin` role is bundled with all 15, so existing role-based tokens keep working; a
+`payments.write`) checked by a service in addition to the gateway's coarser `AdminArea` route
+policy, which only asks whether the caller holds any permission. The `Admin` role is bundled with all 15, so existing role-based tokens keep working; a
 caller can also be granted a single permission via a `permission` claim, though no component today
 issues one. A client reads what it holds from `permissions` on the login response and the profile. See
 [Security Architecture](../03-architecture/security-architecture.md#permission-model).

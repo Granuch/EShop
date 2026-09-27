@@ -6,20 +6,22 @@ email templates and a test send of each, and the operator actions retry, resend 
 **Verified at:** `0d87f3b` (`feature/admin-panel`, 2026-09-25). Notification's source has not changed since the
 `105d647` baseline. Every endpoint in this file was checked against the C# source and the service's OpenAPI document,
 and called through the gateway on the compose `sandbox` stack, with Mailpit as the mail server. The failure paths
-were produced for real: Mailpit was stopped (deliveries fail) and paused (a delivery hangs mid-attempt). Shared rules
+were produced for real: Mailpit was stopped (deliveries fail) and paused (a delivery hangs mid-attempt). The gateway
+policy was re-verified at `3217d43`, which fixed F-08. Shared rules
 (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
 
 | Path | Methods | Gateway policy | Service policy | Audience |
 |---|---|---|---|---|
-| `/api/v1/notifications`, `/stats`, `/{id}`, `/templates` | GET | `Admin` role | permission `notifications.read` | Admin panel |
-| `/api/v1/notifications/templates/{name}/test`, `/retry-failed`, `/{id}/resend`, `/{id}/mark-undeliverable` | POST | `Admin` role | permission `notifications.manage` | Admin panel |
+| `/api/v1/notifications`, `/stats`, `/{id}`, `/templates` | GET | `AdminArea` | permission `notifications.read` | Admin panel |
+| `/api/v1/notifications/templates/{name}/test`, `/retry-failed`, `/{id}/resend`, `/{id}/mark-undeliverable` | POST | `AdminArea` | permission `notifications.manage` | Admin panel |
 
-The gateway has one route for Notification, `/api/v1/notifications/**`, for every method, with the **`Admin` role**.
-So there are two different checks, and a request must pass both: the gateway asks for the role, Notification asks for
-the permission. A signed-in non-admin gets an empty 403 **from the gateway**; the request never reaches Notification
-(verified: Notification logged no 403 for it). Called directly, Notification answers the same 401/403 itself.
+The gateway has one route for Notification, `/api/v1/notifications/**`, for every method, with the **`AdminArea`**
+policy (any permission, [conventions.md §5](conventions.md#5-permissions-and-admin-access)). So there are two checks,
+and a request must pass both: the gateway asks whether the caller holds any permission, Notification asks for the one
+the endpoint names. A signed-in customer gets an empty 403 **from the gateway**; the request never reaches
+Notification (verified: Notification logged no 403 for it). Called directly, Notification answers the same 401/403 itself.
 
 Not routed through the gateway: Notification's own `GET /api/v1/admin/audit` (see
 [Not callable by clients](#not-callable-by-clients)).
@@ -128,8 +130,8 @@ to request a new one.
 
 ## Admin panel
 
-**Auth for every endpoint in this section:** gateway `Admin` role, then the service permission named per endpoint.
-Anonymous → 401 from the gateway; a signed-in non-admin → empty 403 from the gateway (verified on all eight).
+**Auth for every endpoint in this section:** gateway `AdminArea`, then the service permission named per endpoint.
+Anonymous → 401 from the gateway; a signed-in customer → empty 403 from the gateway (verified on all eight).
 
 **Audit:** the four actions (test send, retry-failed, resend, mark-undeliverable) each write one row to the audit
 trail, including refused and failed attempts. Read it through the gateway's merged
@@ -703,9 +705,6 @@ export interface RetryFailedNotificationsResult {
 
 > ⚠ **A query value of the wrong type is `MalformedRequest`**, with a `detail` about the request body on a GET that
 > has none. Validate numbers, booleans and dates on the client. (F-25)
-
-> ⚠ **A permission alone is not enough.** The gateway requires the `Admin` role on every Notification path, whatever
-> permission the caller holds. (F-08)
 
 > ⚠ **The OpenAPI document differs from the API in places.** It names query parameters in PascalCase (`PageNumber`),
 > gives `status` no enum values, marks `name` in the test-send body as required although it is optional, and lists a

@@ -53,7 +53,7 @@ Each service file has the same layout:
 5. **Frontend notes.** The ⚠ quirks, each with its finding id.
 
 Every endpoint states its auth at **both layers**: the gateway's route policy and the service's own policy or
-permission. For example, "gateway: `Admin` role · service: `notifications.read`". A request must pass both. See
+permission. For example, "gateway: `AdminArea` · service: `notifications.read`". A request must pass both. See
 [conventions.md §5](conventions.md#5-permissions-and-admin-access).
 
 **Names are wire names.** Tables and TypeScript use the camelCase names actually sent (`stockQuantity`). The C# type

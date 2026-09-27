@@ -4,7 +4,8 @@ Accounts, sign-in, tokens, two-factor authentication and the user's own profile,
 management screens.
 
 **Verified at:** `1fcb630` (`feature/admin-panel`, 2026-09-23); [Failed logins and lockout](#failed-logins-and-lockout) was re-verified after the F-28 fix, at `bb8c148`; the admin list's `sortBy` at `30e1221`, which fixed F-01; `permissions` on login and profile, the role lists and the
-admin date filters at `e2ec172`, which fixed F-07, F-12 and F-15. Every endpoint was checked against the C# source and
+admin date filters at `e2ec172`, which fixed F-07, F-12 and F-15; the gateway policies at `3217d43`, which fixed
+F-08. Every endpoint was checked against the C# source and
 the service's OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors,
 paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
@@ -14,8 +15,8 @@ paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not r
 |---|---|---|
 | `/api/v1/auth/**` | anonymous | Storefront |
 | `/api/v1/account/**` | signed in | Storefront |
-| `/api/v1/admin/users/**` | `Admin` role | Admin panel |
-| `/api/v1/roles/**` | `Admin` role | Admin panel |
+| `/api/v1/admin/users/**` | `AdminArea` | Admin panel |
+| `/api/v1/roles/**` | `AdminArea` | Admin panel |
 
 Not routed through the gateway: `GET /api/v1/users/{userId}/contact` and Identity's own `GET /api/v1/admin/audit`
 (see [Not callable by clients](#not-callable-by-clients)).
@@ -479,12 +480,13 @@ live for **15 minutes after the last failure**.
 
 | Endpoints | Gateway | Service |
 |---|---|---|
-| every `GET` | `Admin` role | `users.read` |
-| every write except roles | `Admin` role | `users.read` **and** `users.manage` |
-| `PUT /{id}/roles` | `Admin` role | `users.read` **and** `roles.manage` |
+| every `GET` | `AdminArea` | `users.read` |
+| every write except roles | `AdminArea` | `users.read` **and** `users.manage` |
+| `PUT /{id}/roles` | `AdminArea` | `users.read` **and** `roles.manage` |
 
-Without a token the gateway answers 401; with a non-admin token it answers 403 itself, and the request never reaches
-Identity (observed). Both have empty bodies. Identity checks the permissions again when called directly (403 observed
+Without a token the gateway answers 401; with a token holding no permission (a customer's) it answers 403 itself,
+and the request never reaches Identity (observed). `AdminArea` is "any permission"
+([conventions.md §5](conventions.md#5-permissions-and-admin-access)), so the exact permission is Identity's check. Both have empty bodies. Identity checks the permissions again when called directly (403 observed
 on port 7001).
 
 **Common to every `/{id}` endpoint:**
@@ -737,7 +739,7 @@ expire. Errors: 404 `User.NotFound`.
 
 ### Roles (`/api/v1/roles`)
 
-**Auth, both layers:** gateway `Admin` role · service `Admin` **role** (not a permission). 401 and 403 have empty
+**Auth, both layers:** gateway `AdminArea` · service `Admin` **role** (not a permission). 401 and 403 have empty
 bodies; for a customer, the gateway answers 403 itself.
 
 Two different identifiers are used:
@@ -1417,8 +1419,8 @@ export interface UserInRole {
 ## Frontend notes
 
 > **Admin navigation.** Show an admin screen when `user.permissions` holds the permission its endpoints need
-> ([conventions.md §5](conventions.md#what-an-admin-screen-needs)). The gateway still asks for the `Admin` role on most
-> admin routes (F-08), which today is the only role with permissions, so the two agree.
+> ([conventions.md §5](conventions.md#what-an-admin-screen-needs)). The gateway admits any caller holding at least one
+> permission to the admin routes and leaves the exact check to the service, so the list is the whole answer.
 
 > ⚠ **Failed logins.** After three failures a login is refused for a short, growing delay (2 s, then 4 s), and the
 > fifth failure locks the account for 10 minutes. On `Auth.TooManyAttempts`, show `detail` (it gives the real wait)

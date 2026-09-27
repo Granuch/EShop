@@ -91,9 +91,10 @@ is a summary, not a duplicate.**
 After Stripe confirms a payment, the order moves to `Paid` asynchronously through the webhook —
 the client polls the order, not the payment.
 
-Gateway and service policies control route protection. ⚠ Like Ordering, Payment's whole admin
-surface relies only on the service's own `Admin`/permission check — the gateway has no dedicated
-role-gated route for it (confirmed for all 9 admin endpoints, not a bypass).
+Gateway and service policies control route protection. Like Ordering's, each Payment admin
+endpoint has its own gateway route with the `AdminArea` policy, ahead of the storefront's
+`/api/v1/payments/**` route, and Payment checks the exact permission or the `Admin` role behind it
+(see [frontend/payment.md](../01-overview/frontend/payment.md#base-paths-through-the-gateway)).
 
 Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
 (`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).

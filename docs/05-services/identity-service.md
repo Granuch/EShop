@@ -86,11 +86,11 @@ section is a summary, not a duplicate.**
   `requires2FA` branch), refresh/revoke-token, confirm-email, forgot/reset-password.
 - **Account** (`/api/v1/account/*`, any signed-in user): profile GET/PUT, change-password,
   enable/verify/disable 2FA.
-- **Admin users** (`/api/v1/admin/users/*`, gateway `Admin` role, service `users.read`/
+- **Admin users** (`/api/v1/admin/users/*`, gateway `AdminArea`, service `users.read`/
   `users.manage`/`roles.manage`): list/stats/detail/roles/sessions, create/update, activate/
   deactivate/restore/lock/unlock, admin-initiated reset-password and confirm-email, disable-2FA,
   revoke-tokens, delete.
-- **Roles** (`/api/v1/roles/*`, gateway and service both `[Authorize(Roles="Admin")]`): CRUD plus
+- **Roles** (`/api/v1/roles/*`, gateway `AdminArea`, service `[Authorize(Roles="Admin")]`): CRUD plus
   membership add/remove. Its two list endpoints return a `PagedResult` (`pageNumber`/`pageSize`,
   default 50, at most 100).
 - **Internal**: `GET /api/v1/users/{userId}/contact` is not routed through the gateway; it is

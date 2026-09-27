@@ -54,11 +54,10 @@
 ### Gateway Layer
 **API Gateway (YARP)**
 - Routes requests to all backend services.
-- Enforces JWT-based policies (`Authenticated`, `Admin`) on protected routes; most admin routes
-  gate on the `Admin` role, and each service additionally checks a fine-grained permission
-  (`EShopPermissions`, e.g. `users.read`, `payments.write`) or a role-bundle claim — `Admin` holds
-  all 15. Ordering and Payment are the exception: their admin surface has no dedicated
-  gateway-level `Admin` route, only the service's own check (see
+- Enforces JWT-based policies (`Authenticated`, `AdminArea`) on protected routes; every admin
+  route, Ordering's and Payment's included, requires `AdminArea` (the caller holds at least one
+  permission), and each service additionally checks the exact permission (`EShopPermissions`,
+  e.g. `users.read`, `payments.write`) or the `Admin` role, whose bundle holds all 15 (see
   [Security Architecture](../03-architecture/security-architecture.md)).
 - Applies rate limiting and correlation middleware.
 - Exposes health and metrics endpoints, plus four endpoints it serves itself: a merged admin
@@ -96,7 +95,7 @@
 - Persists notification-related records in dedicated PostgreSQL database.
 - Subscribes to business events relevant to customer communication.
 - Also exposes its own admin HTTP API (journal list/stats/detail, templates, test-send,
-  retry-failed, resend, mark-undeliverable), gated by the gateway's `Admin` role and the
+  retry-failed, resend, mark-undeliverable), gated by the gateway's `AdminArea` policy and the
   service's own `notifications.read`/`notifications.manage` permissions.
 
 ### Messaging Layer

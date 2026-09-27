@@ -41,29 +41,32 @@ Gateway routes map API path patterns to service clusters defined in configuratio
 Common routed areas include:
 - `/api/v1/auth/*` -> identity (anonymous)
 - `/api/v1/account/*` -> identity (`Authenticated`)
-- `/api/v1/admin/users/*` -> identity (`Admin`)
-- `/api/v1/roles/*` -> identity (`Admin`)
-- `/api/v1/products/*` and `/api/v1/categories/*` -> catalog (writes `Admin`, reads anonymous — except
-  `GET /api/v1/products/deleted` and `GET /api/v1/products/export`, which have their own `Admin` routes at `Order: 19`
-  so they win over the anonymous read route at 21). The product import alone gets a larger request-body cap than the
+- `/api/v1/admin/users/*` -> identity (`AdminArea`)
+- `/api/v1/roles/*` -> identity (`AdminArea`)
+- `/api/v1/products/*` and `/api/v1/categories/*` -> catalog (writes `AdminArea`, reads anonymous — except
+  `GET /api/v1/products/deleted`, `GET /api/v1/products/export` and `GET /api/v1/categories/{id}/stats`, which have
+  their own `AdminArea` routes at `Order: 19` so they win over the anonymous read routes at 21). The product import alone gets a larger request-body cap than the
   rest of catalog (`CatalogProxy:ImportMaxRequestBodySizeBytes`, 8 MiB, against the general 1 MiB) because its largest
   legal request is several megabytes; the bulk actions fit the general cap and keep it.
-- `/api/v1/admin/catalog/*` -> catalog (`Admin`)
-- `/api/v1/basket/admin/*` -> basket (`Admin`; wins over the next route because its `Order` is lower)
+- `/api/v1/admin/catalog/*` -> catalog (`AdminArea`)
+- `/api/v1/basket/admin/*` -> basket (`AdminArea`; wins over the next route because its `Order` is lower)
 - `/api/v1/basket/*` -> basket
-- `/api/v1/orders/*` -> ordering (`Authenticated`; no dedicated `Admin` route for its own admin
-  paths — see the note below)
+- Ordering's admin paths -> ordering (`AdminArea`, one route each at `Order: 39`, ahead of the storefront route at
+  40): `GET /api/v1/orders` (the list; `POST` to the same path is a customer creating an order), `/api/v1/orders/stats`,
+  and `/api/v1/orders/{id}/notes`, `/history`, `/ship`, `/deliver`
+- `/api/v1/orders/*` -> ordering (`Authenticated`; the storefront)
 - `/api/v1/users/{userId}/orders` (GET/HEAD/OPTIONS only) -> ordering (`Authenticated`; the
   service checks same-user-or-admin)
-- `/api/v1/payments/*` -> payment (`Authenticated`; same no-dedicated-`Admin`-route gap as
-  Ordering). No proxy guard covers this prefix (a known, recorded hole — see the Middleware
-  Pipeline section)
+- Payment's admin paths -> payment (`AdminArea`, one route each at `Order: 39`): the bare `/api/v1/payments` (GET
+  lists, POST settles), `/offline`, `/stats`, `/export`, `/simulation`, `/webhooks/**`, and `/{id}/events`, `/{id}/refund`
+- `/api/v1/payments/*` -> payment (`Authenticated`; the storefront: `/create-intent` and `/{id}`). No proxy guard
+  covers this prefix (a known, recorded hole — see the Middleware Pipeline section)
 - `/api/v1/users/{userId}/payments` -> payment (`Authenticated`; same-user-or-admin, service-checked)
-- `/api/v1/notifications/*` -> notification (`Admin`)
+- `/api/v1/notifications/*` -> notification (`AdminArea`)
 - `/api/v1/admin/audit` -> **served by the gateway itself** (`audit.read`): it asks all five audited services for a
   page and merges them. Not a YARP route, so it is absent from the routing-table test and pinned by
   `AuditLog/AuditLogFanOutTests` instead. See [Admin Audit Trail](../03-architecture/audit-log.md).
-- `/api/v1/admin/cache/*` -> catalog (`Admin` here, `system.manage` in Catalog). The cache lever of the System page (admin
+- `/api/v1/admin/cache/*` -> catalog (`AdminArea` here, `system.manage` in Catalog). The cache lever of the System page (admin
   panel S19); Catalog is the only service with service-wide cache families. `CatalogProxyGuardMiddleware` covers the prefix.
 - `/api/v1/admin/health`, `/api/v1/admin/settings`, `/api/v1/admin/feature-flags` -> **served by the gateway itself**
   (`system.manage`), the rest of the System page:
@@ -81,17 +84,25 @@ Common routed areas include:
   `SystemAdmin/SystemEndpointsTests` pins their policy, and also pins `SystemFanOut.Sources` against the real cluster list
   in both directions.
 
-Authorization is applied per route where required (for example `Authenticated`, `Admin`).
+Authorization is applied per route where required (`Authenticated` or `AdminArea`).
 
 The gateway declares **no `FallbackPolicy`**, so a route added without an `AuthorizationPolicy` is
 anonymous and nothing fails. `Routes/GatewayRouteAuthorizationTests` pins the whole table for that
 reason: adding a route without listing its policy fails the build.
 
 Gateway authorization is defence in depth, not the enforcement point — every service re-checks the
-caller. Where the two differ deliberately, the gateway asks a *role* question and the service asks
-a *permission* question: `/api/v1/notifications/*` is `Admin` here and `notifications.read` (the
-journal) or `notifications.manage` (the operator actions) in Notification, and both must pass.
-`/api/v1/basket/admin/*` is the same: `Admin` here, `baskets.read` or `system.manage` in Basket.
+caller. On admin routes the gateway asks only **"does the caller hold any permission?"**
+(`AdminArea`, by a `permission` claim or a role bundle) and the service asks the exact question:
+`/api/v1/notifications/*` is `AdminArea` here and `notifications.read` (the journal) or
+`notifications.manage` (the operator actions) in Notification, and both must pass. Until
+2026-09-27 the gateway asked for the `Admin` role instead, which would have refused an operator
+whose role bundles only some permissions (frontend-contracts F-08); there is no `Admin` policy in
+the gateway any more.
+
+An admin endpoint under a storefront prefix needs its own `AdminArea` route with a lower `Order`,
+or it is proxied to any caller the storefront route admits. Each service's integration suite
+checks its admin endpoints against this file (`EveryAdminEndpoint_IsBehindTheGatewaysAdminGate`,
+via the shared `tests/Shared/GatewayAdminGate.cs`), so a missing route fails the build.
 
 ---
 
@@ -105,10 +116,11 @@ Gateway requires valid JWT configuration (`SecretKey`, `Issuer`, `Audience`) and
 
 Gateway defines route policies such as:
 - `Authenticated`
-- `Admin`
+- `AdminArea` — holds at least one EShop permission (`AdminAreaRequirement`, registered by
+  `AddEShopPermissions()`)
 - The gateway's own three endpoints (`/api/v1/admin/audit`, `/api/v1/admin/health`,
   `/api/v1/admin/settings`, `/api/v1/admin/feature-flags`) use the permission policies
-  `audit.read` and `system.manage` directly, rather than the `Admin` role — see
+  `audit.read` and `system.manage` directly — see
   [Route and Cluster Model](#route-and-cluster-model) above and
   [frontend/conventions.md](../01-overview/frontend/conventions.md#5-permissions-and-admin-access)
   for the full 15-permission model these compose with

@@ -10,7 +10,8 @@ against the C# source and the service's OpenAPI document, and called on the comp
 gateway, or directly on the service where the gateway does not route it. The card flow was run against the real
 Stripe test mode, with webhooks delivered by the Stripe CLI listener. `create-intent`'s resume and 409 wording were
 re-verified at `f507f85`, which fixed F-52. The malformed-request rows were re-verified at `5980146`, which fixed
-F-20, and the statuses (JSON, CSV and the 409 wording) at `30e1221`, which fixed F-01. Shared rules (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated
+F-20, and the statuses (JSON, CSV and the 409 wording) at `30e1221`, which fixed F-01. The gateway's admin routes
+were re-verified at `3217d43`, which fixed F-45. Shared rules (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated
 here.
 
 ## Base paths through the gateway
@@ -20,14 +21,16 @@ here.
 | `/api/v1/payments/create-intent` | POST | `Authenticated` | any signed-in user; the order must be theirs (admins: any order) | Storefront |
 | `/api/v1/payments/{id}` | GET | `Authenticated` | any signed-in user; someone else's payment is a 404 | Storefront (and admin) |
 | `/api/v1/users/{userId}/payments` | GET | `Authenticated` | the same user **or** the `Admin` role | Storefront |
-| `/api/v1/payments` (GET), `/stats`, `/export`, `/{id}/events` | GET | `Authenticated` | permission `payments.read` | Admin panel |
-| `/api/v1/payments/offline`, `/webhooks/failed/replay` | POST | `Authenticated` | permission `payments.write` | Admin panel |
-| `/api/v1/payments` (POST), `/{id}/refund`, `/simulation` | as listed per endpoint | `Authenticated` | `Admin` role | Admin panel |
+| `/api/v1/payments` (GET), `/stats`, `/export`, `/{id}/events` | GET | `AdminArea` | permission `payments.read` | Admin panel |
+| `/api/v1/payments/offline`, `/webhooks/failed/replay` | POST | `AdminArea` | permission `payments.write` | Admin panel |
+| `/api/v1/payments` (POST), `/{id}/refund`, `/simulation` | as listed per endpoint | `AdminArea` | `Admin` role | Admin panel |
 
-The gateway has two routes for Payment, `/api/v1/payments/**` and `/api/v1/users/{userId}/payments`, both for every
-method. **Both only check that a token is present.** Every admin decision is made by Payment itself; there is no
-gateway-level `Admin` gate in front of the admin endpoints (F-45). A customer gets 403 on every admin endpoint all the
-same (verified at both layers), but the 403 comes from Payment.
+The gateway has two storefront routes for Payment, `/api/v1/payments/**` and `/api/v1/users/{userId}/payments`, both for
+every method, which only check that a token is present. In front of them, each admin path has its own gateway route
+with the **`AdminArea`** policy ([conventions.md §5](conventions.md#5-permissions-and-admin-access)): the bare
+`/api/v1/payments` (GET lists, POST settles), `/offline`, `/stats`, `/export`, `/simulation`, `/webhooks/**`, and a
+payment's `/events` and `/refund`. That leaves `POST /create-intent` and `GET /{id}` as the storefront. A customer's
+call to an admin endpoint is an empty 403 **from the gateway**, and Payment checks the exact policy again behind it.
 
 Not routed through the gateway (see [Not callable by clients](#not-callable-by-clients)):
 - `POST /webhooks/stripe`, which Stripe calls server to server (the gateway answers 404);
@@ -272,9 +275,10 @@ The admin endpoints use **two authorization styles** (F-09):
 | simulator settle (`POST /payments`), refund, simulation | the **`Admin` role** (`payments.refund` exists but nothing uses it) |
 
 Today only the `Admin` role holds these permissions, so in practice every endpoint needs an admin
-([conventions.md §5](conventions.md#5-permissions-and-admin-access)). The gateway only checks for a token (F-45). An
-anonymous call is 401 from the gateway; a signed-in non-admin is an empty 403 from Payment, on every endpoint in this
-section (all verified at `0b7f826`). For a customer this includes the timeline of **their own** payment.
+([conventions.md §5](conventions.md#5-permissions-and-admin-access)). The gateway asks for `AdminArea` first. An anonymous
+call is 401 and a signed-in customer an empty 403, both from the gateway, on every endpoint in this section; a caller
+holding some permission but not the one an endpoint names passes the gateway and gets an empty 403 from Payment. For a
+customer this includes the timeline of **their own** payment.
 
 **Audit:** the simulator settle, offline settle, refund and webhook replay each write one row to the audit trail, with
 the outcome `Succeeded`, `Rejected` (for example a validation failure) or `Failed`. Read the trail through the

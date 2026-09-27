@@ -137,7 +137,7 @@ Images and attributes can be supplied inline on `POST /api/v1/products` (one tra
 a bad image rolls the whole product back), and images are separately editable through
 sub-resource endpoints (`POST`/`DELETE .../images`, `PUT .../images/{imageId}/main`) with
 `POST .../attributes` for attributes. All are `Admin`-only and covered by the gateway's
-existing products write route. See
+existing products write route (`AdminArea`). See
 [frontend/catalog.md](../01-overview/frontend/catalog.md#product-images) for exact shapes.
 
 Two enforcement details worth knowing:

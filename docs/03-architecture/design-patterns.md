@@ -186,8 +186,9 @@ Services expose health/readiness/liveness endpoints.
 
 ### 16) Layered Role and Permission Authorization
 
-Two authorization layers apply to every admin-panel request: a coarse role check at the API
-Gateway (route-level `Admin` policy) and a fine-grained permission check in the owning service
+Two authorization layers apply to every admin-panel request: a coarse check at the API
+Gateway (route-level `AdminArea` policy: the caller holds at least one permission) and a
+fine-grained permission check in the owning service
 (`EShopPermissions`, a named policy per permission; `Admin` bundles all 15). A caller satisfies the
 service-level check via either an explicit `permission` claim or an `Admin` role claim, so existing
 role-based tokens remain valid without reissue.
@@ -197,9 +198,10 @@ role-based tokens remain valid without reissue.
   reworking existing tokens or the gateway route table.
 
 **Risks**
-- The two layers can drift: a service can add a permission check without the gateway gaining a
-  matching route-level gate (Ordering's and Payment's whole admin surface, and Catalog's category
-  stats endpoint, currently rely on the service check alone — see
+- The two layers can drift: a service can add an admin endpoint under a storefront prefix without
+  the gateway gaining a matching `AdminArea` route. Each service's integration suite now checks its
+  admin endpoints against the gateway's route table, which is what caught up Ordering's and
+  Payment's admin surfaces and Catalog's category stats (see
   [Security Architecture](security-architecture.md#permission-model)).
 
 ---

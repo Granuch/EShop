@@ -178,9 +178,10 @@ Kubernetes probe fail in a way that looks like the service being unhealthy.
 ### Gateway route
 
 `/api/v1/notifications/{**catch-all}` → `notification-cluster`
-(`http://notification-api:8080/`), `AuthorizationPolicy: Admin`, behind
-`NotificationProxyGuardMiddleware` for the request-body cap and the 502→503 rewrite. The gateway's
-role check and the service's permission check are two different questions and both must pass.
+(`http://notification-api:8080/`), `AuthorizationPolicy: AdminArea`, behind
+`NotificationProxyGuardMiddleware` for the request-body cap and the 502→503 rewrite. The gateway
+asks whether the caller holds any permission; the service asks for the one each endpoint names;
+both must pass.
 
 Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
 (`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).

@@ -8,7 +8,7 @@ have not changed since `105d647`. Every endpoint in this file was checked agains
 OpenAPI document, and called through the gateway on the compose `sandbox` stack. Shared rules (errors, paging, rate
 limits, CORS) are in [conventions.md](conventions.md) and are not repeated here. The item endpoints' effect on payment
 (F-47) was re-verified at `d29a520`, which fixed it, and every enum (`status`, `groupBy`, `fromStatus`/`toStatus`)
-at `30e1221`, which fixed F-01.
+at `30e1221`, which fixed F-01. The gateway's admin routes were re-verified at `3217d43`, which fixed F-45.
 
 ## Base paths through the gateway
 
@@ -17,13 +17,15 @@ at `30e1221`, which fixed F-01.
 | `/api/v1/orders` | POST | `Authenticated` | any signed-in user | Storefront |
 | `/api/v1/orders/{id}`, `/{id}/items/**`, `/{id}/shipping-address`, `/{id}/cancel` | GET, POST, PUT, DELETE | `Authenticated` | the order's owner **or** the `Admin` role | Storefront (and admin) |
 | `/api/v1/users/{userId}/orders` | GET | `Authenticated` | the same user **or** the `Admin` role | Storefront |
-| `/api/v1/orders` (GET), `/orders/stats`, `/{id}/notes`, `/{id}/history`, `/{id}/ship`, `/{id}/deliver` | as listed per endpoint | `Authenticated` | `Admin` role | Admin panel |
+| `/api/v1/orders` (GET), `/orders/stats`, `/{id}/notes`, `/{id}/history`, `/{id}/ship`, `/{id}/deliver` | as listed per endpoint | `AdminArea` | `Admin` role | Admin panel |
 
-The gateway has two routes for Ordering: `/api/v1/orders/**` (every method) and `/api/v1/users/{userId}/orders/**`
-(GET, HEAD and OPTIONS only; POST, PUT and DELETE answer **405** at the gateway, and HEAD answers 405 from Ordering).
-**Both only check that a token is present.** Every admin decision is made by the service itself; unlike Identity, Basket, Notification and most of
-Catalog, there is no gateway-level `Admin` gate in front of Ordering's admin endpoints (F-45). The practical result is
-the same (a customer gets 403 on every admin endpoint, verified at both layers), but the 403 comes from Ordering.
+The gateway has two storefront routes for Ordering, `/api/v1/orders/**` (every method) and
+`/api/v1/users/{userId}/orders/**` (GET, HEAD and OPTIONS only; POST, PUT and DELETE answer **405** at the gateway,
+and HEAD answers 405 from Ordering), which only check that a token is present. In front of them, each admin path has
+its own gateway route with the **`AdminArea`** policy ([conventions.md §5](conventions.md#5-permissions-and-admin-access)):
+`GET /api/v1/orders` (the admin list; `POST` to the same path stays a storefront call), `/orders/stats`, and an
+order's `/notes`, `/history`, `/ship` and `/deliver`. So a customer's call to an admin endpoint is an empty 403 **from
+the gateway**, and Ordering checks the `Admin` role again behind it.
 
 Not routed through the gateway: Ordering's own `GET /api/v1/admin/settings` and `GET /api/v1/admin/audit` (see
 [Not callable by clients](#not-callable-by-clients)).
@@ -350,9 +352,10 @@ by event ([payment.md](payment.md)).
 ## Admin panel
 
 Every endpoint in this section needs the **`Admin` role** at the service (`RequireRole("Admin")`, not a permission, so
-a permission bundle without the role does not help). The gateway only checks for a token (F-45). An anonymous call is
-401 from the gateway; a signed-in non-admin is an empty 403 from Ordering. For a customer, this includes the notes and
-history of **their own** order.
+a permission bundle without the role does not help). The gateway asks for `AdminArea` first. An anonymous call is 401
+and a signed-in customer an empty 403, both from the gateway; a caller holding some other permission but not the role
+passes the gateway and gets an empty 403 from Ordering. For a customer, this includes the notes and history of **their
+own** order.
 
 An admin can also call every storefront endpoint above for any order: the owner checks let the `Admin` role through.
 

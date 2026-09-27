@@ -22,8 +22,6 @@ This repository is backend-focused. Roadmap items prioritize backend architectur
   everyone else's `Service.Reason`); see the frontend contracts' findings for the current list.
 - strengthen cross-service workflow regression coverage
 - reduce integration friction for clients
-- close the gateway-level `Admin` route gap on Ordering's and Payment's admin surfaces, so every
-  service gets the same defense-in-depth the gateway provides everywhere else
 
 ### 1a) Client integration
 - wire `ui/` (currently an unintegrated Next.js scaffold — no `fetch` calls, no API client) against

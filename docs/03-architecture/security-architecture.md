@@ -60,9 +60,15 @@ claim — existing role-based tokens keep working with no re-issue needed. `AddE
 called in all seven components (gateway + six services).
 
 Two layers apply independently and both must pass:
-- **Gateway layer**: most admin routes require the `Admin` role at the route level
-  (`AuthorizationPolicy: Admin` in the YARP route table). This is a coarse, role-only gate — the
-  gateway does not evaluate permissions.
+- **Gateway layer**: every admin route requires `AdminArea` at the route level
+  (`AuthorizationPolicy: AdminArea` in the YARP route table): the caller must hold **at least one**
+  permission, by a `permission` claim or a role bundle. This is a coarse gate — the gateway does not
+  know which permission an endpoint needs and leaves that to the service. Admin paths under a
+  storefront prefix (Ordering's list, stats, notes, history, ship and deliver; Payment's list,
+  settle, offline, stats, export, simulation, webhook replay, events and refund; Catalog's
+  `/products/deleted`, `/products/export` and `/categories/{id}/stats`) have their own routes that
+  take precedence over the storefront route by `Order`. There is no gateway `Admin` role policy any
+  more (frontend-contracts F-08, F-44, F-45, fixed 2026-09-27).
 - **Service layer**: the service re-checks, either a specific permission (Identity's admin-users
   endpoints: `users.read`/`users.manage`/`roles.manage`; Payment's read/write endpoints:
   `payments.read`/`payments.write`; Notification's: `notifications.read`/`notifications.manage`;
@@ -72,12 +78,11 @@ Two layers apply independently and both must pass:
   endpoints).
 
 **Known gaps, not yet fixed (docs-only findings, tracked for a decision):**
-- **No gateway-level `Admin` gate on Ordering's or Payment's entire admin surface.** Both route
-  through one catch-all per-service route with policy `Authenticated`; the admin/non-admin
-  decision is made entirely by the service. No live bypass has been found (every admin endpoint
-  of both services correctly answers 401/403 whether the gateway or the service is hit directly),
-  but the redundant gateway-level check every other admin surface in this platform gets is absent
-  here. Catalog's `GET /categories/{id}/stats` has the same single-endpoint gap.
+- **A new admin endpoint under a storefront prefix needs its own gateway route.** The storefront
+  catch-alls (`/api/v1/orders/**`, `/api/v1/payments/**`, the anonymous Catalog reads) still admit
+  any signed-in (or any) caller. Each service's integration suite reads the gateway's shipped route
+  table and fails if one of its admin endpoints lands on a route without `AdminArea`
+  (`EveryAdminEndpoint_IsBehindTheGatewaysAdminGate`), so the gap cannot reopen silently.
 - **Permissions are reported, not carried.** Access tokens carry no `permission` claim. The login
   response's `user.permissions` and `GET /api/v1/account/profile`'s `permissions` list what the
   caller's roles grant, computed from the same `RolePermissionBundles` table the services

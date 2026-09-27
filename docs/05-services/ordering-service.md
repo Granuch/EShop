@@ -76,10 +76,9 @@ section is a summary, not a duplicate.**
   list (name-only status filter), stats (buckets and window totals), notes (add/list), status
   history (with the actor), ship, deliver.
 
-⚠ **Ordering's whole admin surface relies only on the service's own `Admin` check — the gateway
-has no dedicated role-gated route for it**, unlike Identity/Basket/Notification/most of Catalog
-(confirmed for all 6 admin endpoints, not a bypass — see
-[frontend/ordering.md](../01-overview/frontend/ordering.md#frontend-notes)).
+Each admin endpoint has its own gateway route with the `AdminArea` policy, ahead of the
+storefront's `/api/v1/orders/**` route, and Ordering checks the `Admin` role again behind it (see
+[frontend/ordering.md](../01-overview/frontend/ordering.md#base-paths-through-the-gateway)).
 
 Exact route exposure is mediated by gateway policy and service authorization rules.
 
