@@ -51,14 +51,17 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
             return Task.CompletedTask;
         }
 
-        if (HasDirectGrant(context.User, requirement.Permission)
-            || HasRoleGrant(context.User, requirement.Permission))
+        if (Holds(context.User, requirement.Permission))
         {
             context.Succeed(requirement);
         }
 
         return Task.CompletedTask;
     }
+
+    /// <summary>Whether <paramref name="user"/> holds <paramref name="permission"/>, by claim or by role bundle.</summary>
+    internal static bool Holds(ClaimsPrincipal user, string permission)
+        => HasDirectGrant(user, permission) || HasRoleGrant(user, permission);
 
     // Ordinal: a permission is an identifier, not prose. "Catalog.Write" is not "catalog.write",
     // and quietly treating them as the same would make the vocabulary's spelling unenforceable.

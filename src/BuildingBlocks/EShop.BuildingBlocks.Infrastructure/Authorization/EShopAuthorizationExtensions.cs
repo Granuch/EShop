@@ -18,7 +18,8 @@ namespace EShop.BuildingBlocks.Infrastructure.Authorization;
 public static class EShopAuthorizationExtensions
 {
     /// <summary>
-    /// Registers the permission handler and a policy per <see cref="EShopPermissions.All"/> entry.
+    /// Registers the permission handlers, a policy per <see cref="EShopPermissions.All"/> entry, and the
+    /// <see cref="AdminAreaRequirement.PolicyName"/> policy ("holds any permission", the gateway's admin gate).
     /// Safe to call alongside an existing <c>AddAuthorization</c> block: policies are additive and
     /// named for the permission, so nothing already registered is replaced.
     /// </summary>
@@ -26,6 +27,7 @@ public static class EShopAuthorizationExtensions
     {
         // Stateless, so a singleton — see PermissionAuthorizationHandler's remarks on Ordering H1.
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddSingleton<IAuthorizationHandler, AdminAreaAuthorizationHandler>();
 
         services.AddAuthorization(options => options.AddEShopPermissionPolicies());
 
@@ -33,7 +35,8 @@ public static class EShopAuthorizationExtensions
     }
 
     /// <summary>
-    /// Adds one policy per permission, named for the permission itself. Exposed separately so a
+    /// Adds one policy per permission, named for the permission itself, plus
+    /// <see cref="AdminAreaRequirement.PolicyName"/>. Exposed separately so a
     /// component that already builds its <c>AddAuthorization</c> options in one place can keep
     /// doing so.
     /// </summary>
@@ -43,6 +46,8 @@ public static class EShopAuthorizationExtensions
         {
             options.AddPolicy(permission, policy => policy.AddRequirements(new PermissionRequirement(permission)));
         }
+
+        options.AddPolicy(AdminAreaRequirement.PolicyName, policy => policy.AddRequirements(new AdminAreaRequirement()));
 
         return options;
     }

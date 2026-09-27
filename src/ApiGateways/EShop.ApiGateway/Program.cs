@@ -89,12 +89,13 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Authenticated", policy => policy.RequireAuthenticatedUser());
-    options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
 });
 
 // Decision Q4c: one policy per permission, resolved from the caller's roles through
-// RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
-// the Admin role bundles every permission, so no existing caller loses access.
+// RolePermissionBundles, plus AdminArea ("holds any permission"). Every admin YARP route uses
+// AdminArea rather than the Admin role (frontend-contracts F-08/F-45): the gateway asks whether the
+// caller is an operator at all, and the service asks the exact question. There is deliberately no
+// "Admin" policy here any more, so a route that names it fails YARP's config validation at startup.
 builder.Services.AddEShopPermissions();
 
 builder.Services.AddCors(options =>

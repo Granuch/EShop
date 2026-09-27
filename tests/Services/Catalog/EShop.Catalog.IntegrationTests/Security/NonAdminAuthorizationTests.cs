@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using EShop.Tests.Shared;
 
 namespace EShop.Catalog.IntegrationTests.Security;
 
@@ -286,4 +287,23 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/categories/{id:guid}" => new UpdateCategoryRequest { Id = _categoryId, Name = "Renamed" },
         _ => null
     };
+
+    /// <summary>
+    /// frontend-contracts R6 (F-08, F-45). Every admin-only endpoint here must be refused at the gateway too: either it
+    /// is not proxied at all, or the YARP route it lands on carries <c>AdminArea</c>. This reads the gateway's shipped
+    /// <c>appsettings.json</c>, so a new admin endpoint on a path the gateway proxies under a storefront route fails
+    /// here until the gateway gains a route for it. Catalog's <c>/categories/{id}/stats</c> was the one that slipped
+    /// (F-44). The unrouted list is what the gateway serves itself or fans out to directly, never through a YARP route.
+    /// </summary>
+    [Test]
+    public void EveryAdminEndpoint_IsBehindTheGatewaysAdminGate()
+    {
+        var report = GatewayAdminGate.Check(Factory.Services);
+
+        Assert.That(report.Violations, Is.Empty);
+        Assert.That(
+            report.AdminEndpoints.Except(report.Routed),
+            Is.EquivalentTo(new[] { "GET /api/v1/admin/audit" }),
+            "an admin endpoint the gateway does not proxy, other than these, means a route stopped matching its path");
+    }
 }

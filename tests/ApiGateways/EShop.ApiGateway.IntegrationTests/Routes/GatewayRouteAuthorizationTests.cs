@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using EShop.ApiGateway.IntegrationTests.Fixtures;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
 
@@ -39,35 +40,53 @@ public sealed class GatewayRouteAuthorizationTests
     {
         ["identity-route"] = null,
         ["identity-account-route"] = "Authenticated",
-        ["identity-roles-route"] = "Admin",
+        ["identity-roles-route"] = "AdminArea",
         // G1 (Admin panel S6). Everything under /api/v1/admin is admin-only whatever the method.
-        ["admin-users-route"] = "Admin",
-        ["catalog-products-write-route"] = "Admin",
+        ["admin-users-route"] = "AdminArea",
+        ["catalog-products-write-route"] = "AdminArea",
         ["catalog-products-read-route"] = null,
         // Admin panel S4. The one admin-only GET under a prefix whose read route is anonymous; it
         // wins only because its Order (19) is lower than the read route's (21).
-        ["catalog-products-deleted-route"] = "Admin",
+        ["catalog-products-deleted-route"] = "AdminArea",
         // Admin panel S16. The CSV export — the second admin-only GET under the anonymous read prefix, winning by the
         // same Order (19 < 21).
-        ["catalog-products-export-route"] = "Admin",
+        ["catalog-products-export-route"] = "AdminArea",
         // G2. Everything under /api/v1/admin is admin-only whatever the method.
-        ["admin-catalog-route"] = "Admin",
+        ["admin-catalog-route"] = "AdminArea",
         // Admin panel S19 (#88). Catalog's cache lever. The role question here, system.manage in Catalog — as every YARP
         // admin route does it. The System page's other three paths are gateway endpoints, not routes, so they are not here.
-        ["admin-cache-route"] = "Admin",
-        ["catalog-categories-write-route"] = "Admin",
+        ["admin-cache-route"] = "AdminArea",
+        ["catalog-categories-write-route"] = "AdminArea",
         ["catalog-categories-read-route"] = null,
+        // F-44 (frontend-contracts R6). The one admin GET under the anonymous categories prefix; it wins by Order (19 < 21).
+        ["catalog-categories-stats-route"] = "AdminArea",
         // Admin panel S14. /api/v1/basket/admin/** is admin-only; it wins over basket-route only because its Order (29)
         // is lower than basket-route's (30).
-        ["basket-admin-route"] = "Admin",
+        ["basket-admin-route"] = "AdminArea",
         ["basket-route"] = "Authenticated",
         ["orders-route"] = "Authenticated",
         ["payments-route"] = "Authenticated",
+        // F-45 (frontend-contracts R6). Ordering's and Payment's admin endpoints, each winning over its service's
+        // storefront catch-all (Order 40) by Order 39. The catch-alls stay Authenticated for the storefront.
+        ["ordering-admin-list-route"] = "AdminArea",
+        ["ordering-admin-stats-route"] = "AdminArea",
+        ["ordering-admin-notes-route"] = "AdminArea",
+        ["ordering-admin-history-route"] = "AdminArea",
+        ["ordering-admin-ship-route"] = "AdminArea",
+        ["ordering-admin-deliver-route"] = "AdminArea",
+        ["payment-admin-root-route"] = "AdminArea",
+        ["payment-admin-offline-route"] = "AdminArea",
+        ["payment-admin-stats-route"] = "AdminArea",
+        ["payment-admin-export-route"] = "AdminArea",
+        ["payment-admin-simulation-route"] = "AdminArea",
+        ["payment-admin-webhooks-route"] = "AdminArea",
+        ["payment-admin-events-route"] = "AdminArea",
+        ["payment-admin-refund-route"] = "AdminArea",
         ["ordering-user-orders-route"] = "Authenticated",
         ["payment-user-payments-route"] = "Authenticated",
         // G3 (Admin panel S12). The notification delivery journal — the whole surface is operational, so there is no
         // anonymous read to carve out as there is under /api/v1/products.
-        ["notifications-route"] = "Admin"
+        ["notifications-route"] = "AdminArea"
     };
 
     [OneTimeSetUp]
@@ -137,7 +156,7 @@ public sealed class GatewayRouteAuthorizationTests
             .Where(p => !string.IsNullOrEmpty(p))
             .Distinct(StringComparer.Ordinal);
 
-        Assert.That(declared, Is.SubsetOf(new[] { "Authenticated", "Admin" }));
+        Assert.That(declared, Is.SubsetOf(new[] { "Authenticated", AdminAreaRequirement.PolicyName }));
     }
 
     // ---------- behavioural ----------
@@ -153,7 +172,7 @@ public sealed class GatewayRouteAuthorizationTests
     public async Task AnAdminRoute_RefusesASignedInNonAdmin_WithForbidden()
     {
         // The half that matters: a suite that only ever signs in as Admin cannot tell
-        // RequireRole("Admin") from RequireAuthenticatedUser().
+        // AdminArea from RequireAuthenticatedUser().
         Assert.That(await Send(HttpMethod.Get, "/api/v1/roles", RouteAuthorizationApiFactory.UserToken()),
             Is.EqualTo(HttpStatusCode.Forbidden));
     }
@@ -236,8 +255,8 @@ public sealed class GatewayRouteAuthorizationTests
     public async Task TheNotificationJournal_IsAdminOnly()
     {
         // Admin panel S12 added notification-cluster and this route together. Notification itself requires the
-        // notifications.read permission, so the gateway's role check and the service's permission check are two
-        // different questions; this asserts the gateway half.
+        // notifications.read permission and the gateway asks only for AdminArea (any permission); this asserts the
+        // gateway half.
         Assert.That(await Send(HttpMethod.Get, "/api/v1/notifications", token: null),
             Is.EqualTo(HttpStatusCode.Unauthorized));
         Assert.That(await Send(HttpMethod.Get, "/api/v1/notifications", RouteAuthorizationApiFactory.UserToken()),
@@ -283,7 +302,8 @@ public sealed class GatewayRouteAuthorizationTests
                  {
                      "/api/v1/account/profile",
                      "/api/v1/basket/user-1",
-                     "/api/v1/orders",
+                     // Not the bare /api/v1/orders: a GET there is the admin list (R6, ordering-admin-list-route).
+                     "/api/v1/orders/00000000-0000-0000-0000-000000000001",
                      "/api/v1/payments/00000000-0000-0000-0000-000000000001",
                      "/api/v1/users/user-1/orders",
                      "/api/v1/users/user-1/payments"
@@ -348,5 +368,126 @@ public sealed class GatewayRouteAuthorizationTests
         Assert.That(await Send(HttpMethod.Post, path, token: null), Is.EqualTo(HttpStatusCode.Unauthorized));
         Assert.That(await Send(HttpMethod.Post, path, RouteAuthorizationApiFactory.UserToken()), Is.EqualTo(HttpStatusCode.Forbidden));
         AssertReachedProxy(await Send(HttpMethod.Post, path, RouteAuthorizationApiFactory.AdminToken()), "an admin pulling the cache lever");
+    }
+
+    // ---------- AdminArea (frontend-contracts R6: F-08, F-44, F-45) ----------
+
+    private const string AnId = "00000000-0000-0000-0000-000000000001";
+
+    /// <summary>
+    /// F-45. Every Ordering and Payment admin endpoint, as a sample path. Before R6 each landed on its service's
+    /// storefront catch-all, which asks only for a token, so a customer was proxied through and only the service said no.
+    /// </summary>
+    private static readonly (string Method, string Path)[] OrderingAndPaymentAdminPaths =
+    [
+        ("GET", "/api/v1/orders"),
+        ("GET", "/api/v1/orders/stats"),
+        ("GET", $"/api/v1/orders/{AnId}/notes"),
+        ("POST", $"/api/v1/orders/{AnId}/notes"),
+        ("GET", $"/api/v1/orders/{AnId}/history"),
+        ("POST", $"/api/v1/orders/{AnId}/ship"),
+        ("POST", $"/api/v1/orders/{AnId}/deliver"),
+        ("GET", "/api/v1/payments"),
+        ("POST", "/api/v1/payments"),
+        ("POST", "/api/v1/payments/offline"),
+        ("GET", "/api/v1/payments/stats"),
+        ("GET", "/api/v1/payments/export"),
+        ("GET", "/api/v1/payments/simulation"),
+        ("POST", "/api/v1/payments/webhooks/failed/replay"),
+        ("GET", $"/api/v1/payments/{AnId}/events"),
+        ("POST", $"/api/v1/payments/{AnId}/refund")
+    ];
+
+    [Test]
+    public async Task OrderingAndPaymentAdminPaths_RefuseACustomer_AtTheGateway()
+    {
+        foreach (var (method, path) in OrderingAndPaymentAdminPaths)
+        {
+            Assert.That(await Send(new HttpMethod(method), path, token: null), Is.EqualTo(HttpStatusCode.Unauthorized),
+                $"{method} {path}");
+            Assert.That(await Send(new HttpMethod(method), path, RouteAuthorizationApiFactory.UserToken()),
+                Is.EqualTo(HttpStatusCode.Forbidden), $"{method} {path}");
+        }
+
+        // One admin pass per service is enough here: every one of these routes is pinned to AdminArea by
+        // EveryApiRoute_IsListedHere_WithItsPolicy, and each proxied request costs seconds against the unresolvable
+        // test destination.
+        AssertReachedProxy(await Send(HttpMethod.Get, "/api/v1/orders/stats", RouteAuthorizationApiFactory.AdminToken()),
+            "an admin reading order stats");
+        AssertReachedProxy(await Send(HttpMethod.Post, $"/api/v1/payments/{AnId}/refund", RouteAuthorizationApiFactory.AdminToken()),
+            "an admin refunding a payment");
+    }
+
+    [Test]
+    public async Task OrderingAndPaymentStorefrontPaths_StillAdmitACustomer()
+    {
+        // The other side of the split: the admin routes match their own paths only, so the storefront beside them keeps
+        // the catch-all's Authenticated policy. POST /api/v1/orders shares its path with the admin list.
+        foreach (var (method, path) in new[]
+                 {
+                     ("POST", "/api/v1/orders"),
+                     ("GET", $"/api/v1/orders/{AnId}"),
+                     ("POST", $"/api/v1/orders/{AnId}/cancel"),
+                     ("POST", $"/api/v1/orders/{AnId}/items"),
+                     ("PUT", $"/api/v1/orders/{AnId}/items/{AnId}"),
+                     ("DELETE", $"/api/v1/orders/{AnId}/items/{AnId}"),
+                     ("PUT", $"/api/v1/orders/{AnId}/shipping-address"),
+                     ("POST", "/api/v1/payments/create-intent"),
+                     ("GET", $"/api/v1/payments/{AnId}")
+                 })
+        {
+            AssertReachedProxy(await Send(new HttpMethod(method), path, RouteAuthorizationApiFactory.UserToken()),
+                $"a customer calling {method} {path}");
+        }
+    }
+
+    [Test]
+    public async Task CategoryStats_AreAdminOnly_WhileTheCategoryItselfReadsAnonymously()
+    {
+        // F-44. Without catalog-categories-stats-route this GET matches the anonymous read route.
+        const string stats = $"/api/v1/categories/{AnId}/stats";
+
+        Assert.That(await Send(HttpMethod.Get, stats, token: null), Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(await Send(HttpMethod.Get, stats, RouteAuthorizationApiFactory.UserToken()),
+            Is.EqualTo(HttpStatusCode.Forbidden));
+        AssertReachedProxy(await Send(HttpMethod.Get, stats, RouteAuthorizationApiFactory.AdminToken()),
+            "an admin reading category stats");
+
+        AssertReachedProxy(await Send(HttpMethod.Get, $"/api/v1/categories/{AnId}", token: null),
+            "an anonymous category read beside the stats");
+    }
+
+    [Test]
+    public async Task AnOperatorHoldingOnePermission_AndNoAdminRole_PassesTheAdminGate()
+    {
+        // F-08. RequireRole("Admin") refused an operator whose role bundles some permissions but is not Admin, even
+        // where the service would have admitted them. AdminArea asks only "any permission?" and the service asks for
+        // the exact one, which is why a permission unrelated to the path still reaches the proxy here.
+        var token = RouteAuthorizationApiFactory.PermissionToken(EShopPermissions.NotificationsRead);
+
+        foreach (var (method, path) in new[]
+                 {
+                     // One route per service; the structural table pins the rest to the same policy.
+                     ("GET", "/api/v1/roles"),
+                     ("POST", "/api/v1/products"),
+                     ("GET", "/api/v1/basket/admin/carts"),
+                     ("GET", "/api/v1/notifications"),
+                     ("GET", "/api/v1/orders"),
+                     ("GET", "/api/v1/payments")
+                 })
+        {
+            AssertReachedProxy(await Send(new HttpMethod(method), path, token), $"an operator calling {method} {path}");
+        }
+    }
+
+    [Test]
+    public async Task APermissionClaimOutsideTheVocabulary_GrantsNothing()
+    {
+        // AdminArea counts only EShopPermissions.All, compared ordinally: a made-up or mis-cased claim is a customer.
+        foreach (var claim in new[] { "orders.everything", "Orders.Read" })
+        {
+            Assert.That(await Send(HttpMethod.Get, "/api/v1/orders", RouteAuthorizationApiFactory.PermissionToken(claim)),
+                Is.EqualTo(HttpStatusCode.Forbidden), claim);
+        }
     }
 }
