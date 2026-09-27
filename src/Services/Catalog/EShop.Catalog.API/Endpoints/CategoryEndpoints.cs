@@ -13,6 +13,8 @@ using EShop.Catalog.Application.Categories.Queries.GetCategoryStats;
 using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Catalog.Application.Products.Queries.GetProductByCategory;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using MediatR;
 
 namespace EShop.Catalog.API.Endpoints;
@@ -67,17 +69,20 @@ public static class CategoryEndpoints
         .Produces<List<CategoryDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
-        // GET /api/v1/categories/{id}
+        // GET /api/v1/categories/{id} — the category with its whole live subtree (F-37)
         group.MapGet("/{id:guid}", async (Guid id, IMediator mediator) =>
         {
             var result = await mediator.Send(new GetCategoryByIdQuery { Id = id });
 
+            // F-40: the all-zero id is a ValidationError and owes a 400; the blanket 404 this
+            // replaced reported it as a missing category.
             return result.Match(
                 value => Results.Ok(value),
-                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
+                CategoryProblem);
         })
         .WithName("GetCategoryById")
         .Produces<CategoryDto>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // GET /api/v1/categories/{id}/products — paged like GET /api/v1/products (D5).
@@ -131,36 +136,53 @@ public static class CategoryEndpoints
 
             var result = await mediator.Send(command);
 
+            // F-40: an unknown category is a 404 (it answered 400 Category.NotFound); F-39: a slug
+            // another live sibling holds is a 409, as on move and restore.
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                CategoryProblem);
         })
         .WithName("UpdateCategory")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // DELETE /api/v1/categories/{id} (admin only)
         group.MapDelete("/{id:guid}", async (Guid id, IMediator mediator) =>
         {
             var result = await mediator.Send(new DeleteCategoryCommand { Id = id });
 
+            // F-40: Category.HasChildren / Category.HasProducts are 409 - the category exists and
+            // its state blocks the delete. Both were 404 under the blanket mapping this replaced, so
+            // a client reading a 404 on DELETE as "already gone" reported a delete that never ran.
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status404NotFound));
+                CategoryProblem);
         })
         .WithName("DeleteCategory")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status404NotFound);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // PUT /api/v1/categories/{id}/parent (admin only)
         group.MapPut("/{id:guid}/parent", async (Guid id, MoveCategoryRequest request, IMediator mediator) =>
         {
             // A dedicated request body rather than binding the command: null is a meaningful value
             // here (it promotes the category to a root), so "omitted" and "explicitly null" must not
-            // be the same thing. A missing body fails binding and answers 400 instead of silently
-            // making the category a root.
+            // be the same thing. A missing body fails binding (400 MalformedRequest), and since F-38
+            // a body without the property is a 400 ValidationError keyed newParentCategoryId - `{}`
+            // used to bind as null and silently make the category a root.
+            if (!request.HasNewParentCategoryId)
+                return ProblemResults.For(
+                    FieldValidationError.For(
+                        MoveCategoryRequest.NewParentCategoryIdWireName,
+                        "newParentCategoryId is required: send a category id, or null to make this a root category"),
+                    StatusCodes.Status400BadRequest);
+
             var result = await mediator.Send(new MoveCategoryCommand
             {
                 CategoryId = id,
@@ -169,7 +191,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                ProductEndpoints.ProblemForError);
+                CategoryProblem);
         })
         .WithName("MoveCategory")
         .RequireAuthorization("Admin")
@@ -178,9 +200,11 @@ public static class CategoryEndpoints
         // is `Category.ParentNotFound`, which does not match ProblemForError's ".NotFound" suffix
         // rule — the character before "NotFound" is the "t" of "Parent". The near-miss is real but
         // the status is right, and it matches what CreateCategory already answers for that code.
-        // 404 is reserved for the category the ROUTE names.
+        // 404 is reserved for the category the ROUTE names. 409 is a slug another live category
+        // already holds at the target level (F-39).
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status404NotFound);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // POST /api/v1/categories/{id}/restore (admin only)
         group.MapPost("/{id:guid}/restore", async (Guid id, IMediator mediator) =>
@@ -189,7 +213,7 @@ public static class CategoryEndpoints
 
             return result.Match(
                 () => Results.NoContent(),
-                RestoreProblem);
+                CategoryProblem);
         })
         .WithName("RestoreCategory")
         .RequireAuthorization("Admin")
@@ -229,18 +253,33 @@ public static class CategoryEndpoints
     private static bool CanSeeUnpublished(HttpContext http) => http.User.IsInRole("Admin");
 
     /// <summary>
-    /// Restore's status mapping (Admin panel S5): a slug conflict is a <b>409</b>, not a 400,
-    /// because nothing about the request is wrong — another category took the slug while this one
-    /// was deleted, and resolving that makes the same request succeed. Mirrors
-    /// <c>ProductEndpoints.RestoreProblem</c>, and matches what <c>AddCategorySlugConflict()</c>
-    /// answers when the index catches the same collision instead of the handler's pre-check.
+    /// The status mapping for every category endpoint that names a category in its route (F-40,
+    /// frontend-contracts R5): read, update, delete, move and restore. Each used to pick its own —
+    /// a blanket 404 on read and delete, a blanket 400 on update — so business refusals read as
+    /// "not found" and a missing category read as a bad request.
     /// </summary>
-    private static IResult RestoreProblem(Error error)
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><b>409</b> when another resource's state blocks a request that is itself fine:
+    /// <c>Category.SlugConflict</c> (a live sibling holds the slug — on update, move and restore;
+    /// Admin panel S5 made restore's a 409 first) and <c>Category.HasChildren</c> /
+    /// <c>Category.HasProducts</c> on delete. Re-sending the same request succeeds once that state
+    /// changes.</item>
+    /// <item><b>404</b> for a <c>*.NotFound</c> code, which in these handlers only ever names the
+    /// route's category. <c>Category.ParentNotFound</c> deliberately does not match (the character
+    /// before <c>NotFound</c> is the <c>t</c> of <c>Parent</c>): the request body points at a
+    /// missing parent, which is a 400, as on create.</item>
+    /// <item><b>400</b> for everything else — validation, a cycle, restoring a live category.</item>
+    /// </list>
+    /// Create keeps its own blanket 400, so its pre-checked slug conflict stays a 400 as before.
+    /// </remarks>
+    internal static IResult CategoryProblem(Error error)
         => ProblemResults.For(
             error,
             error.Code switch
             {
-                "Category.SlugConflict" => StatusCodes.Status409Conflict,
+                "Category.SlugConflict" or "Category.HasChildren" or "Category.HasProducts"
+                    => StatusCodes.Status409Conflict,
                 var code when code.EndsWith(".NotFound", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
                 _ => StatusCodes.Status400BadRequest
             });
@@ -250,8 +289,45 @@ public static class CategoryEndpoints
 /// The body of <c>PUT /api/v1/categories/{id}/parent</c> (Admin panel S5).
 /// </summary>
 /// <remarks>
-/// A one-field record rather than binding <c>MoveCategoryCommand</c> directly: the route owns the
+/// <para>
+/// A one-field body rather than binding <c>MoveCategoryCommand</c> directly: the route owns the
 /// category id, and <c>null</c> for the parent means "make this a root" rather than "leave it
 /// alone", so the property has to be genuinely present in the body.
+/// </para>
+/// <para>
+/// F-38 (frontend-contracts R5): that used to be only a comment. As a positional record an omitted
+/// property bound exactly like an explicit <c>null</c>, so <c>{}</c> re-rooted the category. The
+/// setter now records that System.Text.Json assigned it — which it does for an explicit
+/// <c>null</c> and never for an omitted property — and the endpoint refuses the body when it did
+/// not. <c>[JsonRequired]</c> would refuse it too, but as a <c>MalformedRequest</c> whose detail
+/// names the JSON path <c>$</c> rather than the missing field.
+/// </para>
 /// </remarks>
-public sealed record MoveCategoryRequest(Guid? NewParentCategoryId);
+public sealed class MoveCategoryRequest
+{
+    /// <summary>The camelCase name the client sends, and the key of the 400 when it is missing.</summary>
+    public const string NewParentCategoryIdWireName = "newParentCategoryId";
+
+    private readonly Guid? _newParentCategoryId;
+
+    /// <summary>The new parent, or <c>null</c> to make the category a root. Must be present.</summary>
+    /// <remarks>
+    /// <c>[Required]</c> is for the OpenAPI document only: it lists the property as required, as the
+    /// positional record this replaced did. Catalog registers no minimal-API validation, so it changes
+    /// no request handling — the presence check above is what refuses <c>{}</c>.
+    /// </remarks>
+    [Required]
+    public Guid? NewParentCategoryId
+    {
+        get => _newParentCategoryId;
+        init
+        {
+            _newParentCategoryId = value;
+            HasNewParentCategoryId = true;
+        }
+    }
+
+    /// <summary>Whether the body carried the property at all. Not part of the wire contract.</summary>
+    [JsonIgnore]
+    public bool HasNewParentCategoryId { get; private init; }
+}

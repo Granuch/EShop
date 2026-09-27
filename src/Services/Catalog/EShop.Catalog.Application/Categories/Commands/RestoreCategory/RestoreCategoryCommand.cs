@@ -19,7 +19,12 @@ public record RestoreCategoryCommand : IRequest<Result>, ICacheInvalidatingComma
 
     public Guid CategoryId { get; init; }
 
-    public IEnumerable<string> CacheKeysToInvalidate => [CategoryCacheKeys.Detail(CategoryId)];
+    /// <summary>
+    /// Empty on purpose: the restored category reappears in every ancestor's detail (F-37, the
+    /// detail carries the whole subtree), and both category reads are versioned in
+    /// <see cref="CategoryCacheFamilies.CategoryList"/>, which the bump below covers.
+    /// </summary>
+    public IEnumerable<string> CacheKeysToInvalidate => [];
 
     /// <summary>
     /// Both families. The tree read changes, and so does every product list: a restored category's

@@ -102,6 +102,14 @@ public static class CatalogProblemDetailsExtensions
     /// with a 409 carrying the same code, instead of the generic <c>DuplicateResource</c> every other
     /// unique violation gets. Register before <c>AddEfDuplicateKey()</c>.
     /// </summary>
+    /// <remarks>
+    /// Since frontend-contracts R5 (F-39) create is no longer the only writer that can race here:
+    /// a slug change, a move and a restore each pre-check the level too and can each lose to a
+    /// concurrent writer. The detail therefore says what happened without assuming a create, and
+    /// every ordinary (non-racing) conflict is answered by a handler's pre-check with its own
+    /// detail — the move used to reach this branch for a plain clash, and read "created
+    /// concurrently … retry" for a request that no retry could fix.
+    /// </remarks>
     public static ProblemDetailsExceptionOptions AddCategorySlugConflict(
         this ProblemDetailsExceptionOptions options)
         => options.Add((exception, context) =>
@@ -112,7 +120,7 @@ public static class CatalogProblemDetailsExtensions
                 ? EShopProblem.Create(
                     context,
                     StatusCodes.Status409Conflict,
-                    detail: "Another category with the same slug was created concurrently at this level. Retry with a different slug.",
+                    detail: "Another category at this level took the same slug concurrently. Reload the categories and try again.",
                     errorCode: "Category.SlugConflict")
                 : null);
 }

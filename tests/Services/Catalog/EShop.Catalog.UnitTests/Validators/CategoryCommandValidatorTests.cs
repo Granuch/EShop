@@ -1,6 +1,7 @@
 using EShop.Catalog.Application.Categories.Commands.CreateCategory;
 using EShop.Catalog.Application.Categories.Commands.DeleteCategory;
 using EShop.Catalog.Application.Categories.Commands.UpdateCategory;
+using EShop.Catalog.Domain.Entities;
 using FluentValidation.TestHelper;
 
 namespace EShop.Catalog.UnitTests.Validators;
@@ -79,9 +80,77 @@ public class CategoryCommandValidatorTests
         result.ShouldNotHaveValidationErrorFor(x => x.Slug);
     }
 
+    /// <summary>
+    /// F-39 (frontend-contracts R5). A supplied slug used to be only trimmed, so
+    /// "  Mixed Case Slug!! " was stored as "Mixed Case Slug!!". The rule is the shape GenerateSlug
+    /// produces, checked as sent.
+    /// </summary>
+    [TestCase("Mixed Case Slug!!")]
+    [TestCase("Electronics")]
+    [TestCase(" padded ")]
+    [TestCase("under_score")]
+    [TestCase("-leading")]
+    [TestCase("trailing-")]
+    [TestCase("double--dash")]
+    [TestCase("ünïcode")]
+    public void CreateCategory_MalformedSlug_ShouldHaveError(string slug)
+    {
+        var result = _createValidator.TestValidate(new CreateCategoryCommand { Name = "Valid Name", Slug = slug });
+
+        result.ShouldHaveValidationErrorFor(x => x.Slug).WithErrorMessage(Category.InvalidSlugMessage);
+    }
+
+    [TestCase("electronics")]
+    [TestCase("home-and-garden")]
+    [TestCase("2024")]
+    [TestCase("a")]
+    public void CreateCategory_WellFormedSlug_ShouldNotHaveSlugError(string slug)
+        => _createValidator.TestValidate(new CreateCategoryCommand { Name = "Valid Name", Slug = slug })
+            .ShouldNotHaveValidationErrorFor(x => x.Slug);
+
+    /// <summary>Blank still means "derive it from the name", as the domain reads it.</summary>
+    [TestCase("")]
+    [TestCase("   ")]
+    public void CreateCategory_BlankSlug_ShouldNotHaveSlugError(string slug)
+        => _createValidator.TestValidate(new CreateCategoryCommand { Name = "Valid Name", Slug = slug })
+            .ShouldNotHaveValidationErrorFor(x => x.Slug);
+
+    [Test]
+    public void CreateCategory_SlugOfExactly200Characters_ShouldNotHaveSlugError()
+        => _createValidator.TestValidate(new CreateCategoryCommand { Name = "Valid Name", Slug = new string('x', 200) })
+            .ShouldNotHaveValidationErrorFor(x => x.Slug);
+
     #endregion
 
     #region UpdateCategoryCommandValidator
+
+    /// <summary>F-39. PUT accepts a slug since R5: omitted leaves it, anything sent must be valid.</summary>
+    [Test]
+    public void UpdateCategory_WithoutASlug_ShouldNotHaveSlugError()
+        => _updateValidator.TestValidate(new UpdateCategoryCommand { Id = Guid.NewGuid(), Name = "N" })
+            .ShouldNotHaveValidationErrorFor(x => x.Slug);
+
+    [Test]
+    public void UpdateCategory_WellFormedSlug_ShouldNotHaveSlugError()
+        => _updateValidator.TestValidate(new UpdateCategoryCommand { Id = Guid.NewGuid(), Name = "N", Slug = "new-slug" })
+            .ShouldNotHaveValidationErrorFor(x => x.Slug);
+
+    /// <summary>
+    /// Blank is refused here, unlike on create: a category always has a slug, so "" cannot mean
+    /// "clear it", and reading it as "leave it" would hide a client bug.
+    /// </summary>
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase("Mixed Case")]
+    [TestCase("bad!")]
+    public void UpdateCategory_BlankOrMalformedSlug_ShouldHaveError(string slug)
+        => _updateValidator.TestValidate(new UpdateCategoryCommand { Id = Guid.NewGuid(), Name = "N", Slug = slug })
+            .ShouldHaveValidationErrorFor(x => x.Slug);
+
+    [Test]
+    public void UpdateCategory_SlugExceeds200Characters_ShouldHaveError()
+        => _updateValidator.TestValidate(new UpdateCategoryCommand { Id = Guid.NewGuid(), Name = "N", Slug = new string('x', 201) })
+            .ShouldHaveValidationErrorFor(x => x.Slug);
 
     [Test]
     public void UpdateCategory_ValidCommand_ShouldHaveNoErrors()

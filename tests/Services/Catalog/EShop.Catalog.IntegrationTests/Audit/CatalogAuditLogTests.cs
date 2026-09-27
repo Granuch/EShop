@@ -76,11 +76,11 @@ public class CatalogAuditLogTests : AuthenticatedIntegrationTestBase
     {
         var missing = Guid.NewGuid();
 
-        // PUT maps every Result error to 400 (a pre-existing contract), so the status does not say which rejection it was;
-        // the audit row's error code does.
+        // A missing product is a 404 since frontend-contracts R5 (F-40; it was a 400). The status still does not say which
+        // rejection it was; the audit row's error code does.
         using var response = await Client.PutAsJsonAsync(
             $"/api/v1/products/{missing}", new { ProductId = missing, Price = 12m, StockQuantity = 1 });
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var row = (await RowsForAsync(missing.ToString())).Should().ContainSingle().Subject;
         row.Action.Should().Be("UpdateProduct");
@@ -115,7 +115,7 @@ public class CatalogAuditLogTests : AuthenticatedIntegrationTestBase
         request.Headers.Add("X-Correlation-ID", new string('c', 400));
 
         using var response = await Client.SendAsync(request);
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var row = (await RowsForAsync(missing.ToString())).Should().ContainSingle().Subject;
         row.CorrelationId.Should().HaveLength(AuditLogEntry.CorrelationIdMaxLength);

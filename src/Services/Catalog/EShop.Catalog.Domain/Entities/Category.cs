@@ -39,13 +39,31 @@ public class Category : AggregateRoot<Guid>
     private readonly List<Product> _products = new();
     public IReadOnlyCollection<Product> Products => _products.AsReadOnly();
 
+    /// <summary>
+    /// F-39 (frontend-contracts R5). What a slug may look like: lower-case <c>a-z</c>, digits and
+    /// single hyphens, not starting or ending with one — the shape <see cref="GenerateSlug"/> already
+    /// produces. A supplied slug used to be only trimmed, so <c>"  Mixed Case Slug!! "</c> was stored
+    /// as <c>Mixed Case Slug!!</c>, a value no URL can carry unencoded.
+    /// </summary>
+    public const string SlugPattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
+
+    /// <summary>Same cap as the column and every validator that accepts a slug.</summary>
+    public const int SlugMaxLength = 200;
+
+    private static readonly Regex SlugFormat = new(SlugPattern, RegexOptions.CultureInvariant);
+
+    /// <summary>Whether <paramref name="slug"/> is an acceptable slug, exactly as given (no trimming).</summary>
+    public static bool IsValidSlug(string? slug)
+        => slug is { Length: > 0 and <= SlugMaxLength } && SlugFormat.IsMatch(slug);
+
     private Category() { }
 
     /// <param name="slug">
-    /// Used as given (trimmed) when it has content; otherwise derived from the name. A name with no
-    /// Latin letters or digits derives nothing, so the slug then falls back to one built from the id
-    /// (M9) — it used to be stored as an empty string, and the second such root category collided
-    /// on the unique index as a generic 409.
+    /// Used as given (trimmed) when it has content, and then it must satisfy <see cref="IsValidSlug"/>
+    /// (F-39); otherwise derived from the name. A name with no Latin letters or digits derives
+    /// nothing, so the slug then falls back to one built from the id (M9) — it used to be stored as
+    /// an empty string, and the second such root category collided on the unique index as a generic
+    /// 409.
     /// </param>
     /// <param name="parent">The parent, or null for a root. Must not be deleted.</param>
     public static Category Create(
@@ -63,6 +81,9 @@ public class Category : AggregateRoot<Guid>
 
         if (displayOrder < 0)
             throw new DomainException("Display order cannot be negative.");
+
+        if (!string.IsNullOrWhiteSpace(slug) && !IsValidSlug(slug.Trim()))
+            throw new DomainException(InvalidSlugMessage);
 
         var id = Guid.NewGuid();
         var trimmedName = name.Trim();
@@ -111,6 +132,24 @@ public class Category : AggregateRoot<Guid>
 
         if (displayOrder is { } order)
             DisplayOrder = order;
+    }
+
+    /// <summary>
+    /// F-39 (frontend-contracts R5). Replaces the slug. There was no way to change one after
+    /// creation, so a slug conflict met on move or restore could only be resolved by moving or
+    /// deleting the <i>other</i> category — while the error messages told the admin to change a slug.
+    /// </summary>
+    /// <remarks>
+    /// Uniqueness among the siblings cannot be checked here — the aggregate cannot see them — so the
+    /// handler pre-checks it before calling this, with the <c>IsActive</c>-filtered unique indexes as
+    /// the race backstop, exactly as for create.
+    /// </remarks>
+    public void ChangeSlug(string slug)
+    {
+        if (!IsValidSlug(slug))
+            throw new DomainException(InvalidSlugMessage);
+
+        Slug = slug;
     }
 
     /// <summary>
@@ -231,6 +270,10 @@ public class Category : AggregateRoot<Guid>
         var generated = GenerateSlug((name ?? string.Empty).Trim());
         return generated.Length > 0 ? generated : null;
     }
+
+    /// <summary>The one wording for a malformed slug, shared by the domain and the validators.</summary>
+    public const string InvalidSlugMessage =
+        "Slug must contain only lower-case letters (a-z), digits and single hyphens, and must not start or end with a hyphen.";
 
     private static string ResolveSlug(string? supplied, string name, Guid id)
         => ResolveRequestedSlug(supplied, name) ?? $"category-{id.ToString("N")[..8]}";

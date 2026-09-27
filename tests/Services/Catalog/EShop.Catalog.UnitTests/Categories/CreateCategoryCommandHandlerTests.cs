@@ -183,23 +183,22 @@ public class CreateCategoryCommandHandlerTests
             Times.Never);
     }
 
-    /// <summary>M8. A new child must evict its parent's cached detail.</summary>
+    /// <summary>
+    /// M8, reworked in F-37 (frontend-contracts R5). A new child must reach its parent's cached
+    /// detail and every ancestor's. Both category reads are versioned in one family, so the bump does
+    /// it; an exact parent key would match no stored entry (the stored key embeds the family version)
+    /// and log success. The same holds for the root list's variants since A4 (Admin panel S5).
+    /// </summary>
     [Test]
-    public void CacheKeysToInvalidate_IncludeTheParentsDetail()
+    public void TheCommand_BumpsTheCategoryFamily_AndNamesNoExactKey()
     {
-        var parentId = Guid.NewGuid();
-
-        // A4 (Admin panel S5): the root list is no longer evicted by exact key. Its key gained an
-        // includeInactive variant, so no single string can name every live entry — the versioned
-        // family below replaces it, and re-adding CategoryCacheKeys.All here would evict a key
-        // nothing writes any more, silently removing nothing.
-        Assert.That(new CreateCategoryCommand { Name = "C", ParentCategoryId = parentId }.CacheKeysToInvalidate,
-            Is.EquivalentTo(new[] { CategoryCacheKeys.Detail(parentId) }));
+        Assert.That(new CreateCategoryCommand { Name = "C", ParentCategoryId = Guid.NewGuid() }.CacheKeysToInvalidate,
+            Is.Empty);
         Assert.That(new CreateCategoryCommand { Name = "Root" }.CacheKeysToInvalidate,
             Is.Empty);
 
         Assert.That(new CreateCategoryCommand { Name = "Root" }.CacheFamiliesToInvalidate,
             Is.EquivalentTo(new[] { CategoryCacheFamilies.CategoryList }),
-            "without the family bump a new category stays invisible in both list variants for the full TTL");
+            "without the family bump a new category stays invisible in both list variants and every ancestor's detail for the full TTL");
     }
 }

@@ -200,6 +200,46 @@ public class CategoryTests
         return resolved;
     }
 
+    /// <summary>
+    /// F-39 (frontend-contracts R5). The domain refuses a malformed supplied slug too, so a caller
+    /// that bypasses the validator cannot store one. It still trims first, as before.
+    /// </summary>
+    [TestCase("Mixed Case Slug!!")]
+    [TestCase("UPPER")]
+    [TestCase("a--b")]
+    public void Create_WithAMalformedSlug_Throws(string slug)
+        => Assert.Throws<DomainException>(() => Category.Create("Name", slug, null));
+
+    [Test]
+    public void ChangeSlug_ToAWellFormedSlug_ReplacesIt()
+    {
+        var category = Category.Create("Name", "old", null);
+
+        category.ChangeSlug("new-slug");
+
+        Assert.That(category.Slug, Is.EqualTo("new-slug"));
+    }
+
+    [TestCase("")]
+    [TestCase(" new ")]
+    [TestCase("New")]
+    public void ChangeSlug_ToAMalformedSlug_ThrowsAndKeepsTheOldOne(string slug)
+    {
+        var category = Category.Create("Name", "old", null);
+
+        Assert.Throws<DomainException>(() => category.ChangeSlug(slug));
+        Assert.That(category.Slug, Is.EqualTo("old"));
+    }
+
+    [Test]
+    public void EveryGeneratedSlug_IsAValidSlug()
+    {
+        foreach (var name in new[] { "Electronics", "Home And Garden", "Electronics & Gadgets!", "Книги 2024", "  x  y  " })
+            Assert.That(Category.IsValidSlug(Category.GenerateSlug(name)), Is.True, name);
+
+        Assert.That(Category.IsValidSlug(Category.Create("Книги", null, null).Slug), Is.True, "the id-based fallback");
+    }
+
     #endregion
 
     #region UpdateCategory

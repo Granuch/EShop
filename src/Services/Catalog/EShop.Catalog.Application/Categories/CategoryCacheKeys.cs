@@ -1,5 +1,3 @@
-using EShop.Catalog.Domain.Entities;
-
 namespace EShop.Catalog.Application.Categories;
 
 /// <summary>
@@ -20,22 +18,17 @@ public static class CategoryCacheKeys
     [Obsolete("Superseded by CategoryCacheFamilies.CategoryList (A4, Admin panel S5): nothing writes this key any more, so evicting it is a silent no-op.")]
     public const string All = "categories:all";
 
-    /// <summary>One category's detail, <c>GET /api/v1/categories/{id}</c>.</summary>
-    public static string Detail(Guid id) => $"category:{id}";
-
     /// <summary>
-    /// M8 (Catalog audit Stage 8). The <i>other</i> detail entries that embed
-    /// <paramref name="category"/> and so go stale when it changes: its parent's, which lists it in
-    /// <c>ChildCategories</c>, and each child's, which carries its name as
-    /// <c>ParentCategoryName</c>. Only the category's own key used to be evicted, so a parent's
-    /// cached detail kept listing a renamed or deleted child for the full five-minute TTL.
+    /// One category's detail, <c>GET /api/v1/categories/{id}</c> — the <i>base</i> key only.
     /// </summary>
-    public static IEnumerable<string> RelativesOf(Category category)
-    {
-        if (category.ParentCategoryId is { } parentId)
-            yield return Detail(parentId);
-
-        foreach (var child in category.ChildCategories)
-            yield return Detail(child.Id);
-    }
+    /// <remarks>
+    /// F-37 (frontend-contracts R5): <b>do not evict this by exact key.</b> The detail now carries the
+    /// category's whole subtree, so a write to any descendant makes every ancestor's entry stale — a
+    /// set no command can name. The query therefore joined the versioned family
+    /// <see cref="CategoryCacheFamilies.CategoryList"/>, which every category write bumps, and its
+    /// stored key embeds the family version. An exact-key eviction built from this string would match
+    /// nothing and log success — which is why the M8 <c>RelativesOf</c> evictions (parent and children
+    /// only) were deleted in the same change rather than kept "for safety".
+    /// </remarks>
+    public static string Detail(Guid id) => $"category:{id}";
 }

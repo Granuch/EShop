@@ -1,5 +1,4 @@
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
@@ -10,16 +9,11 @@ public class RestoreCategoryCommandHandler : IRequestHandler<RestoreCategoryComm
 {
     private readonly ICategoryRepository _repository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidationContext _cacheInvalidationContext;
 
-    public RestoreCategoryCommandHandler(
-        ICategoryRepository repository,
-        IUnitOfWork unitOfWork,
-        ICacheInvalidationContext cacheInvalidationContext)
+    public RestoreCategoryCommandHandler(ICategoryRepository repository, IUnitOfWork unitOfWork)
     {
         _repository = repository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(RestoreCategoryCommand request, CancellationToken cancellationToken)
@@ -43,8 +37,10 @@ public class RestoreCategoryCommandHandler : IRequestHandler<RestoreCategoryComm
             var parent = await _repository.GetByIdIncludingInactiveAsync(parentId, cancellationToken);
             if (parent is null || !parent.IsActive)
             {
+                // F-39 (frontend-contracts R5): the detail used to add "or move this category before
+                // restoring it", which no endpoint allows — a deleted category cannot be moved (404).
                 return Result.Failure(new Error("Category.ParentNotActive",
-                    $"Parent category '{parentId}' is deleted. Restore it first, or move this category before restoring it."));
+                    $"Parent category '{parentId}' is deleted. Restore the parent first (POST /api/v1/categories/{parentId}/restore), then restore this category."));
             }
         }
 
@@ -57,16 +53,16 @@ public class RestoreCategoryCommandHandler : IRequestHandler<RestoreCategoryComm
         // Result, so a check after the mutation would persist it anyway.
         if (await _repository.SlugExistsAsync(category.ParentCategoryId, category.Slug, cancellationToken))
         {
+            // F-39: the fix named here must exist. A deleted category's own slug cannot be changed
+            // (PUT answers 404 for it), but since R5 the live one's can.
             return Result.Failure(new Error("Category.SlugConflict",
-                $"Slug '{category.Slug}' is already used by another category at this level. Change that category's slug before restoring this one."));
+                $"Slug '{category.Slug}' is already used by another live category at this level. Change that category's slug (PUT /api/v1/categories/{{id}} with a new slug), move it or delete it, then restore this one."));
         }
 
         category.Restore();
 
         await _repository.UpdateAsync(category, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        _cacheInvalidationContext.AddKeys(CategoryCacheKeys.RelativesOf(category));
 
         return Result.Success();
     }

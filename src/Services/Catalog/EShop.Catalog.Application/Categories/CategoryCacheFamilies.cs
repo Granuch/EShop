@@ -24,7 +24,14 @@ public static class CategoryCacheFamilies
     /// variant unreachable without anyone naming them. The exact-key <c>CategoryCacheKeys.All</c>
     /// evictions were removed from the create/update/delete commands in the same change — leaving
     /// them would evict a key nothing writes any more, which removes nothing and logs success.
-    /// Detail keys are unaffected: they are nameable, so they stay on exact-key eviction.
+    /// </para>
+    /// <para>
+    /// <b>The detail read <c>GET /api/v1/categories/{id}</c> is in this family too</b> (F-37,
+    /// frontend-contracts R5). It stayed on exact-key eviction while it embedded one level of
+    /// children; now it embeds the whole subtree, so renaming a grandchild makes the grandparent's
+    /// entry stale and no command can name every ancestor. One bump per category write covers them
+    /// all, at the price of evicting every category detail on any category write — cheap, because
+    /// categories change rarely and are few.
     /// </para>
     /// </summary>
     public const string CategoryList = "categories:list";

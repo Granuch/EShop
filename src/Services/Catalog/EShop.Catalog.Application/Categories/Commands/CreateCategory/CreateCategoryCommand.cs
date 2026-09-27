@@ -27,18 +27,12 @@ public record CreateCategoryCommand : IRequest<Result<Guid>>, ICacheInvalidating
     public int? DisplayOrder { get; init; }
 
     /// <summary>
-    /// M8. A new child appears in its parent's cached detail, so the parent's entry is evicted too —
-    /// it used to be only the root list, leaving the parent stale for its full TTL.
+    /// Empty on purpose. A new child appears in the cached detail of its parent and of every
+    /// ancestor above it (F-37: the detail carries the whole subtree), and both category reads are
+    /// versioned in <see cref="CategoryCacheFamilies.CategoryList"/>, so the family bump below is
+    /// what evicts them. An exact key here would match no stored entry and log success.
     /// </summary>
-    /// <remarks>
-    /// A4 (Admin panel S5): <c>CategoryCacheKeys.All</c> was removed from this list. The tree read's
-    /// key now embeds <c>includeInactive</c>, so naming one fixed string would evict at most one of
-    /// its variants — and since S5 nothing writes the old <c>categories:all</c> at all, so the call
-    /// would remove nothing while logging success. The family bump below replaces it.
-    /// </remarks>
-    public IEnumerable<string> CacheKeysToInvalidate => ParentCategoryId is { } parentId
-        ? [CategoryCacheKeys.Detail(parentId)]
-        : [];
+    public IEnumerable<string> CacheKeysToInvalidate => [];
 
     public IEnumerable<string> CacheFamiliesToInvalidate => [CategoryCacheFamilies.CategoryList];
 }

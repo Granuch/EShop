@@ -42,9 +42,9 @@ public static class ProductEndpoints
     /// exception (400). Mapping every error to one status gets one of those cases wrong.
     ///
     /// Used by GET /{id}, the image/attribute/publish/discount sub-resource endpoints, and
-    /// CategoryEndpoints' GET /{id}/products (hence internal). POST/PUT still hard-code 400 and
-    /// DELETE 404 — they have the same latent issue, left alone here because changing their codes
-    /// would alter existing contract behaviour (e.g. Product.SkuConflict).
+    /// CategoryEndpoints' GET /{id}/products and reorder (hence internal). POST still hard-codes 400
+    /// and DELETE 404; PUT maps only Product.NotFound to 404 since frontend-contracts R5 (F-40) —
+    /// see its comment for why it does not use this suffix rule.
     /// </summary>
     internal static IResult ProblemForError(Error error)
         => ProblemResults.For(
@@ -196,14 +196,22 @@ public static class ProductEndpoints
 
             var result = await mediator.Send(command);
 
+            // F-40 (frontend-contracts R5): only the route's product being missing is a 404 — it
+            // answered 400 Product.NotFound. Everything else stays 400 on purpose, including
+            // Category.NotFound, which here means the BODY's categoryId points at nothing (the
+            // create endpoint answers 400 for it too), and the pre-checked Product.SkuConflict. So
+            // the suffix rule of ProblemForError is deliberately not used.
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(
+                    error,
+                    error.Code == "Product.NotFound" ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest));
         })
         .WithName("UpdateProduct")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
 
         // DELETE /api/v1/products/{id} (admin only)
         group.MapDelete("/{id:guid}", async (Guid id, IMediator mediator) =>

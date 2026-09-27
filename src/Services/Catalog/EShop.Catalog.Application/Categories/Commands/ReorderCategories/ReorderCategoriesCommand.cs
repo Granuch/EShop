@@ -35,14 +35,11 @@ public record ReorderCategoriesCommand : IRequest<Result>, ICacheInvalidatingCom
     public IReadOnlyList<Guid>? CategoryIds { get; init; }
 
     /// <summary>
-    /// The parent's detail lists its children in order, so it goes stale. The reordered categories'
-    /// own detail entries do not carry their position, but are evicted anyway by the handler
-    /// through <c>ICacheInvalidationContext</c> rather than reasoned about here — that reasoning is
-    /// a property of today's DTO.
+    /// Empty on purpose. The order shows in the parent's detail and, since the detail carries the
+    /// whole subtree (F-37, frontend-contracts R5), in every ancestor's; both category reads are
+    /// versioned in <see cref="CategoryCacheFamilies.CategoryList"/>, and the bump below covers them.
     /// </summary>
-    public IEnumerable<string> CacheKeysToInvalidate => ParentCategoryId is { } parentId
-        ? [CategoryCacheKeys.Detail(parentId)]
-        : [];
+    public IEnumerable<string> CacheKeysToInvalidate => [];
 
     public IEnumerable<string> CacheFamiliesToInvalidate => [CategoryCacheFamilies.CategoryList];
 }

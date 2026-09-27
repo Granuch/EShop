@@ -283,8 +283,11 @@ public class CategoryAdminTests : AuthenticatedIntegrationTestBase
         // The detail, not just the code: AddCategorySlugConflict() answers the same 409 with the
         // same code when the index catches the collision instead, so a code-only assertion would
         // pass with the handler's pre-check deleted. Same trap as Product.Restore's SKU check.
-        problem.Detail.Should().Contain("already used by another category",
+        // F-39 (frontend-contracts R5): the detail must also name fixes that exist — the other
+        // category's slug can be changed since R5, and this one's cannot while it is deleted.
+        problem.Detail.Should().Contain("already used by another live category",
             "this must be answered by the handler's pre-check, not by the index's race backstop");
+        problem.Detail.Should().Contain("PUT /api/v1/categories/{id} with a new slug");
 
         (await StoredAsync(original))!.IsActive.Should().BeFalse("a refused restore must change nothing");
     }
@@ -302,8 +305,15 @@ public class CategoryAdminTests : AuthenticatedIntegrationTestBase
         var response = await Client.PostAsync($"{CategoriesEndpoint}/{child}/restore", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode
-            .Should().Be("Category.ParentNotActive");
+        var problem = (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!;
+        problem.ErrorCode.Should().Be("Category.ParentNotActive");
+
+        // F-39 (frontend-contracts R5): the detail used to add "or move this category before
+        // restoring it", and a deleted category cannot be moved (404). Pin the fix it names instead.
+        problem.Detail.Should().Contain($"/api/v1/categories/{parent}/restore");
+        problem.Detail.Should().NotContain("move");
+        (await Client.PutAsJsonAsync($"{CategoriesEndpoint}/{child}/parent", new { newParentCategoryId = (Guid?)null }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound, "which is why the old advice was impossible");
     }
 
     [Test]

@@ -15,13 +15,19 @@ public interface ICategoryRepository
     Task<HashSet<Guid>> GetExistingIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);
     Task AddAsync(Category category, CancellationToken cancellationToken = default);
     Task UpdateAsync(Category category, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Every category, flat and untracked, ordered by <c>DisplayOrder</c>, <c>Name</c>, <c>Id</c>, with
+    /// no navigation loaded — the input for building trees of any depth in memory (F-37,
+    /// frontend-contracts R5). It replaced <c>GetRootCategories</c>, whose <c>Include</c> chain stopped
+    /// at grandchildren and whose <c>Take(100)</c> cut the roots.
+    /// </summary>
     /// <param name="includeInactive">
     /// A4 (Admin panel S5). True lifts the <c>c.IsActive</c> global query filter so deactivated
-    /// categories and their deactivated children appear. <b>Admin-only</b>, decided at the endpoint
-    /// from the caller's role, and part of <c>GetCategoriesQuery</c>'s cache key — without it in
-    /// the key, one admin request poisons the shared entry for every anonymous caller.
+    /// categories appear too. <b>Admin-only</b>, decided at the endpoint from the caller's role, and
+    /// part of <c>GetCategoriesQuery</c>'s cache key — without it in the key, one admin request
+    /// poisons the shared entry for every anonymous caller.
     /// </param>
-    Task<List<Category>> GetRootCategories(bool includeInactive = false, CancellationToken cancellationToken = default);
+    Task<List<Category>> GetAllAsync(bool includeInactive = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Whether a live category already holds <paramref name="slug"/> under

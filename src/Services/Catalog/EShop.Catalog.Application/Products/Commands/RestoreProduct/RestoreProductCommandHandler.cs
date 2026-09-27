@@ -9,13 +9,16 @@ namespace EShop.Catalog.Application.Products.Commands.RestoreProduct;
 public class RestoreProductCommandHandler : IRequestHandler<RestoreProductCommand, Result>
 {
     private readonly IProductRepository _productRepository;
+    private readonly ICategoryRepository _categoryRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public RestoreProductCommandHandler(
         IProductRepository productRepository,
+        ICategoryRepository categoryRepository,
         IUnitOfWork unitOfWork)
     {
         _productRepository = productRepository;
+        _categoryRepository = categoryRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -30,6 +33,20 @@ public class RestoreProductCommandHandler : IRequestHandler<RestoreProductComman
 
         if (!product.IsDeleted)
             return Result.Failure(new Error("Product.NotDeleted", $"Product with ID '{request.ProductId}' is not deleted."));
+
+        // F-43 (frontend-contracts R5). A product restored into a deleted category became
+        // unreachable: every ProductRepository.GetById* includes the required Category navigation,
+        // and the category's IsActive filter turns that include into an inner join that drops the
+        // product — so the restore answered 204, the product showed in admin lists, and its detail
+        // read and every write answered 404. Refused instead, naming the one fix that exists: a
+        // deleted product cannot be moved to another category (PUT answers 404 for it).
+        // GetExistingIdsAsync runs under the same IsActive filter as those reads.
+        var liveCategories = await _categoryRepository.GetExistingIdsAsync([product.CategoryId], cancellationToken);
+        if (!liveCategories.Contains(product.CategoryId))
+        {
+            return Result.Failure(new Error("Product.CategoryNotActive",
+                $"Product '{request.ProductId}' belongs to category '{product.CategoryId}', which is deleted. Restore the category first (POST /api/v1/categories/{product.CategoryId}/restore), then restore this product."));
+        }
 
         // A3. IX_Products_Sku is unique filtered NOT "IsDeleted", so this product's SKU became free
         // the moment it was deleted and another product may have taken it. Restoring re-enters the

@@ -1,5 +1,4 @@
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
@@ -10,16 +9,11 @@ public class ReorderCategoriesCommandHandler : IRequestHandler<ReorderCategories
 {
     private readonly ICategoryRepository _repository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidationContext _cacheInvalidationContext;
 
-    public ReorderCategoriesCommandHandler(
-        ICategoryRepository repository,
-        IUnitOfWork unitOfWork,
-        ICacheInvalidationContext cacheInvalidationContext)
+    public ReorderCategoriesCommandHandler(ICategoryRepository repository, IUnitOfWork unitOfWork)
     {
         _repository = repository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(ReorderCategoriesCommand request, CancellationToken cancellationToken)
@@ -63,10 +57,7 @@ public class ReorderCategoriesCommandHandler : IRequestHandler<ReorderCategories
         }
 
         for (var position = 0; position < requestedIds.Count; position++)
-        {
             siblings.Single(c => c.Id == requestedIds[position]).SetDisplayOrder(position);
-            _cacheInvalidationContext.AddKey(CategoryCacheKeys.Detail(requestedIds[position]));
-        }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

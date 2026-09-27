@@ -15,13 +15,14 @@ public record DeleteCategoryCommand : IRequest<Result>, ICacheInvalidatingComman
     public Guid Id { get; init; }
 
     /// <remarks>
-    /// A4 (Admin panel S5): the <c>"categories:all"</c> literal was removed — the tree read's key
-    /// now embeds <c>includeInactive</c> and nothing writes that fixed string any more, so evicting
-    /// it removes nothing and logs success. The family bump below replaces it. Note a delete is
-    /// exactly the case where getting this wrong is visible: the deactivated category must leave
-    /// the anonymous tree immediately, and must appear in the admin one.
+    /// Empty on purpose: both category reads are versioned in
+    /// <see cref="CategoryCacheFamilies.CategoryList"/> (the detail since F-37, frontend-contracts R5,
+    /// because it now embeds the whole subtree), so the family bump below evicts this category's own
+    /// entry and every ancestor's. Note a delete is exactly the case where getting this wrong is
+    /// visible: the deactivated category must leave the anonymous tree and its ancestors' details
+    /// immediately, and must appear in the admin tree.
     /// </remarks>
-    public IEnumerable<string> CacheKeysToInvalidate => [CategoryCacheKeys.Detail(Id)];
+    public IEnumerable<string> CacheKeysToInvalidate => [];
 
     public IEnumerable<string> CacheFamiliesToInvalidate => [CategoryCacheFamilies.CategoryList];
 }

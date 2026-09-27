@@ -26,15 +26,19 @@ public record UpdateCategoryCommand : IRequest<Result>, ICacheInvalidatingComman
     public int? DisplayOrder { get; init; }
 
     /// <summary>
-    /// Only the keys the command can name up front. The parent's and children's detail entries also
-    /// embed this category (M8) but need the loaded entity, so the handler adds them through
-    /// <c>ICacheInvalidationContext</c>.
+    /// F-39 (frontend-contracts R5). Omitted (<c>null</c>) leaves the stored slug; anything sent
+    /// must be a valid slug, free among the category's live siblings (409 <c>Category.SlugConflict</c>
+    /// otherwise). Before this no endpoint could change a slug at all.
     /// </summary>
-    /// <remarks>
-    /// A4 (Admin panel S5): <c>CategoryCacheKeys.All</c> was removed — see
-    /// <c>CategoryCacheFamilies.CategoryList</c>. The family bump below replaces it.
-    /// </remarks>
-    public IEnumerable<string> CacheKeysToInvalidate => [CategoryCacheKeys.Detail(Id)];
+    public string? Slug { get; init; }
+
+    /// <summary>
+    /// Empty on purpose. A rename shows in the category's own detail, its children's
+    /// (<c>parentCategoryName</c>) and every ancestor's (F-37: the detail carries the whole subtree),
+    /// and both category reads are versioned in <see cref="CategoryCacheFamilies.CategoryList"/>, so
+    /// the family bump below evicts all of them. An exact key would match nothing and log success.
+    /// </summary>
+    public IEnumerable<string> CacheKeysToInvalidate => [];
 
     public IEnumerable<string> CacheFamiliesToInvalidate => [CategoryCacheFamilies.CategoryList];
 }

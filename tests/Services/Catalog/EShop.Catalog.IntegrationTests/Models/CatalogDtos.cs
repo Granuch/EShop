@@ -208,6 +208,9 @@ public record UpdateCategoryRequest
     /// <summary>Null (omitted) leaves the stored description; "" clears it (Stage 8, M10).</summary>
     public string? Description { get; init; }
     public int? DisplayOrder { get; init; }
+
+    /// <summary>Null (omitted) leaves the stored slug; anything sent must be a valid, free slug (F-39, R5).</summary>
+    public string? Slug { get; init; }
 }
 
 public record CategoryResponse

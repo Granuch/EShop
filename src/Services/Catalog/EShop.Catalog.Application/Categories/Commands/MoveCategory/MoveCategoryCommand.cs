@@ -16,8 +16,9 @@ namespace EShop.Catalog.Application.Categories.Commands.MoveCategory;
 /// <c>NewParentCategoryId</c> is nullable and null is meaningful: it promotes the category to a
 /// root. That makes "omitted" and "explicitly null" indistinguishable in JSON, which is the BUG-09
 /// ambiguity — resolved here by the endpoint requiring the property to be present
-/// (<c>MoveCategoryRequest</c> is a dedicated body with one field, so an omitted body is a 400
-/// rather than a silent promotion to root).
+/// (<c>MoveCategoryRequest</c> is a dedicated body with one field; an omitted body is a 400
+/// <c>MalformedRequest</c>, and since F-38 a body without the property is a 400
+/// <c>ValidationError</c> keyed <c>newParentCategoryId</c>, rather than a silent promotion to root).
 /// </remarks>
 public record MoveCategoryCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
@@ -29,14 +30,12 @@ public record MoveCategoryCommand : IRequest<Result>, ICacheInvalidatingCommand,
     public Guid? NewParentCategoryId { get; init; }
 
     /// <summary>
-    /// The detail entries that embed this category. Its own, plus the old and new parents' — each
-    /// lists it (or stops listing it) under <c>ChildCategories</c>. The old parent's id is not on
-    /// the command, so the handler adds it through <c>ICacheInvalidationContext</c> once it has
-    /// loaded the category; this property covers the two it can name up front.
+    /// Empty on purpose. A move changes the subtree of every ancestor on both sides — old and new —
+    /// and the detail read carries the whole subtree (F-37, frontend-contracts R5), so no list of
+    /// exact keys could be complete. Both category reads are versioned in
+    /// <see cref="CategoryCacheFamilies.CategoryList"/>, and the bump below covers them.
     /// </summary>
-    public IEnumerable<string> CacheKeysToInvalidate => NewParentCategoryId is { } newParentId
-        ? [CategoryCacheKeys.Detail(CategoryId), CategoryCacheKeys.Detail(newParentId)]
-        : [CategoryCacheKeys.Detail(CategoryId)];
+    public IEnumerable<string> CacheKeysToInvalidate => [];
 
     /// <summary>
     /// Two families. The tree read obviously changes shape. The product list does too, and that one
