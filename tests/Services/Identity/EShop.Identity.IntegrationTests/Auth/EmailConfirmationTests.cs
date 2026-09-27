@@ -148,6 +148,26 @@ public class EmailConfirmationTests : IntegrationTestBase
         (await ErrorCodeOf(response)).Should().Be("Auth.InvalidCredentials");
     }
 
+    /// <summary>
+    /// The right password on an unconfirmed account is not a failed attempt. If it were, the
+    /// brute-force tracker would throttle the third refusal onwards (<c>Auth.TooManyAttempts</c>) and,
+    /// at five, lock the account — punishing a user for logging in before clicking their link.
+    /// </summary>
+    [Test]
+    public async Task RepeatedLogins_WithTheRightPassword_BeforeConfirming_AreNeverThrottled()
+    {
+        var email = UniqueEmail("repeat");
+        await UserManagementHelper.CreateTestUserAsync(Factory.Services, email, Password, emailConfirmed: false);
+
+        for (var attempt = 1; attempt <= 4; attempt++)
+        {
+            var response = await LoginAsync(email, Password);
+
+            response.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"attempt {attempt}");
+            (await ErrorCodeOf(response)).Should().Be("Auth.EmailNotConfirmed", $"attempt {attempt}");
+        }
+    }
+
     [Test]
     public async Task Resend_SendsAFreshTokenThatWorks()
     {
