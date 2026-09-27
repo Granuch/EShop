@@ -48,6 +48,11 @@ docker compose down
 - Grafana: `http://localhost:3000`
 - Jaeger: `http://localhost:16686`
 
+> **Port 3000 clash**: Grafana's default port is also the Next.js dev-server default used by
+> `ui/`. On Windows, `localhost:3000` and `127.0.0.1:3000` can resolve to two different running
+> processes at once (`::1` vs IPv4), so if both are up, confirm which one actually answered before
+> debugging "Grafana looks wrong" or "the frontend dev server isn't loading."
+
 ---
 
 ## Service Endpoints to Validate
@@ -100,5 +105,5 @@ For gateway and services, verify:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

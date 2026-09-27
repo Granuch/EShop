@@ -124,7 +124,7 @@ public class ProductDiscountTests : AuthenticatedIntegrationTestBase
 
     /// <summary>
     /// This one is caught by the validator rather than the domain, because it needs nothing but the
-    /// request — so it surfaces as a Validation.Failed Result, which the endpoint maps to 400.
+    /// request — so it surfaces as a ValidationError Result, which the endpoint maps to 400.
     /// </summary>
     [Test]
     public async Task ANonPositiveDiscount_IsRejected()
@@ -252,7 +252,7 @@ public class ProductDiscountTests : AuthenticatedIntegrationTestBase
         var discounted = await CreatePublishedProductAsync(100m);
         await SetDiscountAsync(discounted, 10m);
 
-        var items = (await ListAsync("&MinPrice=5&MaxPrice=60&SortBy=1&IsDescending=false")).Items.ToList();
+        var items = (await ListAsync("&MinPrice=5&MaxPrice=60&SortBy=Price&IsDescending=false")).Items.ToList();
 
         items.Select(p => p.DiscountPrice ?? p.Price).Should().BeInAscendingOrder();
         items.FindIndex(p => p.Id == discounted).Should().BeLessThan(items.FindIndex(p => p.Id == plain),

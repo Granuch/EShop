@@ -54,9 +54,14 @@
 ### Gateway Layer
 **API Gateway (YARP)**
 - Routes requests to all backend services.
-- Enforces JWT-based policies (`Authenticated`, `Admin`) on protected routes.
+- Enforces JWT-based policies (`Authenticated`, `AdminArea`) on protected routes; every admin
+  route, Ordering's and Payment's included, requires `AdminArea` (the caller holds at least one
+  permission), and each service additionally checks the exact permission (`EShopPermissions`,
+  e.g. `users.read`, `payments.write`) or the `Admin` role, whose bundle holds all 15 (see
+  [Security Architecture](../03-architecture/security-architecture.md)).
 - Applies rate limiting and correlation middleware.
-- Exposes health and metrics endpoints.
+- Exposes health and metrics endpoints, plus four endpoints it serves itself: a merged admin
+  audit log, system health, settings and feature flags (`p:audit.read`/`p:system.manage`).
 
 ### Domain Service Layer
 
@@ -89,6 +94,9 @@
 - Handles outbound notifications.
 - Persists notification-related records in dedicated PostgreSQL database.
 - Subscribes to business events relevant to customer communication.
+- Also exposes its own admin HTTP API (journal list/stats/detail, templates, test-send,
+  retry-failed, resend, mark-undeliverable), gated by the gateway's `AdminArea` policy and the
+  service's own `notifications.read`/`notifications.manage` permissions.
 
 ### Messaging Layer
 
@@ -137,8 +145,9 @@
 - [Technology Stack](tech-stack.md)
 - [API Gateway Service Details](../05-services/api-gateway.md)
 - [Infrastructure Details](../06-infrastructure/)
+- [Frontend API Contracts](frontend/conventions.md#5-permissions-and-admin-access)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

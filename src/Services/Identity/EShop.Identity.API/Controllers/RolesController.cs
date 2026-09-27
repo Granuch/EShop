@@ -1,3 +1,5 @@
+using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Identity.Application.Roles.Commands.AddUserToRole;
 using EShop.Identity.Application.Roles.Commands.CreateRole;
 using EShop.Identity.Application.Roles.Commands.DeleteRole;
@@ -39,16 +41,19 @@ public class RolesController : ApiControllerBase
     }
 
     /// <summary>
-    /// Get all roles
+    /// Get one page of roles, ordered by name (frontend-contracts F-12).
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<RoleResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<RoleResponse>>> GetRoles(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50,
+    [ProducesResponseType(typeof(PagedResult<RoleResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<PagedResult<RoleResponse>>> GetRoles(
+        [FromQuery] int? pageNumber,
+        [FromQuery] int? pageSize,
         CancellationToken cancellationToken = default)
     {
-        var result = await _mediator.Send(new GetRolesQuery { Page = page, PageSize = pageSize }, cancellationToken);
+        var result = await _mediator.Send(
+            new GetRolesQuery { PageNumber = pageNumber, PageSize = pageSize },
+            cancellationToken);
 
         return result.IsSuccess
             ? Ok(result.Value)
@@ -144,24 +149,33 @@ public class RolesController : ApiControllerBase
     }
 
     /// <summary>
-    /// Get users in a role
+    /// Get one page of a role's members, ordered by email (frontend-contracts F-12).
     /// </summary>
     [HttpGet("{roleName}/users")]
-    [ProducesResponseType(typeof(IReadOnlyList<UserInRoleResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResult<UserInRoleResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<IReadOnlyList<UserInRoleResponse>>> GetUsersInRole(
+    public async Task<ActionResult<PagedResult<UserInRoleResponse>>> GetUsersInRole(
         string roleName,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50,
+        [FromQuery] int? pageNumber,
+        [FromQuery] int? pageSize,
         CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(
-            new GetUsersInRoleQuery { RoleName = roleName, Page = page, PageSize = pageSize },
+            new GetUsersInRoleQuery { RoleName = roleName, PageNumber = pageNumber, PageSize = pageSize },
             cancellationToken);
 
-        return result.IsSuccess
-            ? Ok(result.Value)
-            : ProblemForError(result.Error!, StatusCodes.Status404NotFound);
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // The paging rules fail validation (400) before the role is looked up (404).
+        var status = result.Error is FieldValidationError
+            ? StatusCodes.Status400BadRequest
+            : StatusCodes.Status404NotFound;
+
+        return ProblemForError(result.Error!, status);
     }
 
     /// <summary>

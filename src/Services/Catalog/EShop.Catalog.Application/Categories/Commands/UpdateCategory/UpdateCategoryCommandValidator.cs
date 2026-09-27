@@ -1,3 +1,4 @@
+using EShop.Catalog.Domain.Entities;
 using FluentValidation;
 
 namespace EShop.Catalog.Application.Categories.Commands.UpdateCategory;
@@ -21,5 +22,14 @@ public class UpdateCategoryCommandValidator : AbstractValidator<UpdateCategoryCo
         RuleFor(x => x.DisplayOrder)
             .GreaterThanOrEqualTo(0).When(x => x.DisplayOrder.HasValue)
             .WithMessage("Display order cannot be negative");
+
+        // F-39. Omitted (null) leaves the slug alone. Anything sent must be a valid slug — blank
+        // included: a category always has one, so "" cannot mean "clear it", and silently reading it
+        // as "leave it" would hide a client bug.
+        RuleFor(x => x.Slug)
+            .Cascade(CascadeMode.Stop)
+            .MaximumLength(Category.SlugMaxLength).WithMessage("Slug must not exceed 200 characters")
+            .Matches(Category.SlugPattern).WithMessage(Category.InvalidSlugMessage)
+            .When(x => x.Slug is not null);
     }
 }

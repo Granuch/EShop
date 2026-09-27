@@ -8,7 +8,8 @@ namespace EShop.BuildingBlocks.Infrastructure.Http;
 /// </summary>
 public static class ProblemErrorCodes
 {
-    public const string ValidationError = "ValidationError";
+    /// <summary>Every validation failure, returned or thrown (frontend-contracts F-03); see <c>FieldValidationError</c>.</summary>
+    public const string ValidationError = EShop.BuildingBlocks.Application.FieldValidationError.ErrorCode;
     public const string NotFound = "NotFound";
     public const string DomainError = "DomainError";
     public const string Unauthorized = "Unauthorized";
@@ -30,6 +31,11 @@ public static class ProblemErrorCodes
     /// unprefixed style.
     /// </summary>
     public const string UpstreamUnavailable = "Gateway.UpstreamUnavailable";
+
+    /// <summary>
+    /// A rejected request, from the gateway's limiter or any service's. Identity's value, kept as it was on the wire.
+    /// </summary>
+    public const string RateLimited = "Request.RateLimited";
 
     /// <summary>
     /// A failure the gateway's traffic simulator injected rather than one that actually happened.

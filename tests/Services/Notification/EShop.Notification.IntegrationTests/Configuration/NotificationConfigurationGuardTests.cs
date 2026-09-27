@@ -23,7 +23,11 @@ public class NotificationConfigurationGuardTests
         ["Smtp:FromEmail"] = "noreply@eshop.local",
         ["RabbitMQ:Host"] = "rabbitmq",
         ["RabbitMQ:Username"] = "eshop",
-        ["RabbitMQ:Password"] = "s3cret-rabbit-password"
+        ["RabbitMQ:Password"] = "s3cret-rabbit-password",
+        // Admin panel S12: the guard now also gates the web surface's token settings.
+        ["JwtSettings:SecretKey"] = "NotificationSuiteSigningMaterialLongEnoughForHS256!",
+        ["JwtSettings:Issuer"] = "EShop.Identity",
+        ["JwtSettings:Audience"] = "EShop.Services"
     };
 
     [TestCase("Production")]
@@ -191,6 +195,65 @@ public class NotificationConfigurationGuardTests
 
         Assert.That(() => Validate("Testing", settings),
             Throws.InvalidOperationException.With.Message.Contains("Smtp:Security"));
+    }
+
+    // ---------- Admin panel S12: the token settings ----------
+
+    /// <summary>
+    /// The key is checked in <b>every</b> environment, Testing included — HS256 needs 256 bits whoever is asking, and a
+    /// host that cannot validate a token has no usable web surface. That is <c>JwtSecretGuard</c>'s rule, not a local one.
+    /// </summary>
+    [TestCase("", "JWT SecretKey is not configured")]
+    [TestCase("too-short", "at least 32 characters")]
+    public void TheSigningKey_IsRefusedEverywhere_WhenMissingOrTooShort(string key, string message)
+    {
+        var settings = Clean();
+        settings["JwtSettings:SecretKey"] = key;
+
+        Assert.Multiple(() =>
+        {
+            foreach (var environment in new[] { "Testing", "Development", "Sandbox", "Production" })
+            {
+                Assert.That(() => Validate(environment, settings),
+                    Throws.InvalidOperationException.With.Message.Contains(message), environment);
+            }
+        });
+    }
+
+    /// <summary>The first is what the tracked appsettings.json ships, the second what appsettings.Development.json does.</summary>
+    [TestCase("CHANGE_ME_notification_service_secret_key_32_chars_min")]
+    [TestCase("LOCAL_notification_service_dev_secret_key_32_chars_min")]
+    public void APlaceholderSigningKey_IsRefusedInSandbox_ButAllowedInDevelopment(string key)
+    {
+        var settings = Clean();
+        settings["JwtSettings:SecretKey"] = key;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => Validate("Sandbox", settings),
+                Throws.InvalidOperationException.With.Message.Contains("placeholder"));
+            Assert.That(() => Validate("Development", settings), Throws.Nothing);
+        });
+    }
+
+    /// <summary>
+    /// Program.cs sets ValidateIssuer and ValidateAudience, so an empty one is not a lenient default: it is a service
+    /// that rejects every token it is ever shown while reporting healthy. Refused everywhere for that reason.
+    /// </summary>
+    [TestCase("JwtSettings:Issuer", "JwtSettings:Issuer is required")]
+    [TestCase("JwtSettings:Audience", "JwtSettings:Audience is required")]
+    public void TheIssuerAndAudience_AreRequiredEverywhere(string key, string message)
+    {
+        var settings = Clean();
+        settings[key] = "";
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => Validate("Testing", settings),
+                Throws.InvalidOperationException.With.Message.Contains(message));
+            Assert.That(() => Validate("Production", settings),
+                Throws.InvalidOperationException.With.Message.Contains(message));
+        });
     }
 
     /// <summary>L23. A content root that is the repository makes the renderer read the source tree; one file is gone.</summary>

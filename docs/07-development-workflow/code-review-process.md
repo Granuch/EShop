@@ -45,6 +45,8 @@ Review comments should be specific and actionable.
 ### Functionality
 - Does behavior match intended change?
 - Are edge cases and failures handled?
+- Endpoint/DTO change ⇒ update `docs/01-overview/frontend/` (the authoritative, code-verified
+  API contract docs) in the same PR.
 
 ### Architecture
 - Are layer boundaries respected?
@@ -104,5 +106,5 @@ Preferred PR sections:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

@@ -16,8 +16,11 @@ public abstract class ApiControllerBase : ControllerBase
     /// <summary>
     /// The caller always supplies the status. It is deliberately NOT derived from the error code
     /// the way Catalog's ProblemForError derives 404 from a ".NotFound" suffix: Identity's
-    /// Auth.InvalidCredentials must stay 401, and several actions already discriminate on
-    /// "Validation.Failed" to choose between 400 and 401.
+    /// Auth.InvalidCredentials must stay 401, and several actions discriminate on a
+    /// <see cref="FieldValidationError"/> to choose between 400 and 401.
+    ///
+    /// <para>Pass the <see cref="Error"/> itself, never its Code and Message: only this overload
+    /// writes a validation failure's <c>errors</c> map (frontend-contracts F-03).</para>
     ///
     /// <para>Named ProblemForError rather than Problem because ControllerBase already declares
     /// <c>Problem(string?, string?, int?, string?, string?)</c>. An overload named Problem would
@@ -25,7 +28,11 @@ public abstract class ApiControllerBase : ControllerBase
     /// body — the first time someone made the status parameter nullable.</para>
     /// </summary>
     protected ActionResult ProblemForError(Error error, int statusCode)
-        => ProblemForError(error.Code, error.Message, statusCode);
+        => new ObjectResult(EShopProblem.ForError(HttpContext, error, statusCode))
+        {
+            StatusCode = statusCode,
+            ContentTypes = { "application/problem+json" }
+        };
 
     /// <summary>
     /// For failures that never came from a <see cref="Result"/> and so have no

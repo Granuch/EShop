@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application;
 using EShop.Identity.Application.Users.Queries.GetUserContact;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -35,12 +36,12 @@ public class UsersController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            if (result.Error?.Code == "Validation.Failed")
+            if (result.Error is FieldValidationError)
             {
-                return ProblemForError(result.Error.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+                return ProblemForError(result.Error, StatusCodes.Status400BadRequest);
             }
 
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status404NotFound);
+            return ProblemForError(result.Error!, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);

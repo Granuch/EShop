@@ -42,6 +42,14 @@ Common runtime characteristics:
 
 ---
 
+### Admin audit trail (`audit_log`)
+
+Catalog, Identity, Ordering, Payment and Notification each carry an `audit_log` table (migration `AddAuditLog`,
+admin-panel S15), mapped once in BuildingBlocks by both base contexts. `Id` is a `bigint` identity and the paging
+cursor; indexes are `(EntityType, EntityId)` and `(ActorUserId)`. Rows are written through a separate scope, outside
+the command's transaction, and are never updated or deleted by the application. See
+[Admin Audit Trail](../03-architecture/audit-log.md).
+
 ## Schema and Migration Guidance
 
 - Keep schema ownership within each service boundary.

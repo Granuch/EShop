@@ -34,7 +34,12 @@ Common behavior includes:
 - MassTransit endpoint configuration
 - retry and circuit-breaker policies
 - endpoint naming conventions
-- optional delayed redelivery configuration
+- optional delayed redelivery configuration — **off in every shipped configuration**
+  (`RabbitMQ__UseDelayedExchangePlugin: "false"` in compose and the k8s ConfigMap), because the stock
+  `rabbitmq:3.13-management-alpine` image has no delayed-message exchange plugin. With it on, a failing message was
+  requeued for ever instead of reaching its `_error` queue (frontend-contracts F-56). A failing message now gets the
+  immediate retries (`RetryCount` + 1 attempts, 5/10/15 s apart) and then moves to `<queue>_error`.
+  `ShippedBrokerSettingsTests` keeps it that way until a broker with the plugin is shipped.
 
 Messaging registration is environment-aware and applies stricter validation outside development/testing.
 

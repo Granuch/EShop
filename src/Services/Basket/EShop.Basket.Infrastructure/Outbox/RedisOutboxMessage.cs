@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using EShop.BuildingBlocks.Messaging;
 
 namespace EShop.Basket.Infrastructure.Outbox;
@@ -25,6 +26,26 @@ internal sealed record RedisOutboxMessage
 
     /// <summary>Failed attempts so far.</summary>
     public int RetryCount { get; init; }
+
+    /// <summary>
+    /// The <see cref="RetryCount"/> of a message dead-lettered on sight because it can never be published. It was never
+    /// attempted, so the admin view reports no attempt count for it.
+    /// </summary>
+    internal const int UnpublishableRetryCount = int.MaxValue;
+
+    // The three below are written only when a message is dead-lettered (Admin panel S14, #81), so an envelope on its way
+    // through pending, processing and retry serializes exactly as before. Absent from anything dead-lettered earlier.
+
+    /// <summary>One of <c>OutboxDeadLetterReasons</c> — our words, never an exception message.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FailureReason { get; init; }
+
+    /// <summary>The type name of the last failure's exception, if there was one.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExceptionType { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? DeadLetteredAtUtc { get; init; }
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
 

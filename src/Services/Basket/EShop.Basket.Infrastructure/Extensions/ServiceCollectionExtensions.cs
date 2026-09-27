@@ -1,5 +1,6 @@
 using EShop.Basket.Application.Abstractions;
 using EShop.Basket.Domain.Interfaces;
+using EShop.Basket.Infrastructure.Admin;
 using EShop.Basket.Infrastructure.Checkout;
 using EShop.Basket.Infrastructure.Configuration;
 using EShop.Basket.Infrastructure.Consumers;
@@ -73,6 +74,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBasketCheckoutStore, RedisBasketCheckoutStore>();
         // The admin replay endpoint needs it whether or not messaging is configured (Basket audit S7, D7).
         services.AddSingleton<BasketOutboxDeadLetters>();
+        // Admin panel S14: the admin panel's read side — every stored basket by SCAN (#78/#79), and the dead letters
+        // themselves rather than only their count (#81), through the same instance the replay endpoint uses.
+        services.AddScoped<IBasketAdminReader, RedisBasketAdminReader>();
+        services.AddSingleton<IOutboxDeadLetterReader>(sp => sp.GetRequiredService<BasketOutboxDeadLetters>());
+        // The abandoned-basket cutoff reads the clock through it. AddBasketMessaging also adds it, but only when a bus is
+        // configured, and the admin read must work without one.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<RedisMessageIdempotencyStore>();
         // Price sync's record of the newest price change per product, so an older event cannot undo it (Basket audit M10).
         services.AddSingleton<PriceChangeWatermark>();

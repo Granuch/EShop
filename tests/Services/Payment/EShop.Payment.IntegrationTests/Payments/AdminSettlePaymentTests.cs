@@ -37,7 +37,7 @@ public class AdminSettlePaymentTests : AuthenticatedIntegrationTestBase
         var body = await response.Content.ReadFromJsonAsync<PaymentResponse>();
         Assert.Multiple(() =>
         {
-            Assert.That(body!.Status, Is.EqualTo("SUCCESS"));
+            Assert.That(body!.Status, Is.EqualTo("Success"));
             Assert.That(body.Amount, Is.EqualTo(100m));
             Assert.That(body.Currency, Is.EqualTo("USD"));
             Assert.That(body.UserId, Is.EqualTo("customer-1"));

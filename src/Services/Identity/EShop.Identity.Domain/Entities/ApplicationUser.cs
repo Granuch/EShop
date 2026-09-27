@@ -53,7 +53,8 @@ public class ApplicationUser : IdentityUser
 
     /// <summary>
     /// Re-enables a deactivated account. Deliberately refuses to resurrect a deleted one:
-    /// undeleting is not a state transition this model supports.
+    /// undeleting is <see cref="Restore"/>'s job, and keeping the two apart is what makes
+    /// "bring this account back" a decision an admin has to take twice.
     /// </summary>
     public void Activate()
     {
@@ -63,6 +64,38 @@ public class ApplicationUser : IdentityUser
         }
 
         IsActive = true;
+    }
+
+    /// <summary>
+    /// Un-deletes a soft-deleted account (Admin panel S7, decision Q1a). Clears
+    /// <see cref="IsDeleted"/> and <see cref="DeletedAt"/> and <b>leaves <see cref="IsActive"/>
+    /// alone</b>, which after a <see cref="SoftDelete"/> means the account comes back
+    /// <i>disabled</i>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// That is the whole point of Q1a: restoring and re-enabling are two admin actions, so an
+    /// account cannot be resurrected straight back into a signed-in state by one click. The
+    /// account becomes visible to <see cref="Activate"/>, which previously refused it, and the
+    /// admin then decides separately whether it should work.
+    /// </para>
+    /// <para>
+    /// Idempotent, and deliberately a no-op rather than a throw on a live account — the
+    /// alternative, unconditionally clearing the flags, would set nothing wrong here but would
+    /// invite the symmetric mistake of also forcing <c>IsActive = false</c>, which would let
+    /// "restore" demote a perfectly healthy user. Same reasoning as Catalog's
+    /// <c>Product.Restore</c>.
+    /// </para>
+    /// </remarks>
+    public void Restore()
+    {
+        if (!IsDeleted)
+        {
+            return;
+        }
+
+        IsDeleted = false;
+        DeletedAt = null;
     }
 
     // OAuth integration

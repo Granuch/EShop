@@ -15,8 +15,6 @@ public class UpdateCategoryCommandHandlerTests
 {
     private Mock<ICategoryRepository> _repositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
-    private List<string> _evicted = null!;
     private UpdateCategoryCommandHandler _handler = null!;
 
     [SetUp]
@@ -28,16 +26,7 @@ public class UpdateCategoryCommandHandlerTests
             .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
 
-        _evicted = [];
-        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
-        _cacheInvalidationContextMock
-            .Setup(x => x.AddKeys(It.IsAny<IEnumerable<string>>()))
-            .Callback<IEnumerable<string>>(keys => _evicted.AddRange(keys));
-
-        _handler = new UpdateCategoryCommandHandler(
-            _repositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _cacheInvalidationContextMock.Object);
+        _handler = new UpdateCategoryCommandHandler(_repositoryMock.Object, _unitOfWorkMock.Object);
     }
 
     private void Returns(Category category)
@@ -90,7 +79,6 @@ public class UpdateCategoryCommandHandlerTests
         Assert.That(result.IsFailure, Is.True);
         Assert.That(result.Error!.Code, Is.EqualTo("Category.NotFound"));
         _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-        Assert.That(_evicted, Is.Empty);
     }
 
     /// <summary>M10 — a command that omits the description must not wipe it.</summary>
@@ -105,39 +93,114 @@ public class UpdateCategoryCommandHandlerTests
         Assert.That(category.Description, Is.EqualTo("Keep me"));
     }
 
-    /// <summary>
-    /// M8. The parent's cached detail lists this category and each child's carries its name, so
-    /// both must go — the command itself can only name the category's own key.
-    /// </summary>
+    /// <summary>F-39. Omitted leaves the slug alone, and asks nothing of the repository.</summary>
     [Test]
-    public async Task Handle_EvictsTheParentsAndEachChildsCachedDetail()
+    public async Task Handle_WithoutASlug_KeepsTheStoredOne()
     {
-        var parent = Category.Create("Parent", null, null);
-        var category = Category.Create("Middle", null, parent);
-        var firstChild = Category.Create("Child A", null, category);
-        var secondChild = Category.Create("Child B", null, category);
+        var category = Category.Create("Electronics", "electronics", null);
         Returns(category);
 
         await _handler.Handle(new UpdateCategoryCommand { Id = category.Id, Name = "Renamed" }, CancellationToken.None);
 
-        Assert.That(_evicted, Is.EquivalentTo(new[]
-        {
-            CategoryCacheKeys.Detail(parent.Id),
-            CategoryCacheKeys.Detail(firstChild.Id),
-            CategoryCacheKeys.Detail(secondChild.Id)
-        }));
+        Assert.That(category.Slug, Is.EqualTo("electronics"));
+        _repositoryMock.Verify(x => x.SlugExistsAsync(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>F-39. No endpoint could change a slug before R5.</summary>
+    [Test]
+    public async Task Handle_WithAFreeSlug_ChangesIt_CheckingTheCategorysOwnLevel()
+    {
+        var parent = Category.Create("Parent", "parent", null);
+        var category = Category.Create("Electronics", "electronics", parent);
+        Returns(category);
+
+        var result = await _handler.Handle(
+            new UpdateCategoryCommand { Id = category.Id, Name = "Electronics", Slug = "gadgets" }, CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(category.Slug, Is.EqualTo("gadgets"));
+        _repositoryMock.Verify(x => x.SlugExistsAsync(parent.Id, "gadgets", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
-    /// The keys the commands evict must be the keys the queries write. They were separate string
-    /// literals until Stage 8 — the Stage 6 lesson is that such pairs drift silently.
+    /// F-39. A taken slug is refused before anything is mutated: TransactionBehavior commits on a
+    /// failure Result, so a rename applied before the check would be persisted by the refusal.
     /// </summary>
     [Test]
-    public void TheQueriesCacheUnderTheKeysTheCommandsEvict()
+    public async Task Handle_WithATakenSlug_IsASlugConflict_AndChangesNothing()
+    {
+        var category = Category.Create("Electronics", "electronics", null);
+        Returns(category);
+        _repositoryMock
+            .Setup(x => x.SlugExistsAsync(null, "taken", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _handler.Handle(
+            new UpdateCategoryCommand { Id = category.Id, Name = "Renamed", Slug = "taken" }, CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("Category.SlugConflict"));
+        Assert.That(category.Slug, Is.EqualTo("electronics"));
+        Assert.That(category.Name, Is.EqualTo("Electronics"), "the rename must not ride along with a refused request");
+        _unitOfWorkMock.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>F-39. Re-sending the current slug must not collide with the category itself.</summary>
+    [Test]
+    public async Task Handle_ResendingItsOwnSlug_IsNotAConflict()
+    {
+        var category = Category.Create("Electronics", "electronics", null);
+        Returns(category);
+        _repositoryMock
+            .Setup(x => x.SlugExistsAsync(It.IsAny<Guid?>(), "electronics", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _handler.Handle(
+            new UpdateCategoryCommand { Id = category.Id, Name = "Renamed", Slug = "electronics" }, CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+    }
+
+    /// <summary>
+    /// The keys the commands evict must be the keys the queries write — and since F-37
+    /// (frontend-contracts R5) both category reads are versioned in one family, so every category
+    /// write must bump that family and must name <b>no</b> exact key: a versioned entry's stored key
+    /// embeds the family version, so an exact-key eviction matches nothing and logs success.
+    /// </summary>
+    [Test]
+    public void BothCategoryReadsAreVersioned_AndEveryCategoryWriteBumpsTheirFamily()
     {
         var id = Guid.NewGuid();
 
-        Assert.That(new GetCategoryByIdQuery { Id = id }.CacheKey, Is.EqualTo(CategoryCacheKeys.Detail(id)));
-        Assert.That(new GetCategoriesQuery().CacheKey, Is.EqualTo(CategoryCacheKeys.All));
+        // Assert the INTERFACE, not just the property: a record that dropped IVersionedCacheKey but
+        // kept CacheKeyFamily would satisfy a property-only check while caching unversioned — and
+        // for the detail read that means a rename three levels down stays stale for five minutes.
+        var detailQuery = new GetCategoryByIdQuery { Id = id };
+        Assert.That(detailQuery, Is.InstanceOf<IVersionedCacheKey>());
+        Assert.That(detailQuery.CacheKeyFamily, Is.EqualTo(CategoryCacheFamilies.CategoryList));
+        Assert.That(detailQuery.CacheKey, Is.EqualTo(CategoryCacheKeys.Detail(id)));
+
+        var listQuery = new GetCategoriesQuery();
+        Assert.That(listQuery, Is.InstanceOf<IVersionedCacheKey>());
+        Assert.That(listQuery.CacheKeyFamily, Is.EqualTo(CategoryCacheFamilies.CategoryList));
+
+        ICacheInvalidatingCommand[] writes =
+        [
+            new EShop.Catalog.Application.Categories.Commands.CreateCategory.CreateCategoryCommand { Name = "N", ParentCategoryId = id },
+            new UpdateCategoryCommand { Id = id, Name = "N" },
+            new EShop.Catalog.Application.Categories.Commands.DeleteCategory.DeleteCategoryCommand { Id = id },
+            new EShop.Catalog.Application.Categories.Commands.MoveCategory.MoveCategoryCommand { CategoryId = id, NewParentCategoryId = Guid.NewGuid() },
+            new EShop.Catalog.Application.Categories.Commands.ReorderCategories.ReorderCategoriesCommand { ParentCategoryId = id, CategoryIds = [id] },
+            new EShop.Catalog.Application.Categories.Commands.RestoreCategory.RestoreCategoryCommand { CategoryId = id }
+        ];
+
+        foreach (var write in writes)
+        {
+            Assert.That(write.CacheFamiliesToInvalidate, Contains.Item(CategoryCacheFamilies.CategoryList), write.GetType().Name);
+            Assert.That(write.CacheKeysToInvalidate, Is.Empty, write.GetType().Name);
+        }
+
+        // The two list variants must be distinct keys, or an admin request poisons the anonymous entry.
+        Assert.That(new GetCategoriesQuery { IncludeInactive = true }.CacheKey,
+            Is.Not.EqualTo(new GetCategoriesQuery { IncludeInactive = false }.CacheKey));
     }
 }

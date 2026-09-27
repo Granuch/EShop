@@ -100,7 +100,7 @@ public class GetProductsTests : IntegrationTestBase
     public async Task GetProducts_WithSortByPrice_ShouldReturnSortedResults()
     {
         // Act
-        var response = await Client.GetAsync($"{ProductsEndpoint}?PageNumber=1&PageSize=50&SortBy=1&IsDescending=false");
+        var response = await Client.GetAsync($"{ProductsEndpoint}?PageNumber=1&PageSize=50&SortBy=Price&IsDescending=false");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -117,7 +117,7 @@ public class GetProductsTests : IntegrationTestBase
     public async Task GetProducts_WithSortByPriceDescending_ShouldReturnDescendingOrder()
     {
         // Act
-        var response = await Client.GetAsync($"{ProductsEndpoint}?PageNumber=1&PageSize=50&SortBy=1&IsDescending=true");
+        var response = await Client.GetAsync($"{ProductsEndpoint}?PageNumber=1&PageSize=50&SortBy=Price&IsDescending=true");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);

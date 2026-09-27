@@ -35,7 +35,7 @@ public class EShopProblemTests
     [Test]
     public void Create_LeavesTypeAndTitleToTheFramework()
     {
-        var problem = EShopProblem.Create(ContextWith("trace-2"), 400, "bad", "Validation.Failed");
+        var problem = EShopProblem.Create(ContextWith("trace-2"), 400, "bad", "ValidationError");
 
         Assert.That(problem.Type, Is.Null);
         Assert.That(problem.Title, Is.Null);
@@ -62,7 +62,7 @@ public class EShopProblemTests
     {
         var errors = new Dictionary<string, string[]> { ["Email"] = ["Email is required"] };
 
-        var problem = EShopProblem.Create(ContextWith("trace-4"), 400, "invalid", "Validation.Failed", errors);
+        var problem = EShopProblem.Create(ContextWith("trace-4"), 400, "invalid", "ValidationError", errors);
 
         Assert.That(problem.Extensions, Does.ContainKey(EShopProblem.ErrorsKey));
         Assert.That(problem.Extensions[EShopProblem.ErrorsKey], Is.SameAs(errors));
@@ -72,7 +72,7 @@ public class EShopProblemTests
     public void Create_OmitsErrors_WhenTheDictionaryIsEmpty()
     {
         var problem = EShopProblem.Create(
-            ContextWith("trace-5"), 400, "invalid", "Validation.Failed", new Dictionary<string, string[]>());
+            ContextWith("trace-5"), 400, "invalid", "ValidationError", new Dictionary<string, string[]>());
 
         Assert.That(problem.Extensions, Does.Not.ContainKey(EShopProblem.ErrorsKey));
     }

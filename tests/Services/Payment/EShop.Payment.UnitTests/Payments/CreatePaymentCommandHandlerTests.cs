@@ -69,7 +69,7 @@ public class CreatePaymentCommandHandlerTests
         var result = await Handler().Handle(new CreatePaymentCommand(seeded.OrderId), CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
-        Assert.That(result.Value!.Status, Is.EqualTo("SUCCESS"));
+        Assert.That(result.Value!.Status, Is.EqualTo("Success"));
         var stored = await StoredAsync(seeded.OrderId);
         Assert.Multiple(() =>
         {
@@ -119,7 +119,7 @@ public class CreatePaymentCommandHandlerTests
 
         var result = await Handler().Handle(new CreatePaymentCommand(seeded.OrderId), CancellationToken.None);
 
-        Assert.That(result.Value!.Status, Is.EqualTo("FAILED"));
+        Assert.That(result.Value!.Status, Is.EqualTo("Failed"));
         Assert.That((await StoredAsync(seeded.OrderId)).ErrorMessage, Is.EqualTo("Card declined"));
         _outbox.Verify(x => x.Enqueue(It.IsAny<PaymentFailedEvent>(), It.IsAny<string?>()), Times.Once);
     }

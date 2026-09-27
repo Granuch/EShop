@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+using EShop.Ordering.Application.Abstractions;
 using EShop.Ordering.Domain.Entities;
 
 namespace EShop.Ordering.IntegrationTests.Models;
@@ -36,11 +38,60 @@ public record CancelOrderRequest
     public string Reason { get; init; } = string.Empty;
 }
 
+/// <summary>Admin panel S8. The route names both ids, so the body carries only the new quantity.</summary>
+public record UpdateOrderItemQuantityRequest
+{
+    public int Quantity { get; init; }
+}
+
+/// <summary>Admin panel S8. A whole address — the endpoint replaces the value object outright.</summary>
+public record UpdateShippingAddressRequest
+{
+    public string Street { get; init; } = string.Empty;
+    public string City { get; init; } = string.Empty;
+    public string State { get; init; } = string.Empty;
+    public string ZipCode { get; init; } = string.Empty;
+    public string Country { get; init; } = string.Empty;
+}
+
+/// <summary>Admin panel S8. The body of GET /api/v1/orders/stats.</summary>
+public record OrderStatsResponse
+{
+    public DateTime? From { get; init; }
+    public DateTime? To { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatsGroupBy>))]
+    public OrderStatsGroupBy GroupBy { get; init; }
+    public int TotalOrders { get; init; }
+    public decimal GrossValue { get; init; }
+    public decimal PaidRevenue { get; init; }
+    public decimal RefundedValue { get; init; }
+    public decimal CancelledValue { get; init; }
+    public List<OrderStatusBreakdownResponse> ByStatus { get; init; } = new();
+    public List<OrderStatsBucketResponse> Buckets { get; init; } = new();
+}
+
+public record OrderStatusBreakdownResponse
+{
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
+    public OrderStatus Status { get; init; }
+    public int Count { get; init; }
+    public decimal Value { get; init; }
+}
+
+public record OrderStatsBucketResponse
+{
+    public DateTime PeriodStart { get; init; }
+    public int OrderCount { get; init; }
+    public decimal GrossValue { get; init; }
+    public decimal PaidRevenue { get; init; }
+}
+
 public record OrderResponse
 {
     public Guid Id { get; init; }
     public string UserId { get; init; } = string.Empty;
     public decimal TotalPrice { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
     public OrderStatus Status { get; init; }
     public string? PaymentIntentId { get; init; }
     public DateTime CreatedAt { get; init; }
@@ -75,6 +126,37 @@ public record OrderItemResponse
 public record CreatedResponse
 {
     public Guid Id { get; init; }
+}
+
+/// <summary>Admin panel S9. The body of POST /api/v1/orders/{id}/notes — the author is never sent.</summary>
+public record AddOrderNoteRequest
+{
+    public string Body { get; init; } = string.Empty;
+}
+
+/// <summary>Admin panel S9. One row of GET /api/v1/orders/{id}/notes.</summary>
+public record OrderNoteResponse
+{
+    public Guid Id { get; init; }
+    public Guid OrderId { get; init; }
+    public string AuthorId { get; init; } = string.Empty;
+    public string AuthorName { get; init; } = string.Empty;
+    public string Body { get; init; } = string.Empty;
+    public DateTime CreatedAt { get; init; }
+}
+
+/// <summary>Admin panel S9. One row of GET /api/v1/orders/{id}/history.</summary>
+public record OrderStatusHistoryResponse
+{
+    public Guid Id { get; init; }
+    public Guid OrderId { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
+    public OrderStatus? FromStatus { get; init; }
+    [JsonConverter(typeof(EnumNameConverter<OrderStatus>))]
+    public OrderStatus ToStatus { get; init; }
+    public string? Reason { get; init; }
+    public string? ActorId { get; init; }
+    public DateTime OccurredAt { get; init; }
 }
 
 public record ProblemDetailsResponse

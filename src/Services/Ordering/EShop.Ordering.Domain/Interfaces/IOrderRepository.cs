@@ -16,4 +16,12 @@ public interface IOrderRepository
     Task<string?> GetOwnerIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
     Task UpdateAsync(Order order, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many notes the order already carries (Admin panel S9). On the write side rather than in
+    /// <c>IOrderQueryService</c> because its only caller is the <see cref="Order.MaxNotes"/> pre-check:
+    /// the aggregate cannot count children it never loads, so this is the only place the real number is
+    /// visible before a note is appended.
+    /// </summary>
+    Task<int> CountNotesAsync(Guid orderId, CancellationToken cancellationToken = default);
 }

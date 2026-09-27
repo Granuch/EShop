@@ -6,7 +6,8 @@ namespace EShop.ApiGateway.Middleware;
 
 public sealed class BasketProxyGuardMiddleware
 {
-    private const string BasketPathPrefix = "/api/v1/basket";
+    /// <inheritdoc cref="IdentityProxyGuardMiddleware.IdentityPathPrefixes"/>
+    public const string BasketPathPrefix = "/api/v1/basket";
 
     private readonly RequestDelegate _next;
     private readonly BasketProxyOptions _options;

@@ -39,13 +39,31 @@ public class Category : AggregateRoot<Guid>
     private readonly List<Product> _products = new();
     public IReadOnlyCollection<Product> Products => _products.AsReadOnly();
 
+    /// <summary>
+    /// F-39 (frontend-contracts R5). What a slug may look like: lower-case <c>a-z</c>, digits and
+    /// single hyphens, not starting or ending with one — the shape <see cref="GenerateSlug"/> already
+    /// produces. A supplied slug used to be only trimmed, so <c>"  Mixed Case Slug!! "</c> was stored
+    /// as <c>Mixed Case Slug!!</c>, a value no URL can carry unencoded.
+    /// </summary>
+    public const string SlugPattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
+
+    /// <summary>Same cap as the column and every validator that accepts a slug.</summary>
+    public const int SlugMaxLength = 200;
+
+    private static readonly Regex SlugFormat = new(SlugPattern, RegexOptions.CultureInvariant);
+
+    /// <summary>Whether <paramref name="slug"/> is an acceptable slug, exactly as given (no trimming).</summary>
+    public static bool IsValidSlug(string? slug)
+        => slug is { Length: > 0 and <= SlugMaxLength } && SlugFormat.IsMatch(slug);
+
     private Category() { }
 
     /// <param name="slug">
-    /// Used as given (trimmed) when it has content; otherwise derived from the name. A name with no
-    /// Latin letters or digits derives nothing, so the slug then falls back to one built from the id
-    /// (M9) — it used to be stored as an empty string, and the second such root category collided
-    /// on the unique index as a generic 409.
+    /// Used as given (trimmed) when it has content, and then it must satisfy <see cref="IsValidSlug"/>
+    /// (F-39); otherwise derived from the name. A name with no Latin letters or digits derives
+    /// nothing, so the slug then falls back to one built from the id (M9) — it used to be stored as
+    /// an empty string, and the second such root category collided on the unique index as a generic
+    /// 409.
     /// </param>
     /// <param name="parent">The parent, or null for a root. Must not be deleted.</param>
     public static Category Create(
@@ -63,6 +81,9 @@ public class Category : AggregateRoot<Guid>
 
         if (displayOrder < 0)
             throw new DomainException("Display order cannot be negative.");
+
+        if (!string.IsNullOrWhiteSpace(slug) && !IsValidSlug(slug.Trim()))
+            throw new DomainException(InvalidSlugMessage);
 
         var id = Guid.NewGuid();
         var trimmedName = name.Trim();
@@ -114,10 +135,112 @@ public class Category : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// F-39 (frontend-contracts R5). Replaces the slug. There was no way to change one after
+    /// creation, so a slug conflict met on move or restore could only be resolved by moving or
+    /// deleting the <i>other</i> category — while the error messages told the admin to change a slug.
+    /// </summary>
+    /// <remarks>
+    /// Uniqueness among the siblings cannot be checked here — the aggregate cannot see them — so the
+    /// handler pre-checks it before calling this, with the <c>IsActive</c>-filtered unique indexes as
+    /// the race backstop, exactly as for create.
+    /// </remarks>
+    public void ChangeSlug(string slug)
+    {
+        if (!IsValidSlug(slug))
+            throw new DomainException(InvalidSlugMessage);
+
+        Slug = slug;
+    }
+
+    /// <summary>
     /// Soft-deletes the category. Idempotent. The handler refuses while live children or live
     /// products remain; this method cannot see products, so that check lives there.
     /// </summary>
     public void Deactivate() => IsActive = false;
+
+    /// <summary>
+    /// Brings a soft-deleted category back (Admin panel S5). Idempotent.
+    /// </summary>
+    /// <remarks>
+    /// <b>Slug uniqueness is not checked here, and cannot be.</b> Both unique slug indexes are
+    /// filtered on <c>"IsActive"</c>, so a deleted category's slug is free for another to take —
+    /// and once taken, reactivating re-enters the filtered index and collides. The aggregate cannot
+    /// see its siblings, so the pre-check lives in <c>RestoreCategoryCommandHandler</c> with the
+    /// index as the race backstop, exactly as <c>Product.Restore</c> handles the SKU.
+    /// <para>
+    /// Restoring does <b>not</b> restore the parent: if the parent is itself still deleted the
+    /// category comes back unreachable from the root list, which the handler refuses rather than
+    /// silently cascading a reactivation nobody asked for.
+    /// </para>
+    /// </remarks>
+    public void Restore()
+    {
+        if (IsActive)
+            return;
+
+        IsActive = true;
+    }
+
+    /// <summary>
+    /// Used by the batch reorder (Admin panel S5) to place a category among its siblings.
+    /// </summary>
+    public void SetDisplayOrder(int displayOrder)
+    {
+        if (displayOrder < 0)
+            throw new DomainException("Display order cannot be negative.");
+
+        DisplayOrder = displayOrder;
+    }
+
+    /// <summary>
+    /// Re-parents the category (Admin panel S5), or makes it a root when
+    /// <paramref name="newParentId"/> is null.
+    /// </summary>
+    /// <param name="newParentAncestorIds">
+    /// The <b>persisted</b> ancestor chain of the new parent, nearest first, as read from the
+    /// database by the handler. Empty when the new parent is a root, and irrelevant when
+    /// <paramref name="newParentId"/> is null.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>The chain is a parameter, not something this method walks.</b> A category's parent was
+    /// fixed at creation from Stage 8 precisely because the old <c>SetParent</c>'s cycle check
+    /// walked the in-memory <c>ParentCategory</c> navigation — which EF populates only as far as
+    /// the query happened to <c>Include</c>, so it answered "no cycle" for a chain it could not
+    /// see. Re-parenting is only safe with the check moved to a caller that can read the real
+    /// chain; passing a navigation-derived list here reintroduces the original bug with the same
+    /// shape and no failing test.
+    /// </para>
+    /// <para>
+    /// Two cycles are possible and both are refused: making a category its own parent, and moving
+    /// it under one of its own descendants (which shows up as this category appearing in the new
+    /// parent's ancestor chain). Note the second is detected from the <i>parent's</i> ancestors
+    /// rather than from this category's descendants — the aggregate can see neither, but the
+    /// handler can read the former with one recursive query.
+    /// </para>
+    /// </remarks>
+    public void MoveTo(Guid? newParentId, IReadOnlyCollection<Guid> newParentAncestorIds)
+    {
+        ArgumentNullException.ThrowIfNull(newParentAncestorIds);
+
+        if (!IsActive)
+            throw new DomainException("Cannot move a deleted category.");
+
+        if (newParentId == Id)
+            throw new DomainException("A category cannot be its own parent.");
+
+        if (newParentId.HasValue && newParentAncestorIds.Contains(Id))
+            throw new DomainException("Cannot move a category beneath one of its own descendants.");
+
+        if (newParentId == ParentCategoryId)
+            return;
+
+        ParentCategoryId = newParentId;
+
+        // Cleared so a stale navigation cannot be written back: the caller passed an id, and the
+        // entity it points at is not loaded here. EF repopulates it on the next read.
+        ParentCategory = null;
+    }
 
     public static string GenerateSlug(string name)
     {
@@ -147,6 +270,10 @@ public class Category : AggregateRoot<Guid>
         var generated = GenerateSlug((name ?? string.Empty).Trim());
         return generated.Length > 0 ? generated : null;
     }
+
+    /// <summary>The one wording for a malformed slug, shared by the domain and the validators.</summary>
+    public const string InvalidSlugMessage =
+        "Slug must contain only lower-case letters (a-z), digits and single hyphens, and must not start or end with a hyphen.";
 
     private static string ResolveSlug(string? supplied, string name, Guid id)
         => ResolveRequestedSlug(supplied, name) ?? $"category-{id.ToString("N")[..8]}";

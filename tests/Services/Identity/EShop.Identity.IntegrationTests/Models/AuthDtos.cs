@@ -43,6 +43,7 @@ public record UserDto
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;
     public List<string> Roles { get; init; } = [];
+    public List<string> Permissions { get; init; } = [];
 }
 
 public record RefreshTokenRequest
@@ -111,6 +112,7 @@ public record UserProfileResponse
     public DateTime CreatedAt { get; init; }
     public DateTime? LastLoginAt { get; init; }
     public List<string> Roles { get; init; } = [];
+    public List<string> Permissions { get; init; } = [];
 }
 
 public record Enable2FAResponse

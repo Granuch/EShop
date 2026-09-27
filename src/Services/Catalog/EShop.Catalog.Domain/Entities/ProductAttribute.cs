@@ -29,6 +29,16 @@ public class ProductAttribute : Entity<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Replaces name and value (Admin panel S3), normalizing both exactly as construction does.
+    /// Name collision with a sibling is the aggregate's job — see <c>Product.UpdateAttribute</c>.
+    /// </summary>
+    internal void Update(string name, string value)
+    {
+        Name = NormalizeName(name);
+        Value = NormalizeValue(value);
+    }
+
     private static string NormalizeName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))

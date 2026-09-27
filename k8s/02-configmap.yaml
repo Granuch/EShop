@@ -37,6 +37,8 @@ data:
   ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
   ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
   ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+  # IPv6 unique-local: a dual-stack cluster gives the gateway pod an fc00::/7 address.
+  ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
   # Identity settings
   Identity__RequireConfirmedEmail: "false"
@@ -69,7 +71,11 @@ data:
   RabbitMQ__RetryCount: "3"
   RabbitMQ__RetryIntervalSeconds: "5"
   RabbitMQ__RetryIncrementSeconds: "5"
-  RabbitMQ__UseDelayedExchangePlugin: "true"
+  # false: the stock rabbitmq image has no delayed-message exchange plugin. With it on,
+  # MassTransit declared an x-delayed-message exchange, the broker closed the channel (406), and a
+  # failing message was requeued forever instead of reaching _error (frontend-contracts F-56). The
+  # redelivery intervals below apply only when a broker with the plugin is configured.
+  RabbitMQ__UseDelayedExchangePlugin: "false"
   RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
   RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
   RabbitMQ__DelayedRedeliveryIntervalsMinutes__2: "15"

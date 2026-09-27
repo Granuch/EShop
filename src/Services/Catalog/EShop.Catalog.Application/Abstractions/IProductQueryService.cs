@@ -22,10 +22,38 @@ public interface IProductQueryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Every product under <paramref name="filter"/>, in the list's order, for the CSV export (admin panel S16) — or,
+    /// when more than <paramref name="maxRows"/> match, <b>no rows</b> and the count, so the caller can refuse.
+    /// </summary>
+    /// <remarks>
+    /// Counted before anything is fetched: the alternative, fetching <c>maxRows + 1</c> and checking, reads the very rows
+    /// the refusal exists to avoid reading.
+    /// </remarks>
+    Task<(List<ProductDto> Items, int TotalCount)> GetProductsForExportAsync(
+        ProductListFilter filter,
+        ProductSortBy sortBy,
+        bool isDescending,
+        int maxRows,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets up to <paramref name="take"/> products in newest-first keyset order
     /// (<c>CreatedAt DESC, Id DESC</c>), strictly after <paramref name="after"/> when given.
     /// No count is taken — avoiding it is half the point of keyset paging.
     /// </summary>
+    /// <summary>
+    /// The counts behind <c>GET /api/v1/categories/{id}/stats</c> (Admin panel S5), taken in one
+    /// round trip rather than as five separate queries.
+    /// </summary>
+    /// <remarks>
+    /// Lives here rather than in <c>ICategoryRepository</c> because it counts <b>products</b>, and
+    /// the repository is the Category aggregate's write-side boundary; this is a read projection,
+    /// which is what this service is for.
+    /// </remarks>
+    Task<CategoryProductStats> GetCategoryProductStatsAsync(
+        Guid categoryId,
+        CancellationToken cancellationToken = default);
+
     Task<List<ProductDto>> GetNewestProductsAsync(
         ProductListFilter filter,
         ProductCursor? after,

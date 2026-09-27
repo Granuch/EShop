@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Identity.Infrastructure.Extensions;
 using EShop.Identity.Infrastructure.Configuration;
@@ -10,6 +11,7 @@ using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
 using EShop.Identity.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Messaging.Events;
 using Microsoft.AspNetCore.Identity;
@@ -68,6 +70,10 @@ try
     // Shared across every service — see EShopForwardedHeaders for why KnownNetworks matters
     // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<IdentityDbContext>("identity");
 
     // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
     // behaviors in DI registration order (first registered = outermost), so these three calls are
@@ -324,6 +330,11 @@ try
             policy.Requirements.Add(new InternalServiceRequirement()));
     });
 
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
+
     builder.Services.AddSingleton<IAuthorizationHandler, InternalServiceAuthorizationHandler>();
 
     var enableRateLimiting = !builder.Environment.IsEnvironment("Testing")
@@ -346,27 +357,9 @@ try
     // Add Rate Limiting (Testing uses permissive limits by default, can be hardened for dedicated tests)
     builder.Services.AddRateLimiter(options =>
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-        // DOC-01. A rejected request used to return 429 with an EMPTY body: RejectionStatusCode
-        // sets the status and nothing writes a payload. So the one response a client is most
-        // likely to need to handle programmatically was the only one carrying no errorCode, and
-        // scripts/verify-all.sh could not assert on it at all. Emit the same envelope as every
-        // other error, and advertise Retry-After when the limiter can tell us the window.
-        options.OnRejected = async (context, cancellationToken) =>
-        {
-            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-            {
-                context.HttpContext.Response.Headers.RetryAfter =
-                    ((int)retryAfter.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            await EShopProblem.WriteAsync(context.HttpContext, EShopProblem.Create(
-                context.HttpContext,
-                StatusCodes.Status429TooManyRequests,
-                detail: "Too many requests. Please retry later.",
-                errorCode: "Request.RateLimited"));
-        };
+        // DOC-01, since frontend-contracts F-05 shared by every component: problem+json with
+        // Request.RateLimited and Retry-After, rather than an empty 429.
+        options.UseEShopRejectionResponse();
 
         // Global rate limiter
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
@@ -418,7 +411,8 @@ try
             policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowCredentials()
+                  .WithEShopExposedHeaders();
         });
     });
 
@@ -452,7 +446,15 @@ try
             tags: ["live"]);
 
     // Add Controllers and OpenAPI
-    builder.Services.AddControllers();
+    // Frontend-contracts F-03: the automatic 400 answers the same validation envelope as every other service.
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+            options.InvalidModelStateResponseFactory = EShopMvcValidation.InvalidModelStateResponse)
+        .AddEShopJson();
+
+    // Enums as PascalCase names, in and out (frontend-contracts F-01). The controllers above read MVC's own
+    // JsonOptions; this covers the minimal endpoints (the root, health) as well.
+    builder.Services.AddEShopJson();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
@@ -612,6 +614,8 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Map Prometheus metrics endpoints:
     // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)

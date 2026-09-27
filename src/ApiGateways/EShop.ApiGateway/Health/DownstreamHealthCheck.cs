@@ -5,6 +5,9 @@ namespace EShop.ApiGateway.Health;
 
 public sealed class DownstreamHealthCheck : IHealthCheck
 {
+    /// <summary>The registration name. The System page's aggregate health (admin panel S19) excludes it by this name.</summary>
+    public const string Name = "downstream";
+
     private readonly IProxyConfigProvider _proxyConfigProvider;
     private readonly IHttpClientFactory _httpClientFactory;
 

@@ -109,7 +109,7 @@ public class RefundPaymentCommandHandlerTests
         var result = await handler.Handle(new RefundPaymentCommand(payment.Id, null, "customer request"), CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
-        Assert.That(result.Value!.Status, Is.EqualTo("REFUNDED"));
+        Assert.That(result.Value!.Status, Is.EqualTo("Refunded"));
         outbox.Verify(x => x.Enqueue(It.IsAny<EShop.BuildingBlocks.Messaging.Events.PaymentRefundedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 
@@ -130,7 +130,7 @@ public class RefundPaymentCommandHandlerTests
         var result = await handler.Handle(new RefundPaymentCommand(payment.Id, 100m, "test"), CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
-        Assert.That(result.Value!.Status, Is.EqualTo("REFUNDED"));
+        Assert.That(result.Value!.Status, Is.EqualTo("Refunded"));
         outbox.Verify(x => x.Enqueue(It.IsAny<PaymentRefundedEvent>(), It.IsAny<string?>()), Times.Once);
     }
 

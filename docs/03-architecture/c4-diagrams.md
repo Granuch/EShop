@@ -122,6 +122,14 @@ This document provides C4-style architecture views for the current EShop backend
 │  │ - /prometheus and OpenTelemetry metrics                      │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ Gateway-Served Admin Endpoints (no downstream forwarding)     │  │
+│  │ - GET /api/v1/admin/audit   — merges Identity/Catalog/        │  │
+│  │   Ordering/Payment/Notification's own audit endpoints         │  │
+│  │ - GET /api/v1/admin/health, /admin/settings,                 │  │
+│  │   /admin/feature-flags — fan out to the owning services      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -172,7 +180,7 @@ Docker Compose (root)
 ## Sequence Diagram: Checkout to Order Progression
 
 ```
-Client -> Gateway -> Basket API : POST /api/v1/basket/checkout
+Client -> Gateway -> Basket API : POST /api/v1/basket/{userId}/checkout
 Basket API -> Redis            : read basket
 Basket API -> RabbitMQ         : publish checkout event
 Ordering API <- RabbitMQ       : consume checkout event
@@ -198,8 +206,9 @@ Notification API <- RabbitMQ   : consume notification events
 - [C4 Model](https://c4model.com/)
 - [Structurizr](https://structurizr.com/)
 - [PlantUML C4](https://github.com/plantuml-stdlib/C4-PlantUML)
+- [Frontend API Contracts — Admin Platform](../01-overview/frontend/admin-platform.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

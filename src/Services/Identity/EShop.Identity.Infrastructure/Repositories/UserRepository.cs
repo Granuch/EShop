@@ -27,9 +27,41 @@ public class UserRepository : IUserRepository
         return await _userManager.FindByIdAsync(userId);
     }
 
+    /// <summary>
+    /// See <see cref="IUserRepository.GetByIdIncludingDeletedAsync"/>. Tracked on purpose — the
+    /// caller mutates and saves it — so no <c>AsNoTracking()</c> here.
+    /// </summary>
+    public async Task<ApplicationUser?> GetByIdIncludingDeletedAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.Users
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+    }
+
     public async Task<ApplicationUser?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         return await _userManager.FindByEmailAsync(email);
+    }
+
+    /// <summary>
+    /// See <see cref="IUserRepository.EmailIsTakenAsync"/>. Normalisation goes through
+    /// <c>UserManager</c>'s own normaliser rather than a hand-rolled <c>ToUpperInvariant()</c>, so
+    /// this asks the same question the unique index answers.
+    /// </summary>
+    public async Task<bool> EmailIsTakenAsync(
+        string email,
+        string? excludingUserId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedEmail = _userManager.NormalizeEmail(email);
+        var normalizedUserName = _userManager.NormalizeName(email);
+
+        return await _dbContext.Users
+            .IgnoreQueryFilters()
+            .AnyAsync(u =>
+                (u.NormalizedEmail == normalizedEmail || u.NormalizedUserName == normalizedUserName)
+                && (excludingUserId == null || u.Id != excludingUserId),
+                cancellationToken);
     }
 
     /// <summary>

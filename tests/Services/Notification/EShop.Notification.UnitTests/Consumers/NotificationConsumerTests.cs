@@ -61,6 +61,47 @@ public class NotificationConsumerTests
         });
     }
 
+    /// <summary>
+    /// Admin panel S13. The event is kept on the row it creates, because nothing else on the row can rebuild the email
+    /// for an operator's resend.
+    /// </summary>
+    [Test]
+    public async Task TheNewRow_KeepsTheEvent_SoAnOperatorCanResendIt()
+    {
+        var evt = new OrderCreatedEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = Guid.NewGuid(),
+            UserId = "user-1",
+            TotalAmount = 42m,
+            Items = [new OrderEventItem { ProductId = Guid.NewGuid(), Quantity = 2 }]
+        };
+        ResolveAs("user-1", "user1@test.com", "User One");
+
+        await OrderCreated().Consume(Delivery(evt));
+
+        var kept = (OrderCreatedEvent)EShop.Notification.Infrastructure.Resend.NotificationPayload.Deserialize(
+            _logs.Single().Payload!, typeof(OrderCreatedEvent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(kept.EventId, Is.EqualTo(evt.EventId));
+            Assert.That(kept.OrderId, Is.EqualTo(evt.OrderId));
+            Assert.That(kept.Items.Single().Quantity, Is.EqualTo(2));
+        });
+    }
+
+    /// <summary>Admin panel S13. A reset token at rest for 90 days is the SEC-05 exposure; the row keeps nothing.</summary>
+    [Test]
+    public async Task APasswordResetRow_KeepsNoEvent()
+    {
+        var evt = new PasswordResetRequestedIntegrationEvent { EventId = Guid.NewGuid(), UserId = "user-reset", ResetToken = "live-token" };
+        ResolveAs("user-reset", "reset@test.com", "Reset User");
+
+        await PasswordReset(Reset).Consume(Delivery(evt));
+
+        Assert.That(_logs.Single().Payload, Is.Null);
+    }
+
     [Test]
     public async Task OrderCreatedConsumer_WhenAlreadySent_SkipsSend()
     {
@@ -579,6 +620,9 @@ public class NotificationConsumerTests
 
         public Task<NotificationLog?> FindByEventIdAsync(Guid eventId, CancellationToken ct = default)
             => Task.FromResult(_rows.GetValueOrDefault(eventId));
+
+        public Task<NotificationLog?> FindByIdAsync(Guid id, CancellationToken ct = default)
+            => Task.FromResult(_rows.Values.SingleOrDefault(x => x.Id == id));
 
         public Task<bool> TryAddAsync(NotificationLog log, CancellationToken ct = default)
         {

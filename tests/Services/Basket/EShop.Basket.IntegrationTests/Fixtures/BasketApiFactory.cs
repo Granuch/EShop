@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using EShop.Basket.Application.Abstractions;
 using EShop.Basket.Infrastructure.Outbox;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -53,13 +54,27 @@ public class BasketApiFactory : WebApplicationFactory<Program>
         return client;
     }
 
-    public static string CreateToken(string userId, bool isAdmin = false)
+    /// <summary>
+    /// A client whose token carries <paramref name="permissions"/> as direct <c>permission</c> claims and no role at all
+    /// (Admin panel S14) — the way to show an endpoint asks for a permission rather than for the <c>Admin</c> role.
+    /// </summary>
+    public HttpClient CreateClientWithPermissions(string userId, params string[] permissions)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateToken(userId, isAdmin: false, permissions));
+        return client;
+    }
+
+    public static string CreateToken(string userId, bool isAdmin = false, IEnumerable<string>? permissions = null)
     {
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId) };
         if (isAdmin)
         {
             claims.Add(new Claim(ClaimTypes.Role, "Admin"));
         }
+
+        claims.AddRange((permissions ?? []).Select(p => new Claim(EShopPermissions.ClaimType, p)));
 
         var token = new JwtSecurityToken(
             issuer: JwtIssuer,

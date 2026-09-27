@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Ordering.Domain.Entities;
 using EShop.Ordering.Infrastructure.Data;
 using EShop.Ordering.IntegrationTests.Helpers;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using EShop.Tests.Shared;
 
 namespace EShop.Ordering.IntegrationTests.Security;
 
@@ -45,18 +47,33 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["GET /api/v1/orders"] = "Admin",
         ["GET /api/v1/orders/{id:guid}"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/items"] = "OrderOwnerOrAdmin",
+        ["PUT /api/v1/orders/{id:guid}/items/{itemId:guid}"] = "OrderOwnerOrAdmin",
         ["DELETE /api/v1/orders/{id:guid}/items/{itemId:guid}"] = "OrderOwnerOrAdmin",
+        ["PUT /api/v1/orders/{id:guid}/shipping-address"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/cancel"] = "OrderOwnerOrAdmin",
         ["POST /api/v1/orders/{id:guid}/ship"] = "Admin",
         ["POST /api/v1/orders/{id:guid}/deliver"] = "Admin",
+        ["GET /api/v1/orders/stats"] = "Admin",
+        // Admin panel S9. Admin, not OrderOwnerOrAdmin like their neighbours under the same {id}: a
+        // note is written ABOUT the customer and every history row names the operator who acted, so
+        // neither may be readable by the order's owner.
+        ["POST /api/v1/orders/{id:guid}/notes"] = "Admin",
+        ["GET /api/v1/orders/{id:guid}/notes"] = "Admin",
+        ["GET /api/v1/orders/{id:guid}/history"] = "Admin",
         ["GET /api/v1/users/{userId}/orders"] = "SameUserOrAdmin",
+        // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
+        ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
+        // Admin panel S19: Ordering's slice of the read-only settings; the gateway serves the composed view.
+        ["GET /api/v1/admin/settings"] = EShopPermissions.SystemManage,
     };
 
     private static readonly string[] OwnerOnlyRoutes =
     [
         "GET /api/v1/orders/{id:guid}",
         "POST /api/v1/orders/{id:guid}/items",
+        "PUT /api/v1/orders/{id:guid}/items/{itemId:guid}",
         "DELETE /api/v1/orders/{id:guid}/items/{itemId:guid}",
+        "PUT /api/v1/orders/{id:guid}/shipping-address",
         "POST /api/v1/orders/{id:guid}/cancel",
     ];
 
@@ -110,6 +127,15 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
                 Quantity = 1
             },
             "POST /api/v1/orders/{id:guid}/cancel" => new CancelOrderRequest { Reason = "not mine" },
+            "PUT /api/v1/orders/{id:guid}/items/{itemId:guid}" => new UpdateOrderItemQuantityRequest { Quantity = 3 },
+            "PUT /api/v1/orders/{id:guid}/shipping-address" => new UpdateShippingAddressRequest
+            {
+                Street = "9 Somewhere Else",
+                City = "Shelbyville",
+                State = "IL",
+                ZipCode = "62565",
+                Country = "US"
+            },
             _ => null
         };
 
@@ -154,10 +180,52 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
 
         (await Client.GetAsync("/api/v1/orders"))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync("/api/v1/orders/stats"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.PostAsync($"/api/v1/orders/{order.Id}/ship", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client.PostAsync($"/api/v1/orders/{order.Id}/deliver", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    /// Admin panel S9. The sharpest case in this fixture: the order is <b>the caller's own</b>, and
+    /// every other sub-resource under <c>/orders/{id}</c> is <c>OrderOwnerOrAdmin</c>, so owning it is
+    /// normally enough. Notes and history are the exception — a note is written about the customer and
+    /// a history row names the operator who acted — and only a non-admin who owns the order can show
+    /// that the exception is real rather than incidental.
+    /// </summary>
+    [Test]
+    public async Task ANonAdmin_CannotReadTheNotesOrHistoryOfTheirOwnOrder()
+    {
+        var order = await CreateOrderForAsync(TestUserId);
+
+        (await Client.GetAsync($"/api/v1/orders/{order.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "the order itself is theirs to read");
+
+        (await Client.GetAsync($"/api/v1/orders/{order.Id}/notes"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync($"/api/v1/orders/{order.Id}/history"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.PostAsJsonAsync($"/api/v1/orders/{order.Id}/notes",
+                new AddOrderNoteRequest { Body = "let me in" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>A 403 alone would pass if the note were written and only the response reported failure.</summary>
+    [Test]
+    public async Task AForbiddenNote_IsNotWritten()
+    {
+        var order = await CreateOrderForAsync(TestUserId);
+
+        (await Client.PostAsJsonAsync($"/api/v1/orders/{order.Id}/notes",
+                new AddOrderNoteRequest { Body = "should never be stored" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var scope = Factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<OrderingDbContext>()
+            .OrderNotes.AsNoTracking().CountAsync(n => n.OrderId == order.Id))
+            .Should().Be(0);
     }
 
     [Test]
@@ -203,5 +271,25 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             policies.Should().Contain(ExpectedPolicies[route], $"{route} must carry its expected policy");
             endpoint.Metadata.GetMetadata<IAllowAnonymous>().Should().BeNull($"{route} must not be anonymous");
         }
+    }
+
+    /// <summary>
+    /// frontend-contracts R6 (F-08, F-45). Every admin-only endpoint here must be refused at the gateway too: either it
+    /// is not proxied at all, or the YARP route it lands on carries <c>AdminArea</c>. This reads the gateway's shipped
+    /// <c>appsettings.json</c>, so a new admin endpoint on a path the gateway proxies under a storefront route fails
+    /// here until the gateway gains a route for it. Before R6 every Ordering admin endpoint landed on
+    /// <c>orders-route</c>, which only asks for a token. The unrouted list is what the gateway serves itself or fans
+    /// out to directly, never through a YARP route.
+    /// </summary>
+    [Test]
+    public void EveryAdminEndpoint_IsBehindTheGatewaysAdminGate()
+    {
+        var report = GatewayAdminGate.Check(Factory.Services);
+
+        Assert.That(report.Violations, Is.Empty);
+        Assert.That(
+            report.AdminEndpoints.Except(report.Routed),
+            Is.EquivalentTo(new[] { "GET /api/v1/admin/audit", "GET /api/v1/admin/settings" }),
+            "an admin endpoint the gateway does not proxy, other than these, means a route stopped matching its path");
     }
 }

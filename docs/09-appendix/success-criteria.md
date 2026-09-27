@@ -67,6 +67,11 @@ Directional acceptance targets should be agreed per release, with emphasis on:
 - Documentation reflects current repository reality.
 - Navigation/index links are valid.
 - Service and infrastructure docs remain synchronized with runtime behavior.
+- **Concrete instance**: [`docs/01-overview/frontend/`](../01-overview/frontend/README.md) is a
+  code-verified, authoritative contract set for all 141 application endpoints, each entry checked
+  against source, the live OpenAPI document and a real request/response through the running
+  sandbox stack — not just read off the C# source. It is the standard the rest of `docs/` is held
+  to going forward: it is intended that an endpoint or DTO change updates it in the same change.
 
 ---
 
@@ -104,8 +109,9 @@ A release is considered ready when:
 - [Roadmap](roadmap.md)
 - [Testing Strategy](../08-testing/testing-strategy.md)
 - [Deployment Process](../07-development-workflow/deployment-process.md)
+- [Frontend API Contracts](../01-overview/frontend/README.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

@@ -47,7 +47,7 @@ public class UpdateProductTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
-    public async Task UpdateProduct_WithNonExistentId_ShouldReturnBadRequest()
+    public async Task UpdateProduct_WithNonExistentId_ShouldReturnNotFound()
     {
         // Arrange
         var nonExistentId = Guid.NewGuid();
@@ -61,8 +61,9 @@ public class UpdateProductTests : AuthenticatedIntegrationTestBase
         // Act
         var response = await Client.PutAsJsonAsync($"{ProductsEndpoint}/{nonExistentId}", request);
 
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Assert — F-40 (frontend-contracts R5): a 404. This test pinned the old 400 on purpose, and
+        // was changed on purpose when the owner decided the route's missing product owes a 404.
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();

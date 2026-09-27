@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -30,7 +31,7 @@ public static class EShopProblem
         int status,
         string? detail = null,
         string? errorCode = null,
-        IDictionary<string, string[]>? errors = null)
+        IReadOnlyDictionary<string, string[]>? errors = null)
     {
         var problem = new ProblemDetails
         {
@@ -55,6 +56,18 @@ public static class EShopProblem
 
         return problem;
     }
+
+    /// <summary>
+    /// The envelope for a failed Result's <see cref="Error"/>. A <see cref="FieldValidationError"/> carries its field map
+    /// as <c>errors</c>, so a validation failure has one shape whether it was returned or thrown (frontend-contracts F-03).
+    /// </summary>
+    public static ProblemDetails ForError(HttpContext httpContext, Error error, int status)
+        => Create(
+            httpContext,
+            status,
+            error.Message,
+            error.Code,
+            (error as FieldValidationError)?.Errors);
 
     /// <summary>
     /// Writes the response through the same code path the minimal-API endpoints use, so the

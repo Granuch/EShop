@@ -6,11 +6,21 @@ namespace EShop.ApiGateway.Middleware;
 
 public sealed class IdentityProxyGuardMiddleware
 {
-    private static readonly string[] IdentityPathPrefixes =
+    /// <summary>
+    /// The paths this guard covers. Public so <c>ProxyGuardCoverageTests</c> can assert that every
+    /// gateway route under /api/ is covered by some guard — a route on an uncovered path keeps
+    /// working while silently losing the request-body cap and the 502-to-503 rewrite.
+    /// </summary>
+    public static readonly string[] IdentityPathPrefixes =
     [
         "/api/v1/auth",
         "/api/v1/account",
-        "/api/v1/roles"
+        "/api/v1/roles",
+        // G6 (Admin panel S6). Must be added alongside any new /api/v1/admin/users route: this
+        // array is what applies the request-body cap and turns a bare 502 into a ProblemDetails
+        // body. It is matched by prefix only, so a route the gateway proxies but this list does not
+        // name is guarded by nothing, silently. ProxyGuardCoverageTests is what catches it.
+        "/api/v1/admin/users"
     ];
 
     private readonly RequestDelegate _next;

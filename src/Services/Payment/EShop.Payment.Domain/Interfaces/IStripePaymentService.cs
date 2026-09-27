@@ -27,6 +27,14 @@ public interface IStripePaymentService
     Task<string> GetPaymentIntentStatusAsync(string paymentIntentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads an existing intent back from Stripe, client secret included (frontend-contracts F-52). This is how
+    /// <c>/create-intent</c> resumes a payment whose intent is already recorded: the secret is never stored here, so a
+    /// customer who lost it — a reload, a second tab, a response that never arrived — gets it from Stripe again. A
+    /// failure a retry can fix is <see cref="PaymentProviderUnavailableException"/>.
+    /// </summary>
+    Task<StripePaymentIntentResult> GetPaymentIntentAsync(string paymentIntentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cancels an intent that has not been captured. An intent Stripe reports as already canceled
     /// counts as success. The intent is first tagged as cancelled at EShop's request, so the
     /// <c>payment_intent.canceled</c> webhook that follows reads <see cref="StripeWebhookEvent.CancelRequestedByEShop"/>
@@ -39,6 +47,21 @@ public interface IStripePaymentService
     /// <remarks>Any other failure propagates unchanged, so a transient one is retried.</remarks>
     Task<StripePaymentIntentCancelResult> CancelPaymentIntentAsync(
         string paymentIntentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes the amount of an intent the customer has not paid yet, so an open payment form charges the order's
+    /// new total (frontend-contracts F-47). The client secret does not change. Returns the intent's status.
+    /// </summary>
+    /// <exception cref="PaymentIntentNotUpdatableException">
+    /// Stripe refused because of the intent's state: it is processing, has succeeded, or was cancelled, so the old
+    /// amount stands. Deterministic: retrying cannot change the answer.
+    /// </exception>
+    /// <remarks>A failure to reach Stripe is <see cref="PaymentProviderUnavailableException"/> and is retried.</remarks>
+    Task<string> UpdatePaymentIntentAmountAsync(
+        string paymentIntentId,
+        decimal amount,
+        string currency,
         CancellationToken cancellationToken = default);
 }
 
