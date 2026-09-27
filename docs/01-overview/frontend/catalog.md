@@ -93,7 +93,7 @@ The product list, paged by offset. Source: `GetProductsQuery` (filters on `Produ
 | `pageNumber` | integer | `1` | ≥ 1 |
 | `pageSize` | integer | `10` | 1–100 |
 | `searchTerm` | string | — | 2–200 characters. A case-insensitive substring of the **name or the SKU**. Trimmed; `%` and `_` match literally |
-| `categoryId` | GUID | — | Products **directly** in this category. Products in its subcategories are not included |
+| `categoryId` | GUID | — | Products in this category **or any of its subcategories**, at any depth. Selecting a parent such as Electronics lists everything filed under Phones, Laptops and below |
 | `minPrice` | number | — | ≥ 0. Compared with the **effective price** (`discountPrice ?? price`) |
 | `maxPrice` | number | — | Must be greater than `minPrice` when both are sent. Effective price, like `minPrice` |
 | `sortBy` | `Name` \| `Price` \| `CreatedAt` | `Name` | Name in any case; a number is refused. `Price` sorts by the effective price. Ties are broken by id, so pages never repeat or skip a row |
@@ -253,7 +253,7 @@ tree. **200** [`Category`](#category). Captured anonymously for the second level
 
 #### `GET /api/v1/categories/{id}/products`
 
-The products **directly** in one category, paged. **200**
+The products in one category **and all its subcategories**, at any depth, paged. **200**
 [`PagedResult<Product>`](conventions.md#61-pagedresultt-offset-pages-the-common-case), the same item shape as
 `GET /products`.
 
@@ -262,7 +262,8 @@ The products **directly** in one category, paged. **200**
 
 - **Admins also see drafts** here, the same rule as `GET /products` (observed: three products for the admin, two
   anonymously).
-- **Subcategories are not included.** A parent category with products only in its children returns an empty page.
+- **Subcategories are included**, at any depth, exactly as with `GET /products?categoryId=…`. A leaf category lists only
+  its own products.
 - **Only the global rate limit** applies, not `search`.
 - **An unknown or deleted category is not an error**: it answers 200 with an empty page.
 
@@ -337,7 +338,8 @@ The recycle bin: soft-deleted products only. **200**
 [`PagedResult<Product>`](conventions.md#61-pagedresultt-offset-pages-the-common-case); every item has `status: "Discontinued"`.
 
 **Query:** `pageNumber` (default `1`, ≥ 1), `pageSize` (default `10`, 1–100), `categoryId`, `searchTerm` (name or SKU
-substring, case-insensitive; **no length rule** here, so one character works).
+substring, case-insensitive; **no length rule** here, so one character works). `categoryId` covers the subtree, deleted
+subcategories included, so a product deleted together with its subcategory is still found from the parent.
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -962,7 +964,7 @@ visibility rules.
 | `threshold` | integer | `10` | Strictly less than. `threshold=1` means "out of stock". Must be > 0 |
 | `pageNumber` | integer | `1` | ≥ 1 |
 | `pageSize` | integer | `10` | 1–100 |
-| `categoryId` | GUID | — | Direct members only, like the list |
+| `categoryId` | GUID | — | The category and all its subcategories, like the list |
 
 **200** [`PagedResult<Product>`](conventions.md#61-pagedresultt-offset-pages-the-common-case), sorted by name
 ascending — not by stock, so an admin scans by product, not by quantity. **Includes Drafts**: an unpublished
@@ -980,9 +982,9 @@ product that is out of stock is exactly what needs seeing before it is published
 `GET /api/v1/categories/{id}/stats`. Gateway **`AdminArea`** — its **own** gateway route, ahead of the anonymous
 categories-read route, the same pattern as `GET /products/export` — · service **`Admin` role**.
 
-Per-category counts for the admin panel: **direct members only, not the whole subtree** — a recursive count would
-need the descendant closure on every call, and an admin reading a parent's row expects the number shown to match
-what clicking into it shows. Deleted products and categories are excluded throughout, matching every other read.
+Per-category counts for the admin panel. **Product counts cover the whole subtree**, at any depth, so the number shown
+matches what clicking into the category lists; `childCategoryCount` is one level only (live direct children).
+Deleted products and categories are excluded throughout, matching every other read.
 
 **200** [`CategoryStatsDto`](#categorystatsdto). Captured (Books, after this stage's product moves):
 
@@ -1294,7 +1296,8 @@ optional.
 
 The response of [`GET /categories/{id}/stats`](#category-statistics). Source: `CategoryStatsDto`. `categoryId`
 (string, GUID), `categoryName` (string), `productCount`, `publishedProductCount`, `totalStock`, `outOfStockCount`,
-`childCategoryCount` (all numbers, counting direct members only).
+`childCategoryCount` (all numbers). The product counts cover the whole subtree; `childCategoryCount` counts live
+direct children only.
 
 #### CacheInvalidationReport
 
@@ -1324,7 +1327,7 @@ export interface ProductListQuery {
   pageSize?: number;
   /** 2-200 characters; matches the name or the SKU, case-insensitive. */
   searchTerm?: string;
-  /** Direct members of the category only, not its subcategories. */
+  /** The category and all its subcategories, at any depth. */
   categoryId?: string;
   /** Compared with the effective price, discountPrice ?? price. */
   minPrice?: number;
@@ -1625,7 +1628,7 @@ export interface LowStockQuery {
 export interface CategoryStatsDto {
   categoryId: string;
   categoryName: string;
-  /** Direct members only, not the whole subtree. */
+  /** The whole subtree, at any depth: matches what the category's product list shows. */
   productCount: number;
   publishedProductCount: number;
   totalStock: number;
