@@ -51,6 +51,7 @@ public class AuditedCommandClassificationTests
         ["LoginCommand"] = "anonymous account flow — sign-in history is a security log, not an admin audit",
         ["RefreshTokenCommand"] = "anonymous account flow",
         ["RegisterCommand"] = "anonymous account flow",
+        ["ResendEmailConfirmationCommand"] = "anonymous account flow",
         ["ResetPasswordCommand"] = "anonymous account flow",
         ["RevokeTokenCommand"] = "anonymous account flow",
         ["UpdateProfileCommand"] = "customer self-service on the caller's own account",

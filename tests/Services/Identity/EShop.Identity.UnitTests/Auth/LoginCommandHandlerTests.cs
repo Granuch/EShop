@@ -158,6 +158,90 @@ public class LoginCommandHandlerTests
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Email confirmation: the one refusal that names its reason, and only to the password holder
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Arranges an otherwise sign-in-ready user whose address is unconfirmed, on a host that
+    /// requires confirmation — the state <c>CanSignInAsync</c> refuses.
+    /// </summary>
+    private ApplicationUser ArrangeUnconfirmedUser()
+    {
+        var user = ArrangeSignInReadyUser();
+        user.EmailConfirmed = false;
+        _userManagerMock.Object.Options.SignIn.RequireConfirmedEmail = true;
+        _signInManagerMock.Setup(x => x.CanSignInAsync(user)).ReturnsAsync(false);
+        return user;
+    }
+
+    [Test]
+    public async Task Handle_WithTheRightPasswordButAnUnconfirmedEmail_SaysSo_AndIssuesNoTokens()
+    {
+        var user = ArrangeUnconfirmedUser();
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.IsFailure, Is.True);
+        Assert.That(result.Error!.Code, Is.EqualTo("Auth.EmailNotConfirmed"),
+            "the owner has to learn why, or the client cannot offer to resend the link");
+        _tokenServiceMock.Verify(
+            x => x.GenerateAccessTokenAsync(It.IsAny<ApplicationUser>(), It.IsAny<CancellationToken>()), Times.Never);
+        _tokenServiceMock.Verify(
+            x => x.GenerateRefreshTokenAsync(user.Id, It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// The enumeration half. The unconfirmed state used to be checked BEFORE the password; if it
+    /// still were, anyone could learn "this address is registered and unconfirmed" by sending a wrong
+    /// password. With a wrong password the answer must stay the uniform one.
+    /// </summary>
+    [Test]
+    public async Task Handle_WithAWrongPasswordOnAnUnconfirmedAccount_StaysOpaque_AndCountsTheFailure()
+    {
+        var user = ArrangeUnconfirmedUser();
+        _userManagerMock.Setup(x => x.CheckPasswordAsync(user, Password)).ReturnsAsync(false);
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("Auth.InvalidCredentials"));
+        Assert.That(result.Error.Message, Is.EqualTo("Invalid email or password"));
+        _trackerMock.Verify(
+            x => x.RecordFailedAttemptAsync(Email, Ip, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// The credentials were right. Counting this as a failure would throttle, and at five attempts
+    /// lock, a user whose only mistake was logging in before clicking the link.
+    /// </summary>
+    [Test]
+    public async Task Handle_WithTheRightPasswordButAnUnconfirmedEmail_DoesNotCountAsAFailedAttempt()
+    {
+        ArrangeUnconfirmedUser();
+
+        await _handler.Handle(Command(), CancellationToken.None);
+
+        _trackerMock.Verify(
+            x => x.RecordFailedAttemptAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// <c>EmailNotConfirmed</c> is read from the options, not inferred from <c>CanSignInAsync</c>
+    /// alone: with confirmation not required, a refusal is some other reason and stays opaque.
+    /// </summary>
+    [Test]
+    public async Task Handle_WhenConfirmationIsNotRequired_AnUnconfirmedAddressIsNotNamed()
+    {
+        var user = ArrangeUnconfirmedUser();
+        _userManagerMock.Object.Options.SignIn.RequireConfirmedEmail = false;
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.Error!.Code, Is.EqualTo("Auth.InvalidCredentials"));
+        Assert.That(user.EmailConfirmed, Is.False, "the arrangement under test");
+    }
+
     /// <summary>A rejected login must issue nothing, whatever the cause.</summary>
     [Test]
     public async Task Handle_WithAWrongPassword_IssuesNoTokens()

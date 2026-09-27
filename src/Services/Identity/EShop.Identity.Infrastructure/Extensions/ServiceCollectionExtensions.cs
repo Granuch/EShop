@@ -163,6 +163,7 @@ public static class ServiceCollectionExtensions
 
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
+        services.AddScoped<IEmailConfirmationResendThrottle, EmailConfirmationResendThrottle>();
 
         return services;
     }
