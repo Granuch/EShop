@@ -93,16 +93,16 @@ and the ones below it are a summary, not a duplicate.**
   [frontend/catalog.md](../01-overview/frontend/catalog.md#get-apiv1productsdeleted)), stock
   adjustment, publish/unpublish, discount set/clear, images and attributes (see
   [Product Images and Attributes](#product-images-and-attributes) below).
-- **Categories**: public tree and detail (three levels deep at most, see
-  [frontend/catalog.md](../01-overview/frontend/catalog.md#get-apiv1categories) for the cap),
-  paged products-by-category; admin create/update/delete/restore/move/reorder,
-  `GET /{id}/stats`.
+- **Categories**: public tree and detail (both at any depth, built in memory from one read of the
+  table — see [frontend/catalog.md](../01-overview/frontend/catalog.md#get-apiv1categories)),
+  paged products-by-category; admin create/update (name, slug, description, order)/delete/restore/
+  move/reorder, `GET /{id}/stats`.
 - **Bulk, import, export, low stock, cache**: see
   [Bulk Actions, Import and Export](#bulk-actions-import-and-export-admin-panel-s16) below and
   `GET /api/v1/admin/catalog/low-stock`.
 
-A product's lifecycle is `Draft` → `Active` ⇄ `Discontinued` (soft-deleted); status is sent as an
-**integer**, not a name. See the state diagram and the two ⚠ traps around it (a deleted product's
+A product's lifecycle is `Draft` → `Active` ⇄ `Discontinued` (soft-deleted); status is sent as its
+name (`"Draft"`, `"Active"`, `"Discontinued"`). See the state diagram and the two ⚠ traps around it (a deleted product's
 category being deleted too, and create/update trimming differently) in
 [frontend/catalog.md](../01-overview/frontend/catalog.md#product-lifecycle).
 

@@ -7,7 +7,8 @@ statistics and cache invalidation are also Catalog endpoints.
 **Verified at:** `5c6c3b0` (`feature/admin-panel`, 2026-09-24). Catalog's code has not changed since `105d647`. Every
 endpoint in this file was checked against the C# source and the service's OpenAPI document, and called through the
 gateway on the compose `sandbox` stack. The 429 rows were re-verified at `5980146`, which fixed F-05, and `status`, `sortBy` and the export's `Status` at
-`30e1221`, which fixed F-01. Shared rules
+`30e1221`, which fixed F-01. The category endpoints, `PUT /products/{id}` and product restore were re-verified at
+`0132dcf`, which fixed F-37, F-38, F-39, F-40 and F-43. Shared rules
 (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
@@ -202,8 +203,9 @@ One product with its gallery and attributes. **200** [`ProductDetails`](#product
 
 #### `GET /api/v1/categories`
 
-The category tree. **200**, a bare array of root [`Category`](#category) objects, each with its children nested in
-`childCategories`. Captured anonymously:
+The whole category tree. **200**, a bare array of **every** root [`Category`](#category), each with its full subtree
+nested in `childCategories`, **at any depth**. An empty `childCategories` means the category has no (visible)
+children. Captured anonymously:
 
 ```json
 [{"id":"5747ee57-f779-4e0b-82b3-0171930cb2d1","name":"Books","description":null,"slug":"books",
@@ -216,37 +218,36 @@ The category tree. **200**, a bare array of root [`Category`](#category) objects
 ```
 
 - **Sorted** by `displayOrder`, then `name`, at every level.
+- **No depth limit and no root limit** (observed with a five-level chain). The tree is built from one read of every
+  category, so it is as deep as the data.
 - **Admins also get deleted categories**, with `isActive: false`, at every level. Filter them out for the storefront
   view if an admin browses the shop.
 - **No parameters.** An `includeInactive` query value is ignored; the role decides.
 - **Cached for 10 minutes**, and every category write evicts it.
 
-> ⚠ **The tree is three levels deep at most.** Roots, their children and their grandchildren are returned; a
-> fourth-level category is **missing**, and its parent shows `childCategories: []` (observed with a four-level chain).
-> Categories can be nested deeper than that through create and move. Do not read an empty `childCategories` as "leaf"
-> below the second level; read the category itself with [`GET /categories/{id}`](#get-apiv1categoriesid). The server
-> also returns **at most 100 roots** (from source, not observed). (F-37)
-
 #### `GET /api/v1/categories/{id}`
 
-One category, with its parent's name and **one level** of children. **200** [`Category`](#category):
+One category, with its parent's name and its **whole subtree**, at any depth, in the same shape and order as the
+tree. **200** [`Category`](#category). Captured anonymously for the second level of a five-level chain:
 
 ```json
-{"id":"bdde5a69-e200-48e1-8a6c-5afa5ac73d09","name":"fe-contracts S3 Grandchild","description":null,
- "slug":"fe-contracts-s3-grandchild","parentCategoryId":"2424c282-1be6-4e62-b239-c3c331c7232c",
- "parentCategoryName":"fe-contracts S3 Child","displayOrder":0,"isActive":true,
- "childCategories":[{"id":"0f8cb62e-0c43-4c52-a311-cdf913674c0a","name":"fe-contracts S3 Level4","description":null,
-   "slug":"fe-contracts-s3-level4","parentCategoryId":"bdde5a69-e200-48e1-8a6c-5afa5ac73d09",
-   "parentCategoryName":"fe-contracts S3 Grandchild","displayOrder":0,"isActive":true,"childCategories":[]}]}
+{"id":"8367fc8a-d302-4e42-939f-6cf3b657cda2","name":"fe-contracts R5 L2 251b7dc7","description":null,
+ "slug":"fe-r5-l2-251b7dc7","parentCategoryId":"b98b62bc-e543-438c-b5e2-abb85d18616e",
+ "parentCategoryName":"fe-contracts R5 L1 251b7dc7","displayOrder":0,"isActive":true,
+ "childCategories":[{"id":"57e4cf83-ee31-47f7-bef2-ca36eb727795","name":"fe-contracts R5 L3 251b7dc7",
+   "…":"…","childCategories":[{"id":"76ea40f6-11de-4d41-a1f2-baee4f63104e","name":"fe-contracts R5 L4 251b7dc7",
+     "…":"…","childCategories":[{"id":"3aa02c4f-a706-4b6a-8b7c-d009ae669ea6","name":"fe-contracts R5 L5 251b7dc7",
+       "…":"…","childCategories":[]}]}]}]}
 ```
 
-The children's own `childCategories` are always `[]` here, whatever they contain. Deleted children are not listed.
-Cached for 5 minutes; a write to the category, its parent or a child evicts it.
+- **Live categories only**, for admins too: a deleted category is 404, and deleted descendants are not listed.
+- **Cached for 5 minutes**, and **every** category write evicts every cached detail, so a rename four levels down
+  shows at once in its ancestors' details (observed).
 
 | Status | `errorCode` | When |
 |---|---|---|
+| 400 | `ValidationError` | The all-zero id (key `id`) |
 | 404 | `Category.NotFound` | Unknown id, or a deleted category (for admins too) |
-| 404 | `ValidationError` | The all-zero id. **404 with a validation code**, unlike the product read's 400 (F-40) |
 | 404 | — (empty body) | The id is not a GUID |
 
 #### `GET /api/v1/categories/{id}/products`
@@ -314,21 +315,21 @@ checks again when called directly: every admin endpoint in this section, `/categ
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft: POST /products (status 0)
+    [*] --> Draft: POST /products
     Draft --> Active: POST /{id}/publish
     Active --> Draft: POST /{id}/unpublish
     Draft --> Deleted: DELETE /{id}
     Active --> Deleted: DELETE /{id}
     Deleted --> Draft: POST /{id}/restore
     note right of Deleted
-        status 2 (Discontinued), hidden from every read
+        status Discontinued, hidden from every read
         except GET /products/deleted. Its SKU is free.
     end note
 ```
 
 - **A new product is a Draft**, invisible to the storefront until it is published.
 - **Publish and unpublish are idempotent**: repeating either answers 204 and changes nothing.
-- **Delete sets `status` to `2` (Discontinued)**, and nothing else ever does. So Discontinued means "deleted".
+- **Delete sets `status` to `Discontinued`**, and nothing else ever does. So Discontinued means "deleted".
 - **Restore always returns the product as a Draft**, whatever it was before deletion. Publish it again to show it.
 
 ### Products (admin)
@@ -336,7 +337,7 @@ stateDiagram-v2
 #### `GET /api/v1/products/deleted`
 
 The recycle bin: soft-deleted products only. **200**
-[`PagedResult<Product>`](conventions.md#61-pagedresultt-offset-pages-the-common-case); every item has `status: 2`.
+[`PagedResult<Product>`](conventions.md#61-pagedresultt-offset-pages-the-common-case); every item has `status: "Discontinued"`.
 
 **Query:** `pageNumber` (default `1`, ≥ 1), `pageSize` (default `10`, 1–100), `categoryId`, `searchTerm` (name or SKU
 substring, case-insensitive; **no length rule** here, so one character works).
@@ -404,11 +405,11 @@ Edits a product. Source: `UpdateProductCommand`.
 |---|---|---|
 | 400 | `Validation.IdMismatch` | `productId` missing or different from `{id}` |
 | 400 | `ValidationError` | A rule above. Keys `price`, `stockQuantity`, `name`, `sku`, `description`, `categoryId` |
-| 400 | `Product.NotFound` | Unknown or deleted product. **400, not 404**, on this endpoint only |
 | 400 | `Product.SkuConflict` | Another live product has the SKU |
-| 400 | `Category.NotFound` | Unknown or deleted `categoryId` |
+| 400 | `Category.NotFound` | Unknown or deleted `categoryId` in the body. **400**: the body is wrong, not the route |
 | 400 | `DomainError` | `price` at or below the active discount: "Price must be greater than the active discount price. Clear the discount first." |
 | 400 | `MalformedRequest` | An unknown property, `null` for `price` or `stockQuantity`, or malformed JSON |
+| 404 | `Product.NotFound` | Unknown or deleted product |
 | 409 | `Product.SkuConflict` | SKU race with another write. From source, not observed |
 
 - **Side effects.** A change to the effective price (`discountPrice ?? price`) is published to the Basket service,
@@ -424,7 +425,7 @@ Edits a product. Source: `UpdateProductCommand`.
 Soft-deletes a product. **204.**
 
 - **It disappears from every read**, admin detail included, and appears in the
-  [recycle bin](#get-apiv1productsdeleted) with `status: 2`.
+  [recycle bin](#get-apiv1productsdeleted) with `status: "Discontinued"`.
 - **Its SKU becomes free** for another product.
 - **Not idempotent**: deleting it again answers 404.
 
@@ -440,13 +441,11 @@ Brings a deleted product back, **as a Draft**. **204.** No body.
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `Product.NotDeleted` | The product is live |
+| 400 | `Product.CategoryNotActive` | Its category is deleted. `detail` names the category and the fix: "Product '…' belongs to category '…', which is deleted. Restore the category first (POST /api/v1/categories/…/restore), then restore this product." The product stays in the recycle bin |
 | 404 | `Product.NotFound` | Unknown id (the all-zero id too) |
 | 409 | `Product.SkuConflict` | A live product now has this SKU. `detail`: "SKU '…' is already used by another product. Change that product's SKU before restoring this one." Retrying unchanged cannot succeed |
 
-> ⚠ **Restore the product's category first.** If the category was deleted after the product, restore still answers
-> 204, but the product is then **unreachable**: it shows in the admin list, while its detail read and every write
-> (publish, delete, …) answer 404 `Product.NotFound`, and it has left the recycle bin. Restoring the category makes
-> it reachable again (observed). Check that `categoryId` is a live category before offering restore. (F-43)
+The category is checked before the SKU. Once the category is restored, the same request succeeds (observed).
 
 #### `PATCH /api/v1/products/{id}/stock`
 
@@ -470,7 +469,7 @@ ignored; the route decides.
 
 #### `POST /api/v1/products/{id}/publish`
 
-Makes a Draft visible to the storefront (`status` 0 → 1). **204**, also when it is already Active. No body.
+Makes a Draft visible to the storefront (`status` `Draft` → `Active`). **204**, also when it is already Active. No body.
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -479,7 +478,7 @@ Makes a Draft visible to the storefront (`status` 0 → 1). **204**, also when i
 
 #### `POST /api/v1/products/{id}/unpublish`
 
-Withdraws an Active product (`status` 1 → 0). **204**, also when it is already a Draft. Same errors as publish.
+Withdraws an Active product (`status` `Active` → `Draft`). **204**, also when it is already a Draft. Same errors as publish.
 
 #### `PUT /api/v1/products/{id}/discount`
 
@@ -625,13 +624,19 @@ Removes an attribute. **204.** An unknown `attributeId`, including the all-zero 
 
 ### Categories (admin)
 
-Categories form a tree of any depth (but see the tree-depth ⚠ in [`GET /categories`](#get-apiv1categories)). Each has
-a **slug**, unique among its live siblings. Deleting a category is a soft delete: it disappears from every read except
-an admin's tree, and its slug becomes free.
+Categories form a tree of any depth. Each has a **slug**, unique among its live siblings. Deleting a category is a
+soft delete: it disappears from every read except an admin's tree, and its slug becomes free.
 
-- **The slug is fixed at creation.** No endpoint changes it (F-39).
-- **Category writes answer 404 `Category.NotFound`** for an unknown or deleted category, except `PUT /{id}`, which
-  answers 400.
+- **A slug is lower-case `a-z`, digits and single hyphens**, not starting or ending with a hyphen, at most 200
+  characters: `^[a-z0-9]+(?:-[a-z0-9]+)*$`. A supplied slug is checked exactly as sent, so `" Books "` and `"Books"`
+  are refused rather than normalised. Set it on create, or change it later with [`PUT /{id}`](#put-apiv1categoriesid).
+- **Statuses follow one rule on every endpoint whose route names a category** (read, update, delete, move, restore):
+  - **404** `Category.NotFound`: the category in the route is unknown or deleted;
+  - **409**: the request is fine but another category's state blocks it (a slug a live sibling holds, live children
+    or products on delete). The same request succeeds once that changes;
+  - **400**: anything wrong with the request itself, including a body that points at a missing parent
+    (`Category.ParentNotFound`).
+- **Create is the exception**: it answers 400 for every refusal, its slug conflict included.
 
 #### `POST /api/v1/categories`
 
@@ -640,7 +645,7 @@ Creates a category. Source: `CreateCategoryCommand`. **Body** ([`CreateCategoryR
 | Field | Type | Rules |
 |---|---|---|
 | `name` | string | Required, at most 200 characters. Trimmed |
-| `slug` | string \| null | Optional, at most 200 characters. Omitted: generated from the name (below). **When given, it is only trimmed**, not checked or lower-cased: `"Mixed Case Slug!!"` was stored as is (F-39) |
+| `slug` | string \| null | Optional. Omitted, `null`, `""` or whitespace: generated from the name (below). Otherwise it must match the slug rule above exactly as sent: `"  Mixed Case Slug!! "` is 400 (observed) |
 | `parentCategoryId` | GUID \| null | Optional. A live category. Omitted or `null`: a root category |
 | `description` | string \| null | Optional, at most 1000 characters. Trimmed; blank is stored as `null` |
 | `displayOrder` | integer \| null | Optional, ≥ 0, default `0` |
@@ -653,71 +658,68 @@ turned into hyphens: `"fe-contracts S3 Root"` → `fe-contracts-s3-root`. A name
 
 | Status | `errorCode` | When |
 |---|---|---|
-| 400 | `ValidationError` | A rule above |
+| 400 | `ValidationError` | A rule above. Keys `name`, `slug`, `description`, `displayOrder` |
 | 400 | `Category.ParentNotFound` | Unknown or deleted `parentCategoryId` |
 | 400 | `Category.SlugConflict` | A live sibling has this slug, whether sent or generated |
-| 409 | `Category.SlugConflict` | Slug race with another create. From source, not observed |
+| 409 | `Category.SlugConflict` | Slug race with another write. `detail`: "Another category at this level took the same slug concurrently. Reload the categories and try again." From source and tests, not observed |
 
 #### `PUT /api/v1/categories/{id}`
 
-Edits the name, description and position value. **Body** ([`UpdateCategoryRequest`](#updatecategoryrequest)):
+Edits the name, slug, description and position value. The parent is changed with
+[`PUT /{id}/parent`](#put-apiv1categoriesidparent). **Body** ([`UpdateCategoryRequest`](#updatecategoryrequest)):
 
 | Field | Type | Rules | Omitted |
 |---|---|---|---|
 | `id` | GUID | **Required, and equal to `{id}`** | 400 `Validation.IdMismatch` |
 | `name` | string | **Required** on every call, at most 200 characters. Trimmed | 400 |
+| `slug` | string \| null | The slug rule above, and free among the category's live siblings. Re-sending the current slug is fine, unless it was stored before the rule existed and breaks it: that is 400 (observed), so omit `slug` or send a valid one, which replaces it. **`""` is 400**: a category always has a slug | kept (`null` keeps it too) |
 | `description` | string \| null | At most 1000 | kept. `""` or whitespace **clears** it; `null` keeps it |
 | `displayOrder` | integer \| null | ≥ 0 | kept |
 
-The slug and the parent cannot be changed here; a `slug` property is rejected as unknown. **204.**
+**204.** A refused request changes nothing, the name included (observed: a rename sent with a taken slug was not
+applied).
 
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `Validation.IdMismatch` | `id` missing or different from `{id}` |
-| 400 | `ValidationError` | Keys `name`, `description`, `displayOrder` |
-| 400 | `Category.NotFound` | Unknown or deleted. **400, not 404** |
-| 400 | `MalformedRequest` | An unknown property such as `slug` |
+| 400 | `ValidationError` | Keys `name`, `slug`, `description`, `displayOrder`. A bad slug: "Slug must contain only lower-case letters (a-z), digits and single hyphens, and must not start or end with a hyphen." |
+| 400 | `MalformedRequest` | An unknown property, or malformed JSON |
+| 404 | `Category.NotFound` | Unknown or deleted |
+| 409 | `Category.SlugConflict` | A live sibling has the slug: "A category with the slug '…' already exists at this level. Choose a different slug." A race that reaches the database gives the same code with create's race `detail` |
 
 #### `DELETE /api/v1/categories/{id}`
 
 Soft-deletes an **empty** category: no live child categories and no live products (drafts count; deleted products do
-not, observed). **204.** A deleted product left in a deleted category cannot usefully be restored until the category
-is (F-43).
+not, observed). **204.** A deleted product left in a deleted category cannot be restored until the category is
+([`POST /products/{id}/restore`](#post-apiv1productsidrestore)).
 
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `ValidationError` | The all-zero id (key `id`) |
-| **404** | `Category.HasChildren` | It still has live child categories |
-| **404** | `Category.HasProducts` | It still has live products. Move or delete them first |
 | 404 | `Category.NotFound` | Unknown or already deleted |
+| 409 | `Category.HasChildren` | It still has live child categories: "Cannot delete a category that has child categories. Remove children first." |
+| 409 | `Category.HasProducts` | It still has live products: "Cannot delete a category that has products. Reassign or delete products first." |
 
-> ⚠ **A refused delete answers 404.** `Category.HasChildren` and `Category.HasProducts` come back as 404, so a client
-> that treats any 404 on `DELETE` as "already gone" reports success for a delete that did not happen. Branch on
-> `errorCode` and show `detail`. (F-40)
+A 404 on `DELETE` therefore means the category is gone or never existed; a refused delete is 409 and the category
+stays (observed).
 
 #### `PUT /api/v1/categories/{id}/parent`
 
 Moves a category, with its whole subtree, under another parent or to the root. Source: `MoveCategoryRequest`.
 
 **Body** ([`MoveCategoryRequest`](#movecategoryrequest)): `{"newParentCategoryId":"…"}` to move under that category,
-or `{"newParentCategoryId":null}` to make it a root. **204.** Moving to the current parent is a no-op, also 204.
+or `{"newParentCategoryId":null}` to make it a root. **The property is required**: `null` is a real value here, so
+it has to be sent explicitly. **204.** Moving to the current parent is a no-op, also 204.
 
 | Status | `errorCode` | When |
 |---|---|---|
+| 400 | `ValidationError` | `newParentCategoryId` is missing (`{}`): key `newParentCategoryId`, "newParentCategoryId is required: send a category id, or null to make this a root category". Nothing moves (observed) |
 | 400 | `ValidationError` | The new parent is the category itself. It is a rule about the whole request, so its key is `$`: `{"$":["A category cannot be its own parent"]}` |
 | 400 | `DomainError` | The new parent is one of its own descendants: "Cannot move a category beneath one of its own descendants." |
 | 400 | `Category.ParentNotFound` | Unknown, deleted or all-zero `newParentCategoryId` |
-| 400 | `MalformedRequest` | No body at all, or an unknown property |
+| 400 | `MalformedRequest` | No body at all, an unknown property, or malformed JSON |
 | 404 | `Category.NotFound` | The category in the route is unknown or deleted |
-| 409 | `Category.SlugConflict` | A category at the new level already has this slug. Not declared in the OpenAPI document (F-11) |
-
-> ⚠ **`{}` moves the category to the root.** An empty body object, with `newParentCategoryId` omitted, answers 204 and
-> makes the category a root (observed), although the OpenAPI document marks the property required. Always send the
-> property. (F-38)
->
-> ⚠ **The slug conflict cannot be resolved as `detail` suggests.** The 409 says "Another category with the same slug
-> was created concurrently at this level. Retry with a different slug.", but nothing was concurrent and slugs cannot
-> be changed. The only way out is to move or delete the other category. (F-39)
+| 409 | `Category.SlugConflict` | A live category at the new level already has this slug: "Another category at the target level already uses the slug '…'. Change this category's slug or the other one's (PUT /api/v1/categories/{id} with a new slug), then move it." After this category's slug was changed, the same move succeeded (observed) |
 
 #### `POST /api/v1/categories/{id}/restore`
 
@@ -726,11 +728,12 @@ Brings a deleted category back, at its old place and `displayOrder`. **204.** No
 | Status | `errorCode` | When |
 |---|---|---|
 | 400 | `Category.NotDeleted` | The category is live |
-| 400 | `Category.ParentNotActive` | Its parent is deleted. Restore the parent first |
+| 400 | `Category.ParentNotActive` | Its parent is deleted: "Parent category '…' is deleted. Restore the parent first (POST /api/v1/categories/…/restore), then restore this category." |
 | 404 | `Category.NotFound` | Unknown id |
-| 409 | `Category.SlugConflict` | A live sibling now has its slug. `detail` asks you to change that category's slug, which no endpoint can do (F-39) |
+| 409 | `Category.SlugConflict` | A live sibling now has its slug: "Slug '…' is already used by another live category at this level. Change that category's slug (PUT /api/v1/categories/{id} with a new slug), move it or delete it, then restore this one." After changing the other category's slug, the same restore succeeds (observed) |
 
-`Category.ParentNotActive`'s `detail` also suggests moving the category first; a deleted category cannot be moved (404).
+A deleted category's own slug cannot be changed (`PUT` answers 404 for it), which is why the conflict names the live
+category.
 
 #### `PUT /api/v1/categories/reorder`
 
@@ -1009,9 +1012,8 @@ application's back or when a list looks stale during an incident. It does not de
 has no SCAN — it bumps the family's version, so every previously cached entry in that family stops being addressed
 and lapses on its own TTL; a bumped family is **not** observable as keys disappearing.
 
-**Query:** `family` — `products:list`, `categories:list`, or omitted for both. **Case-sensitive** (F-39's sibling
-problem for cache keys): `Products:List` is not a known family and is refused, rather than silently bumping an
-entry nothing reads.
+**Query:** `family` — `products:list`, `categories:list`, or omitted for both. **Case-sensitive**: `Products:List` is not a
+known family and is refused, rather than silently bumping an entry nothing reads.
 
 **200** [`CacheInvalidationReport`](#cacheinvalidationreport):
 
@@ -1028,9 +1030,9 @@ entry nothing reads.
   other write's cache eviction is a side effect of something already committed — a failed bump there is logged and
   the write still answers 2xx. Here the bump **is** the whole request, so it reports `Cache.Unavailable` rather than
   claiming success while Redis refused it.
-- **Exact keys (a product's or category's detail entry) are out of reach here.** They are not addressed by family and
-  the endpoint has no way to name them without the id; they lapse on their own 5–10 minute TTL. Do not read this
-  endpoint's success as "the whole cache is empty".
+- **A product's detail entry is out of reach here.** It is not addressed by family and the endpoint has no way to
+  name it without the id; it lapses on its own 5-minute TTL. Do not read this endpoint's success as "the whole cache
+  is empty". Category details are in `categories:list`, so bumping that family does reach them.
 - **Audit.** One row per family actually bumped (successes only), read by `entityId` = the family name.
 
 ### Audit trail
@@ -1143,12 +1145,12 @@ Source: `CategoryDto`.
 | `id` | string (GUID) | no | |
 | `name` | string | no | ≤ 200 |
 | `description` | string | yes | ≤ 1000 |
-| `slug` | string | no | Unique among live siblings; fixed at creation |
+| `slug` | string | no | Unique among live siblings; lower-case `a-z`, digits and single hyphens. Changeable with `PUT /categories/{id}` |
 | `parentCategoryId` | string (GUID) | yes | `null` for a root |
 | `parentCategoryName` | string | yes | `null` for a root |
 | `displayOrder` | number | no | ≥ 0 |
 | `isActive` | boolean | no | `false` only in an admin's tree |
-| `childCategories` | `Category[]` | no | Always an array in practice (typed nullable in the OpenAPI document). Not reliable beyond the tree's third level (F-37) |
+| `childCategories` | `Category[]` | no | Always an array in practice (typed nullable in the OpenAPI document). The full subtree at any depth; `[]` means no visible children |
 
 ### Admin types
 
@@ -1215,12 +1217,12 @@ Exactly one of `delta` (integer, ≠ 0) and `absolute` (integer, ≥ 0), plus `r
 
 #### UpdateCategoryRequest
 
-`id` (GUID, equal to the route) and `name` (string), required; `description` (string | null) and `displayOrder`
-(integer | null), optional.
+`id` (GUID, equal to the route) and `name` (string), required; `slug`, `description` (string | null) and
+`displayOrder` (integer | null), optional.
 
 #### MoveCategoryRequest
 
-`newParentCategoryId` (GUID | null). Always send the property (F-38).
+`newParentCategoryId` (GUID | null), **required**: `null` makes the category a root, and `{}` is 400.
 
 #### ReorderCategoriesRequest
 
@@ -1406,7 +1408,7 @@ export interface Category {
   displayOrder: number;
   /** false only in an admin's tree. */
   isActive: boolean;
-  /** The tree stops at the third level: [] there does not mean "no children" (F-37). */
+  /** The full subtree, at any depth. [] means no visible children. */
   childCategories: Category[];
 }
 ```
@@ -1506,7 +1508,7 @@ export interface DeletedProductsQuery {
 
 export interface CreateCategoryRequest {
   name: string;
-  /** Omit to generate one from the name. Sent values are only trimmed (F-39). */
+  /** Omit (or send blank) to generate one from the name. Otherwise ^[a-z0-9]+(?:-[a-z0-9]+)*$, as sent. */
   slug?: string | null;
   parentCategoryId?: string | null;
   description?: string | null;
@@ -1517,6 +1519,8 @@ export interface UpdateCategoryRequest {
   /** Must equal the {id} in the route. */
   id: string;
   name: string;
+  /** Omitted or null keeps it. Otherwise ^[a-z0-9]+(?:-[a-z0-9]+)*$ and free among the live siblings; "" is 400. */
+  slug?: string | null;
   /** Omitted or null keeps it; "" clears it. */
   description?: string | null;
   /** Omitted or null keeps it. */
@@ -1524,7 +1528,7 @@ export interface UpdateCategoryRequest {
 }
 
 export interface MoveCategoryRequest {
-  /** null makes the category a root. Always send the property: {} also makes it a root (F-38). */
+  /** Required. null makes the category a root; omitting it ({}) is 400. */
   newParentCategoryId: string | null;
 }
 
@@ -1648,16 +1652,9 @@ export interface CacheInvalidationReport {
 > the detail read include drafts, and the tree includes deleted categories. An admin previewing the shop needs its
 > own filtering, or an anonymous request.
 
-> ⚠ **The category tree stops at three levels**, and returns at most 100 roots. Read deeper categories with
-> `GET /categories/{id}`. (F-37)
-
-> ⚠ **A refused category delete answers 404** (`Category.HasChildren`, `Category.HasProducts`). Branch on `errorCode`,
-> not on the status. (F-40)
-
-> ⚠ **`PUT /categories/{id}/parent` with `{}` makes the category a root.** Always send `newParentCategoryId`. (F-38)
-
-> ⚠ **Slugs are fixed at creation and are not validated when supplied.** Generate or check them on the client. A slug
-> clash after a move or a restore cannot be fixed by the steps its `detail` suggests. (F-39)
+> **A category slug conflict is recoverable.** Move and restore answer 409 `Category.SlugConflict` when a live sibling
+> holds the slug; change one of the two slugs with `PUT /categories/{id}` (or move or delete the other category) and
+> send the same request again. Create answers the same code as 400.
 
 > ⚠ **`PUT /products/{id}` is not a partial update for price and stock.** Omitting `stockQuantity` sets the stock to
 > 0. Send the whole form, and record stock movements with `PATCH /stock`.
@@ -1667,16 +1664,14 @@ export interface CacheInvalidationReport {
 
 > ⚠ **The recycle bin is ordered by creation time**, and has no deletion time. (F-42)
 
-> ⚠ **Restoring a product whose category is deleted makes it unreachable.** Restore the category first. (F-43)
-
 > ⚠ **The OpenAPI document lists members the server ignores or refuses.** Every command body schema shows
 > `cacheKeysToInvalidate` and `cacheFamiliesToInvalidate` (ignored if sent), the sub-resource bodies show `productId`
 > (the route wins), and `GET /products` lists `includeUnpublished` (overwritten) and `cursor` (always 400).
 > Do not generate a client from it without these corrections. (F-36)
 
 > ⚠ **Several statuses are missing from the OpenAPI document**: the 400 for an all-zero id on the discount, image and
-> main-image deletes, the 409 on a category move and on an attribute add, and the 404 on
-> `GET /categories/{id}/products`, which never occurs. (F-11)
+> main-image deletes and the 409 on an attribute add, and the 404 on `GET /categories/{id}/products`, which never
+> occurs. (F-11)
 
 > ⚠ **A bad query value blames the request body.** `?status=active` or `?pageSize=abc` answers `MalformedRequest` with
 > "The request body is not valid JSON…". (F-25)
@@ -1704,4 +1699,4 @@ export interface CacheInvalidationReport {
 ---
 
 **Version**: 1.0  
-**Last Updated**: 2026-09-24
+**Last Updated**: 2026-09-27

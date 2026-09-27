@@ -271,10 +271,10 @@ sequenceDiagram
   order-creation screen on that endpoint.
 - **Deleting sets the product Discontinued**, freeing its SKU; restoring always comes back as a Draft, so the admin
   must publish it again to make it visible ([Product lifecycle](catalog.md#product-lifecycle)).
-- **Moving or deleting the product's category has consequences the product edit screen should guard against**:
-  restoring a product whose category was deleted makes it unreachable by id (F-43), and `PUT
-  /categories/{id}/parent` with an empty body silently re-roots a category (F-38). Neither is fixed; both are
-  documented with a ⚠ in [catalog.md](catalog.md).
+- **A product cannot be restored into a deleted category**: restore answers 400 `Product.CategoryNotActive` and the
+  product stays in the recycle bin. Restore the category first
+  ([`POST /products/{id}/restore`](catalog.md#post-apiv1productsidrestore)). A category that still holds live
+  products cannot be deleted at all (409 `Category.HasProducts`).
 - **Cache invalidation is automatic on every write** — an admin never needs to call
   [`POST /admin/cache/invalidate`](catalog.md#cache) after an ordinary edit. That endpoint exists for recovering
   from an inconsistency, not as a step in the normal edit flow.
