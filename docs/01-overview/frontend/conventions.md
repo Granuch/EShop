@@ -236,7 +236,7 @@ These responses carry **no body at all**. Handle them from the status code alone
 | 403 | Signed in, but a role or permission is missing, at either layer |
 | 404 | No gateway route matches, or a `{id:guid}` segment is not a GUID |
 | 502 | Payment is unreachable; the gateway does not rewrite Payment's 502 (F-13) |
-| 504 | The service did not answer within the gateway's 10 s (every service except Payment, whose route keeps YARP's default of 100 s). Observed on Notification's resend and retry-failed; see [notification.md](notification.md#frontend-notes) (F-56) |
+| 504 | The service did not answer within the gateway's 10 s (every service except Payment, whose route keeps YARP's default of 100 s). Notification's resend and retry-failed used to hit this while deliveries were failing; since `5b8dcac` (F-56) they answer at once |
 
 ### 3.3 Validation errors
 

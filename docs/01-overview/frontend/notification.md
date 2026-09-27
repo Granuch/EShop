@@ -7,7 +7,8 @@ email templates and a test send of each, and the operator actions retry, resend 
 `105d647` baseline. Every endpoint in this file was checked against the C# source and the service's OpenAPI document,
 and called through the gateway on the compose `sandbox` stack, with Mailpit as the mail server. The failure paths
 were produced for real: Mailpit was stopped (deliveries fail) and paused (a delivery hangs mid-attempt). The gateway
-policy was re-verified at `3217d43`, which fixed F-08. Shared rules
+policy was re-verified at `3217d43`, which fixed F-08, and the retry behaviour and the operator actions' timing at
+`5b8dcac`, which fixed F-56. Shared rules
 (errors, paging, rate limits, CORS) are in [conventions.md](conventions.md) and are not repeated here.
 
 ## Base paths through the gateway
@@ -94,9 +95,11 @@ stateDiagram-v2
 - **An attempt holds its row for up to 5 minutes** (the attempt lease). While it does, resend and mark-undeliverable
   answer 409 `Notification.AttemptInProgress`. An attempt older than that is taken to have died, and the row can be
   retried or closed. Observed: with the mail server hanging, a row stayed `Sending` and both actions were refused.
-- **`retryCount` counts failed attempts.** A failed delivery is retried automatically, several times a minute while
-  the mail server is down (observed: 6 failed attempts in the first 90 s, 8 after about 2.5 minutes), and the row is
-  sent as soon as the server is back. See the ⚠ on [automatic retries](#frontend-notes).
+- **`retryCount` counts failed attempts.** A failed delivery is retried automatically a few times within about half a
+  minute (the first attempt plus 3 retries, 5, 10 and 15 s apart), then **automatic retries stop** and the row stays
+  `Failed`. Observed with the mail server stopped: `retryCount` reached 4 within 45 s and stayed there for 5 minutes.
+  After that only an operator's retry-failed or resend sends it again. See the note on
+  [failed deliveries](#frontend-notes).
 - **Rows are kept for 90 days** after their last change, then deleted.
 - **Not in the journal:** template test sends, and the gateway's own operational notices to operators (the gateway
   sends those itself).
@@ -338,7 +341,7 @@ event was not kept (password resets) are skipped and not counted in `matching`.
 | 400 | `MalformedRequest` | The body is not valid JSON |
 | 401 / 403 | — | Anonymous / not an admin (gateway) |
 | 503 | `Notification.BusUnavailable` | This Notification host runs no message bus (test hosts only; from source) |
-| 504 | — (empty body) | **The gateway gave up after 10 s.** Observed while deliveries were failing: the service could not reach the queue, nothing was dispatched, and the gateway answered 504 (F-56) |
+| 504 | — (empty body) | The gateway gave up after 10 s (conventions §3.2). Not expected: with the mail server down, retry-failed answered 202 in about 0.3 s |
 
 ### `POST /api/v1/notifications/{id}/resend`
 
@@ -376,7 +379,7 @@ Poll [`GET /api/v1/notifications/{id}`](#get-apiv1notificationsid) until `status
 | 409 | `Notification.NotResendable` | The event was not kept: `"Notification <id> kept no copy of its event, so there is nothing to send again. A password reset is never kept (its link carries a live token); ask the customer to request a new one."` Observed on a failed password reset. Also for an event type no consumer delivers any more (from source) |
 | 503 | `Notification.BusUnavailable` | No message bus on this host (test hosts only; from source) |
 | 503 | `Notification.DispatchFailed` | The message bus refused the resend: `"The message bus refused the resend. The reason is in the service log."` (from source) |
-| 504 | — (empty body) | The gateway gave up after 10 s; nothing was resent (observed; F-56) |
+| 504 | — (empty body) | The gateway gave up after 10 s (conventions §3.2). Not expected: with the mail server down, resend answered 202 in about 0.3 s |
 
 ### `POST /api/v1/notifications/{id}/mark-undeliverable`
 
@@ -684,13 +687,10 @@ export interface RetryFailedNotificationsResult {
 
 ## Frontend notes
 
-> ⚠ **The gateway can answer 504 with an empty body** on retry-failed and resend. It gives Notification 10 s, and
-> while deliveries are failing, Notification's link to its own queue can stall for longer (observed about 16 s).
-> Nothing was dispatched in that case. Treat a 504 as "not done", read the rows again, and retry later. (F-56)
-
-> ⚠ **Automatic retries do not stop** in the compose stack. A failed delivery is retried every few seconds for as long
-> as the mail server is down (`retryCount` reached 8 in about 2.5 minutes), instead of backing off to minutes and
-> stopping. Do not read a high `retryCount` as "gave up"; only `Undeliverable` means that. (F-56)
+> **A `Failed` row is not retried for ever.** After the first attempt and 3 automatic retries (about 30 s) the row
+> stays `Failed` until an operator acts, so offer retry-failed or resend on it. A `Failed` row is not final: only
+> `Undeliverable` means "gave up". A resend while the mail server is still down answers 202 and simply fails again
+> (observed: `retryCount` 4 → 7, then Sent once, and only once, after retry-failed with the server back).
 
 > ⚠ **202 is not delivered.** Resend and retry-failed only queue the email. Poll the row (or the statistics) until
 > `status` is final, with back-off up to about 30 s. The resend's `Location` header is a relative path to the row;
