@@ -158,6 +158,18 @@ public class NotificationActionsTests
         await ShouldBeProblemAsync(response, HttpStatusCode.Conflict, NotificationErrors.NotResendableCode);
     }
 
+    /// <summary>Email-confirmation Stage 3: the confirmation request carries a live token too, so it is kept nowhere.</summary>
+    [Test]
+    public async Task AnEmailConfirmation_CannotBeResent_BecauseItsEventWasNeverKept()
+    {
+        var id = await SeedAsync(
+            new EmailConfirmationRequestedIntegrationEvent { UserId = User(), ConfirmationToken = "live-token" }, Fail);
+
+        var response = await _admin.PostAsync($"/api/v1/notifications/{id}/resend", null);
+
+        await ShouldBeProblemAsync(response, HttpStatusCode.Conflict, NotificationErrors.NotResendableCode);
+    }
+
     [Test]
     public async Task ARowWrittenBeforeThePayloadColumn_CannotBeResent()
     {
@@ -248,10 +260,10 @@ public class NotificationActionsTests
     {
         var templates = (await GetAsync("/api/v1/notifications/templates")).EnumerateArray().ToList();
 
-        templates.Should().HaveCount(7);
+        templates.Should().HaveCount(8);
         templates.Where(t => !t.GetProperty("resendable").GetBoolean())
             .Select(t => t.GetProperty("name").GetString())
-            .Should().Equal("password-reset");
+            .Should().Equal("password-reset", "email-confirmation");
     }
 
     [Test]

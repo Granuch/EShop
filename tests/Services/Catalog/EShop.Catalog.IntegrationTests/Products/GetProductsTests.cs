@@ -81,9 +81,14 @@ public class GetProductsTests : IntegrationTestBase
     [Test]
     public async Task GetProducts_WithCategoryFilter_ShouldFilterByCategory()
     {
-        // Arrange — get a category ID from seeded data
+        // Arrange — a leaf category of this test's own. A category filter covers the whole subtree
+        // (CategorySubtreeFilterTests), so "every row carries exactly this id" holds only for a
+        // category with no children, which an arbitrary seeded one is not guaranteed to be.
         using var scope = Factory.Services.CreateScope();
-        var categoryId = await CatalogDataHelper.GetFirstCategoryIdAsync(scope.ServiceProvider);
+        var categoryId = await CatalogDataHelper.CreateCategoryAsync(
+            scope.ServiceProvider, "Leaf filter", $"leaf-{Guid.NewGuid():N}");
+        var productId = await CatalogDataHelper.CreateProductAsync(
+            scope.ServiceProvider, "Leaf product", CatalogDataHelper.GenerateUniqueSku("LEAF"), 10m, 5, categoryId);
 
         // Act
         var response = await Client.GetAsync($"{ProductsEndpoint}?PageNumber=1&PageSize=50&CategoryId={categoryId}");
@@ -93,7 +98,8 @@ public class GetProductsTests : IntegrationTestBase
 
         var result = await response.Content.ReadFromJsonAsync<PagedResponse<ProductResponse>>();
         result.Should().NotBeNull();
-        result!.Items.Should().OnlyContain(p => p.CategoryId == categoryId);
+        result!.Items.Select(p => p.Id).Should().Equal(productId);
+        result.Items.Should().OnlyContain(p => p.CategoryId == categoryId);
     }
 
     [Test]

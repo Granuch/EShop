@@ -22,7 +22,8 @@ public class NotificationTemplateCatalogTests
         _catalog = new NotificationTemplateCatalog(
             _email.Object,
             Options.Create(new SmtpSettings { FromEmail = "support@eshop.test" }),
-            Options.Create(new PasswordResetSettings { ResetUrlBase = "https://shop.eshop.test/reset-password" }));
+            Options.Create(new PasswordResetSettings { ResetUrlBase = "https://shop.eshop.test/reset-password" }),
+            Options.Create(new EmailConfirmationSettings { ConfirmUrlBase = "https://shop.eshop.test/confirm-email" }));
     }
 
     /// <summary>
@@ -35,11 +36,12 @@ public class NotificationTemplateCatalogTests
         Assert.That(_catalog.Templates.Select(t => t.Name), Is.EquivalentTo(NotificationTemplates.All));
     }
 
+    /// <summary>The two whose events carry a live token, so no payload is kept to resend.</summary>
     [Test]
-    public void OnlyThePasswordReset_IsNotResendable()
+    public void OnlyTheTokenBearingTemplates_AreNotResendable()
     {
         Assert.That(_catalog.Templates.Where(t => !t.Resendable).Select(t => t.Name),
-            Is.EqualTo(new[] { NotificationTemplates.PasswordReset }));
+            Is.EqualTo(new[] { NotificationTemplates.PasswordReset, NotificationTemplates.EmailConfirmation }));
     }
 
     /// <summary>Each template reaches its own send method — a mismatch would test-send the wrong email under the right name.</summary>
@@ -63,6 +65,8 @@ public class NotificationTemplateCatalogTests
             .Callback(() => sent.Add(NotificationTemplates.PaymentRefunded)).ReturnsAsync("m6");
         _email.Setup(e => e.SendPasswordResetAsync(recipient, It.IsAny<PasswordResetEmailModel>(), It.IsAny<CancellationToken>()))
             .Callback(() => sent.Add(NotificationTemplates.PasswordReset)).ReturnsAsync("m7");
+        _email.Setup(e => e.SendEmailConfirmationAsync(recipient, It.IsAny<EmailConfirmationEmailModel>(), It.IsAny<CancellationToken>()))
+            .Callback(() => sent.Add(NotificationTemplates.EmailConfirmation)).ReturnsAsync("m8");
 
         foreach (var template in NotificationTemplates.All)
         {
@@ -89,6 +93,21 @@ public class NotificationTemplateCatalogTests
             Assert.That(model.ResetLink, Does.Contain("token=not-a-real-token"));
             Assert.That(model.CustomerName, Is.EqualTo("there"), "no name given: the greeting a nameless customer gets");
         });
+    }
+
+    /// <summary>The same rule for the confirmation sample: the real page, and a token that confirms nothing.</summary>
+    [Test]
+    public async Task TheEmailConfirmationSample_LinksToTheRealPage_WithATokenThatConfirmsNothing()
+    {
+        EmailConfirmationEmailModel? model = null;
+        _email.Setup(e => e.SendEmailConfirmationAsync(It.IsAny<RecipientAddress>(), It.IsAny<EmailConfirmationEmailModel>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientAddress, EmailConfirmationEmailModel, CancellationToken>((_, m, _) => model = m)
+            .ReturnsAsync("m");
+
+        await _catalog.SendTestAsync(NotificationTemplates.EmailConfirmation, new RecipientAddress("ops@eshop.test"));
+
+        Assert.That(model!.ConfirmationLink,
+            Is.EqualTo("https://shop.eshop.test/confirm-email?userId=test-send&token=not-a-real-token"));
     }
 
     [Test]

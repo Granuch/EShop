@@ -41,7 +41,8 @@ data:
   ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
   # Identity settings
-  Identity__RequireConfirmedEmail: "false"
+  # On since email-confirmation Stage 3: notification-api emails the confirmation link.
+  Identity__RequireConfirmedEmail: "true"
 
   # Internal service timeouts
   IdentityService__TimeoutSeconds: "5"

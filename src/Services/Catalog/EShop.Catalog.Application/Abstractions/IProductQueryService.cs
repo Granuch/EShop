@@ -37,13 +37,9 @@ public interface IProductQueryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets up to <paramref name="take"/> products in newest-first keyset order
-    /// (<c>CreatedAt DESC, Id DESC</c>), strictly after <paramref name="after"/> when given.
-    /// No count is taken — avoiding it is half the point of keyset paging.
-    /// </summary>
-    /// <summary>
     /// The counts behind <c>GET /api/v1/categories/{id}/stats</c> (Admin panel S5), taken in one
-    /// round trip rather than as five separate queries.
+    /// round trip rather than as five separate queries, over the category's whole subtree — the same
+    /// products a list filtered on <paramref name="categoryId"/> shows.
     /// </summary>
     /// <remarks>
     /// Lives here rather than in <c>ICategoryRepository</c> because it counts <b>products</b>, and
@@ -54,6 +50,11 @@ public interface IProductQueryService
         Guid categoryId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Gets up to <paramref name="take"/> products in newest-first keyset order
+    /// (<c>CreatedAt DESC, Id DESC</c>), strictly after <paramref name="after"/> when given.
+    /// No count is taken — avoiding it is half the point of keyset paging.
+    /// </summary>
     Task<List<ProductDto>> GetNewestProductsAsync(
         ProductListFilter filter,
         ProductCursor? after,

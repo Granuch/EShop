@@ -26,6 +26,8 @@ public class NotificationConsumerTests
 
     private static readonly IOptions<PasswordResetSettings> Reset =
         Options.Create(new PasswordResetSettings { ResetUrlBase = "https://frontend/reset-password" });
+    private static readonly IOptions<EmailConfirmationSettings> Confirm =
+        Options.Create(new EmailConfirmationSettings { ConfirmUrlBase = "https://frontend/confirm-email" });
 
     private FakeLogs _logs = null!;
     private Mock<IEmailService> _email = null!;
@@ -100,6 +102,66 @@ public class NotificationConsumerTests
         await PasswordReset(Reset).Consume(Delivery(evt));
 
         Assert.That(_logs.Single().Payload, Is.Null);
+    }
+
+    /// <summary>Email-confirmation Stage 3: the confirmation token is as live as a reset token, so the row keeps nothing.</summary>
+    [Test]
+    public async Task AnEmailConfirmationRow_KeepsNoEvent_AndNamesItsTemplate()
+    {
+        var evt = new EmailConfirmationRequestedIntegrationEvent { EventId = Guid.NewGuid(), UserId = "user-confirm", ConfirmationToken = "live-token" };
+        ResolveAs("user-confirm", "confirm@test.com", "Confirm User");
+
+        await EmailConfirmation().Consume(Delivery(evt));
+
+        var log = _logs.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(log.Payload, Is.Null);
+            Assert.That(log.TemplateName, Is.EqualTo(EShop.Notification.Infrastructure.Services.NotificationTemplates.EmailConfirmation));
+            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Sent));
+        });
+    }
+
+    /// <summary>
+    /// The link is what the storefront page parses. ASP.NET Identity's tokens are base64 and carry <c>+</c>, <c>/</c> and
+    /// <c>=</c>; unencoded, <c>+</c> would reach Identity as a space and the token would be refused.
+    /// </summary>
+    [Test]
+    public async Task EmailConfirmationRequestedConsumer_SendsALinkWithBothValuesEncoded()
+    {
+        const string token = "CfDJ8+abc/def==";
+        var evt = new EmailConfirmationRequestedIntegrationEvent { EventId = Guid.NewGuid(), UserId = "user-confirm", ConfirmationToken = token };
+        ResolveAs("user-confirm", "confirm@test.com", "Confirm User");
+        EmailConfirmationEmailModel? model = null;
+        _email.Setup(x => x.SendEmailConfirmationAsync(It.IsAny<RecipientAddress>(), It.IsAny<EmailConfirmationEmailModel>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientAddress, EmailConfirmationEmailModel, CancellationToken>((_, m, _) => model = m)
+            .ReturnsAsync("<m@test>");
+
+        await EmailConfirmation().Consume(Delivery(evt));
+
+        Assert.That(model!.ConfirmationLink,
+            Is.EqualTo($"https://frontend/confirm-email?userId=user-confirm&token={Uri.EscapeDataString(token)}"));
+        Assert.That(model.ConfirmationLink, Does.Contain("token=CfDJ8%2Babc%2Fdef%3D%3D"));
+        Assert.That(model.CustomerName, Is.EqualTo("Confirm User"));
+    }
+
+    [Test]
+    public void EmailConfirmationRequestedConsumer_WhenEmailSendFails_ShouldStoreSanitizedError()
+    {
+        var evt = new EmailConfirmationRequestedIntegrationEvent { EventId = Guid.NewGuid(), UserId = "user-confirm-failed", ConfirmationToken = "token-value" };
+        ResolveAs("user-confirm-failed", "confirm@test.com", "Confirm User");
+        _email.Setup(x => x.SendEmailConfirmationAsync(
+                It.IsAny<RecipientAddress>(), It.IsAny<EmailConfirmationEmailModel>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("smtp provider timeout at smtp.gmail.com:587"));
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => EmailConfirmation().Consume(Delivery(evt)));
+
+        var log = _logs.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(log.Status, Is.EqualTo(NotificationStatus.Failed));
+            Assert.That(log.LastError, Is.EqualTo("Email provider timeout."));
+        });
     }
 
     [Test]
@@ -578,6 +640,9 @@ public class NotificationConsumerTests
 
     private PasswordResetRequestedConsumer PasswordReset(IOptions<PasswordResetSettings> settings)
         => new(_logs, _email.Object, _resolver.Object, settings, TimeProvider.System, Mock.Of<ILogger<PasswordResetRequestedConsumer>>());
+
+    private EmailConfirmationRequestedConsumer EmailConfirmation()
+        => new(_logs, _email.Object, _resolver.Object, Confirm, TimeProvider.System, Mock.Of<ILogger<EmailConfirmationRequestedConsumer>>());
 
     private static ConsumeContext<T> Delivery<T>(T message, Guid? transportCorrelationId = null)
         where T : class

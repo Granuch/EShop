@@ -10,6 +10,7 @@ using EShop.Identity.Application.Auth.Commands.RevokeToken;
 using EShop.Identity.Application.Auth.Commands.ConfirmEmail;
 using EShop.Identity.Application.Auth.Commands.ForgotPassword;
 using EShop.Identity.Application.Auth.Commands.ResetPassword;
+using EShop.Identity.Application.Auth.Commands.ResendEmailConfirmation;
 
 namespace EShop.Identity.API.Controllers;
 
@@ -61,6 +62,7 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginCommand command, CancellationToken cancellationToken)
     {
         // Add IP address to command
@@ -72,6 +74,13 @@ public class AuthController : ApiControllerBase
             if (result.Error is FieldValidationError)
             {
                 return ProblemForError(result.Error, StatusCodes.Status400BadRequest);
+            }
+
+            // Right password, unconfirmed address: the caller is who they say, and still refused.
+            // The handler only produces this after the password check, so it enumerates nothing.
+            if (result.Error!.Code == LoginCommandHandler.EmailNotConfirmed.Code)
+            {
+                return ProblemForError(result.Error, StatusCodes.Status403Forbidden);
             }
 
             return ProblemForError(result.Error!, StatusCodes.Status401Unauthorized);
@@ -137,6 +146,29 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(ConfirmEmailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ConfirmEmailResponse>> ConfirmEmail([FromBody] ConfirmEmailCommand command, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Send a fresh email-confirmation link. Always 200 with the same message unless the request
+    /// itself is malformed, so it reveals nothing about which addresses have accounts; at most one
+    /// resend per account per minute.
+    /// </summary>
+    [HttpPost("resend-confirmation")]
+    [EnableRateLimiting("login")]
+    [ProducesResponseType(typeof(ResendEmailConfirmationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ResendEmailConfirmationResponse>> ResendConfirmation(
+        [FromBody] ResendEmailConfirmationCommand command,
+        CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(command, cancellationToken);
 

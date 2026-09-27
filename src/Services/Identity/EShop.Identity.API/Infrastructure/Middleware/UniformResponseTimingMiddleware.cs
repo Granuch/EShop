@@ -33,7 +33,8 @@ public class UniformResponseTimingMiddleware
     // confirm-email and refresh-token were missing: confirm-email reveals whether a UserId
     // exists (a hit does token validation work, a miss returns immediately), and refresh-token
     // reveals whether a presented token matched a row. Both are the same enumeration oracle the
-    // other four are padded against.
+    // other four are padded against. resend-confirmation does token work only for a real,
+    // unconfirmed account outside its cooldown, so it is the same oracle again.
     private static readonly string[] TimedEndpoints =
     [
         "/api/v1/auth/login",
@@ -41,6 +42,7 @@ public class UniformResponseTimingMiddleware
         "/api/v1/auth/forgot-password",
         "/api/v1/auth/reset-password",
         "/api/v1/auth/confirm-email",
+        "/api/v1/auth/resend-confirmation",
         "/api/v1/auth/refresh-token"
     ];
 

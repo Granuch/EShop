@@ -81,6 +81,26 @@ public class RegisterCommandHandlerTests
         _userManagerMock
             .Setup(x => x.AddToRoleAsync(It.IsAny<ApplicationUser>(), "User"))
             .ReturnsAsync(IdentityResult.Success);
+
+        _userManagerMock
+            .Setup(x => x.GenerateEmailConfirmationTokenAsync(It.IsAny<ApplicationUser>()))
+            .ReturnsAsync(ConfirmationToken);
+    }
+
+    private const string ConfirmationToken = "confirm-token-xyz";
+
+    /// <summary>
+    /// Every event the handler enqueues, in order. A single <c>captured = e as T</c> callback is not
+    /// enough now that registration enqueues two events: the second enqueue overwrites it with null,
+    /// and an assertion about "the captured event" then passes on nothing.
+    /// </summary>
+    private List<IIntegrationEvent> CaptureEnqueued()
+    {
+        var enqueued = new List<IIntegrationEvent>();
+        _outboxMock
+            .Setup(x => x.Enqueue(It.IsAny<IIntegrationEvent>(), It.IsAny<string>()))
+            .Callback<IIntegrationEvent, string?>((e, _) => enqueued.Add(e));
+        return enqueued;
     }
 
     // ---------------------------------------------------------------------------------------
@@ -146,23 +166,51 @@ public class RegisterCommandHandlerTests
     // ---------------------------------------------------------------------------------------
 
     [Test]
-    public async Task Handle_OnSuccess_EnqueuesExactlyOneEventCarryingTheNewUserId()
+    public async Task Handle_OnSuccess_EnqueuesTheRegistrationAndOneConfirmationRequest_ForTheNewUserId()
     {
         ArrangeSuccessfulCreate("user-42");
-        UserRegisteredIntegrationEvent? captured = null;
-        _outboxMock
-            .Setup(x => x.Enqueue(It.IsAny<IIntegrationEvent>(), It.IsAny<string>()))
-            .Callback<IIntegrationEvent, string?>((e, _) => captured = e as UserRegisteredIntegrationEvent);
+        var enqueued = CaptureEnqueued();
 
         var result = await _handler.Handle(Command(), CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(result.Value.UserId, Is.EqualTo("user-42"));
-        _outboxMock.Verify(
-            x => x.Enqueue(It.IsAny<IIntegrationEvent>(), It.IsAny<string>()), Times.Once);
-        Assert.That(captured, Is.Not.Null, "the event must be a UserRegisteredIntegrationEvent");
-        Assert.That(captured!.UserId, Is.EqualTo("user-42"),
+        Assert.That(enqueued, Has.Count.EqualTo(2));
+
+        var registered = enqueued.OfType<UserRegisteredIntegrationEvent>().Single();
+        Assert.That(registered.UserId, Is.EqualTo("user-42"),
             "an event announcing an empty id is worse than no event — consumers cannot resolve it");
+
+        var confirmation = enqueued.OfType<EmailConfirmationRequestedIntegrationEvent>().Single();
+        Assert.That(confirmation.UserId, Is.EqualTo("user-42"));
+        Assert.That(confirmation.ConfirmationToken, Is.EqualTo(ConfirmationToken),
+            "the token the handler generated is the one that has to reach the email — it used to be discarded");
+    }
+
+    /// <summary>
+    /// The confirmation event carries a live credential, so its outbox payload must be redacted once
+    /// dispatched; the marker is what makes <c>OutboxProcessorService</c> do that.
+    /// </summary>
+    [Test]
+    public void TheConfirmationRequest_IsASensitivePayloadEvent()
+    {
+        Assert.That(new EmailConfirmationRequestedIntegrationEvent(), Is.InstanceOf<ISensitivePayloadEvent>());
+    }
+
+    /// <summary>
+    /// The token rides on its own sensitive event only. <c>UserRegisteredIntegrationEvent</c> is not
+    /// redacted, so a token there would sit in <c>outbox_messages</c> for the whole retention window.
+    /// </summary>
+    [Test]
+    public async Task Handle_OnSuccess_KeepsTheTokenOffTheRegistrationEvent()
+    {
+        ArrangeSuccessfulCreate();
+        var enqueued = CaptureEnqueued();
+
+        await _handler.Handle(Command(), CancellationToken.None);
+
+        var registered = enqueued.OfType<UserRegisteredIntegrationEvent>().Single();
+        Assert.That(System.Text.Json.JsonSerializer.Serialize(registered), Does.Not.Contain(ConfirmationToken));
     }
 
     /// <summary>
@@ -173,10 +221,13 @@ public class RegisterCommandHandlerTests
     public async Task Handle_OnSuccess_PropagatesTheCorrelationId()
     {
         ArrangeSuccessfulCreate();
+        var enqueued = CaptureEnqueued();
 
         await _handler.Handle(Command(), CancellationToken.None);
 
-        _outboxMock.Verify(x => x.Enqueue(It.IsAny<IIntegrationEvent>(), CorrelationId), Times.Once);
+        _outboxMock.Verify(x => x.Enqueue(It.IsAny<IIntegrationEvent>(), CorrelationId), Times.Exactly(2));
+        Assert.That(enqueued.Cast<IntegrationEvent>().Select(e => e.CorrelationId), Is.All.EqualTo(CorrelationId),
+            "the payload's own correlation id too, not only the outbox row's");
     }
 
     /// <summary>
@@ -188,16 +239,19 @@ public class RegisterCommandHandlerTests
     public async Task Handle_OnSuccess_AnnouncesNoPersonalData()
     {
         ArrangeSuccessfulCreate();
-        UserRegisteredIntegrationEvent? captured = null;
-        _outboxMock
-            .Setup(x => x.Enqueue(It.IsAny<IIntegrationEvent>(), It.IsAny<string>()))
-            .Callback<IIntegrationEvent, string?>((e, _) => captured = e as UserRegisteredIntegrationEvent);
+        var enqueued = CaptureEnqueued();
 
         await _handler.Handle(Command(), CancellationToken.None);
 
-        var payload = System.Text.Json.JsonSerializer.Serialize(captured);
-        Assert.That(payload, Does.Not.Contain(Email));
-        Assert.That(payload, Does.Not.Contain("New"), "no first name in the payload either");
+        // Both events: the confirmation request is redacted after dispatch, but not before, and
+        // Notification resolves the address from the id anyway.
+        Assert.That(enqueued, Has.Count.EqualTo(2), "an empty capture would make the checks below vacuous");
+        foreach (var e in enqueued)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(e, e.GetType());
+            Assert.That(payload, Does.Not.Contain(Email), e.GetType().Name);
+            Assert.That(payload, Does.Not.Contain("New"), $"{e.GetType().Name}: no first name in the payload either");
+        }
     }
 
     [Test]
@@ -241,7 +295,9 @@ public class RegisterCommandHandlerTests
 
         Assert.That(result.IsSuccess, Is.True);
         _outboxMock.Verify(
-            x => x.Enqueue(It.IsAny<IIntegrationEvent>(), It.IsAny<string>()), Times.Once);
+            x => x.Enqueue(It.IsAny<UserRegisteredIntegrationEvent>(), It.IsAny<string>()), Times.Once);
+        _outboxMock.Verify(
+            x => x.Enqueue(It.IsAny<EmailConfirmationRequestedIntegrationEvent>(), It.IsAny<string>()), Times.Once);
     }
 
     private static Mock<UserManager<ApplicationUser>> MockUserManager()
