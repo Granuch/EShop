@@ -106,8 +106,7 @@ try
         builder.Configuration,
         useInMemoryDatabase: useInMemoryDb,
         suppressPendingModelChangesWarning: suppressPendingModelChangesWarning,
-        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"),
-        isSandbox: builder.Environment.IsEnvironment("Sandbox"));
+        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
 
     builder.Services.AddHttpContextAccessor();
 

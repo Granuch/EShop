@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
         services.Configure<IdentityServiceSettings>(configuration.GetSection(IdentityServiceSettings.SectionName));
         services.Configure<PasswordResetSettings>(configuration.GetSection(PasswordResetSettings.SectionName));
+        services.Configure<EmailConfirmationSettings>(configuration.GetSection(EmailConfirmationSettings.SectionName));
         services.Configure<RabbitMqSettings>(configuration.GetSection(RabbitMqSettings.SectionName));
 
         if (useInMemoryDatabase)
@@ -127,8 +128,9 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// The seven consumers, with the password-reset endpoint's definition (Notification audit D6). Public so the tests
-    /// register exactly what production does.
+    /// The eight consumers, with the definitions of the two whose messages carry a live token — password reset
+    /// (Notification audit D6) and email confirmation — which discard a faulted message rather than park it. Public so
+    /// the tests register exactly what production does.
     /// </summary>
     public static void AddNotificationConsumers(this IBusRegistrationConfigurator bus)
     {
@@ -139,5 +141,6 @@ public static class ServiceCollectionExtensions
         bus.AddConsumer<PaymentFailedConsumer>();
         bus.AddConsumer<PaymentRefundedConsumer>();
         bus.AddConsumer<PasswordResetRequestedConsumer, PasswordResetRequestedConsumerDefinition>();
+        bus.AddConsumer<EmailConfirmationRequestedConsumer, EmailConfirmationRequestedConsumerDefinition>();
     }
 }

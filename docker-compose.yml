@@ -257,7 +257,9 @@ services:
       JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
 
       # Identity
-      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-false}
+      # On since email-confirmation Stage 3: registration emails a confirmation link (Notification), and an
+      # unconfirmed login answers 403 Auth.EmailNotConfirmed. Set false to let new accounts sign in unconfirmed.
+      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-true}
 
       # Seed Admin (Development/Sandbox only)
       Identity__SeedAdminEmail: ${IDENTITY_SEED_ADMIN_EMAIL:-admin@eshop.com}
@@ -930,6 +932,8 @@ services:
       # Notification audit S4 (D4). Required, with no tracked default: the local stack's browser reaches the storefront
       # on localhost:3000. docker-compose.override.production.yml requires PASSWORD_RESET_URL_BASE instead.
       PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:-http://localhost:3000/reset-password}
+      # Where confirmation emails link to, on the same terms; the override requires EMAIL_CONFIRMATION_URL_BASE.
+      EmailConfirmation__ConfirmUrlBase: ${EMAIL_CONFIRMATION_URL_BASE:-http://localhost:3000/confirm-email}
 
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}

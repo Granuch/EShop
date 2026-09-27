@@ -11,61 +11,74 @@ namespace EShop.Notification.IntegrationTests.Configuration;
 [TestFixture]
 public class ShippedNotificationSettingsTests
 {
-    private const string LocalResetUrl = "http://localhost:3000/reset-password";
     private static readonly string RepositoryRoot = FindRepositoryRoot();
 
-    [Test]
-    public void TheTrackedAppsettings_SetNoResetUrl_ButDevelopmentDoes()
+    /// <summary>
+    /// The storefront links the emails carry, each shipped on the same terms: no tracked default, a local one for
+    /// Development, compose and k8s, and a required one in the production override. Email confirmation joined the
+    /// password reset in email-confirmation Stage 3.
+    /// </summary>
+    private static readonly object[] StorefrontUrls =
+    [
+        new object[] { "PasswordReset", "ResetUrlBase", "PASSWORD_RESET_URL_BASE", "http://localhost:3000/reset-password" },
+        new object[] { "EmailConfirmation", "ConfirmUrlBase", "EMAIL_CONFIRMATION_URL_BASE", "http://localhost:3000/confirm-email" }
+    ];
+
+    [TestCaseSource(nameof(StorefrontUrls))]
+    public void TheTrackedAppsettings_SetNoStorefrontUrl_ButDevelopmentDoes(
+        string section, string property, string envVar, string localUrl)
     {
         var tracked = ReadJson("appsettings.json");
         var development = ReadJson("appsettings.Development.json");
 
         Assert.Multiple(() =>
         {
-            Assert.That(tracked.TryGetProperty("PasswordReset", out _), Is.False,
+            Assert.That(tracked.TryGetProperty(section, out _), Is.False,
                 "a tracked default reached every deployed environment unnoticed (M9)");
-            Assert.That(development.GetProperty("PasswordReset").GetProperty("ResetUrlBase").GetString(),
-                Is.EqualTo(LocalResetUrl));
+            Assert.That(development.GetProperty(section).GetProperty(property).GetString(), Is.EqualTo(localUrl));
         });
     }
 
-    [Test]
-    public void Compose_GivesNotificationApiAResetUrl_OverridableFromTheEnvironment()
+    [TestCaseSource(nameof(StorefrontUrls))]
+    public void Compose_GivesNotificationApiTheUrl_OverridableFromTheEnvironment(
+        string section, string property, string envVar, string localUrl)
     {
+        var key = $"{section}__{property}";
+
         Assert.That(ComposeServiceBlock("docker-compose.yml", "notification-api")
-                .Where(line => line.StartsWith("PasswordReset__ResetUrlBase:", StringComparison.Ordinal)),
-            Is.EqualTo(new[] { $"PasswordReset__ResetUrlBase: ${{PASSWORD_RESET_URL_BASE:-{LocalResetUrl}}}" }));
+                .Where(line => line.StartsWith($"{key}:", StringComparison.Ordinal)),
+            Is.EqualTo(new[] { $"{key}: ${{{envVar}:-{localUrl}}}" }));
     }
 
     /// <summary>Production refuses the local default, so its override must not fall back to it.</summary>
-    [Test]
-    public void TheProductionOverride_RequiresTheResetUrl()
+    [TestCaseSource(nameof(StorefrontUrls))]
+    public void TheProductionOverride_RequiresTheUrl(string section, string property, string envVar, string localUrl)
     {
+        var key = $"{section}__{property}";
+
         Assert.That(ComposeServiceBlock("docker-compose.override.production.yml", "notification-api")
-                .Where(line => line.StartsWith("PasswordReset__ResetUrlBase:", StringComparison.Ordinal)),
-            Is.EqualTo(new[]
-            {
-                "PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:?PASSWORD_RESET_URL_BASE is required in production}"
-            }));
+                .Where(line => line.StartsWith($"{key}:", StringComparison.Ordinal)),
+            Is.EqualTo(new[] { $"{key}: ${{{envVar}:?{envVar} is required in production}}" }));
     }
 
-    [Test]
-    public void EnvExample_DeclaresTheResetUrl()
+    [TestCaseSource(nameof(StorefrontUrls))]
+    public void EnvExample_DeclaresTheUrl(string section, string property, string envVar, string localUrl)
     {
         var lines = File.ReadAllLines(Path.Combine(RepositoryRoot, ".env.example"));
 
-        Assert.That(lines.Count(line => line == $"PASSWORD_RESET_URL_BASE={LocalResetUrl}"), Is.EqualTo(1));
+        Assert.That(lines.Count(line => line == $"{envVar}={localUrl}"), Is.EqualTo(1));
     }
 
-    [Test]
-    public void Kubernetes_GivesNotificationApiAResetUrl()
+    [TestCaseSource(nameof(StorefrontUrls))]
+    public void Kubernetes_GivesNotificationApiTheUrl(string section, string property, string envVar, string localUrl)
     {
         var deployment = KubernetesDeployment("notification-api");
-        var index = deployment.FindIndex(line => line == "- name: PasswordReset__ResetUrlBase");
+        var name = $"- name: {section}__{property}";
+        var index = deployment.FindIndex(line => line == name);
 
-        Assert.That(index, Is.GreaterThanOrEqualTo(0), "notification-api's Deployment sets no PasswordReset__ResetUrlBase");
-        Assert.That(deployment.Count(line => line == "- name: PasswordReset__ResetUrlBase"), Is.EqualTo(1));
-        Assert.That(deployment[index + 1], Is.EqualTo($"value: \"{LocalResetUrl}\""));
+        Assert.That(index, Is.GreaterThanOrEqualTo(0), $"notification-api's Deployment sets no {section}__{property}");
+        Assert.That(deployment.Count(line => line == name), Is.EqualTo(1));
+        Assert.That(deployment[index + 1], Is.EqualTo($"value: \"{localUrl}\""));
     }
 
     /// <summary>S5 (D7): every shipped configuration names the SMTP security mode, and none still sets UseSsl.</summary>

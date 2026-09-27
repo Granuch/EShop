@@ -59,7 +59,20 @@ public class ResendTests
     }
 
     [Test]
-    public void EveryConsumerButThePasswordReset_IsResendable()
+    public void AnEmailConfirmation_KeepsNoPayload_BecauseItsTokenIsLive()
+    {
+        var confirmation = new EmailConfirmationRequestedIntegrationEvent { UserId = "user-1", ConfirmationToken = "live-token" };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(confirmation, Is.InstanceOf<ISensitivePayloadEvent>(), "precondition: the rule keys on this marker");
+            Assert.That(NotificationPayload.Serialize(confirmation), Is.Null);
+        });
+    }
+
+    /// <summary>Discovered from the consumers: the two whose events carry a live token are left out.</summary>
+    [Test]
+    public void EveryConsumerButTheTokenBearingOnes_IsResendable()
     {
         Assert.That(ResendableNotifications.All.Select(n => n.EventType), Is.EquivalentTo(new[]
         {

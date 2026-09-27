@@ -23,16 +23,17 @@ namespace EShop.Notification.IntegrationTests.Messaging;
 /// production endpoint names: a password-reset message whose delivery fails is discarded, so its live reset token is
 /// never parked in <c>notification_password_reset_requested_error</c>; an order confirmation that fails the same way
 /// still reaches its error queue, where it can be replayed. The harness bus has no retry policy, so the first failure
-/// is the final one.
+/// is the final one. Email confirmation (email-confirmation Stage 3) carries a live token too and follows the reset rule.
 /// </summary>
 [TestFixture]
 public class FaultedMessageTests
 {
     [Test]
-    public async Task AFailedPasswordResetMessage_IsDiscarded_WhileAFailedOrderConfirmationIsParked()
+    public async Task AFailedTokenBearingMessage_IsDiscarded_WhileAFailedOrderConfirmationIsParked()
     {
         var connectionString = await PostgresTestServer.CreateDatabaseAsync();
         var parkedResets = 0;
+        var parkedConfirmations = 0;
         var parkedOrders = 0;
 
         try
@@ -42,6 +43,7 @@ public class FaultedMessageTests
             services.AddSingleton(TimeProvider.System);
             services.AddSingleton(Options.Create(new SmtpSettings { FromEmail = "support@eshop.local" }));
             services.AddSingleton(Options.Create(new PasswordResetSettings { ResetUrlBase = "https://frontend/reset-password" }));
+            services.AddSingleton(Options.Create(new EmailConfirmationSettings { ConfirmUrlBase = "https://frontend/confirm-email" }));
             services.AddDbContext<NotificationDbContext>(o => o.UseNpgsql(connectionString));
             services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
             services.AddScoped<IUserContactResolver, FoundResolver>();
@@ -60,6 +62,15 @@ public class FaultedMessageTests
                         e.Handler<PasswordResetRequestedIntegrationEvent>(_ =>
                         {
                             Interlocked.Increment(ref parkedResets);
+                            return Task.CompletedTask;
+                        });
+                    });
+                    bus.ReceiveEndpoint("notification_email_confirmation_requested_error", e =>
+                    {
+                        e.ConfigureConsumeTopology = false;
+                        e.Handler<EmailConfirmationRequestedIntegrationEvent>(_ =>
+                        {
+                            Interlocked.Increment(ref parkedConfirmations);
                             return Task.CompletedTask;
                         });
                     });
@@ -86,16 +97,23 @@ public class FaultedMessageTests
                 {
                     EventId = Guid.NewGuid(), UserId = "user-1", ResetToken = "live-reset-token"
                 };
+                var confirmation = new EmailConfirmationRequestedIntegrationEvent
+                {
+                    EventId = Guid.NewGuid(), UserId = "user-1", ConfirmationToken = "live-confirmation-token"
+                };
                 var order = new OrderCreatedEvent
                 {
                     EventId = Guid.NewGuid(), OrderId = Guid.NewGuid(), UserId = "user-1", TotalAmount = 1m
                 };
 
                 await harness.Bus.Publish(reset);
+                await harness.Bus.Publish(confirmation);
                 await harness.Bus.Publish(order);
 
                 Assert.That(await harness.Published.Any<Fault<PasswordResetRequestedIntegrationEvent>>(), Is.True,
                     "precondition: the reset delivery failed");
+                Assert.That(await harness.Published.Any<Fault<EmailConfirmationRequestedIntegrationEvent>>(), Is.True,
+                    "precondition: the confirmation delivery failed");
                 Assert.That(await harness.Published.Any<Fault<OrderCreatedEvent>>(), Is.True,
                     "precondition: the order confirmation failed");
                 await harness.InactivityTask;
@@ -103,10 +121,13 @@ public class FaultedMessageTests
                 await using var scope = provider.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
                 var resetLog = await db.NotificationLogs.AsNoTracking().SingleAsync(l => l.EventId == reset.EventId);
+                var confirmationLog = await db.NotificationLogs.AsNoTracking().SingleAsync(l => l.EventId == confirmation.EventId);
 
                 Assert.Multiple(() =>
                 {
                     Assert.That(parkedResets, Is.Zero, "the reset token is not parked in the error queue (D6)");
+                    Assert.That(parkedConfirmations, Is.Zero, "nor is the confirmation token");
+                    Assert.That(confirmationLog.Status, Is.EqualTo(NotificationStatus.Failed));
                     Assert.That(parkedOrders, Is.EqualTo(1), "control: other notifications keep their error queue");
                     Assert.That(resetLog.Status, Is.EqualTo(NotificationStatus.Failed), "the log still records the failure");
                 });
@@ -140,5 +161,6 @@ public class FaultedMessageTests
         public Task<string> SendPaymentFailedAsync(RecipientAddress recipient, PaymentFailedEmailModel model, CancellationToken ct = default) => Down();
         public Task<string> SendPaymentRefundedAsync(RecipientAddress recipient, PaymentRefundedEmailModel model, CancellationToken ct = default) => Down();
         public Task<string> SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default) => Down();
+        public Task<string> SendEmailConfirmationAsync(RecipientAddress recipient, EmailConfirmationEmailModel model, CancellationToken ct = default) => Down();
     }
 }

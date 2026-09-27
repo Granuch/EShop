@@ -14,9 +14,11 @@ public static class NotificationTemplates
     public const string PaymentFailed = "payment-failed";
     public const string PaymentRefunded = "payment-refunded";
     public const string PasswordReset = "password-reset";
+    public const string EmailConfirmation = "email-confirmation";
 
     public static IReadOnlyList<string> All { get; } =
     [
-        OrderCreated, OrderShipped, PaymentCreated, PaymentCompleted, PaymentFailed, PaymentRefunded, PasswordReset
+        OrderCreated, OrderShipped, PaymentCreated, PaymentCompleted, PaymentFailed, PaymentRefunded, PasswordReset,
+        EmailConfirmation
     ];
 }
