@@ -26,4 +26,8 @@ public record BasketItemDto
     public decimal Price { get; init; }
     public int Quantity { get; init; }
     public decimal SubTotal { get; init; }
+
+    /// <summary>The product's main image, as Catalog reported it when the line was added or last refreshed. Null if the
+    /// product has no image, or for a line stored before this field existed.</summary>
+    public string? MainImage { get; init; }
 }

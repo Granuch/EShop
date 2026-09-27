@@ -9,6 +9,12 @@ public interface IProductCatalogReader
 /// <summary>
 /// What Basket needs to know about a product. <paramref name="Price"/> is the effective price
 /// (<c>DiscountPrice ?? Price</c>); <paramref name="StockQuantity"/> is what Catalog reports in stock, checked when an
-/// item is added and again at checkout (Basket audit S6).
+/// item is added and again at checkout (Basket audit S6). <paramref name="MainImageUrl"/> is display-only and plays no
+/// part in checkout revalidation.
 /// </summary>
-public sealed record ProductCatalogSnapshot(Guid ProductId, string ProductName, decimal Price, int StockQuantity);
+public sealed record ProductCatalogSnapshot(
+    Guid ProductId,
+    string ProductName,
+    decimal Price,
+    int StockQuantity,
+    string? MainImageUrl = null);

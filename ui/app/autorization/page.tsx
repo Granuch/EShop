@@ -1,8 +1,11 @@
 import React from 'react'
 import LoginForm from './loginForm'
 import RegisterForm from './registerForm'
+import { getSession } from '@/lib/session'
 
-function page() {
+async function page() {
+  const session = await getSession()
+
   return (
     <div className='flex'>
         <div className='flex justify-center w-screen h-screen'>

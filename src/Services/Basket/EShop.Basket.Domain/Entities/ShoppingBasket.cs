@@ -104,7 +104,7 @@ public class ShoppingBasket : AggregateRoot<string>
         return basket;
     }
 
-    public void AddItem(Guid productId, string productName, decimal price, int quantity)
+    public void AddItem(Guid productId, string productName, decimal price, int quantity, string? mainImageUrl = null)
     {
         EnsureNotCheckedOut();
 
@@ -129,7 +129,7 @@ public class ShoppingBasket : AggregateRoot<string>
 
             // Basket audit M1: the caller has just read Catalog, so these are the product's current name and price.
             // Keeping the stored ones meant a missed or late price event was never repaired by adding the product again.
-            existingItem.Refresh(productName, price);
+            existingItem.Refresh(productName, price, mainImageUrl);
             existingItem.UpdateQuantity((int)mergedQuantity);
         }
         else
@@ -139,7 +139,7 @@ public class ShoppingBasket : AggregateRoot<string>
             if (_items.Count >= MaxLines)
                 throw new DomainException($"A basket can hold at most {MaxLines} different products.");
 
-            _items.Add(new BasketItem(productId, productName, price, quantity));
+            _items.Add(new BasketItem(productId, productName, price, quantity, mainImageUrl));
         }
 
         Touch();
