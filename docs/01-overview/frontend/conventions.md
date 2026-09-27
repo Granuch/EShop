@@ -679,7 +679,7 @@ Every limiter is a **fixed window**.
 | Gateway | global | **100 requests / 60 s** per client IP | Every request through the gateway |
 | Each service | global | **100 requests / 60 s** per client IP | Every request to that service |
 | Identity | `auth` | **10 / 60 s** | `register`, `refresh-token`, `revoke-token`, `confirm-email` |
-| Identity | `login` | **5 / 60 s** | `login`, `forgot-password`, `reset-password` |
+| Identity | `login` | **5 / 60 s** | `login`, `resend-confirmation`, `forgot-password`, `reset-password` |
 | Catalog | `search` | **30 / 60 s** | `GET /api/v1/products`, `GET /api/v1/products/newest` |
 | Catalog | `bulk` | **10 / 60 s** | Bulk actions, import and export |
 
