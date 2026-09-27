@@ -1,11 +1,14 @@
 using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
+using EShop.ApiGateway.AuditLog;
 using EShop.ApiGateway.Configuration;
 using EShop.ApiGateway.Health;
 using EShop.ApiGateway.Middleware;
 using EShop.ApiGateway.Notifications;
 using EShop.ApiGateway.Simulation;
+using EShop.ApiGateway.SystemAdmin;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
@@ -46,11 +49,11 @@ builder.Services.Configure<SimulationOptions>(builder.Configuration.GetSection(S
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.Configure<EmailQueueHealthOptions>(builder.Configuration.GetSection(EmailQueueHealthOptions.SectionName));
 builder.Services.Configure<RateLimitingOptions>(builder.Configuration.GetSection(RateLimitingOptions.SectionName));
-builder.Services.Configure<IdentityServiceOptions>(builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
 builder.Services.Configure<IdentityProxyOptions>(builder.Configuration.GetSection(IdentityProxyOptions.SectionName));
 builder.Services.Configure<CatalogProxyOptions>(builder.Configuration.GetSection(CatalogProxyOptions.SectionName));
 builder.Services.Configure<OrderingProxyOptions>(builder.Configuration.GetSection(OrderingProxyOptions.SectionName));
 builder.Services.Configure<BasketProxyOptions>(builder.Configuration.GetSection(BasketProxyOptions.SectionName));
+builder.Services.Configure<NotificationProxyOptions>(builder.Configuration.GetSection(NotificationProxyOptions.SectionName));
 
 // Shared across every service — reads KnownNetworks as well as KnownProxies, which is what
 // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
@@ -86,8 +89,14 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Authenticated", policy => policy.RequireAuthenticatedUser());
-    options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
 });
+
+// Decision Q4c: one policy per permission, resolved from the caller's roles through
+// RolePermissionBundles, plus AdminArea ("holds any permission"). Every admin YARP route uses
+// AdminArea rather than the Admin role (frontend-contracts F-08/F-45): the gateway asks whether the
+// caller is an operator at all, and the service asks the exact question. There is deliberately no
+// "Admin" policy here any more, so a route that names it fails YARP's config validation at startup.
+builder.Services.AddEShopPermissions();
 
 builder.Services.AddCors(options =>
 {
@@ -100,7 +109,8 @@ builder.Services.AddCors(options =>
         {
             policy.AllowAnyOrigin()
                 .AllowAnyMethod()
-                .AllowAnyHeader();
+                .AllowAnyHeader()
+                .WithEShopExposedHeaders();
             return;
         }
 
@@ -116,7 +126,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(origins)
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithEShopExposedHeaders();
     });
 });
 
@@ -125,7 +136,7 @@ builder.Services.AddRateLimiter(options =>
     var settings = builder.Configuration.GetSection(RateLimitingOptions.SectionName).Get<RateLimitingOptions>()
         ?? new RateLimitingOptions();
 
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.UseEShopRejectionResponse();
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: EShopForwardedHeaders.GetClientPartitionKey(context),
@@ -155,6 +166,16 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 builder.Services.AddHttpClient();
 
+// Admin audit trail (S15): the gateway serves GET /api/v1/admin/audit itself, merging every audited service's own
+// trail. Bounded per service, so one hung service costs the page seconds, not the request timeout.
+builder.Services.AddHttpClient(AuditLogFanOut.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddScoped<AuditLogFanOut>();
+
+// The System page (S19): aggregate health, read-only settings and read-only feature flags, served here. Same 5 s bound
+// per service as the audit fan-out, for the same reason.
+builder.Services.AddHttpClient(SystemFanOut.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddScoped<SystemFanOut>();
+
 builder.Services.AddEShopOpenTelemetry(
     builder.Configuration,
     serviceName: "EShop.ApiGateway",
@@ -169,27 +190,10 @@ builder.Services.AddSingleton<GatewayEmailQueue>();
 builder.Services.AddSingleton<IEmailNotificationService, EmailNotificationService>();
 builder.Services.AddSingleton<IEmailTemplateEngine, EmailTemplateEngine>();
 builder.Services.AddScoped<IEmailSender, MailKitEmailSender>();
-builder.Services.AddHttpClient<IAccountEmailResolver, IdentityAccountEmailResolver>((sp, client) =>
-{
-    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<IdentityServiceOptions>>().Value;
-
-    if (!string.IsNullOrWhiteSpace(options.BaseUrl))
-    {
-        client.BaseAddress = new Uri(options.BaseUrl);
-    }
-
-    if (!string.IsNullOrWhiteSpace(options.ApiKey) && !string.IsNullOrWhiteSpace(options.ApiKeyHeaderName))
-    {
-        client.DefaultRequestHeaders.Remove(options.ApiKeyHeaderName);
-        client.DefaultRequestHeaders.Add(options.ApiKeyHeaderName, options.ApiKey);
-    }
-
-    client.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds));
-});
 builder.Services.AddHostedService<GatewayEmailDispatcher>();
 
 builder.Services.AddHealthChecks()
-    .AddCheck<DownstreamHealthCheck>("downstream", tags: ["ready"])
+    .AddCheck<DownstreamHealthCheck>(DownstreamHealthCheck.Name, tags: ["ready"])
     .AddCheck<SmtpGatewayHealthCheck>("smtp", tags: ["ready"])
     .AddCheck<EmailQueueHealthCheck>("email-queue", tags: ["ready"])
     .AddCheck<GatewayLivenessHealthCheck>("gateway-liveness", tags: ["live"]);
@@ -197,10 +201,17 @@ builder.Services.AddHealthChecks()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-// Fallback-only: the gateway proxies rather than executing domain logic, so it has never
-// mapped ValidationException/DomainException/UnauthorizedAccessException itself. Registering
+// The gateway proxies rather than executing domain logic, so it has never mapped
+// ValidationException/DomainException/UnauthorizedAccessException itself. Registering
 // AddCommon() here would silently reclassify a proxied UnauthorizedAccessException from 500.
-builder.Services.AddEShopProblemDetails();
+//
+// AddMalformedJsonBody() is the one branch it takes (frontend-contracts F-20), paired with ThrowOnBadRequest, for its
+// own endpoints: a query value of the wrong type on /api/v1/admin/audit was a bare 400 with an empty body.
+// BadHttpRequestException is always the client's fault, so the branch cannot reclassify a server failure.
+// Enums as PascalCase names, in and out (frontend-contracts F-01).
+builder.Services.AddEShopJson();
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+builder.Services.AddEShopProblemDetails(options => options.AddMalformedJsonBody());
 
 var app = builder.Build();
 
@@ -226,6 +237,7 @@ app.UseMiddleware<IdentityProxyGuardMiddleware>();
 app.UseMiddleware<CatalogProxyGuardMiddleware>();
 app.UseMiddleware<OrderingProxyGuardMiddleware>();
 app.UseMiddleware<BasketProxyGuardMiddleware>();
+app.UseMiddleware<NotificationProxyGuardMiddleware>();
 
 app.UseMiddleware<SimulationDecisionMiddleware>();
 app.UseMiddleware<SimulationResponseMiddleware>();
@@ -238,6 +250,8 @@ if (EShopApiDocs.IsExposedIn(app.Environment))
 }
 
 app.MapReverseProxy();
+app.MapGatewayAuditLog();
+app.MapGatewaySystemEndpoints();
 
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
 // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).

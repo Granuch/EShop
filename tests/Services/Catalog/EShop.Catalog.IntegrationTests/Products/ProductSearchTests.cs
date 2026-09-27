@@ -179,7 +179,7 @@ public class ProductSearchTests : IntegrationTestBase
             $"{ProductsEndpoint}?PageNumber=1&PageSize=10&SearchTerm={new string('a', length)}");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("Validation.Failed");
+        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("ValidationError");
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -46,7 +47,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -68,12 +69,12 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            if (result.Error?.Code == "Validation.Failed")
+            if (result.Error is FieldValidationError)
             {
-                return ProblemForError(result.Error.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+                return ProblemForError(result.Error, StatusCodes.Status400BadRequest);
             }
 
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status401Unauthorized);
+            return ProblemForError(result.Error!, StatusCodes.Status401Unauthorized);
         }
 
         return Ok(result.Value);
@@ -94,12 +95,12 @@ public class AuthController : ApiControllerBase
         if (result.IsFailure)
         {
             // Validation errors return BadRequest
-            if (result.Error!.Code == "Validation.Failed")
+            if (result.Error is FieldValidationError)
             {
-                return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+                return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
             }
 
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status401Unauthorized);
+            return ProblemForError(result.Error!, StatusCodes.Status401Unauthorized);
         }
 
         return Ok(result.Value);
@@ -123,7 +124,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return NoContent();
@@ -141,7 +142,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -160,9 +161,9 @@ public class AuthController : ApiControllerBase
         var result = await _mediator.Send(command, cancellationToken);
 
         // For validation errors, return BadRequest
-        if (result.IsFailure && result.Error!.Code == "Validation.Failed")
+        if (result.IsFailure && result.Error is FieldValidationError)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         // For all other cases (including user not found), return success to prevent email enumeration
@@ -189,7 +190,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);

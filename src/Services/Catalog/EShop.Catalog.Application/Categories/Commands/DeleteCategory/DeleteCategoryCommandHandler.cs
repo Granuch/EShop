@@ -1,5 +1,4 @@
 using EShop.BuildingBlocks.Application;
-using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Domain;
 using EShop.Catalog.Domain.Interfaces;
 using MediatR;
@@ -18,18 +17,15 @@ public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryComman
     private readonly ICategoryRepository _categoryRepository;
     private readonly IProductRepository _productRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ICacheInvalidationContext _cacheInvalidationContext;
 
     public DeleteCategoryCommandHandler(
         ICategoryRepository categoryRepository,
         IProductRepository productRepository,
-        IUnitOfWork unitOfWork,
-        ICacheInvalidationContext cacheInvalidationContext)
+        IUnitOfWork unitOfWork)
     {
         _categoryRepository = categoryRepository;
         _productRepository = productRepository;
         _unitOfWork = unitOfWork;
-        _cacheInvalidationContext = cacheInvalidationContext;
     }
 
     public async Task<Result> Handle(DeleteCategoryCommand request, CancellationToken cancellationToken)
@@ -50,9 +46,6 @@ public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryComman
 
         category.Deactivate();
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // M8. The parent's cached detail still lists this category until its entry goes.
-        _cacheInvalidationContext.AddKeys(CategoryCacheKeys.RelativesOf(category));
 
         return Result.Success();
     }

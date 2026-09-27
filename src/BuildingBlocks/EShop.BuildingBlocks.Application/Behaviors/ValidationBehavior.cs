@@ -59,8 +59,9 @@ public class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TReques
 
             if (resultType.IsGenericType && resultType.GetGenericTypeDefinition() == typeof(Result<>))
             {
-                var errorMessage = string.Join("; ", failures.Select(f => $"{f.PropertyName}: {f.ErrorMessage}"));
-                var error = new Error("Validation.Failed", errorMessage);
+                // The same shape the thrown ValidationException maps to (frontend-contracts F-03): the endpoint's
+                // ProblemResults writes the field map as `errors`.
+                Error error = FieldValidationError.From(failures);
 
                 // Create Result<T>.Failure using reflection
                 var failureMethod = resultType.GetMethod("Failure", 

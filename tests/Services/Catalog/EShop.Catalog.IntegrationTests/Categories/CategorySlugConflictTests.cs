@@ -38,8 +38,13 @@ public class CategorySlugConflictTests : AuthenticatedIntegrationTestBase
     private static async Task ShouldBeASlugConflict(HttpResponseMessage response)
     {
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!.ErrorCode.Should().Be("Category.SlugConflict",
+        var problem = (await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>())!;
+        problem.ErrorCode.Should().Be("Category.SlugConflict",
             "AddCategorySlugConflict must claim the violation before AddEfDuplicateKey reports a generic DuplicateResource");
+
+        // F-39 (frontend-contracts R5): a slug change, a move and a restore can race here too, so the
+        // detail no longer says the other category was "created" or tells a restore to pick a new slug.
+        problem.Detail.Should().Be("Another category at this level took the same slug concurrently. Reload the categories and try again.");
     }
 
     /// <summary>The root index, <c>IX_Categories_Slug</c>.</summary>
@@ -63,6 +68,38 @@ public class CategorySlugConflictTests : AuthenticatedIntegrationTestBase
         await CreateAsync("First", slug, parent);
 
         using var response = await PostAsync("Second", slug, parent);
+
+        await ShouldBeASlugConflict(response);
+    }
+
+    /// <summary>
+    /// F-39 (frontend-contracts R5). A slug change is a second writer that can race; when it loses,
+    /// the index answers with the same code, and a detail that no longer assumes a create.
+    /// </summary>
+    [Test]
+    public async Task ASlugChangeReachingTheIndex_IsA409SlugConflict()
+    {
+        var taken = UniqueSlug("taken");
+        await CreateAsync("Holder", taken);
+        var id = await CreateAsync("Changer", UniqueSlug("changer"));
+
+        using var response = await Client.PutAsJsonAsync($"{CategoriesEndpoint}/{id}",
+            new UpdateCategoryRequest { Id = id, Name = "Changer", Slug = taken });
+
+        await ShouldBeASlugConflict(response);
+    }
+
+    /// <summary>F-39. The move's pre-check blinded, the same clash reaches the index as a race would.</summary>
+    [Test]
+    public async Task AMoveReachingTheIndex_IsA409SlugConflict()
+    {
+        var slug = UniqueSlug("moved");
+        var target = await CreateAsync("Target", UniqueSlug("target"));
+        await CreateAsync("Resident", slug, target);
+        var mover = await CreateAsync("Mover", slug);
+
+        using var response = await Client.PutAsJsonAsync($"{CategoriesEndpoint}/{mover}/parent",
+            new MoveCategoryRequest { NewParentCategoryId = target });
 
         await ShouldBeASlugConflict(response);
     }

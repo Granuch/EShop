@@ -204,7 +204,7 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
-    public async Task UpdateCategory_WithNonExistentId_ShouldReturnBadRequest()
+    public async Task UpdateCategory_WithNonExistentId_ShouldReturnNotFound()
     {
         // Arrange
         var nonExistentId = Guid.NewGuid();
@@ -218,8 +218,10 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
         // Act
         var response = await Client.PutAsJsonAsync($"{CategoriesEndpoint}/{nonExistentId}", request);
 
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Assert — F-40 (frontend-contracts R5): a 404. It was a 400 carrying Category.NotFound.
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
+        problem!.ErrorCode.Should().Be("Category.NotFound");
     }
 
     [Test]
@@ -261,7 +263,7 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
-    public async Task DeleteCategory_WithProducts_ShouldReturnNotFound()
+    public async Task DeleteCategory_WithProducts_ShouldReturnConflict()
     {
         // Arrange — category with products should fail
         using var scope = Factory.Services.CreateScope();
@@ -274,12 +276,15 @@ public class CategoryCrudTests : AuthenticatedIntegrationTestBase
         // Act
         var response = await Client.DeleteAsync($"{CategoriesEndpoint}/{categoryId}");
 
-        // Assert — returns 404 because error mapping uses StatusCodes.Status404NotFound for delete failures
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        // Assert — F-40 (frontend-contracts R5): 409. It was a 404, which a client reading "already gone" on DELETE
+        // reported as a successful delete; the category must still be there.
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
         problem.Should().NotBeNull();
         problem!.ErrorCode.Should().Be("Category.HasProducts");
+
+        (await Client.GetAsync($"{CategoriesEndpoint}/{categoryId}")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Test]

@@ -38,6 +38,35 @@ public class ProductImage : Entity<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Replaces the URL and alt text (Admin panel S3). Normalization and validation are the same
+    /// as at construction, so an edited image cannot end up in a state a new one could not.
+    /// </summary>
+    /// <remarks>
+    /// <b>Alt text is replaced, not merged</b>, unlike <c>Product.UpdateDetails</c>' description.
+    /// The three-case BUG-09 contract exists to protect endpoints that already shipped accepting a
+    /// partial body; <c>PUT /images/{imageId}</c> is new, so it can have ordinary full-replacement
+    /// PUT semantics, where omitting alt text means the image has none. Duplicate-URL detection is
+    /// the aggregate's job — an image cannot see its siblings — so it lives in
+    /// <c>Product.UpdateImage</c>.
+    /// </remarks>
+    internal void Update(string url, string? altText)
+    {
+        Url = NormalizeAndValidateUrl(url);
+        AltText = NormalizeAltText(altText);
+    }
+
+    /// <summary>
+    /// Used by <c>Product.ReorderImages</c>, which assigns positions from an ordered id list.
+    /// </summary>
+    internal void SetDisplayOrder(int displayOrder)
+    {
+        if (displayOrder < 0)
+            throw new DomainException("Display order cannot be negative.");
+
+        DisplayOrder = displayOrder;
+    }
+
     internal void SetAsMain()
     {
         IsMain = true;

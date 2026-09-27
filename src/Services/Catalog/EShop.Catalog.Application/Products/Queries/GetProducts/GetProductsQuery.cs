@@ -2,6 +2,7 @@ using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Caching;
 using EShop.BuildingBlocks.Application.Pagination;
+using EShop.Catalog.Domain.Entities;
 
 namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 
@@ -17,16 +18,14 @@ namespace EShop.Catalog.Application.Products.Queries.GetProducts;
 /// Non-nullable value types use nullable wrappers so that [AsParameters] binding
 /// treats them as optional query string parameters. Defaults are applied in the handler.
 /// </summary>
-public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey
+public record GetProductsQuery : ProductFilterQuery, IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey
 {
     public int? PageNumber { get; init; }
     public int? PageSize { get; init; }
-    public Guid? CategoryId { get; init; }
-    public string? SearchTerm { get; init; }
-    public decimal? MinPrice { get; init; }
-    public decimal? MaxPrice { get; init; }
-    public ProductSortBy? SortBy { get; init; }
-    public bool? IsDescending { get; init; }
+
+    // The eleven filter and sort properties live on ProductFilterQuery (admin panel S16), shared with the export so the
+    // two cannot drift. Their names and query-string spelling are unchanged; Status and SortBy became name strings in
+    // frontend-contracts F-01.
 
     /// <summary>
     /// H4. <b>Not supported here — any value is rejected with 400.</b> Keyset paging lives at
@@ -68,17 +67,23 @@ public record GetProductsQuery : IRequest<Result<PagedResult<ProductDto>>>, ICac
     public bool EffectiveIncludeUnpublished => IncludeUnpublished ?? false;
     public int EffectivePageNumber => PageNumber ?? 1;
     public int EffectivePageSize => PageSize ?? 10;
-    public ProductSortBy EffectiveSortBy => SortBy ?? ProductSortBy.Name;
-    public bool EffectiveIsDescending => IsDescending ?? false;
 
     // ICacheableQuery implementation
     // IncludeUnpublished is part of the key and must stay that way: an admin's list contains draft
     // products, and without it in the key that response would be cached and then served to
     // anonymous callers — leaking the unpublished catalog through the cache rather than the API.
+    //
+    // Admin panel S4 added five filters, and every one of them HAD to be appended here. A filter
+    // that narrows the result set but is absent from the key makes two different requests share one
+    // cache entry: ?StockBelow=5 would be served the cached unfiltered page, or — worse in the
+    // other direction — a later unfiltered request would be served the five-item low-stock page.
+    // Nothing fails, and it looks like a filter that "sometimes doesn't work". Append to this key
+    // whenever a property is added above.
     public string CacheKey =>
         $"products:list:cat={CategoryId}:s={SearchTerm}:min={MinPrice}:max={MaxPrice}" +
         $":sort={EffectiveSortBy}:desc={EffectiveIsDescending}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
-        $":unpub={EffectiveIncludeUnpublished}";
+        $":unpub={EffectiveIncludeUnpublished}" +
+        $":st={EffectiveStatus}:disc={HasDiscount}:sb={StockBelow}:cf={CreatedFrom:O}:ct={CreatedTo:O}";
 
     /// <summary>
     /// DEBT-16. The key above embeds ten filter/sort/page parameters, so the set of live keys is

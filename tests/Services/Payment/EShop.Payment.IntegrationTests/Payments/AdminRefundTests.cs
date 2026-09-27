@@ -26,7 +26,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var payload = await response.Content.ReadFromJsonAsync<PaymentResponse>();
-        Assert.That(payload!.Status, Is.EqualTo("REFUNDED"));
+        Assert.That(payload!.Status, Is.EqualTo("Refunded"));
     }
 
     [Test]
@@ -55,7 +55,7 @@ public class AdminRefundTests : AuthenticatedIntegrationTestBase
         Assert.That(await response.Content.ReadAsStringAsync(), Does.Contain("PARTIAL_REFUND_NOT_SUPPORTED"));
 
         var current = await Client.GetFromJsonAsync<PaymentResponse>($"{PaymentsEndpoint}/{created.Id}");
-        Assert.That(current!.Status, Is.EqualTo("SUCCESS"));
+        Assert.That(current!.Status, Is.EqualTo("Success"));
     }
 
     /// <summary>Moved from PaymentValidationTests, which signs in as a customer and now gets 403.</summary>

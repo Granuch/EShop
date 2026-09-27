@@ -219,11 +219,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Database
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
@@ -322,11 +326,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # JWT
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
@@ -337,11 +345,9 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
-      # Internal identity resolver for email recipients
-      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
-      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
-      IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+      # Operational notices (failures, rate limiting, critical writes) go to operators only, never to the user
+      # whose request caused them (frontend-contracts F-55). Empty means no notice is sent.
+      Gateway__OperationsEmailRecipients__0: ${GATEWAY_OPERATIONS_EMAIL:-ops@eshop.local}
 
       # Email notifications via Mailpit in local profiles
       Email__Host: ${GATEWAY_SMTP_HOST:-mailpit}
@@ -406,11 +412,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
@@ -491,11 +501,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Database
       ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -602,11 +616,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Database
       ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -711,11 +729,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -867,11 +889,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
@@ -882,7 +908,11 @@ services:
       RabbitMQ__RetryCount: "3"
       RabbitMQ__RetryIntervalSeconds: "5"
       RabbitMQ__RetryIncrementSeconds: "5"
-      RabbitMQ__UseDelayedExchangePlugin: "true"
+      # false: the stock rabbitmq image has no delayed-message exchange plugin. With it on,
+      # MassTransit declared an x-delayed-message exchange, the broker closed the channel (406), and a
+      # failing message was requeued forever instead of reaching _error (frontend-contracts F-56). The
+      # redelivery intervals below apply only when a broker with the plugin is configured.
+      RabbitMQ__UseDelayedExchangePlugin: "false"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__2: "15"
@@ -905,6 +935,17 @@ services:
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
       IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+
+      # Admin panel S12. Notification gained a web surface (the delivery journal), so it now validates tokens like
+      # every other service. NotificationConfigurationGuard refuses a missing, short or placeholder key and an empty
+      # issuer or audience, so an unset JWT_SECRET_KEY crash-loops notification-api rather than starting a host that
+      # rejects every token while reporting healthy.
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
       OpenTelemetry__Enabled: "true"
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317

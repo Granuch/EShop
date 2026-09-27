@@ -24,12 +24,8 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Result<
         var pageNumber = request.EffectivePageNumber;
         var pageSize = request.EffectivePageSize;
 
-        var filter = new ProductListFilter(
-            request.CategoryId,
-            request.SearchTerm,
-            request.MinPrice,
-            request.MaxPrice,
-            request.EffectiveIncludeUnpublished);
+        // One mapping, shared with the export (admin panel S16), so the two reads cannot filter differently.
+        var filter = request.ToFilter(request.EffectiveIncludeUnpublished);
 
         var (dtos, totalCount) = await _productQueryService.GetFilteredProductsAsync(
             filter,

@@ -327,6 +327,8 @@ public class ConsumerDeliveryRecordTests
 
         public Task<NotificationLog?> FindByEventIdAsync(Guid eventId, CancellationToken ct = default)
             => inner.FindByEventIdAsync(eventId, ct);
+
+        public Task<NotificationLog?> FindByIdAsync(Guid id, CancellationToken ct = default) => inner.FindByIdAsync(id, ct);
     }
 
     /// <summary>Runs <c>pause</c> once, after the first read and before anything is written.</summary>
@@ -350,6 +352,8 @@ public class ConsumerDeliveryRecordTests
         public Task<bool> TryAddAsync(NotificationLog log, CancellationToken ct = default) => inner.TryAddAsync(log, ct);
 
         public Task SaveAsync(NotificationLog log, CancellationToken ct = default) => inner.SaveAsync(log, ct);
+
+        public Task<NotificationLog?> FindByIdAsync(Guid id, CancellationToken ct = default) => inner.FindByIdAsync(id, ct);
     }
 
     private sealed class CountingEmailService : IEmailService

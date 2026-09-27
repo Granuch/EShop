@@ -185,7 +185,8 @@ public static class BasketEndpoints
             : UnavailableCodes.Contains(error.Code) ? StatusCodes.Status503ServiceUnavailable
             : StatusCodes.Status400BadRequest;
 
-    private static IResult Problem(Error error) => ProblemResults.For(error, StatusFor(error));
+    /// <summary>Also the admin endpoints' mapping (Admin panel S14), so there is still one table of statuses.</summary>
+    internal static IResult Problem(Error error) => ProblemResults.For(error, StatusFor(error));
 
     /// <summary>
     /// Basket audit S6 (D6): the usual envelope, 409, plus a <c>lines</c> member naming each basket line that failed

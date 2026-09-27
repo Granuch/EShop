@@ -42,7 +42,7 @@ public class BasketLimitTests
             new { productId = product, quantity = ShoppingBasket.MaxQuantityPerLine + 1 });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await ErrorCodeAsync(response)).Should().Be("Validation.Failed");
+        (await ErrorCodeAsync(response)).Should().Be("ValidationError");
     }
 
     [Test]

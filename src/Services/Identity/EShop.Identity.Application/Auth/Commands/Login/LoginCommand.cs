@@ -36,4 +36,12 @@ public record UserDto
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;
     public List<string> Roles { get; init; } = new();
+
+    /// <summary>
+    /// What <see cref="Roles"/> grant, in the vocabulary of <c>EShopPermissions</c>
+    /// (frontend-contracts F-07), so a client can show or hide admin screens without knowing which
+    /// role carries which permission. Derived from the roles through the same table every service
+    /// authorizes against; the token itself carries no <c>permission</c> claim.
+    /// </summary>
+    public List<string> Permissions { get; init; } = new();
 }

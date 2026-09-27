@@ -5,3 +5,4 @@
 - Changes must strictly adhere to the existing architecture of the project's code and code-writing rules.
 - User expects that when implementing changes, tests are added with maximum coverage of the new functionality.
 - For documentation updates, rewrite content to match current project reality, keep the current docs file/folder structure stable going forward, write in English, and avoid mentioning Copilot activities.
+- Endpoint/DTO change ⇒ update `docs/01-overview/frontend/` (the authoritative, code-verified API contract docs) in the same change.

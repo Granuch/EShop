@@ -1,17 +1,24 @@
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Pagination;
+using FluentValidation;
 using MediatR;
 
 namespace EShop.Identity.Application.Roles.Queries.GetRoles;
 
 /// <summary>
-/// Lists roles. Bounded by <see cref="PageSize"/> — the controller action this replaced returned
-/// an unmaterialised <c>IQueryable</c> over the whole table, so the query executed inside the
-/// serializer while the response was being written and had no row limit at all.
+/// Lists roles, one page at a time — see <see cref="RolePaging"/>. The controller action this
+/// replaced returned an unmaterialised <c>IQueryable</c> over the whole table, so the query executed
+/// inside the serializer while the response was being written and had no row limit at all.
 /// </summary>
-public record GetRolesQuery : IRequest<Result<IReadOnlyList<RoleResponse>>>
+public record GetRolesQuery : IRequest<Result<PagedResult<RoleResponse>>>, IRolePageQuery
 {
-    public int PageSize { get; init; } = 50;
-    public int Page { get; init; } = 1;
+    public int? PageNumber { get; init; }
+    public int? PageSize { get; init; }
+}
+
+public class GetRolesQueryValidator : AbstractValidator<GetRolesQuery>
+{
+    public GetRolesQueryValidator() => RolePaging.Apply(this);
 }
 
 public record RoleResponse

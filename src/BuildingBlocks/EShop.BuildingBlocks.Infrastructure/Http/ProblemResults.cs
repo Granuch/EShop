@@ -22,16 +22,14 @@ public static class ProblemResults
     /// per-service decision (Identity's Auth.InvalidCredentials is a 401, not a 400).
     /// </summary>
     public static IResult For(Error error, int statusCode)
-        => new LazyProblemResult(error.Code, error.Message, statusCode);
+        => new LazyProblemResult(error, statusCode);
 
     public static IResult For(string errorCode, string detail, int statusCode)
-        => new LazyProblemResult(errorCode, detail, statusCode);
+        => new LazyProblemResult(new Error(errorCode, detail), statusCode);
 
-    private sealed class LazyProblemResult(string errorCode, string detail, int statusCode) : IResult
+    private sealed class LazyProblemResult(Error error, int statusCode) : IResult
     {
         public Task ExecuteAsync(HttpContext httpContext)
-            => EShopProblem.WriteAsync(
-                httpContext,
-                EShopProblem.Create(httpContext, statusCode, detail, errorCode));
+            => EShopProblem.WriteAsync(httpContext, EShopProblem.ForError(httpContext, error, statusCode));
     }
 }

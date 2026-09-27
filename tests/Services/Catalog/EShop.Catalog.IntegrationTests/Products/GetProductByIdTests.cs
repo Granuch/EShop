@@ -70,7 +70,7 @@ public class GetProductByIdTests : IntegrationTestBase
     public async Task GetProductById_WithEmptyGuid_ShouldReturnBadRequest()
     {
         // Arrange — Guid.Empty satisfies the {id:guid} route constraint, so it reaches the
-        // handler and is rejected by ValidationBehavior as a "Validation.Failed" Result. The
+        // handler and is rejected by ValidationBehavior as a "ValidationError" Result. The
         // endpoint used to map every error to 404, reporting a malformed request as a missing
         // product; it now discriminates via ProblemForError.
 
@@ -81,6 +81,6 @@ public class GetProductByIdTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetailsResponse>();
-        problem!.ErrorCode.Should().Be("Validation.Failed");
+        problem!.ErrorCode.Should().Be("ValidationError");
     }
 }

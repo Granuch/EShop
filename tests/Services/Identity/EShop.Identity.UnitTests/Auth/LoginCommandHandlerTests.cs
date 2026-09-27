@@ -2,6 +2,8 @@ using EShop.Identity.Application.Auth.Commands.Login;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
+using EShop.Identity.Infrastructure.Services;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -59,6 +61,7 @@ public class LoginCommandHandlerTests
             _tokenServiceMock.Object,
             _trackerMock.Object,
             _userRepositoryMock.Object,
+            new RolePermissionResolver(),
             new Mock<ILogger<LoginCommandHandler>>().Object);
     }
 
@@ -314,7 +317,23 @@ public class LoginCommandHandlerTests
         Assert.That(result.Value.AccessToken, Is.EqualTo("access-token"));
         Assert.That(result.Value.RefreshToken, Is.EqualTo("refresh-token"));
         Assert.That(result.Value.User!.Roles, Is.EqualTo(new[] { "Customer" }));
+        Assert.That(result.Value.User.Permissions, Is.Empty, "a role with no bundle grants nothing");
         _trackerMock.Verify(x => x.RecordSuccessfulLoginAsync(Email, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// Frontend-contracts F-07: the login response tells a client what the caller may do, from the same
+    /// table every service authorizes against.
+    /// </summary>
+    [Test]
+    public async Task Handle_WithValidCredentials_ReportsThePermissionsTheRolesGrant()
+    {
+        var user = ArrangeSignInReadyUser();
+        _userManagerMock.Setup(x => x.GetRolesAsync(user)).ReturnsAsync(new List<string> { "Customer", "Admin" });
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.Value.User!.Permissions, Is.EqualTo(EShopPermissions.All));
     }
 
     /// <summary>

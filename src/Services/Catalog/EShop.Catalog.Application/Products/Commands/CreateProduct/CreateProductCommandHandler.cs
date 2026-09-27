@@ -38,7 +38,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         // and only the partial unique index IX_Products_Sku stops the second. That loss surfaces as
         // a 409 Product.SkuConflict via CatalogProblemDetailsExtensions, not as a 400 like this
         // branch — the distinction is real, since a race is retryable and a plain duplicate is not.
-        if (await _productRepository.SkuExistsAsync(request.Sku, cancellationToken))
+        if (await _productRepository.SkuExistsAsync(request.Sku, cancellationToken: cancellationToken))
         {
             activity?.SetStatus(ActivityStatusCode.Error, "sku_conflict");
             return Result<Guid>.Failure(new Error("Product.SkuConflict", $"Product with SKU '{request.Sku}' already exists."));

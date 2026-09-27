@@ -71,6 +71,21 @@ Routes support:
 - Per-route authorization policy
 - Service destination selection
 
+Six clusters are declared: `identity-cluster`, `catalog-cluster`, `basket-cluster`,
+`ordering-cluster`, `payment-cluster` and `notification-cluster`.
+
+Two rules are easy to get wrong here:
+
+- There is **no `FallbackPolicy`**, so a route with no `AuthorizationPolicy` is anonymous and
+  nothing fails at startup. `Routes/GatewayRouteAuthorizationTests` pins every `/api/` route and
+  its policy so a new one cannot ship without a decision.
+- Every route must also sit behind one of the `*ProxyGuardMiddleware` path-prefix arrays
+  (identity, catalog, ordering, basket, notification). A route outside them works perfectly while
+  losing its request-body cap and the 502→503 rewrite; `Routes/ProxyGuardCoverageTests` is what
+  catches that. `/api/v1/payments` is recorded there as a known pre-existing hole.
+- Comments inside `Routes` only work under a route's `Metadata`: every other key is parsed as a
+  route id and fails startup.
+
 ---
 
 ## 5. Simulation Layer
@@ -90,7 +105,8 @@ This is useful for resilience testing and operational drills without changing do
 
 ## 6. Email Trigger Pipeline
 
-Gateway can enqueue notification events based on response outcomes (for example failure categories or critical success paths).
+Gateway can enqueue notification events based on response outcomes: downstream failures (5xx), rate limiting (429),
+simulated failures, and successful **writes** under `Gateway:CriticalSuccessPathPrefixes` (reads never qualify).
 
 Runtime components:
 
@@ -98,9 +114,10 @@ Runtime components:
 - Background dispatcher
 - Template engine
 - SMTP sender
-- Optional Identity-based recipient resolution
 
-This allows asynchronous operational notifications without blocking request flow.
+Notices go only to the operators in `Gateway:OperationsEmailRecipients`, never to the user whose request caused them.
+With the list empty (the tracked default) nothing is queued. This allows asynchronous operational notifications
+without blocking request flow.
 
 ---
 
@@ -112,12 +129,6 @@ Minimum required security configuration:
 - `JwtSettings:Issuer`
 - `JwtSettings:Audience`
 
-For identity resolver integration:
-
-- `IdentityService:BaseUrl`
-- `IdentityService:ApiKey`
-- `IdentityService:ApiKeyHeaderName`
-
 Use local override files for local-only secrets/config and keep non-local values secure.
 
 ---
@@ -126,10 +137,18 @@ Use local override files for local-only secrets/config and keep non-local values
 
 Current runtime supports:
 
-- Global fixed-window limits
-- Dedicated simulation limiter
+- Global fixed-window limits, partitioned per client address
+- A named `simulation` limiter policy, declared in configuration but **attached to no route** —
+  there are zero `RequireRateLimiting`/`EnableRateLimiting` calls in the gateway today, so it
+  throttles nothing
+
+Per-endpoint limits (Identity's `auth`/`login`, Catalog's `search`/`bulk`) are enforced in the
+services themselves, not at the gateway — see
+[frontend/conventions.md](../01-overview/frontend/conventions.md#7-rate-limits).
 
 Expected behavior on rejection: `429 Too Many Requests` with gateway-side observability signals.
+The gateway's own 429 is the same as every service's: problem+json with `errorCode`
+`Request.RateLimited` and a `Retry-After` header in whole seconds.
 
 ---
 
@@ -167,11 +186,13 @@ Telemetry stack:
 
 ## Related Documents
 
+- [Frontend contracts: conventions](../01-overview/frontend/conventions.md) — the authoritative
+  reference for routing, rate limits, errors and auth as observed live
 - [API Gateway Overview](api-gateway.md)
 - [Infrastructure - Observability](../06-infrastructure/observability.md)
 - [Infrastructure - Resilience](../06-infrastructure/resilience.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.2  
+**Last Updated**: 2026-09-26

@@ -5,7 +5,7 @@ namespace EShop.Identity.Application.Roles.Commands.CreateRole;
 /// <summary>
 /// The role endpoints had no validation at all before this — a create with an empty name reached
 /// RoleManager and came back as a 400 carrying an ASP.NET Identity string. Rules here produce the
-/// canonical Validation.Failed envelope instead.
+/// canonical ValidationError envelope instead.
 /// </summary>
 public class CreateRoleCommandValidator : AbstractValidator<CreateRoleCommand>
 {

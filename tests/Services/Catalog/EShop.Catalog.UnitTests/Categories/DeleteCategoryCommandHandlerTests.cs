@@ -14,8 +14,6 @@ public class DeleteCategoryCommandHandlerTests
     private Mock<ICategoryRepository> _categoryRepositoryMock = null!;
     private Mock<IProductRepository> _productRepositoryMock = null!;
     private Mock<IUnitOfWork> _unitOfWorkMock = null!;
-    private Mock<ICacheInvalidationContext> _cacheInvalidationContextMock = null!;
-    private List<string> _evicted = null!;
     private DeleteCategoryCommandHandler _handler = null!;
 
     [SetUp]
@@ -28,17 +26,10 @@ public class DeleteCategoryCommandHandlerTests
             .Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
 
-        _evicted = [];
-        _cacheInvalidationContextMock = new Mock<ICacheInvalidationContext>();
-        _cacheInvalidationContextMock
-            .Setup(x => x.AddKeys(It.IsAny<IEnumerable<string>>()))
-            .Callback<IEnumerable<string>>(keys => _evicted.AddRange(keys));
-
         _handler = new DeleteCategoryCommandHandler(
             _categoryRepositoryMock.Object,
             _productRepositoryMock.Object,
-            _unitOfWorkMock.Object,
-            _cacheInvalidationContextMock.Object);
+            _unitOfWorkMock.Object);
     }
 
     private void Returns(Category category)
@@ -119,16 +110,18 @@ public class DeleteCategoryCommandHandlerTests
         Assert.That(category.IsActive, Is.True);
     }
 
-    /// <summary>M8 — the parent's cached detail still lists a deleted child until its entry goes.</summary>
+    /// <summary>
+    /// M8, reworked in F-37 (frontend-contracts R5). Every ancestor's cached detail lists a deleted
+    /// descendant until its entry goes, and no exact-key list can name them all, so the command bumps
+    /// the family both category reads are versioned in — and names no exact key, which would match
+    /// no stored entry.
+    /// </summary>
     [Test]
-    public async Task Handle_EvictsTheParentsCachedDetail()
+    public void TheCommand_BumpsTheCategoryFamily_AndNamesNoExactKey()
     {
-        var parent = Category.Create("Parent", null, null);
-        var category = Category.Create("Child", null, parent);
-        Returns(category);
+        var command = new DeleteCategoryCommand { Id = Guid.NewGuid() };
 
-        await _handler.Handle(new DeleteCategoryCommand { Id = category.Id }, CancellationToken.None);
-
-        Assert.That(_evicted, Is.EquivalentTo(new[] { CategoryCacheKeys.Detail(parent.Id) }));
+        Assert.That(command.CacheFamiliesToInvalidate, Is.EqualTo(new[] { CategoryCacheFamilies.CategoryList }));
+        Assert.That(command.CacheKeysToInvalidate, Is.Empty);
     }
 }

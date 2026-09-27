@@ -4,6 +4,7 @@ using EShop.Basket.API.Infrastructure.HealthChecks;
 using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Extensions;
 using EShop.Basket.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
@@ -107,6 +108,11 @@ builder.Services.AddAuthorization(options =>
     // The owner for everything, an admin for reads only (Basket audit S10, D10).
     options.AddPolicy(OwnerOrAdminReadRequirement.PolicyName, policy => policy.Requirements.Add(new OwnerOrAdminReadRequirement()));
 });
+
+// Decision Q4c: one policy per permission, resolved from the caller's roles through
+// RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+// the Admin role bundles every permission, so no existing caller loses access.
+builder.Services.AddEShopPermissions();
 builder.Services.AddSingleton<IAuthorizationHandler, OwnerOrAdminReadHandler>();
 
 // Validated here rather than inside AddPolicy: CORS builds its policies lazily on first use,
@@ -120,13 +126,14 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithEShopExposedHeaders();
     });
 });
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.UseEShopRejectionResponse();
 
     // Partition on GetClientPartitionKey, not on RemoteIpAddress directly: the helper normalises
     // IPv4-mapped IPv6, so ::ffff:1.2.3.4 and 1.2.3.4 share one bucket instead of a dual-stack
@@ -156,7 +163,15 @@ builder.Services.AddOpenApi();
 
 // Basket has never had a NotFoundException branch - its 404s come from Result errors, mapped by
 // BasketEndpoints.StatusFor (Basket audit S8), not from exceptions. AddNotFound() is deliberately not registered.
-builder.Services.AddEShopProblemDetails(options => options.AddCommon());
+//
+// ThrowOnBadRequest + AddMalformedJsonBody (frontend-contracts F-20): without them a malformed body or an unbindable
+// query value is a bare 400 with an empty body outside Development, with no errorCode. Ordering's pairing.
+// Enums as PascalCase names, in and out (frontend-contracts F-01).
+builder.Services.AddEShopJson();
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+builder.Services.AddEShopProblemDetails(options => options
+    .AddCommon()
+    .AddMalformedJsonBody());
 
 var app = builder.Build();
 
@@ -201,6 +216,7 @@ app.UseAuthorization();
 
 app.MapBasketEndpoints();
 app.MapBasketOutboxAdminEndpoints();
+app.MapBasketAdminEndpoints();
 
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless
 // Metrics:AllowedNetworks says otherwise; Testing is exempt (TestServer has no socket).

@@ -41,7 +41,7 @@ public class GetPaymentsByUserQueryHandlerTests
         Assert.Multiple(() =>
         {
             Assert.That(page.Items.Single().UserId, Is.EqualTo("user-1"));
-            Assert.That(page.Items.Single().Status, Is.EqualTo("SUCCESS"));
+            Assert.That(page.Items.Single().Status, Is.EqualTo("Success"));
             Assert.That(page.TotalCount, Is.EqualTo(7));
             Assert.That(page.PageNumber, Is.EqualTo(2));
             Assert.That(page.PageSize, Is.EqualTo(5));

@@ -30,4 +30,9 @@
     <ProjectReference Include="..\..\..\..\src\Services\Basket\EShop.Basket.API\EShop.Basket.API.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- frontend-contracts R6: checks this service's admin endpoints against the gateway's route table. -->
+    <Compile Include="..\..\..\Shared\GatewayAdminGate.cs" Link="Shared\GatewayAdminGate.cs" />
+  </ItemGroup>
+
 </Project>

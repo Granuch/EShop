@@ -1,0 +1,35 @@
+using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
+using EShop.BuildingBlocks.Application.Behaviors;
+using EShop.BuildingBlocks.Application.Caching;
+using EShop.Catalog.Application.Products;
+using MediatR;
+
+namespace EShop.Catalog.Application.Categories.Commands.RestoreCategory;
+
+/// <summary>
+/// Command to bring a soft-deleted category back (Admin panel S5, endpoint #52). Category delete
+/// became a soft delete in Catalog audit Stage 8 (M12), but nothing could undo it.
+/// </summary>
+public record RestoreCategoryCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
+{
+    string IAuditedCommand.AuditEntityType => "Category";
+
+    string? IAuditedCommand.AuditEntityId => CategoryId.ToString();
+
+    public Guid CategoryId { get; init; }
+
+    /// <summary>
+    /// Empty on purpose: the restored category reappears in every ancestor's detail (F-37, the
+    /// detail carries the whole subtree), and both category reads are versioned in
+    /// <see cref="CategoryCacheFamilies.CategoryList"/>, which the bump below covers.
+    /// </summary>
+    public IEnumerable<string> CacheKeysToInvalidate => [];
+
+    /// <summary>
+    /// Both families. The tree read changes, and so does every product list: a restored category's
+    /// products become reachable through <c>GET /categories/{id}/products</c> again.
+    /// </summary>
+    public IEnumerable<string> CacheFamiliesToInvalidate =>
+        [CategoryCacheFamilies.CategoryList, ProductCacheFamilies.ProductList];
+}

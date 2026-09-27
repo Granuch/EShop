@@ -63,7 +63,7 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         _categoryRepositoryMock
@@ -111,7 +111,7 @@ public class CreateProductCommandHandlerTests
         Product? addedProduct = null;
 
         _productRepositoryMock
-            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         _categoryRepositoryMock
@@ -158,7 +158,7 @@ public class CreateProductCommandHandlerTests
         Product? addedProduct = null;
 
         _productRepositoryMock
-            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         _categoryRepositoryMock
@@ -202,7 +202,7 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         _categoryRepositoryMock
@@ -230,7 +230,7 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         // Act
@@ -257,7 +257,7 @@ public class CreateProductCommandHandlerTests
         };
 
         _productRepositoryMock
-            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<CancellationToken>()))
+            .Setup(x => x.SkuExistsAsync(command.Sku, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         _categoryRepositoryMock

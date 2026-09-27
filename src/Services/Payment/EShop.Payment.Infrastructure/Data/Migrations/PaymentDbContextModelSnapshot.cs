@@ -87,6 +87,71 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
                     b.ToTable("outbox_messages", (string)null);
                 });
 
+            modelBuilder.Entity("EShop.BuildingBlocks.Infrastructure.Auditing.AuditLogEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ActorName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ActorUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId")
+                        .HasDatabaseName("IX_AuditLog_ActorUserId");
+
+                    b.HasIndex("EntityType", "EntityId")
+                        .HasDatabaseName("IX_AuditLog_EntityType_EntityId");
+
+                    b.ToTable("audit_log", (string)null);
+                });
+
             modelBuilder.Entity("EShop.BuildingBlocks.Infrastructure.Consumers.ProcessedMessage", b =>
                 {
                     b.Property<Guid>("MessageId")
@@ -106,6 +171,58 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
                         .HasDatabaseName("IX_ProcessedMessages_ProcessedOnUtc");
 
                     b.ToTable("processed_messages", (string)null);
+                });
+
+            modelBuilder.Entity("EShop.Payment.Domain.Entities.FailedStripeWebhook", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Error")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReplayedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SignatureHeader")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("StripeEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FirstSeenAt")
+                        .HasFilter("\"ReplayedAt\" IS NULL");
+
+                    b.HasIndex("StripeEventId")
+                        .IsUnique()
+                        .HasFilter("\"StripeEventId\" IS NOT NULL");
+
+                    b.ToTable("FailedStripeWebhooks", (string)null);
                 });
 
             modelBuilder.Entity("EShop.Payment.Domain.Entities.PaymentCustomer", b =>
@@ -141,6 +258,61 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
                     b.ToTable("PaymentCustomers", (string)null);
                 });
 
+            modelBuilder.Entity("EShop.Payment.Domain.Entities.PaymentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FromStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PaymentTransactionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StripeEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ToStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentTransactionId", "OccurredAt");
+
+                    b.ToTable("PaymentEvents", (string)null);
+                });
+
             modelBuilder.Entity("EShop.Payment.Domain.Entities.PaymentTransaction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -149,6 +321,9 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
 
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("AmountAsOf")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -214,9 +389,13 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasFilter("\"PaymentIntentId\" <> ''");
 
-                    b.HasIndex("Status", "CreatedAt");
+                    b.HasIndex("CreatedAt", "Id")
+                        .IsDescending();
 
                     b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("Status", "CreatedAt", "Id")
+                        .IsDescending(false, true, true);
 
                     b.ToTable("PaymentTransactions", (string)null);
                 });
@@ -248,6 +427,20 @@ namespace EShop.Payment.Infrastructure.Data.Migrations
                     b.HasIndex("ProcessedAt");
 
                     b.ToTable("ProcessedStripeWebhookEvents", (string)null);
+                });
+
+            modelBuilder.Entity("EShop.Payment.Domain.Entities.PaymentEvent", b =>
+                {
+                    b.HasOne("EShop.Payment.Domain.Entities.PaymentTransaction", null)
+                        .WithMany("Events")
+                        .HasForeignKey("PaymentTransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EShop.Payment.Domain.Entities.PaymentTransaction", b =>
+                {
+                    b.Navigation("Events");
                 });
 #pragma warning restore 612, 618
         }

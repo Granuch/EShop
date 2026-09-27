@@ -1,4 +1,3 @@
-using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
 using EShop.Catalog.Domain.Entities;
@@ -52,9 +51,9 @@ public class MappingConfig : IRegister
             .Map(dest => dest.Attributes,
                 src => src.Attributes.Select(a => a.Adapt<ProductAttributeDto>()).ToList());
 
-        config.NewConfig<Category, CategoryDto>()
-            .Map(dest => dest.ParentCategoryName, src => src.ParentCategory != null ? src.ParentCategory.Name : null)
-            .Map(dest => dest.ChildCategories, src => src.ChildCategories.Select(cc => cc.Adapt<CategoryDto>()).ToList())
-            .PreserveReference(true);
+        // No Category -> CategoryDto config (F-37, frontend-contracts R5). Both category reads build
+        // their DTOs in CategoryTree from one flat read, at any depth; the config that stood here
+        // mapped whatever navigations an Include chain had loaded, which was the depth limit. Keeping
+        // it would leave a second, depth-limited way to make the same DTO.
     }
 }

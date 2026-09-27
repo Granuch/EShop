@@ -7,12 +7,16 @@ using EShop.Payment.Infrastructure.Consumers;
 using EShop.Payment.Domain.Interfaces;
 using EShop.Payment.Infrastructure.Configuration;
 using EShop.Payment.Infrastructure.Data;
+using EShop.Payment.Infrastructure.QueryServices;
 using EShop.Payment.Infrastructure.Repositories;
+using EShop.BuildingBlocks.Infrastructure.Services;
 using EShop.Payment.Infrastructure.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace EShop.Payment.Infrastructure.Extensions;
 
@@ -66,15 +70,30 @@ public static class ServiceCollectionExtensions
                 options.UseNpgsql(configuration.GetConnectionString("PaymentDb")));
         }
 
+        // Admin panel S11. Payment was the one service of six that never registered this, so EF built PaymentDbContext
+        // through its two-argument constructor, BaseDbContext's _currentUserContext was null, and SetAuditFields
+        // silently skipped CreatedBy/UpdatedBy — it gates only those two on a non-null user context and drops them
+        // rather than failing. The other five services register the same two lines in their own Infrastructure
+        // extensions; this brings Payment in line, so an entity here can record who wrote it.
+        services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PaymentDbContext>());
         services.AddScoped<DbContext>(provider => provider.GetRequiredService<PaymentDbContext>());
 
         services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<IPaymentQueryService, PaymentQueryService>();
         services.AddScoped<IPaymentProcessor, MockPaymentProcessor>();
         services.AddScoped<IStripeCustomerService, StripeCustomerService>();
         services.AddScoped<IStripePaymentService, StripePaymentService>();
         services.AddScoped<IStripeWebhookEventParser, StripeWebhookEventParser>();
         services.AddScoped<IStripeWebhookProcessor, StripeWebhookProcessor>();
+
+        // Admin panel S11 (endpoint #67). Singletons on purpose: both work through IServiceScopeFactory, because each
+        // needs a DbContext that the failing one is not. Holding a scoped DbContext here would be the very defect they
+        // exist to avoid — and, with Ordering's ValidateScopes turned on, would not even resolve.
+        services.AddSingleton<IFailedStripeWebhookStore, FailedStripeWebhookStore>();
+        services.AddSingleton<IFailedStripeWebhookReplayer, FailedStripeWebhookReplayer>();
 
         // Ordering audit Stage 10. The DbContext above was registered "for the outbox processor", but
         // the processor itself never was, so every event Payment enqueued (PaymentSuccess, Failed,
@@ -135,6 +154,7 @@ public static class ServiceCollectionExtensions
             {
                 bus.AddConsumer<OrderCreatedConsumer>();
                 bus.AddConsumer<OrderCancelledConsumer>();
+                bus.AddConsumer<OrderTotalChangedConsumer>();
             });
 
         return services;

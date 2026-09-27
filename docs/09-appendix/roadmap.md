@@ -13,9 +13,20 @@ This repository is backend-focused. Roadmap items prioritize backend architectur
 ## Near-Term (1-2 cycles)
 
 ### 1) Contract and workflow hardening
-- tighten API contract consistency across services
+- **Done**: a frontend-ready, code-verified contract set for all 141 application endpoints now
+  exists at [`docs/01-overview/frontend/`](../01-overview/frontend/README.md), authoritative and
+  expected to stay in sync with the code.
+- tighten API contract consistency across services — the contract work surfaced concrete
+  inconsistencies to close (enum wire formats mixing integers and strings across services, three
+  different validation-error envelope shapes, Payment's `SCREAMING_SNAKE` error codes against
+  everyone else's `Service.Reason`); see the frontend contracts' findings for the current list.
 - strengthen cross-service workflow regression coverage
 - reduce integration friction for clients
+
+### 1a) Client integration
+- wire `ui/` (currently an unintegrated Next.js scaffold — no `fetch` calls, no API client) against
+  the now-complete frontend contracts; see
+  [Phase 8: Client Integration Track](../04-implementation-plan/phase-8-frontend.md)
 
 ### 2) Security posture improvements
 - expand policy coverage and authorization checks
@@ -79,8 +90,9 @@ Roadmap items should be planned as incremental, test-backed slices and validated
 - [Success Criteria](success-criteria.md)
 - [Implementation Plan](../04-implementation-plan/)
 - [Development Workflow](../07-development-workflow/)
+- [Frontend API Contracts](../01-overview/frontend/README.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

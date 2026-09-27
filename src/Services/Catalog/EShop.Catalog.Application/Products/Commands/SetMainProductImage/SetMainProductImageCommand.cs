@@ -1,4 +1,5 @@
 ﻿using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Auditing;
 using EShop.BuildingBlocks.Application.Behaviors;
 using EShop.BuildingBlocks.Application.Caching;
 using MediatR;
@@ -9,8 +10,12 @@ namespace EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 /// Command to make one of a product's images the main image.
 /// The previous main image is unset, so exactly one main image remains.
 /// </summary>
-public record SetMainProductImageCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand
+public record SetMainProductImageCommand : IRequest<Result>, ICacheInvalidatingCommand, ITransactionalCommand, IAuditedCommand
 {
+    string IAuditedCommand.AuditEntityType => "Product";
+
+    string? IAuditedCommand.AuditEntityId => ProductId.ToString();
+
     public Guid ProductId { get; init; }
     public Guid ImageId { get; init; }
 

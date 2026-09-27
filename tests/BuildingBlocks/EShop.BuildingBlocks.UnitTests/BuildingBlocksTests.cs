@@ -150,7 +150,7 @@ public class ResultTests
 public class ValidationExceptionTests
 {
     [Test]
-    public void Constructor_WithFluentValidationFailures_ShouldGroupByProperty()
+    public void Constructor_WithFluentValidationFailures_ShouldGroupByCamelCaseWireName()
     {
         // Arrange
         var failures = new List<ValidationFailure>
@@ -163,10 +163,10 @@ public class ValidationExceptionTests
         // Act
         var exception = new ValidationException(failures);
 
-        // Assert
+        // Assert: the same keys a returned FieldValidationError carries (frontend-contracts F-03).
         Assert.That(exception.Errors, Has.Count.EqualTo(2));
-        Assert.That(exception.Errors["Email"], Has.Length.EqualTo(2));
-        Assert.That(exception.Errors["Password"], Has.Length.EqualTo(1));
+        Assert.That(exception.Errors["email"], Has.Length.EqualTo(2));
+        Assert.That(exception.Errors["password"], Has.Length.EqualTo(1));
     }
 
     [Test]

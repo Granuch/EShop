@@ -186,7 +186,11 @@ public class CreateOrderTests : AuthenticatedIntegrationTestBase
         var body = await response.Content.ReadAsStringAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("Validation.Failed").And.Contain(field);
+        using var problem = System.Text.Json.JsonDocument.Parse(body);
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be("ValidationError");
+        problem.RootElement.GetProperty("errors")
+            .TryGetProperty(System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(field), out _)
+            .Should().BeTrue("the errors map is keyed by the field's camelCase wire name");
         (await StoredOrderCountAsync()).Should().Be(before);
     }
 

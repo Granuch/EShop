@@ -45,4 +45,19 @@ public class OrderItem : Entity<Guid>
         Quantity = quantity;
         CreatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// Changes how many of this product the order is for. <c>internal</c> on purpose: the quantity is
+    /// an input to <see cref="Order.TotalPrice"/>, so only <see cref="Order.UpdateItemQuantity"/> may
+    /// set it — a public setter would let a caller change a line without the order recomputing its
+    /// total, and nothing would fail until the customer was charged the old one.
+    /// </summary>
+    /// <exception cref="DomainException">The quantity is not positive.</exception>
+    internal void ChangeQuantity(int quantity)
+    {
+        if (quantity <= 0)
+            throw new DomainException("Quantity must be positive.");
+
+        Quantity = quantity;
+    }
 }

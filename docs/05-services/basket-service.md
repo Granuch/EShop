@@ -75,7 +75,7 @@ Errors use the shared problem-details envelope with an `errorCode`:
 
 | Status | Codes |
 |--------|-------|
-| 400 | `Validation.Failed`, `Basket.ValidationFailed`, `Basket.Empty` |
+| 400 | `ValidationError`, `Basket.ValidationFailed`, `Basket.Empty` |
 | 404 | `Basket.NotFound`, `Basket.ItemNotFound`, `Basket.ProductNotFound` |
 | 409 | `Basket.ConcurrentUpdate`, `Basket.CheckoutConflict`, `Basket.CheckoutInProgress`, `Basket.InsufficientStock`, `Basket.CheckoutRevalidationFailed` |
 | 503 | `Basket.OperationFailed`, `Basket.PersistenceFailed`, `Basket.ProductVerificationFailed` (Redis or Catalog unavailable) |
@@ -106,9 +106,50 @@ A background processor publishes queued events. A failed publish is retried afte
 30 min and then hourly: 10 attempts, about 4.5 hours. After that the event is dead-lettered and kept until an admin
 replays it:
 - `GET /api/v1/basket/admin/outbox/dead-letters` returns the count.
+- `GET /api/v1/basket/admin/outbox/dead-letters/details` lists them (see [Admin reads](#admin-reads)).
 - `POST /api/v1/basket/admin/outbox/dead-letters/replay` requeues them (Admin only).
 
 Outbox health reports `Degraded` while any dead letter exists.
+
+A message dead-lettered since the admin panel's S14 records why and when: `failureReason` (`PublishFailed`,
+`PublishTimedOut` or `Unpublishable`), the last exception's type name (never its message, which can name hosts and
+users) and `deadLetteredAtUtc`. These fields are written only on the way into the dead-letter list, so an envelope in
+pending, processing or retry is unchanged. Messages dead-lettered earlier have none of them.
+
+---
+
+## Admin reads
+
+Read-only, by decision: an admin can see carts and change none. All three need a JWT; the gateway also requires the
+`Admin` role for everything under `/api/v1/basket/admin/`.
+
+| Method and route | Permission | Returns |
+|------------------|------------|---------|
+| `GET /api/v1/basket/admin/carts?cursor=&pageSize=` | `baskets.read` | Every stored basket, summarised |
+| `GET /api/v1/basket/admin/abandoned?olderThan=24h&cursor=&pageSize=` | `baskets.read` | Baskets unchanged for longer than `olderThan` |
+| `GET /api/v1/basket/admin/outbox/dead-letters/details?offset=&limit=` | `system.manage` | Dead letters, newest first |
+
+**Carts and abandoned carts** walk Redis with `SCAN … MATCH basket:user:*`, never `KEYS`, which would block the server
+for the whole keyspace.
+- A page holds at most `pageSize` baskets (default 20, at most 100).
+- One request makes at most 20 `SCAN` calls, about 5,000 keys. A page can therefore be short, or empty, while
+  `nextCursor` is still set. Keep passing `nextCursor` back until it is `null`.
+- The order is Redis's, not a sort.
+- A basket stored for the whole walk is listed at least once. It can occasionally appear twice (the `SCAN` contract),
+  so de-duplicate by `userId` if you collect a whole walk.
+- Each summary gives `userId`, `isReadable`, `lines`, `totalItems`, `totalPrice`, `currency`, `createdAt` and
+  `lastModifiedAt`. The lines themselves come from `GET /api/v1/basket/{userId}`.
+- An unreadable basket document is listed with `isReadable: false` and no figures.
+
+`olderThan` is a whole number and a unit: `90m`, `24h` or `3d`, up to 30 days. A basket is abandoned when its
+`lastModifiedAt` is strictly before now minus `olderThan`. Every change moves `lastModifiedAt`, including a price sync.
+An unreadable basket is never listed as abandoned. The response echoes the cutoff as `modifiedBefore`.
+
+**Dead-letter details** give, for each entry, `messageId` (the customer's `checkoutId`), `eventType`, `occurredOnUtc`,
+`deadLetteredAtUtc`, `attempts`, `error`, `exceptionType` and `correlationId`, plus `total` for the whole list.
+- The order itself, with its shipping address, is never returned.
+- An entry the processor could not parse is listed with `isReadable: false`.
+- Paging is by offset (default 20, at most 100). A replay or a new dead letter between two pages shifts the list.
 
 ---
 
@@ -154,6 +195,7 @@ The shipping address is redacted from request logs.
 
 ## Related Documents
 
+- [Frontend contracts: Basket](../01-overview/frontend/basket.md) — the authoritative endpoint reference
 - [Catalog Service](catalog-service.md)
 - [Ordering Service](ordering-service.md)
 - [Infrastructure - Caching](../06-infrastructure/caching.md)
@@ -161,5 +203,5 @@ The shipping address is redacted from request logs.
 
 ---
 
-**Version**: 3.0  
-**Last Updated**: 2026-09-14
+**Version**: 3.2  
+**Last Updated**: 2026-09-26

@@ -8,7 +8,9 @@ using EShop.ApiGateway.Notifications;
 
 namespace EShop.ApiGateway.IntegrationTests.Fixtures;
 
-public sealed class GatewayApiFactory : WebApplicationFactory<Program>
+// Not sealed: RouteAuthorizationApiFactory derives from it to raise the global rate limit, which
+// has to happen through UseSetting rather than the ConfigureAppConfiguration block below.
+public class GatewayApiFactory : WebApplicationFactory<Program>
 {
     public TestNotificationCollector NotificationCollector { get; } = new();
 
@@ -33,6 +35,8 @@ public sealed class GatewayApiFactory : WebApplicationFactory<Program>
                 ["Gateway:EnableAuditEmailNotifications"] = "true",
                 ["Gateway:EnableSimulationFailureEmailNotifications"] = "true",
                 ["Gateway:EnableRateLimitEmailNotifications"] = "true",
+                // Notices exist only when an operator is subscribed (frontend-contracts F-55).
+                ["Gateway:OperationsEmailRecipients:0"] = "ops@test.local",
                 ["RateLimiting:GlobalPermitLimit"] = "1",
                 ["RateLimiting:GlobalWindowSeconds"] = "60",
 

@@ -45,7 +45,7 @@ This keeps ownership boundaries explicit and avoids shared write access across d
 | Component | Technology | Purpose |
 |-----------|------------|---------|
 | Authentication | JWT (ASP.NET auth stack) | Token-based identity validation |
-| Authorization | Policy + role-based authorization | Route-level access control |
+| Authorization | Policy + role-based authorization, plus a fine-grained permission layer (`EShopPermissions`, 15 permissions; `Admin` role bundles all of them) | Route-level access control for storefront and admin-panel endpoints |
 | Gateway Protections | Rate limiting + proxy guards | Abuse control and downstream protection |
 | Internal Service Access | API key header convention | Controlled service-to-service sensitive calls |
 
@@ -109,6 +109,10 @@ For local development, password-based values in environment files are intentiona
 ## Tooling Notes
 
 - The repository is backend-focused; frontend source code is not part of current `src` structure.
+  `ui/` (tracked, 35 files) holds a Next.js 16 / React 19 / Tailwind 4 scaffold — it is not wired
+  to the backend (no `fetch`, no API client, no token storage), and `src/ClientApp/eshop-web` is a
+  dead, untracked directory. The code-verified contracts a real integration would build against
+  are in [`docs/01-overview/frontend/`](frontend/README.md).
 - Versions and component choices should be treated as code-driven truth from solution projects and runtime configuration.
 
 ---
@@ -117,10 +121,11 @@ For local development, password-based values in environment files are intentiona
 
 - [Project Overview](project-overview.md)
 - [Architecture Diagram](architecture-diagram.md)
+- [Frontend API Contracts](frontend/README.md)
 - [Infrastructure Documentation](../06-infrastructure/)
 - [Service Documentation](../05-services/)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

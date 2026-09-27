@@ -28,7 +28,7 @@ public class SetProductDiscountCommandHandler : IRequestHandler<SetProductDiscou
         // "Discount must be below the list price" cannot live in the validator — it needs the
         // loaded product. Product.SetDiscountPrice throws a DomainException, which
         // ProblemDetailsExceptionMiddleware maps to 400 with its own message, so the client is told
-        // which invariant it broke rather than getting a bare "Validation.Failed".
+        // which invariant it broke rather than getting a generic validation error.
         product.SetDiscountPrice(request.DiscountPrice);
 
         await _productRepository.UpdateAsync(product, cancellationToken);

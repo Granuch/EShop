@@ -28,10 +28,19 @@ namespace EShop.Notification.API.Configuration;
 /// <para>S5 (M6, D7) added the SMTP connection: outside Development and Testing, credentials over
 /// <see cref="SmtpSecurity.None"/> are refused and the SMTP credentials are placeholder-checked; Production also refuses
 /// <see cref="SmtpSecurity.None"/> altogether.</para>
+///
+/// <para><b>Admin panel S12 added the token settings</b>, because the service gained a web surface. The signing key goes
+/// through the shared <see cref="JwtSecretGuard"/> — missing or under 32 characters is refused in every environment,
+/// a placeholder outside Development and Testing. The issuer and audience are required everywhere for a reason worth
+/// stating: <c>Program.cs</c> sets <c>ValidateIssuer</c> and <c>ValidateAudience</c>, so an empty one is not a lenient
+/// default but a service that rejects <i>every</i> token while reporting healthy.</para>
 /// </summary>
 public static class NotificationConfigurationGuard
 {
     public const string ResetUrlKey = "PasswordReset:ResetUrlBase";
+
+    /// <summary>Admin panel S12. The section <c>Program.cs</c> binds before it configures JWT bearer authentication.</summary>
+    public const string JwtSecretKey = "JwtSettings:SecretKey";
 
     /// <summary>The settings checked for a placeholder outside Development and Testing.</summary>
     public static IReadOnlyList<string> PlaceholderCheckedSettings { get; } =
@@ -53,6 +62,13 @@ public static class NotificationConfigurationGuard
         {
             throw new InvalidOperationException("ConnectionStrings:NotificationDb is required.");
         }
+
+        // Admin panel S12. Before the rest: a host that cannot validate a token has no usable web surface, whatever
+        // else is configured. JwtSecretGuard applies its own environment rules — length everywhere, placeholders
+        // outside Development and Testing.
+        JwtSecretGuard.Validate(configuration[JwtSecretKey], environment);
+        RequireValue(configuration, "JwtSettings:Issuer");
+        RequireValue(configuration, "JwtSettings:Audience");
 
         RequireHttpUrl(configuration, "IdentityService:BaseUrl");
         var resetUrl = RequireHttpUrl(configuration, ResetUrlKey);

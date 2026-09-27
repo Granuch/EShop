@@ -29,6 +29,16 @@ public class PaymentTransaction
     /// </summary>
     public string? StripeCustomerId { get; internal set; }
     public decimal Amount { get; internal set; }
+
+    /// <summary>
+    /// When the order's total became <see cref="Amount"/>, as Ordering reported it in <c>OrderTotalChangedEvent</c>
+    /// (frontend-contracts F-47). <c>null</c> while the amount is still the total the order was created with.
+    /// <para>It exists only to order competing revisions: two changes to one order can be consumed in either order
+    /// (concurrent consumers, a retried message), and a revision no newer than this one is ignored rather than
+    /// allowed to put an older total back.</para>
+    /// </summary>
+    public DateTime? AmountAsOf { get; internal set; }
+
     public string Currency { get; internal set; } = "USD";
     public PaymentMethodType PaymentMethod { get; internal set; } = PaymentMethodType.Mock;
     public string PaymentIntentId { get; internal set; } = string.Empty;
@@ -39,6 +49,41 @@ public class PaymentTransaction
     public DateTime? ProcessedAt { get; internal set; }
     public DateTime? UpdatedAt { get; internal set; }
     public uint Version { get; internal set; }
+
+    private readonly List<PaymentEvent> _events = new();
+
+    /// <summary>
+    /// The timeline this payment has written during the current operation (Admin panel S11, endpoint #66).
+    /// <para><b>Write-side only.</b> No repository read <c>Include</c>s it, so on a payment loaded from the database
+    /// this collection is empty whatever the table holds. The read path is
+    /// <c>IPaymentQueryService.GetEventsAsync</c>. Anything that needs to count or inspect stored events must query
+    /// them — <c>_events.Count</c> would compare against zero forever, with nothing failing.</para>
+    /// </summary>
+    public IReadOnlyCollection<PaymentEvent> Events => _events.AsReadOnly();
+
+    /// <summary>
+    /// Appends one timeline row. Every method below that changes something calls this and nothing else does; see
+    /// <see cref="PaymentEvent"/> for why the aggregate writes its own history.
+    /// </summary>
+    private void Record(
+        PaymentEventKind kind,
+        PaymentStatus? from,
+        PaymentStatus to,
+        string detail,
+        DateTime occurredAt,
+        string? stripeEventId = null)
+    {
+        // A timeline is read in order, so the rows one operation writes need distinct instants. Two of them routinely
+        // share the clock — a refund and its reason are recorded in the same save, and DateTime.UtcNow is not
+        // guaranteed to move between two statements — and ordering the read by (OccurredAt, Id) would then put them in
+        // the order of two random GUIDs. The nudge is a tick, i.e. 100ns.
+        if (_events.Count > 0 && occurredAt <= _events[^1].OccurredAt)
+        {
+            occurredAt = _events[^1].OccurredAt.AddTicks(1);
+        }
+
+        _events.Add(new PaymentEvent(Id, kind, from, to, detail, occurredAt, stripeEventId));
+    }
 
     /// <summary>
     /// The Pending payment for a new order (Payment audit D1), in USD (D4). With <see cref="PaymentMethodType.Stripe"/>
@@ -61,7 +106,7 @@ public class PaymentTransaction
             throw new DomainException($"A payment cannot be for a negative amount ({amount}).");
         }
 
-        return new PaymentTransaction
+        var payment = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
             OrderId = orderId,
@@ -73,6 +118,15 @@ public class PaymentTransaction
             CreatedAt = now,
             UpdatedAt = now
         };
+
+        payment.Record(
+            PaymentEventKind.Transition,
+            null,
+            PaymentStatus.Pending,
+            $"Payment of {amount} USD recorded for the order, to be settled by {method}.",
+            now);
+
+        return payment;
     }
 
     /// <summary>
@@ -80,7 +134,8 @@ public class PaymentTransaction
     /// late event never charges the order.
     /// </summary>
     public static PaymentTransaction RecordCancelledBeforeCreation(Guid orderId, string userId, string note, DateTime now)
-        => new()
+    {
+        var payment = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
             OrderId = orderId,
@@ -95,6 +150,11 @@ public class PaymentTransaction
             UpdatedAt = now
         };
 
+        payment.Record(PaymentEventKind.Transition, null, PaymentStatus.Cancelled, note, now);
+
+        return payment;
+    }
+
     /// <summary>
     /// The simulator is about to settle the payment. Allowed for a Pending payment with no intent: a new order with Stripe
     /// off, or an admin settling a Stripe payment the customer never started (D2), which then becomes a Mock payment. Also
@@ -108,9 +168,17 @@ public class PaymentTransaction
             throw Refused(nameof(StartSimulated));
         }
 
+        var previous = Status;
         PaymentMethod = PaymentMethodType.Mock;
         Status = PaymentStatus.Processing;
         UpdatedAt = now;
+
+        Record(
+            PaymentEventKind.Transition,
+            previous,
+            Status,
+            resuming ? "Simulated payment resumed after redelivery." : "Simulated payment started.",
+            now);
     }
 
     /// <summary>The simulator settled a simulated payment in flight.</summary>
@@ -122,11 +190,14 @@ public class PaymentTransaction
             throw new DomainException($"Payment {Id} cannot be settled without the provider's payment id.");
         }
 
+        var previous = Status;
         Status = PaymentStatus.Success;
         PaymentIntentId = paymentIntentId;
         ErrorMessage = null;
         ProcessedAt = now;
         UpdatedAt = now;
+
+        Record(PaymentEventKind.Transition, previous, Status, "Simulated payment settled.", now);
     }
 
     /// <summary>The simulator declined a simulated payment in flight. That ends it: nobody can retry a simulated card.</summary>
@@ -134,10 +205,65 @@ public class PaymentTransaction
     {
         RequireSimulatedInFlight(nameof(RecordSimulatedFailure));
 
+        var previous = Status;
         Status = PaymentStatus.Failed;
         ErrorMessage = reason;
         ProcessedAt = now;
         UpdatedAt = now;
+
+        Record(PaymentEventKind.Transition, previous, Status, $"Simulated payment declined: {reason}", now);
+    }
+
+    /// <summary>
+    /// What an offline settlement writes into <see cref="PaymentIntentId"/> in front of the operator's own reference,
+    /// so a bank-transfer reference can never be mistaken for — or collide with — a Stripe intent id, in this service
+    /// or in the order it ends up on.
+    /// </summary>
+    public const string OfflineReferencePrefix = "offline:";
+
+    /// <summary>The stored form of an operator's offline reference. Built here so a caller's uniqueness pre-check and
+    /// <see cref="SettleOffline"/> cannot disagree about the string the unique index sees.</summary>
+    public static string OfflineReference(string reference) => OfflineReferencePrefix + reference.Trim();
+
+    /// <summary>
+    /// The money arrived outside the system — a bank transfer, cash at the counter — and an operator is recording that
+    /// fact (Admin panel S10, decision Q6a). The payment goes straight to <see cref="PaymentStatus.Success"/> as a
+    /// <see cref="PaymentMethodType.Mock"/> payment, and the <c>PaymentSuccessEvent</c> that follows reaches
+    /// <c>Order.MarkAsPaid</c> by the one path that already exists.
+    /// <para><b>Only a Pending payment, and that restriction is load-bearing rather than cautious.</b> Every method
+    /// that records an intent — <see cref="StartStripePayment"/>, <see cref="StartSimulated"/> — leaves Pending as it
+    /// does so, and nothing ever returns to it. So Pending means no attempt is in flight at a provider, and settling
+    /// offline cannot strand a Stripe intent the customer could still pay. The <see cref="PaymentIntentId"/> check
+    /// below states that invariant rather than trusting it.</para>
+    /// </summary>
+    public void SettleOffline(string reference, DateTime now)
+    {
+        if (Status != PaymentStatus.Pending || !string.IsNullOrEmpty(PaymentIntentId))
+        {
+            throw Refused(nameof(SettleOffline));
+        }
+
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            throw new DomainException($"Payment {Id} cannot be settled offline without a reference.");
+        }
+
+        var previous = Status;
+        PaymentMethod = PaymentMethodType.Mock;
+        PaymentIntentId = OfflineReference(reference);
+        Status = PaymentStatus.Success;
+        ErrorMessage = null;
+        ProcessedAt = now;
+        UpdatedAt = now;
+
+        // The reference is on the timeline as well as in PaymentIntentId, because this row is the only place an
+        // operator's evidence is legible as evidence rather than as an intent id.
+        Record(
+            PaymentEventKind.Transition,
+            previous,
+            Status,
+            $"Recorded as paid outside the system; operator reference '{reference.Trim()}'.",
+            now);
     }
 
     /// <summary>
@@ -158,11 +284,76 @@ public class PaymentTransaction
             throw new DomainException($"Payment {Id} cannot start without a Stripe intent.");
         }
 
+        var previous = Status;
         StripeCustomerId = stripeCustomerId;
         PaymentIntentId = paymentIntentId;
         StripeStatus = stripeStatus;
         Status = PaymentStatus.Processing;
         UpdatedAt = now;
+
+        Record(
+            PaymentEventKind.Transition,
+            previous,
+            Status,
+            $"Stripe payment intent '{paymentIntentId}' created; Stripe reports '{stripeStatus}'.",
+            now);
+    }
+
+    /// <summary>
+    /// True when <paramref name="asOf"/> is no newer than the total this payment already reflects, so a revision
+    /// carrying it must be ignored (frontend-contracts F-47).
+    /// </summary>
+    public bool AlreadyReflectsTotalAsOf(DateTime asOf) => AmountAsOf is { } current && current >= asOf;
+
+    /// <summary>
+    /// The order's total changed while it was still Pending, and this payment must charge the new one
+    /// (frontend-contracts F-47). Allowed only while nothing has been captured at the old amount:
+    /// <list type="bullet">
+    ///   <item>a Pending payment, with no attempt at any provider yet;</item>
+    ///   <item>a Processing Stripe payment whose intent the caller has <b>already</b> updated at Stripe, so the record
+    ///   and the intent the customer is paying agree.</item>
+    /// </list>
+    /// A simulated payment in flight, or anything settled or closed, is refused: the old amount is already being, or
+    /// has been, charged, and that needs a person.
+    /// <para>The same amount only moves <see cref="AmountAsOf"/> and writes no timeline row, since nothing an operator
+    /// would look for changed.</para>
+    /// </summary>
+    public void ReviseAmount(decimal amount, DateTime asOf, DateTime now)
+    {
+        var revisable = Status == PaymentStatus.Pending
+            || (Status == PaymentStatus.Processing
+                && PaymentMethod == PaymentMethodType.Stripe
+                && !string.IsNullOrEmpty(PaymentIntentId));
+        if (!revisable)
+        {
+            throw Refused(nameof(ReviseAmount));
+        }
+
+        if (amount < 0)
+        {
+            throw new DomainException($"A payment cannot be for a negative amount ({amount}).");
+        }
+
+        if (AlreadyReflectsTotalAsOf(asOf))
+        {
+            throw new DomainException(
+                $"Payment {Id} already reflects the order total as of {AmountAsOf:O}; a revision as of {asOf:O} is older.");
+        }
+
+        var previousAmount = Amount;
+        Amount = amount;
+        AmountAsOf = asOf;
+        UpdatedAt = now;
+
+        if (previousAmount != amount)
+        {
+            Record(
+                PaymentEventKind.Transition,
+                Status,
+                Status,
+                $"Amount revised from {previousAmount} to {amount} {Currency} because the order's items changed.",
+                now);
+        }
     }
 
     /// <summary>
@@ -170,18 +361,28 @@ public class PaymentTransaction
     /// including Cancelled and Failed: if Stripe took the money, the record must say so. A refund is never undone
     /// (Ordering audit Stage 19). Returns false when nothing changed.
     /// </summary>
-    public bool RecordStripeSuccess(string stripeStatus, DateTime now)
+    public bool RecordStripeSuccess(string stripeStatus, DateTime now, string? stripeEventId = null)
     {
         if (Status is PaymentStatus.Success or PaymentStatus.Refunded)
         {
+            RecordIgnoredWebhook("payment_intent.succeeded", stripeStatus, now, stripeEventId);
             return false;
         }
 
+        var previous = Status;
         Status = PaymentStatus.Success;
         StripeStatus = stripeStatus;
         ErrorMessage = null;
         ProcessedAt = now;
         UpdatedAt = now;
+
+        Record(
+            PaymentEventKind.Webhook,
+            previous,
+            Status,
+            $"Stripe captured the payment; intent '{stripeStatus}'.",
+            now,
+            stripeEventId);
         return true;
     }
 
@@ -191,16 +392,27 @@ public class PaymentTransaction
     /// stays as it was. Only a payment in flight; a decline delivered after the success changes nothing. Returns false
     /// when nothing changed.
     /// </summary>
-    public bool RecordDeclinedAttempt(string? reason, string stripeStatus, DateTime now)
+    public bool RecordDeclinedAttempt(string? reason, string stripeStatus, DateTime now, string? stripeEventId = null)
     {
         if (Status is not (PaymentStatus.Pending or PaymentStatus.Processing))
         {
+            RecordIgnoredWebhook("payment_intent.payment_failed", stripeStatus, now, stripeEventId);
             return false;
         }
 
         StripeStatus = stripeStatus;
         ErrorMessage = reason ?? "Stripe payment attempt failed.";
         UpdatedAt = now;
+
+        // From and To are the same on purpose: a decline ends one attempt, not the payment. The row exists precisely
+        // because the status does NOT move, so a declined card leaves no other trace an operator can find.
+        Record(
+            PaymentEventKind.Webhook,
+            Status,
+            Status,
+            $"Card declined, intent still payable: {ErrorMessage}",
+            now,
+            stripeEventId);
         return true;
     }
 
@@ -209,13 +421,19 @@ public class PaymentTransaction
     /// <c>OrderCancelledConsumer</c>, the order was cancelled, so the payment is Cancelled. Untagged (the Dashboard, or
     /// Stripe), the payment failed. Nothing changes for Success, Refunded or Cancelled, and the result is then false.
     /// </summary>
-    public bool RecordStripeCancellation(bool requestedByEShop, string stripeStatus, DateTime now)
+    public bool RecordStripeCancellation(
+        bool requestedByEShop,
+        string stripeStatus,
+        DateTime now,
+        string? stripeEventId = null)
     {
         if (Status is PaymentStatus.Success or PaymentStatus.Refunded or PaymentStatus.Cancelled)
         {
+            RecordIgnoredWebhook("payment_intent.canceled", stripeStatus, now, stripeEventId);
             return false;
         }
 
+        var previous = Status;
         Status = requestedByEShop ? PaymentStatus.Cancelled : PaymentStatus.Failed;
         StripeStatus = stripeStatus;
         ErrorMessage = requestedByEShop
@@ -223,8 +441,27 @@ public class PaymentTransaction
             : "Stripe payment intent canceled.";
         ProcessedAt = now;
         UpdatedAt = now;
+
+        Record(PaymentEventKind.Webhook, previous, Status, ErrorMessage, now, stripeEventId);
         return true;
     }
+
+    /// <summary>
+    /// A Stripe delivery that reached this payment and correctly changed nothing: a decline arriving after the
+    /// success, a redelivered cancellation, a success for an already-refunded payment.
+    /// <para>It is recorded rather than dropped because this is the one class of webhook that leaves no other
+    /// evidence anywhere — the payment is untouched, and <c>ProcessedStripeWebhookEvents</c> records only the event
+    /// id, not which payment it reached. Diagnosing "Stripe says it sent that, we say we never saw it" needs this
+    /// row.</para>
+    /// </summary>
+    private void RecordIgnoredWebhook(string eventType, string stripeStatus, DateTime now, string? stripeEventId)
+        => Record(
+            PaymentEventKind.Webhook,
+            Status,
+            Status,
+            $"Stripe sent {eventType} ('{stripeStatus}'); the payment is already {Status} and was not changed.",
+            now,
+            stripeEventId);
 
     /// <summary>The order was cancelled before its payment was captured. Only a payment still in flight.</summary>
     public void Cancel(string note, DateTime now)
@@ -234,13 +471,21 @@ public class PaymentTransaction
             throw Refused(nameof(Cancel));
         }
 
+        var previous = Status;
         Status = PaymentStatus.Cancelled;
         ErrorMessage = note;
         ProcessedAt = now;
         UpdatedAt = now;
+
+        Record(PaymentEventKind.Transition, previous, Status, note, now);
     }
 
-    /// <summary>What Stripe says about the intent. An observation, not a transition: allowed in every state.</summary>
+    /// <summary>
+    /// What Stripe says about the intent. An observation, not a transition: allowed in every state.
+    /// <para>Deliberately writes no timeline row. It reports the intent's state, not the payment's, and every caller
+    /// follows it within the same save with a real transition — a cancel, a refund or an exception — whose row is the
+    /// one that says what happened. <see cref="StripeStatus"/> already carries the latest observation.</para>
+    /// </summary>
     public void ObserveStripeStatus(string stripeStatus, DateTime now)
     {
         StripeStatus = stripeStatus;
@@ -260,12 +505,21 @@ public class PaymentTransaction
             throw Refused(nameof(MarkRefunded));
         }
 
+        var previous = Status;
         Status = PaymentStatus.Refunded;
         ProcessedAt = now;
         UpdatedAt = now;
+
+        Record(PaymentEventKind.Transition, previous, Status, $"Refunded {Amount} {Currency} in full.", now);
     }
 
-    /// <summary>Why a refunded payment was refunded: the cancellation of its order.</summary>
+    /// <summary>
+    /// Why a refunded payment was refunded: the cancellation of its order, or an admin's own reason.
+    /// <para>It gets its own timeline row, with From and To both Refunded. Folding the note into
+    /// <see cref="MarkRefunded"/>'s row was not possible — both callers apply it afterwards, once the provider has
+    /// confirmed the refund — and dropping it would leave the reason readable only as <see cref="ErrorMessage"/> on a
+    /// successful payment, which is exactly the reading S10 refused to create for offline settlements.</para>
+    /// </summary>
     public void AnnotateRefund(string note)
     {
         if (Status != PaymentStatus.Refunded)
@@ -274,6 +528,8 @@ public class PaymentTransaction
         }
 
         ErrorMessage = note;
+
+        Record(PaymentEventKind.Transition, Status, Status, $"Refund reason recorded: {note}", DateTime.UtcNow);
     }
 
     private void RequireSimulatedInFlight(string action)

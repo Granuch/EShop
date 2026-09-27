@@ -1,9 +1,11 @@
 using EShop.Payment.API.Endpoints;
 using EShop.Payment.API.Infrastructure.Configuration;
 using EShop.Payment.API.Infrastructure.HealthChecks;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Payment.API.Infrastructure.Security;
 using EShop.Payment.Application.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.Payment.Infrastructure.Data;
 using EShop.Payment.Infrastructure.Extensions;
@@ -72,6 +74,10 @@ if (startupStripeSettings.SkipWebhookSignatureVerification
 // request appeared to come from the gateway address. Shared helper — see EShopForwardedHeaders.
 var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
+// Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+// recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+builder.Services.AddEShopAuditLog<PaymentDbContext>("payment");
+
 builder.Services.AddPaymentApplication();
 builder.Services.AddPaymentInfrastructure(builder.Configuration, useInMemoryDatabase: useInMemoryDb);
 builder.Services.AddPaymentMessaging(
@@ -128,6 +134,11 @@ builder.Services.AddAuthorization(options =>
         policy.Requirements.Add(new SameUserOrAdminRequirement()));
 });
 
+// Decision Q4c: one policy per permission, resolved from the caller's roles through
+// RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+// the Admin role bundles every permission, so no existing caller loses access.
+builder.Services.AddEShopPermissions();
+
 builder.Services.AddSingleton<IAuthorizationHandler, SameUserOrAdminHandler>();
 
 // Payment audit Stage 11 (M8). The shared CorsOriginGuard, run while the host is composed. The old check sat inside the
@@ -142,7 +153,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithEShopExposedHeaders();
     });
 });
 
@@ -158,7 +170,7 @@ var globalWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Glo
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.UseEShopRejectionResponse();
 
     if (rateLimitingEnabled)
     {
@@ -193,11 +205,19 @@ builder.Services.AddOpenApi();
 // Payment audit Stage 10 (M6). Only a real conflict is a 409: a lost row-version race, or a unique index. Payment used to
 // map every DbUpdateException to 409, so a value too long for its column told the client to retry a request that could
 // never succeed. Any other persistence failure is now the generic 500, and is logged as one.
+//
+// ThrowOnBadRequest + AddMalformedJsonBody (frontend-contracts F-20): without them a malformed body, a missing body or
+// an unbindable query value is a bare 400 with an empty body outside Development, with no errorCode. The Stripe
+// webhook reads its raw body itself, so it binds nothing and is unaffected.
+// Enums as PascalCase names, in and out (frontend-contracts F-01).
+builder.Services.AddEShopJson();
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddEShopProblemDetails(options => options
     .AddCommon()
     .AddNotFound()
     .AddEfConcurrency()
-    .AddEfDuplicateKey());
+    .AddEfDuplicateKey()
+    .AddMalformedJsonBody());
 
 var app = builder.Build();
 
@@ -269,6 +289,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapPaymentEndpoints();
+// Payment's slices of the System page's read-only settings and feature flags (S19, #85/#89).
+app.MapSystemEndpoints();
+// This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+app.MapEShopAuditLog();
 
 // /prometheus — custom prometheus-net metrics
 // Both scrape endpoints are anonymous. Restricted to loopback + private networks unless

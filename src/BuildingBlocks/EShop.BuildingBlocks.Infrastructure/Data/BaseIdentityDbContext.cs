@@ -277,6 +277,9 @@ public abstract class BaseIdentityDbContext<TUser, TRole, TKey> : IdentityDbCont
         // Apply Outbox and ProcessedMessage configurations
         modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
         modelBuilder.ApplyConfiguration(new Configurations.ProcessedMessageConfiguration());
+
+        // Admin audit trail (admin panel S15, migration M11) — every service with a database carries it.
+        modelBuilder.ApplyConfiguration(new Configurations.AuditLogEntryConfiguration());
     }
 
     public override void Dispose()

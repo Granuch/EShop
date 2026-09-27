@@ -616,6 +616,23 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: internal-service-api-key-header
+        # Admin panel S12: notification-api now serves the delivery journal, so it validates tokens like every other
+        # service. NotificationConfigurationGuard refuses a missing, short or placeholder key at startup.
+        - name: JwtSettings__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-secret-key
+        - name: JwtSettings__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-issuer
+        - name: JwtSettings__Audience
+          valueFrom:
+            secretKeyRef:
+              name: eshop-secrets
+              key: jwt-audience
         # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
         # before the last attempt), which is far longer than a readiness initialDelay should
         # cover. A startupProbe gives that its own budget: while it is pending Kubernetes

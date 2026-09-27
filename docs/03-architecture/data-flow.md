@@ -82,7 +82,33 @@ Highlights:
 
 ---
 
-### Example 3: Product Read Path with Cache
+### Example 3: Gateway HTTP Fan-Out (Merged Admin Audit Log)
+
+```
+Client -> Gateway : GET /api/v1/admin/audit?cursor=...&service=...
+Gateway -> Identity API     : GET (own) /api/v1/admin/audit  (5s timeout)
+Gateway -> Catalog API      : GET (own) /api/v1/admin/audit  (5s timeout)
+Gateway -> Ordering API     : GET (own) /api/v1/admin/audit  (5s timeout)
+Gateway -> Payment API      : GET (own) /api/v1/admin/audit  (5s timeout)
+Gateway -> Notification API : GET (own) /api/v1/admin/audit  (5s timeout)
+Gateway : merge rows by time, page with a cursor
+Gateway -> Client : merged page + unavailableServices[]
+```
+
+Highlights:
+- This is the one place the gateway itself fans out synchronous HTTP calls to every service,
+  rather than only proxying a single route. Each service's own `/api/v1/admin/audit` is not
+  routed through the gateway directly — only the gateway's merged view is.
+- A service that does not answer within its 5 s timeout is listed in `unavailableServices` rather
+  than failing the whole request; its rows are simply missing from that page and may arrive later,
+  out of time order, once it recovers. The gateway serves three other endpoints the same
+  aggregating way: `GET /api/v1/admin/health`, `/admin/settings` and `/admin/feature-flags`.
+- See [Admin Platform contracts](../01-overview/frontend/admin-platform.md) for the full paging,
+  cursor and `unavailableServices` shape, verified against a live stack.
+
+---
+
+### Example 4: Product Read Path with Cache
 
 ```
 Client -> Gateway -> Catalog API : GET products
@@ -170,7 +196,12 @@ Use correlation IDs and trace context to follow a single request/event path acro
 | Async events | Cross-service workflows | Eventual |
 | Redis cache | Fast reads and state lookup | Eventual |
 
+## Related Documents
+
+- [Frontend API Contracts — Admin Platform](../01-overview/frontend/admin-platform.md)
+- [Frontend API Contracts — Flows](../01-overview/frontend/flows.md)
+
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

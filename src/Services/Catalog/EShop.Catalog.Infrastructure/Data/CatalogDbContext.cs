@@ -101,6 +101,17 @@ public class CatalogDbContext : BaseDbContext
             // of which this one also serves as its leftmost prefix.
             entity.HasIndex(p => new { p.CreatedAt, p.Id }, "IX_Products_CreatedAt_Id");
 
+            // M2/M3 (Admin panel S4). Both are composites led by Status, not single-column indexes
+            // on Status and StockQuantity, because every list read already filters on Status first
+            // (the published-only rule in ProductQueryService.ApplyFilter applies to every caller
+            // that is not an admin) — so a lone StockQuantity index would be a second access path
+            // Postgres has to combine rather than one it can range-scan.
+            //
+            // Status is low-cardinality (three values) and would be a poor leading column on its
+            // own; it earns the position by being the one predicate that is always present.
+            entity.HasIndex(p => new { p.Status, p.StockQuantity }, "IX_Products_Status_StockQuantity");
+            entity.HasIndex(p => new { p.Status, p.CategoryId }, "IX_Products_Status_CategoryId");
+
             // Trigram indexes for ILIKE search performance (requires pg_trgm extension).
             // These stay non-unique: Postgres cannot build a unique GIN index at all, which is why
             // migration 20260217000731_UpdateProductModel2 exists — the fix taken there was to drop
@@ -232,6 +243,16 @@ public class CatalogDbContext : BaseDbContext
             entity.Property(pa => pa.Value)
                 .IsRequired()
                 .HasMaxLength(200);
+
+            // NOTE: there IS a unique index on (ProductId, lower(Name)) — the backstop for the
+            // case-insensitive dedupe in Product.AddAttribute/UpdateAttribute — but it cannot be
+            // declared here. EF Core has no way to express an expression index, and the
+            // case-sensitive HasIndex(pa => new { pa.ProductId, pa.Name }) that it *can* express
+            // would be the wrong index: it would accept the "Color"/"color" pair the domain
+            // refuses. It is created as raw SQL by 20260918131107_ProductAttributeNameUniqueIndex
+            // (M1, Admin panel S3) under the name IX_ProductAttributes_ProductId_Name, which
+            // CatalogProblemDetailsExtensions.AddProductAttributeConflict() matches on. Do not
+            // "complete the model" by adding a HasIndex for it.
         });
 
         base.OnModelCreating(modelBuilder);

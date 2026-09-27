@@ -46,4 +46,11 @@ public record UserProfileResponse
     public DateTime CreatedAt { get; init; }
     public DateTime? LastLoginAt { get; init; }
     public List<string> Roles { get; init; } = [];
+
+    /// <summary>
+    /// What <see cref="Roles"/> grant (frontend-contracts F-07); see <c>UserDto.Permissions</c>. Cached
+    /// with the rest of the profile, so every command that changes a user's roles must evict
+    /// <c>profile:{userId}</c>.
+    /// </summary>
+    public List<string> Permissions { get; init; } = [];
 }

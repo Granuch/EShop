@@ -12,6 +12,10 @@ public class PaymentDbContext : BaseDbContext
     public DbSet<PaymentCustomer> PaymentCustomers => Set<PaymentCustomer>();
     public DbSet<ProcessedStripeWebhookEvent> ProcessedStripeWebhookEvents => Set<ProcessedStripeWebhookEvent>();
 
+    public DbSet<PaymentEvent> PaymentEvents => Set<PaymentEvent>();
+
+    public DbSet<FailedStripeWebhook> FailedStripeWebhooks => Set<FailedStripeWebhook>();
+
     public PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         : base(options)
     {
@@ -51,6 +55,11 @@ public class PaymentDbContext : BaseDbContext
             entity.Property(x => x.Amount)
                 .HasColumnType("decimal(18,2)")
                 .IsRequired();
+
+            // frontend-contracts F-47: when the order's total became Amount. Null while it is the creation total, so
+            // existing rows need no backfill.
+            entity.Property(x => x.AmountAsOf)
+                .HasColumnType("timestamp with time zone");
 
             entity.Property(x => x.Currency)
                 .HasMaxLength(3)
@@ -96,7 +105,134 @@ public class PaymentDbContext : BaseDbContext
                 .IsUnique()
                 .HasFilter("\"PaymentIntentId\" <> ''");
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });
-            entity.HasIndex(x => new { x.Status, x.CreatedAt });
+
+            // Admin panel S10 (M9). Both match the admin list's ORDER BY — CreatedAt DESC, Id DESC — because a
+            // composite whose trailing columns ascend cannot serve a descending sort under a leading equality
+            // predicate, and Postgres can only read a *whole* index backwards. The unfiltered list has no leading
+            // predicate at all, which is why the second one exists: PaymentTransactions had no index on CreatedAt
+            // alone. IX_PaymentTransactions_Status_CreatedAt is replaced rather than joined, since this covers its
+            // lookups as a leading-column prefix — the same trade Ordering's M6 and audit L12 made.
+            entity.HasIndex(x => new { x.Status, x.CreatedAt, x.Id })
+                .IsDescending(false, true, true);
+            entity.HasIndex(x => new { x.CreatedAt, x.Id })
+                .IsDescending(true, true);
+
+            // Admin panel S11 (M7). The payment's own timeline. No repository read Includes it — the write path only
+            // ever appends, and the read path is IPaymentQueryService.GetEventsAsync — so on a payment loaded from the
+            // database the collection is empty whatever the table holds.
+            entity.HasMany(x => x.Events)
+                .WithOne()
+                .HasForeignKey(e => e.PaymentTransactionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Admin panel S11 (M7, endpoint #66).
+        modelBuilder.Entity<PaymentEvent>(entity =>
+        {
+            entity.ToTable("PaymentEvents");
+
+            entity.HasKey(x => x.Id);
+
+            // The aggregate assigns the key (PaymentEvent's constructor sets Id = Guid.NewGuid()), so it is NOT
+            // store-generated. Left as the default ValueGeneratedOnAdd, EF sees an already-set key on a child
+            // discovered under an unchanged parent, decides the row exists, and issues an UPDATE that matches nothing
+            // — DbUpdateConcurrencyException, i.e. a 409. That is BUG-02's shape, and it bites here on every path,
+            // because every row but the first is appended to an already-persisted payment.
+            entity.Property(x => x.Id)
+                .ValueGeneratedNever();
+
+            entity.Property(x => x.PaymentTransactionId).IsRequired();
+
+            // Stored as names, like PaymentTransaction.Status, so a row stays readable after an enum is reordered.
+            entity.Property(x => x.Kind)
+                .IsRequired()
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(x => x.FromStatus)
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(x => x.ToStatus)
+                .IsRequired()
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(x => x.StripeEventId)
+                .HasMaxLength(PaymentEvent.MaxStripeEventIdLength);
+
+            entity.Property(x => x.Detail)
+                .IsRequired()
+                .HasMaxLength(PaymentEvent.MaxDetailLength);
+
+            entity.Property(x => x.OccurredAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+
+            // Audit fields. CreatedBy is the actor: BaseDbContext.SetAuditFields stamps it from ICurrentUserContext,
+            // so an operator's offline settlement lands their id and a consumer's or a webhook's transition lands
+            // "system" — without any domain method learning about actors. CreatedAt is the save time, which is NOT
+            // the same instant as OccurredAt for a replayed webhook; the timeline reads on OccurredAt.
+            // UpdatedBy stays null forever, because the timeline is append-only and no row is ever modified.
+            entity.Property(x => x.CreatedAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+            entity.Property(x => x.CreatedBy).HasMaxLength(100);
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.UpdatedBy).HasMaxLength(100);
+
+            // The only query: one payment's timeline, oldest first.
+            entity.HasIndex(x => new { x.PaymentTransactionId, x.OccurredAt });
+        });
+
+        // Admin panel S11 (M8, endpoint #67).
+        modelBuilder.Entity<FailedStripeWebhook>(entity =>
+        {
+            entity.ToTable("FailedStripeWebhooks");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.StripeEventId)
+                .HasMaxLength(FailedStripeWebhook.MaxEventIdLength);
+
+            entity.Property(x => x.EventType)
+                .HasMaxLength(FailedStripeWebhook.MaxEventTypeLength);
+
+            // No length cap: this is the delivery Stripe sent, and a replay re-applies it verbatim. Truncating it to
+            // fit a column would store something that cannot be replayed while looking exactly like something that
+            // can.
+            entity.Property(x => x.Payload)
+                .IsRequired();
+
+            entity.Property(x => x.SignatureHeader)
+                .IsRequired()
+                .HasMaxLength(FailedStripeWebhook.MaxSignatureHeaderLength);
+
+            entity.Property(x => x.Error)
+                .IsRequired()
+                .HasMaxLength(FailedStripeWebhook.MaxErrorLength);
+
+            entity.Property(x => x.AttemptCount).IsRequired();
+
+            entity.Property(x => x.FirstSeenAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+            entity.Property(x => x.LastAttemptAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired();
+            entity.Property(x => x.ReplayedAt)
+                .HasColumnType("timestamp with time zone");
+
+            // One row per Stripe event, not one per delivery: Stripe redelivers a failing event for days. Filtered,
+            // because a payload that arrived without an id (which the parser should have refused) must still be
+            // captured rather than collapsed onto every other unidentified one.
+            entity.HasIndex(x => x.StripeEventId)
+                .IsUnique()
+                .HasFilter("\"StripeEventId\" IS NOT NULL");
+
+            // The replay's only query: outstanding captures, oldest first.
+            entity.HasIndex(x => x.FirstSeenAt)
+                .HasFilter("\"ReplayedAt\" IS NULL");
         });
 
         modelBuilder.Entity<PaymentCustomer>(entity =>
