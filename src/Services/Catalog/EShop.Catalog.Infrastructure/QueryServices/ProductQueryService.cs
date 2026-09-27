@@ -29,7 +29,7 @@ public class ProductQueryService : IProductQueryService
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+        var query = await FilteredProductsAsync(filter, cancellationToken);
 
         var totalCount = await query.CountAsync(cancellationToken);
 
@@ -50,7 +50,7 @@ public class ProductQueryService : IProductQueryService
         CancellationToken cancellationToken = default)
     {
         // The list's own filter and order, so an export is the list's rows, all pages at once.
-        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+        var query = await FilteredProductsAsync(filter, cancellationToken);
 
         var totalCount = await query.CountAsync(cancellationToken);
         if (totalCount > maxRows)
@@ -85,19 +85,24 @@ public class ProductQueryService : IProductQueryService
         };
 
     /// <summary>
-    /// One GroupBy-less aggregate over the category's live products. Written as a single projection
-    /// so it is one round trip: five separate CountAsync calls would each be their own query, and
-    /// they could disagree with each other under concurrent writes.
+    /// One GroupBy-less aggregate over the live products in the category's subtree. Written as a
+    /// single projection so it is one round trip: five separate CountAsync calls would each be their
+    /// own query, and they could disagree with each other under concurrent writes.
     /// </summary>
     public async Task<CategoryProductStats> GetCategoryProductStatsAsync(
         Guid categoryId,
         CancellationToken cancellationToken = default)
     {
+        // The subtree, not the category alone: every list read now means "this category and its
+        // descendants", and an admin reading a parent's row expects the number to match what
+        // clicking into it shows. That was the reason these counts were direct-only before.
+        var categoryIds = await GetSubtreeIdsAsync(categoryId, cancellationToken);
+
         // The !IsDeleted global query filter applies, deliberately: a deleted product is invisible
         // in every other read, and a stat that counted it would be the only place it surfaced.
         var stats = await _context.Products
             .AsNoTracking()
-            .Where(p => p.CategoryId == categoryId)
+            .Where(p => categoryIds.Contains(p.CategoryId))
             .GroupBy(_ => 1)
             .Select(g => new CategoryProductStats(
                 g.Count(),
@@ -119,7 +124,7 @@ public class ProductQueryService : IProductQueryService
         int take,
         CancellationToken cancellationToken = default)
     {
-        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+        var query = await FilteredProductsAsync(filter, cancellationToken);
 
         if (after is { } cursor)
         {
@@ -148,10 +153,81 @@ public class ProductQueryService : IProductQueryService
     }
 
     /// <summary>
+    /// The filtered product query every list read starts from. Async only because a category filter
+    /// has to be resolved to its subtree first — see <see cref="GetSubtreeIdsAsync"/>.
+    /// </summary>
+    private async Task<IQueryable<Product>> FilteredProductsAsync(
+        ProductListFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var categoryIds = filter.CategoryId is { } categoryId
+            ? await GetSubtreeIdsAsync(categoryId, cancellationToken)
+            : null;
+
+        return ApplyFilter(_context.Products.AsNoTracking(), filter, categoryIds);
+    }
+
+    /// <summary>
+    /// The category and every descendant, at any depth. A category filter means the whole subtree:
+    /// products are normally filed under leaves, so an exact match on a parent ("Electronics") found
+    /// nothing, while its children ("Phones", "Laptops") held everything. The tree has no depth limit
+    /// (<c>Category.MoveTo</c> enforces none), so "self plus direct children" would silently drop
+    /// grandchildren; hence a recursive CTE rather than one level of <c>ParentCategoryId</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It reads the raw table, ignoring the <c>IsActive</c> filter, like
+    /// <c>CategoryRepository.GetAncestorIdsAsync</c>. For live products that changes nothing — a
+    /// deleted category has no live children and no live products, because delete refuses both and
+    /// restore and move refuse a deleted parent — but the recycle-bin read (<c>DeletedOnly</c>) needs
+    /// it, since a deleted product can sit in a deleted subcategory of the category being browsed.
+    /// </para>
+    /// <para>
+    /// A separate round trip rather than a composed subquery: the list reads count and page with the
+    /// same filter, and resolving once keeps both on one id set. The Categories table is small, and
+    /// the only index led by <c>ParentCategoryId</c> is filtered on <c>IsActive</c>, so the walk scans
+    /// it; revisit that if categories ever number in the tens of thousands. The depth guard is a
+    /// safety net against a cycle that <c>MoveTo</c> exists to prevent, as in the ancestor walk.
+    /// An unknown id seeds nothing and yields an empty set, so the read answers an empty page — the
+    /// same as the exact match did.
+    /// </para>
+    /// </remarks>
+    private async Task<List<Guid>> GetSubtreeIdsAsync(Guid categoryId, CancellationToken cancellationToken)
+    {
+        var sql = """
+            WITH RECURSIVE subtree AS (
+                SELECT c."Id", 0 AS depth
+                FROM "Categories" c
+                WHERE c."Id" = {0}
+                UNION ALL
+                SELECT child."Id", s.depth + 1
+                FROM "Categories" child
+                JOIN subtree s ON child."ParentCategoryId" = s."Id"
+                WHERE s.depth < 100
+            )
+            SELECT s."Id" AS "Value"
+            FROM subtree s
+            """;
+        // "Value" is required: SqlQueryRaw<T> for a scalar binds a single column of exactly that name.
+
+        return await _context.Database
+            .SqlQueryRaw<Guid>(sql, categoryId)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// The filters every list read applies. Status first, and before any count: TotalCount must
     /// describe what the caller can actually reach, or it reports pages that come back empty.
     /// </summary>
-    private static IQueryable<Product> ApplyFilter(IQueryable<Product> query, ProductListFilter filter)
+    /// <param name="categoryIds">
+    /// <see cref="ProductListFilter.CategoryId"/> resolved to its subtree, or null when the filter
+    /// names no category. Never filter on <c>filter.CategoryId</c> directly here — that is the exact
+    /// match this parameter replaced.
+    /// </param>
+    private static IQueryable<Product> ApplyFilter(
+        IQueryable<Product> query,
+        ProductListFilter filter,
+        IReadOnlyCollection<Guid>? categoryIds)
     {
         // Admin panel S4. The recycle-bin read. IgnoreQueryFilters applies to the WHOLE query, not
         // only to the clauses after it, so the explicit IsDeleted predicate is what actually scopes
@@ -206,11 +282,8 @@ public class ProductQueryService : IProductQueryService
             query = query.Where(p => p.CreatedAt <= createdTo);
         }
 
-        if (filter.CategoryId.HasValue)
-        {
-            var categoryId = filter.CategoryId.Value;
-            query = query.Where(p => p.CategoryId == categoryId);
-        }
+        if (categoryIds is not null)
+            query = query.Where(p => categoryIds.Contains(p.CategoryId));
 
         if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
         {
