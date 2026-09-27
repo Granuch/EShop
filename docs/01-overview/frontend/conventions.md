@@ -433,21 +433,23 @@ This section is an overview. The request and response contracts are in [identity
 | Register | `POST /api/v1/auth/register` | Account created. The body is `{ userId, email, message }` |
 | Log in | `POST /api/v1/auth/login` | `{ accessToken, refreshToken, expiresIn, tokenType, requires2FA, user }` |
 
-- **Email confirmation is not in use.** The account can log in straight after registering.
-  - Every shipped configuration (compose, k8s) sets `Identity:RequireConfirmedEmail=false`.
-  - Identity refuses to start with it switched on, because no confirmation token is ever delivered.
-  - `POST /api/v1/auth/confirm-email` exists, but a user has no way to obtain the token it needs. Only an admin can
-    mark an email confirmed ([identity.md](identity.md)).
+- **Email confirmation is required.** Registration emails a confirmation link, and login with the right password
+  answers 403 `Auth.EmailNotConfirmed` until it is followed.
+  - Every shipped configuration (compose, k8s) sets `Identity:RequireConfirmedEmail=true`; only Development runs
+    without it.
+  - The storefront serves the page the link points at and posts `userId` and `token` to
+    `POST /api/v1/auth/confirm-email`; `POST /api/v1/auth/resend-confirmation` sends a new link
+    ([identity.md](identity.md#the-confirmation-link)).
 - **Two-factor login.** When the account has 2FA enabled and the login request has no `twoFactorCode`, login answers
   **200** with `requires2FA: true`, empty `accessToken`/`refreshToken`, and `user: null`. Ask the user for the
   authenticator code, then **send the same login request again** with `twoFactorCode` added. There is no separate 2FA
   endpoint for this step.
-- **Local email.** In the local stack, the emails the platform does send (password reset, order and payment
-  notifications) land in Mailpit at `http://localhost:8025`.
+- **Local email.** In the local stack, the emails the platform sends (email confirmation, password reset, order and
+  payment notifications) land in Mailpit at `http://localhost:8025`, unless `.env` points `NOTIFICATION_SMTP_*` at
+  a real mail server.
 
-> ⚠ Registration's `message` reads "Registration successful. Please check your email to confirm.", but **no email is
-> sent** (observed: nothing reached Mailpit within 20 s). Do not show that text, and do not build a "confirm your
-> email" step into sign-up. (F-27)
+> Registration's `message` reads "Registration successful. Please check your email to confirm.", and the email is
+> sent: show it, and follow sign-up with a "check your email" step. (F-27, fixed by the email-confirmation work.)
 
 ### Tokens
 

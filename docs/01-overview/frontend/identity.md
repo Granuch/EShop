@@ -95,10 +95,10 @@ Creates a customer account with the `User` role. Source: `RegisterCommand`.
  "message":"Registration successful. Please check your email to confirm."}
 ```
 
-Registration also queues a confirmation request carrying a fresh token
-(`EmailConfirmationRequestedIntegrationEvent`). Whether the account can log in before the address is confirmed
-depends on `Identity:RequireConfirmedEmail`: when it is on (the Production default), login answers
-[403 `Auth.EmailNotConfirmed`](#post-apiv1authlogin) until the address is confirmed; when it is off, the account can
+Registration also emails a confirmation link a few seconds later (sent by the Notification service; see
+[the confirmation link](#the-confirmation-link)). While `Identity:RequireConfirmedEmail` is on — the default
+everywhere except Development, so the Sandbox compose stack and k8s included — login answers
+[403 `Auth.EmailNotConfirmed`](#post-apiv1authlogin) until the address is confirmed. With it off, the account can
 log in immediately.
 
 | Status | `errorCode` | When |
@@ -108,8 +108,8 @@ log in immediately.
 | 400 | `Auth.CreateFailed` | ASP.NET Identity refused the account; `detail` lists its reasons. From source, not observed: the checks above run first |
 | 429 | `Request.RateLimited` | `auth` bucket spent |
 
-> ⚠ The `message` promises a confirmation email, but **none is sent**. Do not show it, and do not add a "confirm your
-> email" step to sign-up. (F-27)
+Show `message`: the confirmation email really is sent. Follow sign-up with a "check your email" screen that offers
+[`resend-confirmation`](#post-apiv1authresend-confirmation) if nothing arrives.
 
 #### `POST /api/v1/auth/login`
 
@@ -199,9 +199,8 @@ access token stays valid until it expires, so drop it on the client too.
 
 Marks an email address confirmed with a token. Source: `ConfirmEmailCommand`.
 
-> ⚠ **No user can call this successfully today.** Registration never delivers a token (F-27), so a client has nothing
-> to send. Admins confirm addresses with [`POST /admin/users/{id}/confirm-email`](#post-apiv1adminusersidconfirm-email)
-> instead. Build no UI for it until F-27 is resolved.
+The page behind the emailed link calls this. Admins can also confirm an address without a token, with
+[`POST /admin/users/{id}/confirm-email`](#post-apiv1adminusersidconfirm-email).
 
 **Body** ([`ConfirmEmailRequest`](#confirmemailrequest)): `userId` and `token`, both required.
 
@@ -218,9 +217,24 @@ or `"Email already confirmed"`.
 > ⚠ For an address that is already confirmed, the answer is 200 `"Email already confirmed"` whatever the token. The
 > 400 `Auth.UserNotFound` also tells a caller whether a user id exists. (F-30)
 
+##### The confirmation link
+
+The email (sent by the Notification service a few seconds after registration or a
+[resend](#post-apiv1authresend-confirmation)) links to:
+
+```
+<EmailConfirmation:ConfirmUrlBase>?userId=<user id>&token=<confirmation token>
+```
+
+Both values are URL-encoded. The compose default for the base is `http://localhost:3000/confirm-email`
+(`EMAIL_CONFIRMATION_URL_BASE` in `.env`). **The frontend must serve that page.** It reads `userId` and `token` with
+`URLSearchParams`, which decodes them, and posts them to this endpoint. On 200, send the user to sign in; on
+`Auth.InvalidToken`, offer [`resend-confirmation`](#post-apiv1authresend-confirmation). A token is valid for 24 hours,
+and any unexpired one works, including one from an earlier email.
+
 #### `POST /api/v1/auth/resend-confirmation`
 
-Queues a fresh confirmation token for an account whose address is not confirmed yet. Source:
+Emails a fresh [confirmation link](#the-confirmation-link) to an account whose address is not confirmed yet. Source:
 `ResendEmailConfirmationCommand`.
 
 **Body** ([`ResendConfirmationRequest`](#resendconfirmationrequest)): `{ "email": "…" }`, required, an email
@@ -921,7 +935,7 @@ records in `EShop.Identity.API/Controllers`. All timestamps are UTC with `Z`, ex
 |---|---|---|
 | `userId` | string | The new user's id |
 | `email` | string | As stored |
-| `message` | string | Do not show (F-27) |
+| `message` | string | Safe to show: the confirmation email is sent |
 
 #### LoginRequest
 
@@ -1217,7 +1231,7 @@ export interface TwoFactorCodeRequest {
 export interface RegisterResponse {
   userId: string;
   email: string;
-  /** Do not show it: it promises an email that is never sent (F-27). */
+  /** Safe to show: the confirmation email is sent. */
   message: string;
 }
 
@@ -1471,8 +1485,10 @@ export interface UserInRole {
 > and offer a password reset. See [Failed logins and lockout](#failed-logins-and-lockout).
 > F-28 made this delay real in `bb8c148`; before that it blocked the account for 15 minutes.
 
-> ⚠ **No confirmation email.** Registration's `message` promises one, but none is sent, and `confirm-email` cannot be
-> completed by a user. (F-27, F-30)
+> ⚠ **Confirm before signing in.** New accounts get a confirmation email and cannot sign in until they follow it:
+> login answers 403 `Auth.EmailNotConfirmed` (only when the password is right). Show its `detail` and offer
+> [`resend-confirmation`](#post-apiv1authresend-confirmation). The storefront must serve the page the link points at
+> ([the confirmation link](#the-confirmation-link)). A completed password reset also confirms the address.
 
 > ⚠ **Recovery codes are not accepted anywhere.** A lost authenticator needs an admin `disable-2fa`. (F-29)
 
