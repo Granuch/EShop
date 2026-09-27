@@ -18,15 +18,16 @@ public record GetCategoryStatsQuery : IRequest<Result<CategoryStatsDto>>
     public Guid CategoryId { get; init; }
 }
 
-/// <param name="ProductCount">Live products directly in this category, published or not.</param>
+/// <param name="ProductCount">Live products in this category or any subcategory, published or not.</param>
 /// <param name="PublishedProductCount">Of those, the ones an anonymous caller can see.</param>
 /// <param name="TotalStock">Sum of <c>StockQuantity</c> over the live products counted above.</param>
-/// <param name="OutOfStockCount">Live products in this category with zero stock.</param>
-/// <param name="ChildCategoryCount">Live direct children.</param>
+/// <param name="OutOfStockCount">Of those, the ones with zero stock.</param>
+/// <param name="ChildCategoryCount">Live direct children — one level, unlike the product counts.</param>
 /// <remarks>
-/// Counts are <b>direct members only, not the whole subtree</b>. A recursive count would need the
-/// descendant closure on every call, and an admin reading a parent's row expects the number to
-/// match what clicking into it shows. Deleted products are excluded throughout — they are invisible
+/// Product counts cover <b>the whole subtree</b>, because an admin reading a parent's row expects the
+/// number to match what clicking into it shows, and every product list read has meant "this category
+/// and its descendants" since the category filter learned to walk the tree. (They were direct-only
+/// until then, for that same reason.) Deleted products are excluded throughout — they are invisible
 /// everywhere else, and a stat that counted them would be the only place they appeared.
 /// </remarks>
 public sealed record CategoryStatsDto(

@@ -16,13 +16,14 @@ namespace EShop.Notification.API.Configuration;
 ///
 /// <para><b>The rules.</b></para>
 /// <list type="bullet">
-///   <item>Every environment: the Identity base URL and the reset URL are absolute http(s) URLs, <c>Smtp:Host</c> is set,
+///   <item>Every environment: the Identity base URL and the storefront URLs (<see cref="StorefrontUrlSettings"/>: the
+///   reset and email-confirmation pages) are absolute http(s) URLs, <c>Smtp:Host</c> is set,
 ///   <c>Smtp:FromEmail</c> is an address, and every template in <see cref="NotificationTemplates.All"/> exists.</item>
 ///   <item>Outside Testing, which runs on EF InMemory: <c>ConnectionStrings:NotificationDb</c> is set.</item>
 ///   <item>Outside Development and Testing — Sandbox included, as <see cref="JwtSecretGuard"/> and Basket's guard do:
 ///   <c>IdentityService:ApiKey</c> is set, and no setting in <see cref="PlaceholderCheckedSettings"/> contains a
 ///   placeholder pattern.</item>
-///   <item>Production (D4): the reset URL uses https and is not a loopback address. Sandbox and k8s are local stacks
+///   <item>Production (D4): each storefront URL uses https and is not a loopback address. Sandbox and k8s are local stacks
 ///   whose browser reaches the storefront on localhost:3000, so they may use <c>http://localhost</c>.</item>
 /// </list>
 /// <para>S5 (M6, D7) added the SMTP connection: outside Development and Testing, credentials over
@@ -39,13 +40,22 @@ public static class NotificationConfigurationGuard
 {
     public const string ResetUrlKey = "PasswordReset:ResetUrlBase";
 
+    /// <summary>
+    /// Where confirmation emails link to (email-confirmation Stage 3). Every rule the reset URL has applies to it too:
+    /// it is the same kind of link, carrying the same kind of live token, to the same storefront.
+    /// </summary>
+    public const string ConfirmUrlKey = "EmailConfirmation:ConfirmUrlBase";
+
+    /// <summary>The storefront links the emails carry, each held to the rules above.</summary>
+    public static IReadOnlyList<string> StorefrontUrlSettings { get; } = [ResetUrlKey, ConfirmUrlKey];
+
     /// <summary>Admin panel S12. The section <c>Program.cs</c> binds before it configures JWT bearer authentication.</summary>
     public const string JwtSecretKey = "JwtSettings:SecretKey";
 
     /// <summary>The settings checked for a placeholder outside Development and Testing.</summary>
     public static IReadOnlyList<string> PlaceholderCheckedSettings { get; } =
     [
-        "IdentityService:ApiKey", "IdentityService:BaseUrl", ResetUrlKey,
+        "IdentityService:ApiKey", "IdentityService:BaseUrl", ResetUrlKey, ConfirmUrlKey,
         "RabbitMQ:Host", "RabbitMQ:Username", "RabbitMQ:Password",
         "Smtp:Username", "Smtp:Password"
     ];
@@ -71,7 +81,7 @@ public static class NotificationConfigurationGuard
         RequireValue(configuration, "JwtSettings:Audience");
 
         RequireHttpUrl(configuration, "IdentityService:BaseUrl");
-        var resetUrl = RequireHttpUrl(configuration, ResetUrlKey);
+        var storefrontUrls = StorefrontUrlSettings.ToDictionary(key => key, key => RequireHttpUrl(configuration, key));
         RequireValue(configuration, "Smtp:Host");
         if (!MailAddress.TryCreate(RequireValue(configuration, "Smtp:FromEmail"), out _))
         {
@@ -123,15 +133,18 @@ public static class NotificationConfigurationGuard
                 throw new InvalidOperationException("Smtp:Security must be StartTls or SslOnConnect in Production.");
             }
 
-            if (resetUrl.Scheme != Uri.UriSchemeHttps)
+            foreach (var (key, url) in storefrontUrls)
             {
-                throw new InvalidOperationException($"{ResetUrlKey} must use HTTPS in Production.");
-            }
+                if (url.Scheme != Uri.UriSchemeHttps)
+                {
+                    throw new InvalidOperationException($"{key} must use HTTPS in Production.");
+                }
 
-            if (resetUrl.IsLoopback)
-            {
-                throw new InvalidOperationException(
-                    $"{ResetUrlKey} points at {resetUrl.Host}. In Production it must be the storefront's public address.");
+                if (url.IsLoopback)
+                {
+                    throw new InvalidOperationException(
+                        $"{key} points at {url.Host}. In Production it must be the storefront's public address.");
+                }
             }
         }
     }

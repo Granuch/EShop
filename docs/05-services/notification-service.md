@@ -43,10 +43,10 @@ Notification service follows layered architecture:
 ### Startup Guards
 
 `NotificationConfigurationGuard` runs before anything is registered, so a misconfigured deploy never starts: the
-Identity base URL and password-reset URL, the SMTP host, sender and security mode, every email template, the
+Identity base URL, the password-reset and email-confirmation URLs, the SMTP host, sender and security mode, every email template, the
 connection string, the internal API key, the JWT signing key (through the shared `JwtSecretGuard`) and a non-empty
-JWT issuer and audience. Sandbox is guarded like Production; Production additionally requires an https,
-non-loopback reset URL and TLS on SMTP.
+JWT issuer and audience. Sandbox is guarded like Production; Production additionally requires https,
+non-loopback reset and confirmation URLs and TLS on SMTP.
 
 The issuer and audience are required in *every* environment, including Testing, because `Program.cs` sets
 `ValidateIssuer` and `ValidateAudience` — an empty one is not a lenient default but a service that rejects every

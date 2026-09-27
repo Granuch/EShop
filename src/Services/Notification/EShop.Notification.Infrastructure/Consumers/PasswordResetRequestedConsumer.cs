@@ -4,6 +4,7 @@ using EShop.Notification.Domain.Interfaces;
 using EShop.Notification.Domain.Models;
 using EShop.Notification.Domain.ValueObjects;
 using EShop.Notification.Infrastructure.Configuration;
+using EShop.Notification.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -44,15 +45,8 @@ public sealed class PasswordResetRequestedConsumer : NotificationConsumer<Passwo
             new PasswordResetEmailModel
             {
                 CustomerName = GreetingName(recipient),
-                ResetLink = BuildResetLink(message.UserId, message.ResetToken)
+                ResetLink = ActionLinks.WithUserAndToken(
+                    _passwordResetSettings.ResetUrlBase, message.UserId, message.ResetToken)
             },
             cancellationToken);
-
-    private string BuildResetLink(string userId, string token)
-    {
-        var baseUrl = _passwordResetSettings.ResetUrlBase;
-
-        var separator = baseUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        return $"{baseUrl}{separator}userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(token)}";
-    }
 }

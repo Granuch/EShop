@@ -592,6 +592,8 @@ spec:
         # storefront on localhost:3000.
         - name: PasswordReset__ResetUrlBase
           value: "http://localhost:3000/reset-password"
+        - name: EmailConfirmation__ConfirmUrlBase
+          value: "http://localhost:3000/confirm-email"
         - name: RabbitMQ__Host
           value: "rabbitmq"
         - name: RabbitMQ__Port

@@ -142,5 +142,8 @@ public class NotificationIntegrationTests
 
         public Task<string> SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
             => Task.FromResult("stub@test.local");
+
+        public Task<string> SendEmailConfirmationAsync(RecipientAddress recipient, EmailConfirmationEmailModel model, CancellationToken ct = default)
+            => Task.FromResult("stub@test.local");
     }
 }

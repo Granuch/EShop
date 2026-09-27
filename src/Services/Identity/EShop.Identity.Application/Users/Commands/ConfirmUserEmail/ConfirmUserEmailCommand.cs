@@ -16,11 +16,11 @@ namespace EShop.Identity.Application.Users.Commands.ConfirmUserEmail;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the support path for the fact that email confirmation is unfinished scaffolding here:
-/// <c>RegisterCommandHandler</c> generates a confirmation token and discards it, so nothing is ever
-/// delivered and a user cannot confirm their own address. Harmless while
-/// <c>SignIn.RequireConfirmedEmail</c> is false — which it is everywhere but Production — and this
-/// endpoint is what stops it being a dead end if it ever isn't.
+/// The support path beside self-service confirmation: registration emails a link
+/// (<c>EmailConfirmationRequestedIntegrationEvent</c>) and <c>POST /api/v1/auth/resend-confirmation</c>
+/// sends another, but a user whose mailbox never receives it — or an account an administrator
+/// created with <c>emailConfirmed: false</c> — still needs someone to vouch for the address while
+/// <c>SignIn.RequireConfirmedEmail</c> is on.
 /// </para>
 /// <para>
 /// It sets the flag directly instead of minting a token and calling <c>ConfirmEmailAsync</c>. A

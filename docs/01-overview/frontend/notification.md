@@ -125,9 +125,10 @@ A `Sent` row has `lastError: null`: a later success clears the last failure.
 | `payment-failed` | `PaymentFailedEvent` | The payment fails | yes |
 | `payment-refunded` | `PaymentRefundedEvent` | An admin refunds the payment | yes |
 | `password-reset` | `PasswordResetRequestedIntegrationEvent` | A customer asks for a reset, or an admin resets a password or invites a user | **no** |
+| `email-confirmation` | `EmailConfirmationRequestedIntegrationEvent` | A customer registers, or asks for a new confirmation link | **no** |
 
-A password reset is never resendable: its link carries a live reset token, so the event is not kept. Ask the customer
-to request a new one.
+A password reset and an email confirmation are never resendable: their links carry live tokens, so the event is not
+kept. Ask the customer to request a new one (forgot-password or resend-confirmation).
 
 ---
 
@@ -250,7 +251,7 @@ One notification in full, with the three fields the journal omits: `lastError`, 
 The email templates this service sends, for a template picker or the test-send screen. Source:
 `GetNotificationTemplatesQuery`. **Service:** `notifications.read`.
 
-**200** [`NotificationTemplate`](#notificationtemplate)[], a bare array, always the seven in the
+**200** [`NotificationTemplate`](#notificationtemplate)[], a bare array, always the eight in the
 [table above](#templates-and-the-events-that-send-them). Captured (shortened):
 
 ```json
@@ -268,8 +269,8 @@ Send one template, filled with sample data, to an address you choose, and wait f
 - `{name}` is a template name, **any case** (`PAYMENT-FAILED` works; the response gives the canonical `payment-failed`).
 - The email is exactly what a customer would receive: same template, same subject line (no "[TEST]" prefix), same
   mail server. The sample data marks it: order id `00000000-0000-0000-0000-000000000000`, a total of 123.45 USD, the
-  date 2026-01-15, and a greeting to `name`. The password-reset sample links to the real reset page with a token no
-  account holds.
+  date 2026-01-15, and a greeting to `name`. The password-reset and email-confirmation samples link to the real pages
+  with a token no account holds.
 - **Synchronous:** the response comes after the mail server has answered.
 - It writes **no** journal row.
 
@@ -442,7 +443,7 @@ Every timestamp is UTC with `Z`.
 | Enum | Sent as | Values | In query filters |
 |---|---|---|---|
 | `NotificationStatus` | PascalCase string | `"Pending"` · `"Sending"` · `"Sent"` · `"Failed"` · `"Undeliverable"` | name, any case; repeatable |
-| Template name | lower-case string | the seven in [the table above](#templates-and-the-events-that-send-them) | exact, any case |
+| Template name | lower-case string | the eight in [the table above](#templates-and-the-events-that-send-them) | exact, any case |
 
 ### Requests
 
@@ -521,7 +522,7 @@ Source: `NotificationStatsDto`.
 
 #### NotificationTemplate
 
-`name` (template name), `eventType` (string), `resendable` (boolean; `false` only for `password-reset`).
+`name` (template name), `eventType` (string), `resendable` (boolean; `false` only for `password-reset` and `email-confirmation`).
 
 #### TestNotificationResult
 
@@ -552,7 +553,8 @@ export type NotificationTemplateName =
   | 'payment-completed'
   | 'payment-failed'
   | 'payment-refunded'
-  | 'password-reset';
+  | 'password-reset'
+  | 'email-confirmation';
 
 // ---- Requests ----
 
@@ -664,7 +666,7 @@ export interface NotificationStats {
 export interface NotificationTemplate {
   name: NotificationTemplateName;
   eventType: string;
-  /** false only for password-reset. */
+  /** false only for password-reset and email-confirmation. */
   resendable: boolean;
 }
 
@@ -718,7 +720,8 @@ export interface RetryFailedNotificationsResult {
 - [admin-platform.md](admin-platform.md): the merged audit trail, where every operator action here is recorded, and
   the health page, which shows the mail server's state
 - [ordering.md](ordering.md) and [payment.md](payment.md): the actions that make a customer email go out
-- [identity.md](identity.md): password resets and invitations, which send `password-reset`
+- [identity.md](identity.md): password resets and invitations, which send `password-reset`, and registration and
+  resend-confirmation, which send `email-confirmation`
 
 ---
 

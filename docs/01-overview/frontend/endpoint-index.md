@@ -2,13 +2,13 @@
 
 Every endpoint of the platform on one page: method, path, auth at the gateway and in the service, audience, and a link to its contract. Cross-checked against every service's live `/openapi/v1.json`: every operation each document lists has a route here, and every route here is documented.
 
-**Verified at:** `85b69f5` on `feature/admin-panel` (2026-09-25); the gateway auth column at `3217d43`, which fixed F-08, F-44 and F-45. 141 application endpoints across six services plus 4 the gateway serves itself.
+**Verified at:** `85b69f5` on `feature/admin-panel` (2026-09-25); the gateway auth column at `3217d43`, which fixed F-08, F-44 and F-45. 142 application endpoints across six services plus 4 the gateway serves itself.
 
 Legend: **Aud** = audience (Storefront / Admin panel / Internal, not callable by a client). "anon" = no token needed. `p:x.y` = permission policy. `R:Admin` = the `Admin` role/policy. `AdminArea` = the gateway's admin gate: the caller holds at least one permission ([conventions.md §5](conventions.md#5-permissions-and-admin-access)).
 
 ---
 
-## Identity (42)
+## Identity (43)
 
 | Method | Path | Gateway auth | Service auth | Aud | Docs |
 |---|---|---|---|---|---|
@@ -17,6 +17,7 @@ Legend: **Aud** = audience (Storefront / Admin panel / Internal, not callable by
 | POST | `/api/v1/auth/refresh-token` | anon | anon, rl `auth` | Storefront | [link](identity.md#post-apiv1authrefresh-token) |
 | POST | `/api/v1/auth/revoke-token` | anon | anon, rl `auth` | Storefront | [link](identity.md#post-apiv1authrevoke-token) |
 | POST | `/api/v1/auth/confirm-email` | anon | anon, rl `auth` | Storefront | [link](identity.md#post-apiv1authconfirm-email) |
+| POST | `/api/v1/auth/resend-confirmation` | anon | anon, rl `login` | Storefront | [link](identity.md#post-apiv1authresend-confirmation) |
 | POST | `/api/v1/auth/forgot-password` | anon | anon, rl `login` | Storefront | [link](identity.md#post-apiv1authforgot-password) |
 | POST | `/api/v1/auth/reset-password` | anon | anon, rl `login` | Storefront | [link](identity.md#post-apiv1authreset-password) |
 | GET | `/api/v1/account/profile` | Authenticated | auth | Storefront | [link](identity.md#get-apiv1accountprofile) |
@@ -184,7 +185,7 @@ Legend: **Aud** = audience (Storefront / Admin panel / Internal, not callable by
 | GET | `/api/v1/admin/settings` | p:system.manage (Ordering + Payment) | Ordering and Payment check p:system.manage again | Admin | [link](admin-platform.md#get-apiv1adminsettings) |
 | GET | `/api/v1/admin/feature-flags` | p:system.manage (Payment + gateway simulation) | Payment checks p:system.manage again | Admin | [link](admin-platform.md#get-apiv1adminfeature-flags) |
 
-Total: **141** application endpoints (Identity 42 · Catalog 42 · Basket 11 · Ordering 17 · Payment 16 · Notification 9 · Gateway 4).
+Total: **142** application endpoints (Identity 43 · Catalog 42 · Basket 11 · Ordering 17 · Payment 16 · Notification 9 · Gateway 4).
 
 ---
 

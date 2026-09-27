@@ -31,7 +31,11 @@ sequenceDiagram
     U->>GW: POST /api/v1/auth/register
     GW->>ID: (proxied, anonymous)
     ID-->>U: 200 { userId, email, message }
-    Note over U,ID: message promises a confirmation email.<br/>None is sent (F-27). Do not build a confirm step.
+    Note over U,ID: Notification emails a confirmation link.<br/>Login answers 403 Auth.EmailNotConfirmed until it is used.
+
+    U->>GW: POST /api/v1/auth/confirm-email { userId, token } (from the link)
+    GW->>ID: (proxied)
+    ID-->>U: 200 { success, message }
 
     U->>GW: POST /api/v1/auth/login { email, password }
     GW->>ID: (proxied)
@@ -59,11 +63,12 @@ sequenceDiagram
     Note over U: Access token still works until it expires (up to 60 min).<br/>Drop it client-side too.
 ```
 
-- **Registration signs nothing up for email confirmation in practice.** [`POST /auth/register`](identity.md#post-apiv1authregister)
-  answers with a message that promises a confirmation email, but none is sent (F-27, deferred by the owner). The
-  account can log in immediately. Do not add a "check your email" step, and do not build a UI for
-  [`POST /auth/confirm-email`](identity.md#post-apiv1authconfirm-email) — no user can call it successfully, since
-  registration gives them nothing to send.
+- **Registration requires email confirmation.** [`POST /auth/register`](identity.md#post-apiv1authregister) is
+  followed a few seconds later by an email whose link (`<ConfirmUrlBase>?userId=…&token=…`, both URL-encoded) must be
+  served by the frontend; that page posts to [`POST /auth/confirm-email`](identity.md#post-apiv1authconfirm-email).
+  Until then, login with the right password answers 403 `Auth.EmailNotConfirmed`: show a "check your email" screen
+  with [`resend-confirmation`](identity.md#post-apiv1authresend-confirmation) (always 200, at most one email per
+  account per minute). A wrong password is still the uniform 401.
 - **Branch on `requires2FA`, never on the HTTP status.** Both the plain and the 2FA-pending answers are 200
   ([`POST /auth/login`](identity.md#post-apiv1authlogin)). Re-send the exact same login request with `twoFactorCode`
   added once the user enters a code from their authenticator app.

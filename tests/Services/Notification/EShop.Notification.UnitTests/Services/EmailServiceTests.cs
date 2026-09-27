@@ -131,12 +131,14 @@ public class EmailServiceTests
         var tokensPerTemplate = await TokensPerTemplateAsync();
         var failed = tokensPerTemplate[NotificationTemplates.PaymentFailed];
         var reset = tokensPerTemplate[NotificationTemplates.PasswordReset];
+        var confirmation = tokensPerTemplate[NotificationTemplates.EmailConfirmation];
 
         Assert.Multiple(() =>
         {
             Assert.That(failed["FailureReason"], Is.EqualTo("Your card was declined."));
             Assert.That(failed["SupportEmail"], Is.EqualTo("support@eshop.local"));
             Assert.That(reset["ResetLink"], Is.EqualTo("https://frontend/reset-password?userId=u1&token=t1"));
+            Assert.That(confirmation["ConfirmationLink"], Is.EqualTo("https://frontend/confirm-email?userId=u1&token=t1"));
         });
     }
 
@@ -185,6 +187,10 @@ public class EmailServiceTests
         await StopAsync(() => service.SendPasswordResetAsync(Customer, new PasswordResetEmailModel
         {
             CustomerName = "Customer", ResetLink = "https://frontend/reset-password?userId=u1&token=t1"
+        }));
+        await StopAsync(() => service.SendEmailConfirmationAsync(Customer, new EmailConfirmationEmailModel
+        {
+            CustomerName = "Customer", ConfirmationLink = "https://frontend/confirm-email?userId=u1&token=t1"
         }));
 
         return captured;

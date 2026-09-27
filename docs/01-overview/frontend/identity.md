@@ -37,7 +37,7 @@ Not routed through the gateway: `GET /api/v1/users/{userId}/contact` and Identit
 
 - [Storefront / customer](#storefront--customer)
   - [Sign-up and sign-in](#sign-up-and-sign-in): register, login, refresh, revoke, confirm email, forgot and reset
-    password
+    password, resend confirmation
   - [Own account](#own-account): profile, change password, two-factor authentication
   - [Failed logins and lockout](#failed-logins-and-lockout)
 - [Admin panel](#admin-panel)
@@ -54,7 +54,7 @@ Not routed through the gateway: `GET /api/v1/users/{userId}/contact` and Identit
 
 ### Sign-up and sign-in
 
-All seven `/auth` endpoints are anonymous at both layers. A token sent with them is ignored.
+All eight `/auth` endpoints are anonymous at both layers. A token sent with them is ignored.
 
 | Endpoint | Rate limit per client IP | Minimum response time |
 |---|---|---|
@@ -63,15 +63,16 @@ All seven `/auth` endpoints are anonymous at both layers. A token sent with them
 | `POST /auth/refresh-token` | `auth`, 10 / 60 s | 0.8–1.2 s |
 | `POST /auth/revoke-token` | `auth`, 10 / 60 s | none |
 | `POST /auth/confirm-email` | `auth`, 10 / 60 s | 0.8–1.2 s |
+| `POST /auth/resend-confirmation` | `login`, 5 / 60 s | 0.8–1.2 s |
 | `POST /auth/forgot-password` | `login`, 5 / 60 s | 0.8–1.2 s |
 | `POST /auth/reset-password` | `login`, 5 / 60 s | 0.8–1.2 s |
 
 - **The buckets are shared.** Endpoints with the same policy spend one allowance: `register`, `refresh-token`,
-  `revoke-token` and `confirm-email` together get 10 calls a minute per IP, and `login`, `forgot-password` and
-  `reset-password` together get 5.
+  `revoke-token` and `confirm-email` together get 10 calls a minute per IP, and `login`, `resend-confirmation`,
+  `forgot-password` and `reset-password` together get 5.
 - **429 bodies.** A 429 here is problem+json with `errorCode` `Request.RateLimited` and a `Retry-After` in seconds, as
   everywhere ([conventions.md §7](conventions.md#7-rate-limits)).
-- **Padding.** The six padded endpoints never answer faster than about 0.8 s, even for a validation error. This hides
+- **Padding.** The seven padded endpoints never answer faster than about 0.8 s, even for a validation error. This hides
   whether an account exists. Show a spinner rather than treating the delay as a fault.
 
 #### `POST /api/v1/auth/register`
@@ -94,7 +95,11 @@ Creates a customer account with the `User` role. Source: `RegisterCommand`.
  "message":"Registration successful. Please check your email to confirm."}
 ```
 
-The account can log in immediately.
+Registration also emails a confirmation link a few seconds later (sent by the Notification service; see
+[the confirmation link](#the-confirmation-link)). While `Identity:RequireConfirmedEmail` is on — the default
+everywhere except Development, so the Sandbox compose stack and k8s included — login answers
+[403 `Auth.EmailNotConfirmed`](#post-apiv1authlogin) until the address is confirmed. With it off, the account can
+log in immediately.
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -103,8 +108,8 @@ The account can log in immediately.
 | 400 | `Auth.CreateFailed` | ASP.NET Identity refused the account; `detail` lists its reasons. From source, not observed: the checks above run first |
 | 429 | `Request.RateLimited` | `auth` bucket spent |
 
-> ⚠ The `message` promises a confirmation email, but **none is sent**. Do not show it, and do not add a "confirm your
-> email" step to sign-up. (F-27)
+Show `message`: the confirmation email really is sent. Follow sign-up with a "check your email" screen that offers
+[`resend-confirmation`](#post-apiv1authresend-confirmation) if nothing arrives.
 
 #### `POST /api/v1/auth/login`
 
@@ -143,11 +148,13 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
 | 400 | `ValidationError` | Missing email or password, a malformed email, a `twoFactorCode` that is not 6 digits, or a body that is not JSON (key `$`) |
 | 401 | `Auth.InvalidCredentials` | `detail` `"Invalid email or password"`. Wrong password, unknown email, **and also** a deactivated, deleted or admin-locked account. The response never says which |
 | 401 | `Auth.Invalid2FA` | `twoFactorCode` was sent and is wrong |
+| 403 | `Auth.EmailNotConfirmed` | The password is **right** but the address is not confirmed, while `Identity:RequireConfirmedEmail` is on. Offer [`resend-confirmation`](#post-apiv1authresend-confirmation). A wrong password on such an account is the uniform 401 above, so this reveals nothing to someone without the password |
 | 401 | `Auth.TooManyAttempts` | The account is in its post-failure delay or locked, or the client IP is blocked. See [Failed logins and lockout](#failed-logins-and-lockout) |
 | 429 | `Request.RateLimited` | `login` bucket spent |
 
 - **Side effects.** A successful login records `lastLoginAt` and the client IP, and resets the account's failed-login
-  counter. Refusals count as failed attempts, as described in [Failed logins and lockout](#failed-logins-and-lockout).
+  counter. Refusals count as failed attempts, as described in [Failed logins and lockout](#failed-logins-and-lockout),
+  except `Auth.EmailNotConfirmed`: the credentials were right, so it is not counted.
 - **Permissions.** Use `user.permissions` to decide which admin screens and actions to show, and `user.roles` only to
   display the role names. Do not decode the JWT for either: it carries the roles under a long claim type and no
   permissions at all ([conventions.md §4](conventions.md#claims-and-roles), [§5](conventions.md#5-permissions-and-admin-access)).
@@ -192,9 +199,8 @@ access token stays valid until it expires, so drop it on the client too.
 
 Marks an email address confirmed with a token. Source: `ConfirmEmailCommand`.
 
-> ⚠ **No user can call this successfully today.** Registration never delivers a token (F-27), so a client has nothing
-> to send. Admins confirm addresses with [`POST /admin/users/{id}/confirm-email`](#post-apiv1adminusersidconfirm-email)
-> instead. Build no UI for it until F-27 is resolved.
+The page behind the emailed link calls this. Admins can also confirm an address without a token, with
+[`POST /admin/users/{id}/confirm-email`](#post-apiv1adminusersidconfirm-email).
 
 **Body** ([`ConfirmEmailRequest`](#confirmemailrequest)): `userId` and `token`, both required.
 
@@ -210,6 +216,47 @@ or `"Email already confirmed"`.
 
 > ⚠ For an address that is already confirmed, the answer is 200 `"Email already confirmed"` whatever the token. The
 > 400 `Auth.UserNotFound` also tells a caller whether a user id exists. (F-30)
+
+##### The confirmation link
+
+The email (sent by the Notification service a few seconds after registration or a
+[resend](#post-apiv1authresend-confirmation)) links to:
+
+```
+<EmailConfirmation:ConfirmUrlBase>?userId=<user id>&token=<confirmation token>
+```
+
+Both values are URL-encoded. The compose default for the base is `http://localhost:3000/confirm-email`
+(`EMAIL_CONFIRMATION_URL_BASE` in `.env`). **The frontend must serve that page.** It reads `userId` and `token` with
+`URLSearchParams`, which decodes them, and posts them to this endpoint. On 200, send the user to sign in; on
+`Auth.InvalidToken`, offer [`resend-confirmation`](#post-apiv1authresend-confirmation). A token is valid for 24 hours,
+and any unexpired one works, including one from an earlier email.
+
+#### `POST /api/v1/auth/resend-confirmation`
+
+Emails a fresh [confirmation link](#the-confirmation-link) to an account whose address is not confirmed yet. Source:
+`ResendEmailConfirmationCommand`.
+
+**Body** ([`ResendConfirmationRequest`](#resendconfirmationrequest)): `{ "email": "…" }`, required, an email
+address, at most 256 characters.
+
+**200** [`SuccessMessageResponse`](#successmessageresponse), **always the same**, whether or not the address belongs to
+an account, is already confirmed, or was sent a link a moment ago:
+
+```json
+{"success":true,"message":"If the address belongs to an account awaiting confirmation, a new confirmation link has been sent"}
+```
+
+- **Only an active, unconfirmed account is sent anything.** Unknown, deactivated and already-confirmed addresses get
+  the same 200 and nothing is queued.
+- **One resend per account per minute.** A second request inside that minute gets the same 200 and queues nothing;
+  the earlier link still works. Registration's own link does not start the minute.
+- A resend issues a new token without invalidating earlier ones; any unexpired link confirms the address.
+
+| Status | `errorCode` | When |
+|---|---|---|
+| 400 | `ValidationError` | The email is missing or malformed |
+| 429 | `Request.RateLimited` | `login` bucket spent |
 
 #### `POST /api/v1/auth/forgot-password`
 
@@ -262,6 +309,9 @@ Sets a new password with the token from the email. Source: `ResetPasswordCommand
 - **Signs out everywhere.** Every refresh token of the user is revoked in the same transaction. Access tokens already
   issued keep working until they expire.
 - **Single use.** A reset token works once; the second use gets `Auth.ResetFailed`.
+- **It confirms the address.** The token only ever travels by email, so redeeming it proves the user reads that
+  mailbox: an unconfirmed account is confirmed by a successful reset. This is what lets an admin-created account,
+  whose only email is the reset link, sign in when confirmation is required.
 - **It does not sign in**, and it does not clear a failed-login block ([below](#failed-logins-and-lockout)).
 
 | Status | `errorCode` | When |
@@ -885,7 +935,7 @@ records in `EShop.Identity.API/Controllers`. All timestamps are UTC with `Z`, ex
 |---|---|---|
 | `userId` | string | The new user's id |
 | `email` | string | As stored |
-| `message` | string | Do not show (F-27) |
+| `message` | string | Safe to show: the confirmation email is sent |
 
 #### LoginRequest
 
@@ -934,13 +984,17 @@ empty for a role with no bundle).
 
 `email` (string, required).
 
+#### ResendConfirmationRequest
+
+`email` (string, required).
+
 #### ResetPasswordRequest
 
 `userId`, `token` (decoded), `newPassword` (strings, required).
 
 #### SuccessMessageResponse
 
-Returned by confirm-email, forgot-password, reset-password and disable-2fa. `success` (always `true` on a 2xx) and
+Returned by confirm-email, resend-confirmation, forgot-password, reset-password and disable-2fa. `success` (always `true` on a 2xx) and
 `message` (string, safe to show).
 
 #### MessageResponse
@@ -1145,6 +1199,10 @@ export interface ForgotPasswordRequest {
   email: string;
 }
 
+export interface ResendConfirmationRequest {
+  email: string;
+}
+
 export interface ResetPasswordRequest {
   userId: string;
   token: string;
@@ -1173,7 +1231,7 @@ export interface TwoFactorCodeRequest {
 export interface RegisterResponse {
   userId: string;
   email: string;
-  /** Do not show it: it promises an email that is never sent (F-27). */
+  /** Safe to show: the confirmation email is sent. */
   message: string;
 }
 
@@ -1215,7 +1273,7 @@ export interface RefreshTokenResponse {
   expiresIn: number;
 }
 
-/** confirm-email, forgot-password, reset-password, disable-2fa. `success` is always true on a 2xx. */
+/** confirm-email, resend-confirmation, forgot-password, reset-password, disable-2fa. `success` is always true on a 2xx. */
 export interface SuccessMessageResponse {
   success: true;
   message: string;
@@ -1427,8 +1485,10 @@ export interface UserInRole {
 > and offer a password reset. See [Failed logins and lockout](#failed-logins-and-lockout).
 > F-28 made this delay real in `bb8c148`; before that it blocked the account for 15 minutes.
 
-> ⚠ **No confirmation email.** Registration's `message` promises one, but none is sent, and `confirm-email` cannot be
-> completed by a user. (F-27, F-30)
+> ⚠ **Confirm before signing in.** New accounts get a confirmation email and cannot sign in until they follow it:
+> login answers 403 `Auth.EmailNotConfirmed` (only when the password is right). Show its `detail` and offer
+> [`resend-confirmation`](#post-apiv1authresend-confirmation). The storefront must serve the page the link points at
+> ([the confirmation link](#the-confirmation-link)). A completed password reset also confirms the address.
 
 > ⚠ **Recovery codes are not accepted anywhere.** A lost authenticator needs an admin `disable-2fa`. (F-29)
 
