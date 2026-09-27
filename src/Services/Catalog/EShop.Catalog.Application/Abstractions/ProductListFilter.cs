@@ -13,6 +13,10 @@ namespace EShop.Catalog.Application.Abstractions;
 /// it without visibly passing <c>true</c>.
 /// </para>
 /// </summary>
+/// <param name="CategoryId">
+/// The category <b>and its whole subtree</b>, at any depth — not an exact match. Products are normally
+/// filed under leaves, so an exact match on a parent returned nothing.
+/// </param>
 /// <param name="IncludeUnpublished">
 /// D1 / H5a. False restricts the result to <c>ProductStatus.Active</c>. Deliberately has no
 /// default: set it from the caller's role at the endpoint, never from a bound request property.

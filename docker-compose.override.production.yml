@@ -142,3 +142,4 @@ services:
       Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:?NOTIFICATION_SMTP_SECURITY is required in production}
       Smtp__FromEmail: ${NOTIFICATION_SMTP_FROM_EMAIL:?NOTIFICATION_SMTP_FROM_EMAIL is required in production}
       PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:?PASSWORD_RESET_URL_BASE is required in production}
+      EmailConfirmation__ConfirmUrlBase: ${EMAIL_CONFIRMATION_URL_BASE:?EMAIL_CONFIRMATION_URL_BASE is required in production}

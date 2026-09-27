@@ -19,6 +19,7 @@ public class NotificationConfigurationGuardTests
         ["IdentityService:BaseUrl"] = "http://identity-api:8080",
         ["IdentityService:ApiKey"] = "k7Qp2vXw9sLm4tRz8bNc6yHd3fJg5aUe1oWi0",
         ["PasswordReset:ResetUrlBase"] = "https://shop.eshop-real.test/reset-password",
+        ["EmailConfirmation:ConfirmUrlBase"] = "https://shop.eshop-real.test/confirm-email",
         ["Smtp:Host"] = "smtp.eshop-real.test",
         ["Smtp:FromEmail"] = "noreply@eshop.local",
         ["RabbitMQ:Host"] = "rabbitmq",
@@ -43,6 +44,9 @@ public class NotificationConfigurationGuardTests
     [TestCase("PasswordReset:ResetUrlBase", "", "PasswordReset:ResetUrlBase is required")]
     [TestCase("PasswordReset:ResetUrlBase", "/reset-password", "PasswordReset:ResetUrlBase must be an absolute http or https URL")]
     [TestCase("PasswordReset:ResetUrlBase", "ftp://shop.eshop-real.test/reset", "PasswordReset:ResetUrlBase must be an absolute http or https URL")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "", "EmailConfirmation:ConfirmUrlBase is required")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "/confirm-email", "EmailConfirmation:ConfirmUrlBase must be an absolute http or https URL")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "ftp://shop.eshop-real.test/confirm", "EmailConfirmation:ConfirmUrlBase must be an absolute http or https URL")]
     [TestCase("Smtp:Host", "", "Smtp:Host is required")]
     [TestCase("Smtp:FromEmail", "", "Smtp:FromEmail is required")]
     [TestCase("Smtp:FromEmail", "not-an-address", "Smtp:FromEmail must be an email address")]
@@ -89,6 +93,7 @@ public class NotificationConfigurationGuardTests
     [TestCase("IdentityService:ApiKey", "CHANGE_ME_internal_service_api_key")]
     [TestCase("IdentityService:BaseUrl", "http://TestKey-identity:8080")]
     [TestCase("PasswordReset:ResetUrlBase", "https://YOUR_STOREFRONT/reset-password")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "https://YOUR_STOREFRONT/confirm-email")]
     [TestCase("RabbitMQ:Host", "REPLACE_WITH_rabbitmq_host")]
     [TestCase("RabbitMQ:Username", "placeholder-user")]
     [TestCase("RabbitMQ:Password", "#{RABBITMQ_PASSWORD}#")]
@@ -107,25 +112,32 @@ public class NotificationConfigurationGuardTests
         });
     }
 
-    /// <summary>D4. The first is the old tracked default, which reached every deployed environment.</summary>
-    [TestCase("https://localhost:3000/reset-password", "points at localhost")]
-    [TestCase("https://127.0.0.1/reset-password", "points at 127.0.0.1")]
-    [TestCase("http://shop.eshop-real.test/reset-password", "must use HTTPS in Production")]
-    public void InProduction_TheResetUrl_MustBeThePublicHttpsStorefront(string url, string message)
+    /// <summary>
+    /// D4. The first is the old tracked default, which reached every deployed environment. Email confirmation's link is
+    /// held to the same rules (email-confirmation Stage 3), and the message names the setting that broke them.
+    /// </summary>
+    [TestCase("PasswordReset:ResetUrlBase", "https://localhost:3000/reset-password", "PasswordReset:ResetUrlBase points at localhost")]
+    [TestCase("PasswordReset:ResetUrlBase", "https://127.0.0.1/reset-password", "points at 127.0.0.1")]
+    [TestCase("PasswordReset:ResetUrlBase", "http://shop.eshop-real.test/reset-password", "PasswordReset:ResetUrlBase must use HTTPS in Production")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "https://localhost:3000/confirm-email", "EmailConfirmation:ConfirmUrlBase points at localhost")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "https://127.0.0.1/confirm-email", "points at 127.0.0.1")]
+    [TestCase("EmailConfirmation:ConfirmUrlBase", "http://shop.eshop-real.test/confirm-email", "EmailConfirmation:ConfirmUrlBase must use HTTPS in Production")]
+    public void InProduction_EachStorefrontUrl_MustBeThePublicHttpsStorefront(string key, string url, string message)
     {
         var settings = Clean();
-        settings["PasswordReset:ResetUrlBase"] = url;
+        settings[key] = url;
 
         Assert.That(() => Validate("Production", settings),
             Throws.InvalidOperationException.With.Message.Contains(message));
     }
 
-    /// <summary>D4. The compose and k8s default: the local stack's browser reaches the storefront on localhost:3000.</summary>
+    /// <summary>D4. The compose and k8s defaults: the local stack's browser reaches the storefront on localhost:3000.</summary>
     [Test]
-    public void InSandbox_TheLocalStorefrontUrl_IsAccepted()
+    public void InSandbox_TheLocalStorefrontUrls_AreAccepted()
     {
         var settings = Clean();
         settings["PasswordReset:ResetUrlBase"] = "http://localhost:3000/reset-password";
+        settings["EmailConfirmation:ConfirmUrlBase"] = "http://localhost:3000/confirm-email";
 
         Assert.DoesNotThrow(() => Validate("Sandbox", settings));
     }

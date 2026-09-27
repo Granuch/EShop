@@ -36,21 +36,25 @@ public sealed class NotificationTemplateCatalog : INotificationTemplateCatalog
         Info(NotificationTemplates.PaymentCompleted, nameof(PaymentCompletedEvent)),
         Info(NotificationTemplates.PaymentFailed, nameof(PaymentFailedEvent)),
         Info(NotificationTemplates.PaymentRefunded, nameof(PaymentRefundedEvent)),
-        Info(NotificationTemplates.PasswordReset, nameof(PasswordResetRequestedIntegrationEvent))
+        Info(NotificationTemplates.PasswordReset, nameof(PasswordResetRequestedIntegrationEvent)),
+        Info(NotificationTemplates.EmailConfirmation, nameof(EmailConfirmationRequestedIntegrationEvent))
     ];
 
     private readonly IEmailService _emailService;
     private readonly SmtpSettings _smtpSettings;
     private readonly PasswordResetSettings _passwordResetSettings;
+    private readonly EmailConfirmationSettings _emailConfirmationSettings;
 
     public NotificationTemplateCatalog(
         IEmailService emailService,
         IOptions<SmtpSettings> smtpSettings,
-        IOptions<PasswordResetSettings> passwordResetSettings)
+        IOptions<PasswordResetSettings> passwordResetSettings,
+        IOptions<EmailConfirmationSettings> emailConfirmationSettings)
     {
         _emailService = emailService;
         _smtpSettings = smtpSettings.Value;
         _passwordResetSettings = passwordResetSettings.Value;
+        _emailConfirmationSettings = emailConfirmationSettings.Value;
     }
 
     public IReadOnlyList<NotificationTemplateInfo> Templates => All;
@@ -123,19 +127,22 @@ public sealed class NotificationTemplateCatalog : INotificationTemplateCatalog
             NotificationTemplates.PasswordReset => _emailService.SendPasswordResetAsync(recipient, new PasswordResetEmailModel
             {
                 CustomerName = name,
-                ResetLink = SampleResetLink()
+                ResetLink = SampleLink(_passwordResetSettings.ResetUrlBase)
+            }, cancellationToken),
+
+            // The same rule: the real confirmation page, and a token that confirms nothing.
+            NotificationTemplates.EmailConfirmation => _emailService.SendEmailConfirmationAsync(recipient, new EmailConfirmationEmailModel
+            {
+                CustomerName = name,
+                ConfirmationLink = SampleLink(_emailConfirmationSettings.ConfirmUrlBase)
             }, cancellationToken),
 
             _ => throw new ArgumentException($"There is no template named '{templateName}'.", nameof(templateName))
         };
     }
 
-    private string SampleResetLink()
-    {
-        var baseUrl = _passwordResetSettings.ResetUrlBase;
-        var separator = baseUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        return $"{baseUrl}{separator}userId=test-send&token=not-a-real-token";
-    }
+    private static string SampleLink(string baseUrl)
+        => ActionLinks.WithUserAndToken(baseUrl, "test-send", "not-a-real-token");
 
     private static NotificationTemplateInfo Info(string name, string eventType)
         => new(name, eventType, ResendableNotifications.TryGet(eventType, out _));

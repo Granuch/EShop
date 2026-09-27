@@ -25,12 +25,17 @@ namespace EShop.Catalog.Application.Products.Queries.GetProductByCategory;
 /// </para>
 ///
 /// <para>
-/// D1 / H5a. <b>Published products only, for every caller including admins.</b> Stage 4 chose
-/// that because an admin variant would have been a second exact key nothing evicted. Being in the
-/// family removes that constraint — a role variant would now invalidate correctly — so the
-/// restriction is a decision rather than a limitation. Lifting it means adding
-/// <c>IncludeUnpublished</c> here, overwriting it at the endpoint, and putting it in the key.
-/// Admins meanwhile use <c>GET /api/v1/products?CategoryId=…</c>.
+/// D1 / H5a. Admins see drafts, everyone else published products only — see
+/// <see cref="IncludeUnpublished"/> (Admin panel S5, #54). Before S5 it was published-only for every
+/// caller, because an admin variant would have been a second exact key nothing evicted; the family
+/// removed that constraint.
+/// </para>
+///
+/// <para>
+/// The category means its <b>whole subtree</b>: products filed under any descendant are included, at
+/// any depth. The resolution happens once, in <c>ProductQueryService</c>, and applies identically to
+/// <c>GET /api/v1/products?CategoryId=…</c>. The key needs nothing for it — the id does not change,
+/// only its meaning — and a move or restore that reshapes a subtree already bumps the family.
 /// </para>
 /// </summary>
 public record GetProductByCategoryQuery : IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey

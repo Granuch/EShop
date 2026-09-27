@@ -403,5 +403,8 @@ public class ConsumerDeliveryRecordTests
 
         public Task<string> SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
             => throw new NotSupportedException();
+
+        public Task<string> SendEmailConfirmationAsync(RecipientAddress recipient, EmailConfirmationEmailModel model, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 }

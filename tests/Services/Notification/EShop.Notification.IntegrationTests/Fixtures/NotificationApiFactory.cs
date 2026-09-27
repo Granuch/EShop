@@ -29,6 +29,7 @@ public class NotificationApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Smtp:Host", "smtp.invalid");
         builder.UseSetting("IdentityService:BaseUrl", "http://identity.invalid/");
         builder.UseSetting("PasswordReset:ResetUrlBase", "https://shop.eshop-real.test/reset-password");
+        builder.UseSetting("EmailConfirmation:ConfirmUrlBase", "https://shop.eshop-real.test/confirm-email");
         builder.UseSetting("JwtSettings:SecretKey", SecretKey);
         builder.UseSetting("JwtSettings:Issuer", Issuer);
         builder.UseSetting("JwtSettings:Audience", Audience);

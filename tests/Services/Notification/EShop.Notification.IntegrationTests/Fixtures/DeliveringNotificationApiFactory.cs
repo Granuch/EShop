@@ -90,6 +90,9 @@ public sealed class DeliveringNotificationApiFactory : NotificationApiFactory
         public Task<string> SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default)
             => Record(nameof(SendPasswordResetAsync), recipient, null);
 
+        public Task<string> SendEmailConfirmationAsync(RecipientAddress recipient, EmailConfirmationEmailModel model, CancellationToken ct = default)
+            => Record(nameof(SendEmailConfirmationAsync), recipient, null);
+
         private Task<string> Record(string method, RecipientAddress recipient, Guid? orderId)
         {
             if (recipient.Email == UnreachableSmtpAddress)
