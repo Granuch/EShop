@@ -1,79 +1,70 @@
 # ============================================
-# Multi-stage Dockerfile for EShop Ordering API
-# Optimized for .NET 10 production deployment
+# EShop Ordering API - multi-stage build
+# Build context: the repository root (see docker-compose.yml).
+# Every service Dockerfile follows the same template; keep them in step.
 # ============================================
 
-# ============================================
-# Stage 1: Build
-# ============================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# --------------------------------------------
+# Build: restore, then publish
+# --------------------------------------------
+# Exact SDK version, so a rebuild is reproducible; Dependabot (docker ecosystem) proposes each new patch.
+FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
 WORKDIR /src
 
-# Copy solution file and project files for restore
+# Project files first, so the restore layer is reused until a .csproj changes. The list must hold every project
+# the API references, directly or transitively; a missing one only prints "Skipping project" and silently
+# costs the cache (docker-ci DC-06).
 COPY ["src/Services/Ordering/EShop.Ordering.API/EShop.Ordering.API.csproj", "src/Services/Ordering/EShop.Ordering.API/"]
 COPY ["src/Services/Ordering/EShop.Ordering.Application/EShop.Ordering.Application.csproj", "src/Services/Ordering/EShop.Ordering.Application/"]
-COPY ["src/Services/Ordering/EShop.Ordering.Infrastructure/EShop.Ordering.Infrastructure.csproj", "src/Services/Ordering/EShop.Ordering.Infrastructure/"]
 COPY ["src/Services/Ordering/EShop.Ordering.Domain/EShop.Ordering.Domain.csproj", "src/Services/Ordering/EShop.Ordering.Domain/"]
-COPY ["src/BuildingBlocks/EShop.BuildingBlocks.Application/EShop.BuildingBlocks.Application.csproj", "src/BuildingBlocks/EShop.BuildingBlocks.Application/"]
+COPY ["src/Services/Ordering/EShop.Ordering.Infrastructure/EShop.Ordering.Infrastructure.csproj", "src/Services/Ordering/EShop.Ordering.Infrastructure/"]
 COPY ["src/BuildingBlocks/EShop.BuildingBlocks.Domain/EShop.BuildingBlocks.Domain.csproj", "src/BuildingBlocks/EShop.BuildingBlocks.Domain/"]
+COPY ["src/BuildingBlocks/EShop.BuildingBlocks.Application/EShop.BuildingBlocks.Application.csproj", "src/BuildingBlocks/EShop.BuildingBlocks.Application/"]
 COPY ["src/BuildingBlocks/EShop.BuildingBlocks.Infrastructure/EShop.BuildingBlocks.Infrastructure.csproj", "src/BuildingBlocks/EShop.BuildingBlocks.Infrastructure/"]
 COPY ["src/BuildingBlocks/EShop.BuildingBlocks.Messaging/EShop.BuildingBlocks.Messaging.csproj", "src/BuildingBlocks/EShop.BuildingBlocks.Messaging/"]
-
-# Restore dependencies
 RUN dotnet restore "src/Services/Ordering/EShop.Ordering.API/EShop.Ordering.API.csproj"
 
-# Copy all source code
 COPY . .
-
-# Build the application
 WORKDIR "/src/src/Services/Ordering/EShop.Ordering.API"
-RUN dotnet build "EShop.Ordering.API.csproj" -c Release -o /app/build
-
-# ============================================
-# Stage 2: Publish
-# ============================================
-FROM build AS publish
+# One compile: publish builds the project itself, so there is no separate "dotnet build" step (DC-07).
 RUN dotnet publish "EShop.Ordering.API.csproj" \
     -c Release \
     -o /app/publish \
     --no-restore \
     /p:UseAppHost=false
 
-# ============================================
-# Stage 3: Runtime
-# ============================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+# --------------------------------------------
+# Runtime
+# --------------------------------------------
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.12 AS final
 
-# Install curl for health checks
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# curl serves the HEALTHCHECK below and the compose healthchecks.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Non-root user. UID/GID 999 are pinned because the existing *-logs volumes hold files owned by 999.
+RUN groupadd --system --gid 999 appuser \
+    && useradd --system --uid 999 --gid appuser appuser
 
 WORKDIR /app
+# The application stays owned by root, so the process cannot rewrite its own binaries; only logs/ and data/ are
+# writable. Chowning /app after the COPY would store every published file twice (DC-33).
+COPY --from=build /app/publish .
+RUN mkdir -p /app/logs /app/data \
+    && chown appuser:appuser /app/logs /app/data
 
-# Copy published application
-COPY --from=publish /app/publish .
-
-# Create directories for logs and data with proper permissions
-RUN mkdir -p /app/logs /app/data && \
-    chown -R appuser:appuser /app
-
-# Switch to non-root user
 USER appuser
 
-# Expose ports
-EXPOSE 8080 8081
+EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health/ready || exit 1
+# Same shape as the compose healthchecks, so a plain "docker run" reports health the same way.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -fsS http://localhost:8080/health/ready || exit 1
 
-# Environment variables (overridden by docker-compose)
+# Defaults; docker-compose.yml overrides the environment.
 ENV ASPNETCORE_HTTP_PORTS=8080 \
     ASPNETCORE_ENVIRONMENT=Production \
-    DOTNET_RUNNING_IN_CONTAINER=true \
     DOTNET_EnableDiagnostics=0
 
-# Entry point
 ENTRYPOINT ["dotnet", "EShop.Ordering.API.dll"]

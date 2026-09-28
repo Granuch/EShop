@@ -1,0 +1,6 @@
+# hadolint configuration for the service Dockerfiles (src/**/Dockerfile).
+ignored:
+  # DL3008 asks for "apt-get install <pkg>=<version>". The only package is curl, from the pinned aspnet base image's
+  # Debian release. An exact Debian package version is withdrawn from the mirror when Debian ships a security fix,
+  # which would break every build, so the base image tag is the version pin instead.
+  - DL3008
