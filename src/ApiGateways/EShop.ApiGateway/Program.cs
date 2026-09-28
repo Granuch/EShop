@@ -9,6 +9,7 @@ using EShop.ApiGateway.Notifications;
 using EShop.ApiGateway.Simulation;
 using EShop.ApiGateway.SystemAdmin;
 using EShop.BuildingBlocks.Infrastructure.Authorization;
+using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using HealthChecks.UI.Client;
@@ -60,11 +61,12 @@ builder.Services.Configure<NotificationProxyOptions>(builder.Configuration.GetSe
 var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var jwtSecretKey = jwtSettings["SecretKey"];
-if (string.IsNullOrWhiteSpace(jwtSecretKey) || jwtSecretKey.Length < 32)
-{
-    throw new InvalidOperationException("JwtSettings:SecretKey must be configured and at least 32 characters long.");
-}
+// docker-ci DC-36: the shared guards every service already calls. The gateway used to check only length and
+// emptiness, so under the production override it started on the public CHANGE_ME key from .env.example while all
+// six services refused it. Both guards exempt Development and Testing only; Configuration/StartupGuardTests boots
+// this file as Production to prove the calls are still here.
+var jwtSecretKey = JwtSecretGuard.Validate(jwtSettings["SecretKey"], builder.Environment);
+var corsAllowedOrigins = CorsOriginGuard.GetValidatedOrigins(builder.Configuration, builder.Environment);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -102,10 +104,9 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-
-        if (origins.Length == 0 &&
-            (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing")))
+        // CorsOriginGuard has already refused an empty list outside Development and Testing, so an empty list
+        // here means a local run with no frontend configured.
+        if (corsAllowedOrigins.Length == 0)
         {
             policy.AllowAnyOrigin()
                 .AllowAnyMethod()
@@ -114,16 +115,7 @@ builder.Services.AddCors(options =>
             return;
         }
 
-        if (origins.Length == 0 &&
-            !builder.Environment.IsDevelopment() &&
-            !builder.Environment.IsEnvironment("Testing"))
-        {
-            throw new InvalidOperationException(
-                $"Cors:AllowedOrigins is empty in {builder.Environment.EnvironmentName}. " +
-                "Configure allowed origins before deploying to non-development environments.");
-        }
-
-        policy.WithOrigins(origins)
+        policy.WithOrigins(corsAllowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials()
