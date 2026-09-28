@@ -1,0 +1,7 @@
+# hadolint configuration for the service Dockerfiles (src/**/Dockerfile).
+ignored:
+  # DL3008 asks for "apt-get install <pkg>=<version>". The only package is curl, from the pinned aspnet base image's
+  # Ubuntu release (.NET 10 images are Ubuntu 24.04 "noble", not Debian). An exact package version drops out of the
+  # archive index as soon as a security update supersedes it, which would break every build, so the base image tag is
+  # the version pin instead.
+  - DL3008

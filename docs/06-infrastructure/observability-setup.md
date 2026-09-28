@@ -45,13 +45,13 @@ docker compose down
 
 - Seq: `http://localhost:5341`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+- Grafana: `http://localhost:3001` (`GRAFANA_PORT`)
 - Jaeger: `http://localhost:16686`
 
-> **Port 3000 clash**: Grafana's default port is also the Next.js dev-server default used by
-> `ui/`. On Windows, `localhost:3000` and `127.0.0.1:3000` can resolve to two different running
-> processes at once (`::1` vs IPv4), so if both are up, confirm which one actually answered before
-> debugging "Grafana looks wrong" or "the frontend dev server isn't loading."
+> **Grafana is on 3001, not 3000**: 3000 is the `ui/` Next.js dev server's port and the default CORS origin. A `.env`
+> created before this change may still set `GRAFANA_PORT=3000`; then both can be up at once, and on Windows
+> `localhost:3000` and `127.0.0.1:3000` can resolve to different processes (`::1` vs IPv4), so confirm which one
+> answered before debugging either.
 
 ---
 
@@ -85,8 +85,16 @@ For gateway and services, verify:
 - Confirm Seq container is running and reachable.
 
 ### No traces in Jaeger
-- Verify OTEL collector is running.
-- Check OTLP endpoint configuration in service environment.
+- Verify the OTel collector is running (`monitoring` profile) and read its log.
+- Check the OTLP endpoint configuration in the service environment (`OpenTelemetry__OtlpEndpoint`).
+- Compose samples 10% of traces by default (`OTEL_SAMPLING_RATIO`); set `1.0` to see every request.
+- Spans listed under **`OTLPResourceNoServiceName`** carry no resource: the exporter was not registered through the
+  SDK's `AddOtlpExporter`, so it never received the service name. Services list under their own names
+  (`EShop.Catalog.API`, …); the Docker Smoke workflow fails if any of the seven is missing.
+- To tell an application-side problem from a collector-side one, POST a hand-made span with a `service.name`
+  attribute to `http://localhost:4318/v1/traces`; if it appears named in Jaeger, the collector path is fine.
+- After editing `infrastructure/otel-collector/otel-collector-config.yml`, run `docker compose restart otel-collector`:
+  `up -d` does not recreate a container for a changed mounted file.
 
 ---
 

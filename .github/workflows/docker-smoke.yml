@@ -1,53 +1,79 @@
 name: Docker Smoke
 
+# Brings the whole sandbox + monitoring stack up from a cold start, walks one customer from sign-up to a delivered
+# order through the gateway, and fails on an unexpected error in any service's log or any container restart.
+# Too slow for every push, so it runs on master, nightly, and on demand (gh workflow run "Docker Smoke" --ref <branch>).
 on:
-  workflow_dispatch:
+  push:
+    branches: [ master ]
   schedule:
     - cron: '0 3 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: docker-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only token: nothing here writes to the repository. upload-artifact uses the runner's own
+# artifact token, not GITHUB_TOKEN, so it needs no extra permission.
+permissions:
+  contents: read
+
 jobs:
   smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Pinned rather than ubuntu-latest, which moves to Ubuntu 26 from 2026-10-19. Bump deliberately.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    env:
+      COMPOSE_PROFILES: sandbox,monitoring
+      # Every span sampled, so the trace check sees all seven services in one short run.
+      OTEL_SAMPLING_RATIO: '1.0'
+      SMOKE_CHECK_TRACES: '1'
+      # Shell variables win over the env file, so mail stays in Mailpit whatever .env.example says (docker-ci DC-49).
+      NOTIFICATION_SMTP_HOST: mailpit
+      NOTIFICATION_SMTP_PORT: '1025'
+      NOTIFICATION_SMTP_SECURITY: None
+      NOTIFICATION_SMTP_USERNAME: ''
+      NOTIFICATION_SMTP_PASSWORD: ''
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Start docker stack (sandbox + monitoring)
-        run: docker compose --profile sandbox --profile monitoring up -d --build
+      - name: Build the env file
+        # .env.example with random values for its CHANGE_ME placeholders: the same script compose-validate uses.
+        run: |
+          bash .github/scripts/ci-env.sh "$RUNNER_TEMP/ci.env"
+          echo "ENV_FILE=$RUNNER_TEMP/ci.env" >> "$GITHUB_ENV"
 
-      - name: Wait for services warmup
-        run: sleep 30
+      - name: Build images
+        run: docker compose --env-file "$ENV_FILE" build
 
-      - name: Run health audit
-        shell: pwsh
-        run: ./scripts/health-audit.ps1 -Tail 200 -SinceMinutes 10
+      - name: Start the stack
+        # --wait returns once every container with a healthcheck is healthy, and fails if one is not.
+        run: docker compose --env-file "$ENV_FILE" up -d --wait --wait-timeout 600
 
-      - name: Run gateway verification
-        shell: pwsh
-        run: ./scripts/gateway-verify-target.ps1 -Profile sandbox -GatewayBaseUrl http://localhost:7000 -SkipComposeUp
+      - name: End-to-end run through the gateway
+        run: python3 .github/scripts/smoke_e2e.py
 
-      - name: Collect docker status
+      - name: Collect logs and container state
         if: always()
-        run: docker compose ps
+        run: bash .github/scripts/collect-logs.sh smoke-logs
 
-      - name: Collect docker logs on failure
-        if: failure()
-        run: docker compose logs --no-color --tail=300 > docker-smoke-logs.txt
+      - name: Scan logs for unexpected errors and restarts
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/scan_logs.py smoke-logs .github/scripts/smoke-log-allowlist.txt
 
-      - name: Upload docker logs
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docker-smoke-logs
-          path: docker-smoke-logs.txt
-          if-no-files-found: ignore
+          path: smoke-logs/
+          retention-days: 14
+          if-no-files-found: warn
 
-      - name: Stop docker stack
+      - name: Stop the stack
         if: always()
-        run: docker compose --profile sandbox --profile monitoring down -v --remove-orphans
+        run: docker compose --env-file "$ENV_FILE" down -v --remove-orphans

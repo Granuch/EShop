@@ -8,6 +8,7 @@ using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using EShop.Catalog.API.Endpoints;
 using EShop.Catalog.API.Infrastructure.Configuration;
 using EShop.Catalog.API.Infrastructure.HealthChecks;
@@ -562,12 +563,16 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Catalog Service terminated unexpectedly");
-    throw;
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 static bool IsPostgresStartupException(Exception exception)
 {

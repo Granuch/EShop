@@ -38,13 +38,15 @@ connectors:
         default: ""
       - name: http.route
         default: ""
-    dimensions_cache_size: 1000
+    # Replaces dimensions_cache_size, deprecated in collector 0.146 (docker-ci DC-38).
+    aggregation_cardinality_limit: 1000
     aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
     metrics_flush_interval: 15s
 
 exporters:
-  # Forward traces to Jaeger's OTLP receiver
-  otlp/jaeger:
+  # Forward traces to Jaeger's OTLP receiver. "otlp_grpc" is the exporter's current name; the "otlp" alias is
+  # deprecated since collector 0.146 (docker-ci DC-38).
+  otlp_grpc/jaeger:
     endpoint: jaeger:4317
     tls:
       insecure: true
@@ -74,7 +76,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger, spanmetrics]
+      exporters: [otlp_grpc/jaeger, spanmetrics]
 
     # Span-derived metrics pipeline: spanmetrics connector → Prometheus scrape endpoint
     metrics/spanmetrics:

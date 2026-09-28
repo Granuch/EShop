@@ -8,7 +8,15 @@
 
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.15.1" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2" />
+    <!--
+      Design-time only (docker-ci DC-34). Without PrivateAssets it flowed into the API and published Roslyn
+      (Microsoft.CodeAnalysis*.dll) into the image: 51 MB of app against about 20 MB for the other services.
+      The API references it again the same way, so either project can be the dotnet ef startup project.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
   </ItemGroup>
