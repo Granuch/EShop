@@ -979,7 +979,7 @@ services:
   # Mailpit (local SMTP catcher for development)
   # ============================================
   mailpit:
-    image: axllent/mailpit:v1.27
+    image: axllent/mailpit:v1.30
     container_name: eshop-mailpit
     restart: unless-stopped
     ports:
