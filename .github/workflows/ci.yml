@@ -80,6 +80,8 @@ jobs:
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
 
       - name: Lint Dockerfiles (hadolint)
+        # !cancelled(): each lint step reports even when an earlier one failed, so one run shows every problem.
+        if: ${{ !cancelled() }}
         # .hadolint.yaml holds the one ignored rule and why. Any finding, info level included, fails the step.
         run: |
           status=0
@@ -91,6 +93,7 @@ jobs:
           exit "$status"
 
       - name: .env.example holds no real secrets
+        if: ${{ !cancelled() }}
         run: bash .github/scripts/check-env-example.sh
 
   compose-validate:
@@ -153,9 +156,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
       - name: Vulnerability report (Trivy, report-only)
-        # Report-only on purpose: most findings sit in the Debian base image and have no fix yet, so a blocking scan
-        # would stay red the way the NU1902/NU1903 build warnings would. A failure to fetch the database must not
-        # turn the build red either.
+        # Report-only on purpose. The first run found no OS finding in the Ubuntu 24.04 base and one HIGH in four
+        # images: Microsoft.OpenApi 2.0.0, the same package the build already reports as NU1903. Upgrades are their
+        # own change, as for those warnings, so a blocking scan would stay red. A failure to fetch the vulnerability
+        # database must not turn the build red either.
         continue-on-error: true
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 \
