@@ -9,9 +9,15 @@ concurrency:
   group: docker-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only token: nothing here writes to the repository. upload-artifact uses the runner's own
+# artifact token, not GITHUB_TOKEN, so it needs no extra permission.
+permissions:
+  contents: read
+
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest, which moves to Ubuntu 26 from 2026-10-19. Bump deliberately.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:
