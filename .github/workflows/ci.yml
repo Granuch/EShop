@@ -10,10 +10,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Read-only token: nothing here writes to the repository. upload-artifact uses the runner's own
-# artifact token, not GITHUB_TOKEN, so it needs no extra permission.
+# Read-only token: nothing here writes to the repository. upload-artifact and the GHA build cache use the runner's
+# own runtime token, not GITHUB_TOKEN, so they need no extra permission.
 permissions:
   contents: read
+
+# Every action is pinned to a full commit SHA, with its release in the comment: a tag can be moved, a SHA cannot.
+# Dependabot's github-actions ecosystem (.github/dependabot.yml) bumps SHA and comment together.
 
 jobs:
   build-test:
@@ -23,12 +26,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        # Keyed on every project file, since there is no central package management or lock file: any version bump
+        # changes a .csproj. The restore key reuses the newest older cache, so a bump downloads only what changed.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
         run: dotnet restore EShop.slnx
@@ -47,20 +59,104 @@ jobs:
           STRIPE_SANDBOX_REQUIRED: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: dotnet test EShop.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
-      - name: Validate docker compose config
-        # This step checks that the compose file parses and interpolates, nothing more — it
-        # never starts a container. INTERNAL_SERVICE_API_KEY is declared with ${VAR:?...}
-        # rather than a ${VAR:-default} so a real bring-up cannot silently fall back to a
-        # well-known key, which means interpolation now needs *some* value here. The value
-        # below is not a secret and is not used to authenticate anything.
-        env:
-          INTERNAL_SERVICE_API_KEY: ci-compose-config-validation-only
-        run: docker compose config > /tmp/docker-compose.resolved.yml
-
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-test-results
           path: TestResults/**/*.trx
           if-no-files-found: warn
+
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Lint workflows (actionlint)
+        # The image bundles shellcheck, so every run: block is checked too.
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+      - name: Lint Dockerfiles (hadolint)
+        # .hadolint.yaml holds the one ignored rule and why. Any finding, info level included, fails the step.
+        run: |
+          status=0
+          for f in src/ApiGateways/*/Dockerfile src/Services/*/*.API/Dockerfile; do
+            echo "== $f"
+            docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" hadolint/hadolint:v2.15.1 \
+              hadolint --config /.config/hadolint.yaml - < "$f" || status=1
+          done
+          exit "$status"
+
+      - name: .env.example holds no real secrets
+        run: bash .github/scripts/check-env-example.sh
+
+  compose-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Render every profile combination
+        # The env file comes from .env.example with throwaway values for its CHANGE_ME placeholders, so a variable
+        # the compose files need but the template lacks fails here instead of on someone's first bring-up.
+        run: |
+          bash .github/scripts/ci-env.sh "$RUNNER_TEMP/ci.env"
+          bash .github/scripts/compose-validate.sh "$RUNNER_TEMP/ci.env"
+
+  docker-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api-gateway
+            dockerfile: src/ApiGateways/EShop.ApiGateway/Dockerfile
+          - service: identity-api
+            dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
+          - service: catalog-api
+            dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
+          - service: basket-api
+            dockerfile: src/Services/Basket/EShop.Basket.API/Dockerfile
+          - service: ordering-api
+            dockerfile: src/Services/Ordering/EShop.Ordering.API/Dockerfile
+          - service: payment-api
+            dockerfile: src/Services/Payment/EShop.Payment.API/Dockerfile
+          - service: notification-api
+            dockerfile: src/Services/Notification/EShop.Notification.API/Dockerfile
+
+    name: docker-build (${{ matrix.service }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build image
+        # Built, loaded into the runner's Docker for the scan below, never pushed: there is no registry to push to.
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: eshop/${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Vulnerability report (Trivy, report-only)
+        # Report-only on purpose: most findings sit in the Debian base image and have no fix yet, so a blocking scan
+        # would stay red the way the NU1902/NU1903 build warnings would. A failure to fetch the database must not
+        # turn the build red either.
+        continue-on-error: true
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 \
+            image --scanners vuln --severity HIGH,CRITICAL --exit-code 0 --no-progress eshop/${{ matrix.service }}:ci
