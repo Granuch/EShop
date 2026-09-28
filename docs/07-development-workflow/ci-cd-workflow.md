@@ -12,7 +12,7 @@ nothing is deployed from CI, and no image is pushed to a registry.
 | CI | `.github/workflows/ci.yml` | every push to `master`, `feature/**` and `bug/**`, and pull requests into `master` | ~5 min |
 | Docker Smoke | `.github/workflows/docker-smoke.yml` | push to `master`, nightly at 03:00 UTC, manual dispatch | ~5 min |
 | Dependabot | `.github/dependabot.yml` | weekly | n/a |
-| SonarCloud Code Analysis | the SonarCloud GitHub App (configured on sonarcloud.io, not in this repo) | pull requests | n/a |
+| SonarCloud Code Analysis | the SonarCloud GitHub App (configured on sonarcloud.io, not in this repo) | pull requests | informational only, not a merge criterion |
 
 Both workflows run on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. They use a read-only
 `GITHUB_TOKEN` (`permissions: contents: read`) and cancel an older run of the same branch.
@@ -20,6 +20,20 @@ Both workflows run on `ubuntu-24.04`, pinned so a runner-image change is a delib
 Every action is pinned to a full commit SHA with its release in a comment (`actions/checkout@<sha> # v7.0.1`), because
 a tag can be moved and a SHA cannot. Dependabot bumps both. The lint and scan tools run as pinned `docker run` images
 (`rhysd/actionlint`, `hadolint/hadolint`, `aquasec/trivy`), which Dependabot does not see, so bump those by hand.
+
+### Branch protection on `master`
+
+`master` requires the ten CI checks to pass before a pull request can merge:
+- `build-test`, `lint` and `compose-validate`;
+- the seven `docker-build (<service>)` matrix jobs.
+
+Force pushes and branch deletion are blocked, and no review is required. The owner, as an admin, can bypass the rule.
+Adding, removing or renaming a CI job or a `docker-build` matrix entry means updating the required checks too. A
+required check that no longer runs stays "Expected" and blocks every merge.
+
+```bash
+gh api repos/Granuch/EShop/branches/master/protection --jq '[.required_status_checks.checks[].context]'
+```
 
 ---
 
