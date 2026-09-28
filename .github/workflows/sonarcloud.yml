@@ -1,0 +1,64 @@
+name: SonarCloud
+
+# SonarCloud analysis on demand only: gh workflow run SonarCloud --ref <branch>.
+#
+# The owner does not use SonarCloud's quality gate as a merge criterion. The default gate cannot be customised on this
+# plan and fails on almost every change. So SonarCloud's Automatic Analysis, which posted a failing
+# "SonarCloud Code Analysis" check on every pull request, is switched off on sonarcloud.io. This workflow uploads an
+# analysis when someone asks for one. It never fails on the quality gate (sonar.qualitygate.wait is not set), only on
+# a broken build or a missing token.
+#
+# Needs the SONAR_TOKEN repository secret (a SonarCloud user token). SonarCloud rejects a CI analysis while its
+# Automatic Analysis is still enabled for the project.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: sonarcloud-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    # Pinned rather than ubuntu-latest, which moves to Ubuntu 26 from 2026-10-19. Bump deliberately.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    steps:
+      - name: Require the token
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::The SONAR_TOKEN repository secret is not set. Create a token on sonarcloud.io (My Account > Security) and add it with: gh secret set SONAR_TOKEN"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so SonarCloud can attribute new code and blame.
+          fetch-depth: 0
+
+      - name: Setup Java (the scanner needs 17 or later)
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the scanner
+        run: dotnet tool install --global dotnet-sonarscanner --version 11.3.0
+
+      - name: Analyse
+        run: |
+          dotnet sonarscanner begin /k:"Granuch_EShop" /o:"granuch" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.token="$SONAR_TOKEN"
+          dotnet build EShop.slnx -c Release
+          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
