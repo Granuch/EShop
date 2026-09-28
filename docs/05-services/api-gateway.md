@@ -172,9 +172,12 @@ as well.
 ## Health and Metrics
 
 Gateway exposes:
-- `/health`
-- `/health/ready`
-- `/health/live`
+- `/health` — every check: `downstream` (each cluster's destinations), `smtp` (operator-notice mail server),
+  `email-queue` and `gateway-liveness`
+- `/health/ready` — only `email-queue`, i.e. whether this instance can serve. A stopped service or mail server does
+  **not** make the gateway unready: its routes answer 502/503 and `/health` shows it, so an orchestrator routing on
+  readiness keeps the gateway in rotation for every other route
+- `/health/live` — `gateway-liveness`
 - `/prometheus` (custom metrics)
 - `/metrics` (OpenTelemetry metrics endpoint)
 

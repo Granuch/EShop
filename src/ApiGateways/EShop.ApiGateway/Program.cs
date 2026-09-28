@@ -187,9 +187,14 @@ try
     builder.Services.AddScoped<IEmailSender, MailKitEmailSender>();
     builder.Services.AddHostedService<GatewayEmailDispatcher>();
 
+    // docker-ci DC-45: readiness answers "can this gateway instance serve traffic", not "is everything behind it up".
+    // With downstream and smtp on the ready tag, one stopped database or a stopped mail catcher turned the gateway 503,
+    // so any orchestrator routing on readiness would pull every gateway instance and cause a full outage while the
+    // other routes still worked. Both checks stay on /health (all checks) for dashboards and alerts; a dead service
+    // shows as 502/503 on its own routes. DownstreamHealthCheck still reports Unhealthy (see the gateway's CLAUDE.md).
     builder.Services.AddHealthChecks()
-        .AddCheck<DownstreamHealthCheck>(DownstreamHealthCheck.Name, tags: ["ready"])
-        .AddCheck<SmtpGatewayHealthCheck>("smtp", tags: ["ready"])
+        .AddCheck<DownstreamHealthCheck>(DownstreamHealthCheck.Name, tags: ["dependency"])
+        .AddCheck<SmtpGatewayHealthCheck>("smtp", tags: ["dependency"])
         .AddCheck<EmailQueueHealthCheck>("email-queue", tags: ["ready"])
         .AddCheck<GatewayLivenessHealthCheck>("gateway-liveness", tags: ["live"]);
 
