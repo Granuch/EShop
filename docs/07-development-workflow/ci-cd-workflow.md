@@ -12,7 +12,7 @@ nothing is deployed from CI, and no image is pushed to a registry.
 | CI | `.github/workflows/ci.yml` | every push to `master`, `feature/**` and `bug/**`, and pull requests into `master` | ~5 min |
 | Docker Smoke | `.github/workflows/docker-smoke.yml` | push to `master`, nightly at 03:00 UTC, manual dispatch | ~5 min |
 | Dependabot | `.github/dependabot.yml` | weekly | n/a |
-| SonarCloud Code Analysis | the SonarCloud GitHub App (configured on sonarcloud.io, not in this repo) | pull requests | informational only, not a merge criterion |
+| SonarCloud | `.github/workflows/sonarcloud.yml` | manual dispatch only | informational only, not a merge criterion |
 
 Both workflows run on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. They use a read-only
 `GITHUB_TOKEN` (`permissions: contents: read`) and cancel an older run of the same branch.
@@ -111,6 +111,21 @@ Brings the whole stack up the way a developer would, from a cold start, and uses
 expected. Never loosen an existing pattern: an unrelated error from the same logger must still fail the run.
 
 Run it on a branch with `gh workflow run "Docker Smoke" --ref <branch>`.
+
+---
+
+## SonarCloud (`sonarcloud.yml`)
+
+SonarCloud analysis runs **only on demand**: `gh workflow run SonarCloud --ref <branch>`. It builds the solution under
+the SonarScanner for .NET and uploads the result to the `Granuch_EShop` project on sonarcloud.io. Its quality gate
+is not a merge criterion. The default gate cannot be customised on this plan and fails on almost every change, so the
+workflow never waits for it and never fails on it.
+
+It needs two settings on sonarcloud.io:
+- Automatic Analysis switched **off** for the project (Administration > Analysis Method). With it on, SonarCloud posts
+  a check on every pull request and rejects a CI analysis.
+- A user token stored as the `SONAR_TOKEN` repository secret (`gh secret set SONAR_TOKEN`). Without it the workflow
+  stops at its first step and says so.
 
 ---
 
