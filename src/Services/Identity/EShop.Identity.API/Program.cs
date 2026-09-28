@@ -13,6 +13,7 @@ using EShop.Identity.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
 using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -658,15 +659,19 @@ catch (Exception ex)
 {
     Log.Fatal(ex, "Identity Service terminated unexpectedly");
 
-    // Rethrow so the process exits non-zero. Without this the host logs [FTL] and then reports
-    // success, so a config-guard rejection or an unreachable broker looks like a clean shutdown
-    // to anything checking exit status instead of parsing logs.
-    throw;
+    // Exit non-zero. Swallowing the exception made the host log [FTL] and then report success, so a
+    // config-guard rejection or an unreachable broker looked like a clean shutdown to anything checking
+    // exit status instead of parsing logs.
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 // API-10. These local functions used to sit between two app.Use* calls, which broke the
 // pipeline's top-to-bottom reading order — the one place in this file where order is the
