@@ -196,7 +196,7 @@ Full prerequisites: [02-getting-started/prerequisites.md](02-getting-started/pre
 - Seq: `http://localhost:5341`
 - RabbitMQ Management: `http://localhost:15672`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+- Grafana: `http://localhost:3001`
 - Jaeger: `http://localhost:16686`
 
 > **Port 3000 clash**: Grafana's default port is also the Next.js dev-server default (and the

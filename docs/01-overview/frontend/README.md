@@ -92,20 +92,19 @@ which the payment flow needs.
 | 7001, 7004, 7005, 7006, 7008 | Identity, Catalog, Ordering, Basket, Payment, bound to `127.0.0.1` | Debugging only. They skip the gateway's route policies, body caps and rate limit; each service still checks its own auth |
 | — | Notification | Not published; reachable only through the gateway |
 | 8025 | Mailpit (captured outgoing email) | Read password-reset and order emails locally |
-| 3000 | Grafana | See the ⚠ below |
+| 3001 | Grafana | See the note below |
 | 5341 | Seq (logs) | Search logs by `X-Correlation-ID` |
 | 16686 | Jaeger (traces) | |
 
-> ⚠ **Port 3000 is also Grafana's.** Next.js `dev` defaults to 3000, and the gateway's default CORS origins are
-> `http://localhost:3000` and `https://localhost:3000`. Grafana is published on `127.0.0.1:3000`, so what happens
-> depends on the OS:
+> **Grafana moved to 3001** (docker-ci DC-11), because Next.js `dev` defaults to 3000 and the gateway's default CORS
+> origins are `http://localhost:3000` and `https://localhost:3000`. A `.env` created before that change may still set
+> `GRAFANA_PORT=3000`, and then the old clash is back:
 > - **On Windows** (observed), both can listen at once. `http://localhost:3000` reached the Node server over IPv6
->   (`::1`), while `http://127.0.0.1:3000` reached Grafana. Open the app as `localhost`.
+>   (`::1`), while `http://127.0.0.1:3000` reached Grafana.
 > - **Elsewhere**, `next dev` may find the port taken and move to 3001. That origin is not allowed, so the browser
 >   blocks every API call on CORS.
 >
-> The simplest fix is to move Grafana: set `GRAFANA_PORT` in `.env`. Alternatively, add your dev origin to
-> `Cors:AllowedOrigins` (`CORS_ORIGIN_1`/`CORS_ORIGIN_2` in `.env`). (F-06)
+> Remove that line from `.env` (or set it to `3001`). (F-06)
 
 ### Test accounts
 

@@ -191,13 +191,22 @@ Full prerequisites: [02-getting-started/prerequisites.md](docs/02-getting-starte
 1. [Local Setup](docs/02-getting-started/local-setup.md)
 2. [Docker Setup](docs/02-getting-started/docker-setup.md)
 
+### Quick Start (Docker)
+```bash
+bash .github/scripts/ci-env.sh .env      # a working .env from .env.example, with random secrets
+docker compose --profile sandbox --profile monitoring up -d --wait
+```
+
 ### Typical Local Endpoints
 - API Gateway: `http://localhost:7000`
+- Mailpit (captured email): `http://localhost:8025`
 - Seq: `http://localhost:5341`
 - RabbitMQ Management: `http://localhost:15672`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+- Grafana: `http://localhost:3001`
 - Jaeger: `http://localhost:16686`
+
+Profiles, every port and troubleshooting: [Docker Setup](docs/02-getting-started/docker-setup.md).
 
 ---
 
@@ -207,7 +216,8 @@ Service API behavior and route responsibilities are documented in:
 - [Services documentation](docs/05-services/)
 - [Architecture data flow](docs/03-architecture/data-flow.md)
 
-In development mode, OpenAPI/Scalar endpoints are available per service as configured.
+OpenAPI and Scalar are served by each service in every environment except Production; see
+[Docker Setup](docs/02-getting-started/docker-setup.md#what-runs-where) for the URLs.
 
 ---
 
