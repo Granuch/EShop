@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
@@ -470,18 +471,29 @@ try
 }
 catch (Exception ex) when (ex is not HostAbortedException)
 {
-    // Log, then rethrow. This used to swallow the exception, so a service that failed to start
+    // Log, then fail. This used to swallow the exception, so a service that failed to start
     // (a bad migration, an invalid CatalogService:BaseUrl) exited with code 0 and its reason
     // existed only in the log — and a test host saw an ObjectDisposedException instead of the
     // cause. HostAbortedException is excluded because EF design-time tooling uses it to stop the
     // host on purpose.
     Log.Fatal(ex, "Application terminated unexpectedly");
-    throw;
+
+    // docker-ci DC-37: exit with 1 rather than rethrow. A rethrow out of Main is an unhandled exception, which the
+    // runtime ends by signal, so a refused start read as "Exited (139)", a segfault. A test host or dotnet ef runs
+    // Main itself and learns why the host did not start only from the exception, so it still gets it.
+    if (!EShopEntryPoint.IsProcessEntryPoint(typeof(Program).Assembly))
+    {
+        throw;
+    }
+
+    return 1;
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 // Used by the startup migration loop. It sat between two middleware registrations (audit L10); a local
 // function declared at top level is in scope for all the statements above.

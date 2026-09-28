@@ -2,6 +2,7 @@ using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.API.Endpoints;
 using EShop.Notification.Infrastructure.Extensions;
@@ -303,12 +304,22 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Notification Service terminated unexpectedly");
-    throw;
+    // docker-ci DC-37: exit with 1 rather than rethrow. A rethrow out of Main is an unhandled exception, which the
+    // runtime ends by signal, so a refused start read as "Exited (139)", a segfault. A test host or dotnet ef runs
+    // Main itself and learns why the host did not start only from the exception, so it still gets it.
+    if (!EShopEntryPoint.IsProcessEntryPoint(typeof(Program).Assembly))
+    {
+        throw;
+    }
+
+    return 1;
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 static bool IsPostgresStartupException(Exception exception)
 {
