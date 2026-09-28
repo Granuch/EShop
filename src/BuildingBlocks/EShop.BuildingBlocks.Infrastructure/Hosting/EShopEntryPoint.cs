@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 
 namespace EShop.BuildingBlocks.Infrastructure.Hosting;
 
@@ -32,5 +33,22 @@ public static class EShopEntryPoint
     {
         ArgumentNullException.ThrowIfNull(programAssembly);
         return Assembly.GetEntryAssembly() == programAssembly;
+    }
+
+    /// <summary>
+    /// What a <c>Program.cs</c> returns from its top-level <c>catch</c> once it has logged the failure: 1 when it is the
+    /// process's entry point, otherwise it rethrows <paramref name="exception"/> with its original stack trace, for the
+    /// test host or <c>dotnet ef</c> that called <c>Main</c>.
+    /// </summary>
+    public static int ExitCodeFor(Exception exception, Assembly programAssembly)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+
+        if (!IsProcessEntryPoint(programAssembly))
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
+
+        return 1;
     }
 }

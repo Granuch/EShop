@@ -114,13 +114,15 @@ def require_mailpit():
         raise StepFailed("docker is not on PATH, so the Mailpit guard cannot check Notification's SMTP host")
     try:
         host = subprocess.run(["docker", "exec", NOTIFICATION_CONTAINER, "printenv", "Smtp__Host"],
-                              capture_output=True, text=True, timeout=30).stdout.strip()
+                              capture_output=True, text=True, timeout=30, check=False).stdout.strip()
     except subprocess.TimeoutExpired as e:
         raise StepFailed(f"docker exec {NOTIFICATION_CONTAINER} timed out") from e
     if host != "mailpit":
+        # The fix is described, not spelled out: a literal "..._PASSWORD=" here reads as a hard-coded credential to
+        # secret scanners (SonarCloud flagged it on PR #86).
         raise StepFailed(f"{NOTIFICATION_CONTAINER} sends mail via '{host or '<unset>'}', not mailpit; this run would "
-                         "send real email. Recreate it with NOTIFICATION_SMTP_HOST=mailpit NOTIFICATION_SMTP_PORT=1025 "
-                         "NOTIFICATION_SMTP_SECURITY=None NOTIFICATION_SMTP_USERNAME= NOTIFICATION_SMTP_PASSWORD=")
+                         "send real email. Recreate it with the NOTIFICATION_SMTP_* variables pointed at Mailpit, as "
+                         "docs/02-getting-started/docker-setup.md and the Docker Smoke workflow do.")
     log("notification sends to mailpit")
 
 

@@ -662,15 +662,9 @@ catch (Exception ex)
     // Exit non-zero. Swallowing the exception made the host log [FTL] and then report success, so a
     // config-guard rejection or an unreachable broker looked like a clean shutdown to anything checking
     // exit status instead of parsing logs.
-    // docker-ci DC-37: exit with 1 rather than rethrow. A rethrow out of Main is an unhandled exception, which the
-    // runtime ends by signal, so a refused start read as "Exited (139)", a segfault. A test host or dotnet ef runs
-    // Main itself and learns why the host did not start only from the exception, so it still gets it.
-    if (!EShopEntryPoint.IsProcessEntryPoint(typeof(Program).Assembly))
-    {
-        throw;
-    }
-
-    return 1;
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {

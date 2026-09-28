@@ -345,15 +345,9 @@ catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "Payment Service terminated unexpectedly");
 
-    // docker-ci DC-37: exit with 1 rather than rethrow. A rethrow out of Main is an unhandled exception, which the
-    // runtime ends by signal, so a refused start read as "Exited (139)", a segfault. A test host or dotnet ef runs
-    // Main itself and learns why the host did not start only from the exception, so it still gets it.
-    if (!EShopEntryPoint.IsProcessEntryPoint(typeof(Program).Assembly))
-    {
-        throw;
-    }
-
-    return 1;
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
