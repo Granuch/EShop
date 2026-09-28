@@ -84,7 +84,7 @@ Default endpoints are configured via `.env`.
 - RabbitMQ UI: `http://localhost:15672`
 - Seq: `http://localhost:5341`
 - Prometheus: `http://localhost:9090` (monitoring profile)
-- Grafana: `http://localhost:3000` (monitoring profile)
+- Grafana: `http://localhost:3001` (monitoring profile)
 - Jaeger: `http://localhost:16686` (monitoring profile)
 - Mailpit UI: `http://localhost:8025`
 

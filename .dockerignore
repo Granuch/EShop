@@ -1,78 +1,32 @@
-# Docker ignore file for EShop Identity Service
+# Build context for the seven service images (docker-compose.yml builds them all from the repository root).
+#
+# Allowlist: send src/ and nothing else, then drop what src/ must not contribute. Everything outside src/ -
+# docs, tests, ui/, k8s/, infrastructure/, local scratch files, the stray .audit-base-worktree/ mirror, .env -
+# stays out without being listed, so a new top-level folder cannot bloat or leak into the context (docker-ci DC-10).
+# The Dockerfile itself is always sent, whatever this file says.
+*
+!src/
 
-# Git
-.git
-.gitignore
-.gitattributes
-
-# Documentation
-*.md
-!README.md
-docs/
-ARCHITECTURE_DIAGRAM.md
-BRUTE_FORCE_PROTECTION.md
-IMPLEMENTATION_SUMMARY.md
-PRODUCTION_DEPLOYMENT_SUMMARY.md
-QUICK_REFERENCE.md
-QUICK_START.md
-REDIS_DEPLOYMENT_GUIDE.md
-REDIS_SETUP_GUIDE.md
-
-# Build outputs
+# Build output and local tooling state
 **/bin/
 **/obj/
-**/out/
+**/node_modules/
 **/.vs/
 **/.vscode/
+**/.idea/
 **/TestResults/
-
-# User-specific files
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-
-# Logs
-*.log
-logs/
 **/logs/
+**/*.user
+**/*.suo
 
-# OS files
-.DS_Store
-Thumbs.db
+# Dead client folder: zero tracked files, only a local node_modules/ and .next/
+src/ClientApp/
 
-# IDE
-.idea/
-*.swp
-*.swo
-*~
+# Local-only settings. The Web SDK publishes every appsettings*.json, so without this line a developer's
+# appsettings.Development.Local.json - the file that exists to hold local secrets - is baked into the image
+# (docker-ci DC-50: it was, in three images).
+**/appsettings.*.Local.json
+**/*.Local.json
 
-# Package managers
-**/node_modules/
-**/packages/
-
-# Tests
-**/tests/
-**/*.Tests/
-**/*.UnitTests/
-**/*.IntegrationTests/
-
-# Docker
-Dockerfile*
-.dockerignore
-docker-compose*.yml
-.env*
-
-# Scripts (not needed in container)
-scripts/
-
-# Monitoring (not needed in container)
-monitoring/
-
-# Redis data (not needed in container)
-redis/
-
-# Temp files
-*.tmp
-*.temp
-*.cache
+# Documentation and agent notes are never needed to build
+**/*.md

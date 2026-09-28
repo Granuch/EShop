@@ -2,6 +2,7 @@ using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using EShop.Notification.Application.Extensions;
 using EShop.Notification.API.Endpoints;
 using EShop.Notification.Infrastructure.Extensions;
@@ -303,12 +304,16 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Notification Service terminated unexpectedly");
-    throw;
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 static bool IsPostgresStartupException(Exception exception)
 {

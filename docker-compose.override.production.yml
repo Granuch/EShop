@@ -1,18 +1,28 @@
 services:
   postgres:
     ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in production}
 
   catalog-postgres:
     ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${CATALOG_POSTGRES_PASSWORD:?CATALOG_POSTGRES_PASSWORD is required in production}
 
   ordering-postgres:
     ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${ORDERING_POSTGRES_PASSWORD:?ORDERING_POSTGRES_PASSWORD is required in production}
 
   payment-postgres:
     ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${PAYMENT_POSTGRES_PASSWORD:?PAYMENT_POSTGRES_PASSWORD is required in production}
 
   notification-postgres:
     ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${NOTIFICATION_POSTGRES_PASSWORD:?NOTIFICATION_POSTGRES_PASSWORD is required in production}
 
   redis:
     ports: !reset []
@@ -52,13 +62,12 @@ services:
   redis-commander:
     ports: !reset []
 
-  mailpit:
-    profiles:
-      - production
-    ports: !reset []
-
   seq:
     ports: !reset []
+    environment:
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "false"
+      SEQ_FIRSTRUN_ADMINUSERNAME: ${SEQ_ADMIN_USERNAME:-admin}
+      SEQ_FIRSTRUN_ADMINPASSWORD: ${SEQ_ADMIN_PASSWORD:?SEQ_ADMIN_PASSWORD is required in production}
 
   prometheus:
     ports: !reset []
@@ -75,6 +84,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       AllowedHosts: ${GATEWAY_ALLOWED_HOSTS:?GATEWAY_ALLOWED_HOSTS is required in production}
+      Email__Host: ${GATEWAY_SMTP_HOST:?GATEWAY_SMTP_HOST is required in production}
+      Email__Port: ${GATEWAY_SMTP_PORT:?GATEWAY_SMTP_PORT is required in production}
+      Email__UseSsl: ${GATEWAY_SMTP_USE_SSL:?GATEWAY_SMTP_USE_SSL is required in production}
+      Email__From: ${GATEWAY_SMTP_FROM_EMAIL:?GATEWAY_SMTP_FROM_EMAIL is required in production}
       JwtSettings__SecretKey: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
       JwtSettings__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required in production}
       JwtSettings__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required in production}
