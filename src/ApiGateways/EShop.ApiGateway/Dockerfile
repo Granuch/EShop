@@ -51,13 +51,14 @@ COPY --from=build /app/publish .
 RUN mkdir -p /app/logs /app/data \
     && chown appuser:appuser /app/logs /app/data
 
-USER appuser
+# Numeric, so a kubelet enforcing runAsNonRoot can verify the user is not root (hadolint DL3066).
+USER 999:999
 
 EXPOSE 8080
 
 # Same shape as the compose healthchecks, so a plain "docker run" reports health the same way.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -fsS http://localhost:8080/health/ready || exit 1
+    CMD ["curl", "-fsS", "http://localhost:8080/health/ready"]
 
 # Defaults; docker-compose.yml overrides the environment.
 ENV ASPNETCORE_HTTP_PORTS=8080 \
