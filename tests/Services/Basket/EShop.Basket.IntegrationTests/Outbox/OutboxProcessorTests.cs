@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EShop.Basket.Application.Abstractions;
+using EShop.Basket.Domain.Interfaces;
 using EShop.Basket.Infrastructure.Outbox;
 using EShop.Basket.IntegrationTests.Fixtures;
 using EShop.BuildingBlocks.Messaging.Events;
@@ -238,6 +239,86 @@ public class OutboxProcessorTests
         await _processor.ProcessNextAsync(CancellationToken.None);
 
         leasedWhilePublishing.Should().BeTrue("a claimed message without a lease is fair game for another instance's recovery");
+    }
+
+    // ---------- Admin panel S14 (#81): what a dead letter records ----------
+
+    [Test]
+    public async Task ADeadLetter_RecordsWhyAndWhenItDied_ButNotTheExceptionsMessage()
+    {
+        await _database.ListLeftPushAsync(BasketOutboxKeys.Pending, Envelope(Guid.NewGuid(), retryCount: _options.MaxAttempts - 1));
+        PublishFails();
+
+        await _processor.ProcessNextAsync(CancellationToken.None);
+
+        var dead = await OnlyEntryAsync(BasketOutboxKeys.DeadLetter);
+        dead.FailureReason.Should().Be(OutboxDeadLetterReasons.PublishFailed);
+        dead.ExceptionType.Should().Be(nameof(InvalidOperationException));
+        dead.DeadLetteredAtUtc.Should().Be(Start.UtcDateTime);
+        (await _database.ListGetByIndexAsync(BasketOutboxKeys.DeadLetter, 0)).ToString()
+            .Should().NotContain("broker unreachable", "a broker exception's text can name hosts and users");
+    }
+
+    [Test]
+    public async Task ADeadLetterWhoseLastPublishHung_SaysItTimedOut()
+    {
+        await _database.ListLeftPushAsync(BasketOutboxKeys.Pending, Envelope(Guid.NewGuid(), retryCount: _options.MaxAttempts - 1));
+        _publish
+            .Setup(x => x.Publish(It.IsAny<object>(), It.IsAny<Type>(), It.IsAny<IPipe<PublishContext>>(), It.IsAny<CancellationToken>()))
+            .Returns((object _, Type _, IPipe<PublishContext> _, CancellationToken token) => Task.Delay(Timeout.Infinite, token));
+
+        var processing = _processor.ProcessNextAsync(CancellationToken.None);
+        (await Task.WhenAny(processing, Task.Delay(TimeSpan.FromSeconds(10)))).Should().BeSameAs(processing);
+        await processing;
+
+        (await OnlyEntryAsync(BasketOutboxKeys.DeadLetter)).FailureReason.Should().Be(OutboxDeadLetterReasons.PublishTimedOut);
+    }
+
+    [Test]
+    public async Task AnUnpublishableMessage_IsDeadLetteredAsUnpublishable()
+    {
+        var envelope = RedisOutboxMessage.Parse(Envelope(Guid.NewGuid()))! with { Type = "System.String" };
+        await _database.ListLeftPushAsync(BasketOutboxKeys.Pending, envelope.ToJson());
+
+        await _processor.ProcessNextAsync(CancellationToken.None);
+
+        var dead = await OnlyEntryAsync(BasketOutboxKeys.DeadLetter);
+        dead.FailureReason.Should().Be(OutboxDeadLetterReasons.Unpublishable);
+        dead.DeadLetteredAtUtc.Should().Be(Start.UtcDateTime);
+        _published.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// The failure fields are written only on the way into the dead-letter list, so every envelope on its way through
+    /// pending, processing and retry is byte-for-byte what it was before S14.
+    /// </summary>
+    [Test]
+    public async Task AMessageThatWillBeRetried_CarriesNoFailureFields()
+    {
+        await _database.ListLeftPushAsync(BasketOutboxKeys.Pending, Envelope(Guid.NewGuid()));
+        PublishFails();
+
+        await _processor.ProcessNextAsync(CancellationToken.None);
+
+        var retry = (await _database.SortedSetRangeByRankAsync(BasketOutboxKeys.Retry)).Single().ToString();
+        retry.Should().NotContain("failureReason").And.NotContain("exceptionType").And.NotContain("deadLetteredAtUtc");
+    }
+
+    /// <summary>A replay keeps the record through the Lua round trip, and the replayed message still publishes.</summary>
+    [Test]
+    public async Task AReplayedDeadLetter_PublishesNormally()
+    {
+        var id = Guid.NewGuid();
+        await _database.ListLeftPushAsync(BasketOutboxKeys.Pending, Envelope(id, retryCount: _options.MaxAttempts - 1));
+        PublishFails();
+        await _processor.ProcessNextAsync(CancellationToken.None);
+
+        (await _factory.Services.GetRequiredService<BasketOutboxDeadLetters>().ReplayAsync(10)).Should().Be(1);
+        PublishSucceeds();
+        (await _processor.ProcessNextAsync(CancellationToken.None)).Should().BeTrue();
+
+        _published.Should().ContainSingle();
+        ((BasketCheckedOutEvent)_published[0].Message).EventId.Should().Be(id);
     }
 
     private sealed class ManualClock(DateTimeOffset now) : TimeProvider

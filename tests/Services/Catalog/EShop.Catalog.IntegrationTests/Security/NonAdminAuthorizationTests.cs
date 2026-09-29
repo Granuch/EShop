@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Catalog.Infrastructure.Data;
 using EShop.Catalog.IntegrationTests.Helpers;
 using EShop.Catalog.IntegrationTests.Models;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using EShop.Tests.Shared;
 
 namespace EShop.Catalog.IntegrationTests.Security;
 
@@ -42,18 +44,69 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "POST /api/v1/products",
         "PUT /api/v1/products/{id:guid}",
         "DELETE /api/v1/products/{id:guid}",
+        "POST /api/v1/products/{id:guid}/restore",
+        "PATCH /api/v1/products/{id:guid}/stock",
         "POST /api/v1/products/{id:guid}/publish",
         "POST /api/v1/products/{id:guid}/unpublish",
         "PUT /api/v1/products/{id:guid}/discount",
         "DELETE /api/v1/products/{id:guid}/discount",
         "POST /api/v1/products/{id:guid}/images",
+        "PUT /api/v1/products/{id:guid}/images/reorder",
+        "PUT /api/v1/products/{id:guid}/images/{imageId:guid}",
         "DELETE /api/v1/products/{id:guid}/images/{imageId:guid}",
         "PUT /api/v1/products/{id:guid}/images/{imageId:guid}/main",
         "POST /api/v1/products/{id:guid}/attributes",
+        "PUT /api/v1/products/{id:guid}/attributes",
+        "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}",
+        "DELETE /api/v1/products/{id:guid}/attributes/{attributeId:guid}",
+        // Admin panel S16.
+        "POST /api/v1/products/bulk/publish",
+        "POST /api/v1/products/bulk/unpublish",
+        "POST /api/v1/products/bulk/delete",
+        "POST /api/v1/products/bulk/category",
+        "POST /api/v1/products/bulk/price",
+        "POST /api/v1/products/import",
         "POST /api/v1/categories",
         "PUT /api/v1/categories/{id:guid}",
         "DELETE /api/v1/categories/{id:guid}",
+        "PUT /api/v1/categories/reorder",
+        "PUT /api/v1/categories/{id:guid}/parent",
+        "POST /api/v1/categories/{id:guid}/restore",
     ];
+
+    /// <summary>
+    /// Admin panel S19. Writes that carry a permission policy instead of the Admin role, with that permission. The cache
+    /// lever is an operation on the platform rather than a catalog edit, so it asks for <c>system.manage</c>; a customer
+    /// holds neither, so it is sent below with the rest.
+    /// </summary>
+    private static readonly Dictionary<string, string> PermissionWrites = new(StringComparer.Ordinal)
+    {
+        ["POST /api/v1/admin/cache/invalidate"] = EShopPermissions.SystemManage,
+    };
+
+    private static IEnumerable<string> ForbiddenWrites => AdminOnlyRoutes.Concat(PermissionWrites.Keys);
+
+    /// <summary>
+    /// Admin panel S16. Every GET under <c>/api/</c>, with the policy it carries — <c>null</c> for a deliberately anonymous
+    /// read. The write list above could not see an admin-only GET, and S16 added one under a prefix whose other reads are
+    /// public (<c>/products/export</c>, beside S4's <c>/products/deleted</c>): downgrading either to anonymous would have
+    /// left every structural check green. Ordering's, Payment's and Notification's structural tests already cover GETs;
+    /// this brings Catalog's level with them.
+    /// </summary>
+    private static readonly Dictionary<string, string?> ReadPolicies = new(StringComparer.Ordinal)
+    {
+        ["GET /api/v1/products"] = null,
+        ["GET /api/v1/products/newest"] = null,
+        ["GET /api/v1/products/{id:guid}"] = null,
+        ["GET /api/v1/products/deleted"] = "Admin",
+        ["GET /api/v1/products/export"] = "Admin",
+        ["GET /api/v1/categories"] = null,
+        ["GET /api/v1/categories/{id:guid}"] = null,
+        ["GET /api/v1/categories/{id:guid}/products"] = null,
+        ["GET /api/v1/categories/{id:guid}/stats"] = "Admin",
+        ["GET /api/v1/admin/catalog/low-stock"] = "Admin",
+        ["GET /api/v1/admin/audit"] = "audit.read",
+    };
 
     private Guid _categoryId;
     private Guid _productId;
@@ -73,14 +126,15 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
             scope.ServiceProvider, "Forbidden Target", CatalogDataHelper.GenerateUniqueSku("FORB"), 42m, 5, _categoryId);
     }
 
-    [TestCaseSource(nameof(AdminOnlyRoutes))]
+    [TestCaseSource(nameof(ForbiddenWrites))]
     public async Task ASignedInNonAdmin_IsForbidden(string route)
     {
         var method = route[..route.IndexOf(' ')];
         var target = route.Contains("/categories") ? _categoryId : _productId;
         var path = route[(method.Length + 1)..]
             .Replace("{id:guid}", target.ToString())
-            .Replace("{imageId:guid}", Guid.NewGuid().ToString());
+            .Replace("{imageId:guid}", Guid.NewGuid().ToString())
+            .Replace("{attributeId:guid}", Guid.NewGuid().ToString());
 
         var body = BodyFor(route);
         using var request = new HttpRequestMessage(new HttpMethod(method), path)
@@ -96,7 +150,7 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
     }
 
     [Test]
-    public void EveryWriteEndpoint_RequiresTheAdminPolicy_AndIsListedHere()
+    public void EveryWriteEndpoint_RequiresItsPolicy_AndIsListedHere()
     {
         var writes = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
@@ -106,16 +160,51 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
                 .Select(m => (Route: $"{m} {e.RoutePattern.RawText!.TrimEnd('/')}", Endpoint: e)))
             .ToList();
 
-        writes.Select(w => w.Route).Should().BeEquivalentTo(AdminOnlyRoutes,
-            "a write endpoint added or removed must be reflected in AdminOnlyRoutes, so it is sent above");
+        writes.Select(w => w.Route).Should().BeEquivalentTo(ForbiddenWrites,
+            "a write endpoint added or removed must be reflected in AdminOnlyRoutes or PermissionWrites, so it is sent above");
 
         foreach (var (route, endpoint) in writes)
         {
+            var policy = PermissionWrites.GetValueOrDefault(route, "Admin");
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
-                .Should().Contain(a => a.Policy == "Admin", $"{route} must carry the Admin policy");
+                .Should().Contain(a => a.Policy == policy, $"{route} must carry the {policy} policy");
             endpoint.Metadata.GetMetadata<IAllowAnonymous>()
                 .Should().BeNull($"{route} must not be anonymous");
         }
+    }
+
+    [Test]
+    public void EveryReadEndpoint_IsListedHere_WithItsPolicy()
+    {
+        var reads = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.StartsWith("/api/", StringComparison.Ordinal) == true)
+            .Where(e => e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("GET") == true)
+            .ToDictionary(e => $"GET {e.RoutePattern.RawText!.TrimEnd('/')}", e => e);
+
+        reads.Keys.Should().BeEquivalentTo(ReadPolicies.Keys,
+            "a read endpoint added or removed must be listed in ReadPolicies with the policy it must carry");
+
+        foreach (var (route, expected) in ReadPolicies)
+        {
+            var metadata = reads[route].Metadata;
+            metadata.GetOrderedMetadata<IAuthorizeData>().Select(a => a.Policy).SingleOrDefault(p => p is not null)
+                .Should().Be(expected, $"{route} carries the wrong policy");
+
+            // A policy with AllowAnonymous beside it guards nothing, and on a group-mapped endpoint the policy comes
+            // from the group, so an .AllowAnonymous() on the one endpoint would leave the policy check above green.
+            if (expected is not null)
+                metadata.GetMetadata<IAllowAnonymous>().Should().BeNull($"{route} must not be anonymous");
+        }
+    }
+
+    [TestCase("/api/v1/products/export")]
+    [TestCase("/api/v1/products/deleted")]
+    public async Task ASignedInNonAdmin_CannotReadAnAdminOnlyProductList(string path)
+    {
+        using var response = await Client.GetAsync(path);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{path} must require the Admin role");
     }
 
     /// <summary>
@@ -176,8 +265,45 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         "PUT /api/v1/products/{id:guid}/discount" => new SetProductDiscountRequest { DiscountPrice = 1m },
         "POST /api/v1/products/{id:guid}/images" => new AddProductImageRequest { Url = "https://cdn.example.com/forbidden.jpg" },
         "POST /api/v1/products/{id:guid}/attributes" => new AddProductAttributeRequest { Name = "Color", Value = "Red" },
+        "PUT /api/v1/products/{id:guid}/images/{imageId:guid}" => new UpdateProductImageRequest { Url = "https://cdn.example.com/forbidden-edit.jpg" },
+        "PUT /api/v1/products/{id:guid}/images/reorder" => new ReorderProductImagesRequest { ImageIds = [Guid.NewGuid()] },
+        "PUT /api/v1/products/{id:guid}/attributes" => new ReplaceProductAttributesRequest
+        {
+            Attributes = [new ReplaceProductAttributeItem { Name = "Color", Value = "Forbidden" }]
+        },
+        "PUT /api/v1/products/{id:guid}/attributes/{attributeId:guid}" => new UpdateProductAttributeRequest { Name = "Color", Value = "Forbidden" },
+        "PATCH /api/v1/products/{id:guid}/stock" => new AdjustProductStockRequest { Delta = 100 },
+        "PUT /api/v1/categories/reorder" => new ReorderCategoriesRequest { CategoryIds = [_categoryId] },
+        "POST /api/v1/products/bulk/publish" or "POST /api/v1/products/bulk/unpublish" or "POST /api/v1/products/bulk/delete"
+            => new BulkProductIdsRequest { ProductIds = [_productId] },
+        "POST /api/v1/products/bulk/category" => new BulkChangeCategoryRequest { ProductIds = [_productId], CategoryId = _categoryId },
+        "POST /api/v1/products/bulk/price" => new BulkPriceRequest { Items = [new BulkPriceItem { ProductId = _productId, Price = 1m }] },
+        "POST /api/v1/products/import" => new ImportProductsRequest
+        {
+            Products = [new ImportProductRowRequest { Name = "Forbidden Import", Sku = CatalogDataHelper.GenerateUniqueSku("FORBI"), Price = 1m, CategoryId = _categoryId }]
+        },
+        "PUT /api/v1/categories/{id:guid}/parent" => new MoveCategoryRequest { NewParentCategoryId = null },
         "POST /api/v1/categories" => new CreateCategoryRequest { Name = "Forbidden Category" },
         "PUT /api/v1/categories/{id:guid}" => new UpdateCategoryRequest { Id = _categoryId, Name = "Renamed" },
         _ => null
     };
+
+    /// <summary>
+    /// frontend-contracts R6 (F-08, F-45). Every admin-only endpoint here must be refused at the gateway too: either it
+    /// is not proxied at all, or the YARP route it lands on carries <c>AdminArea</c>. This reads the gateway's shipped
+    /// <c>appsettings.json</c>, so a new admin endpoint on a path the gateway proxies under a storefront route fails
+    /// here until the gateway gains a route for it. Catalog's <c>/categories/{id}/stats</c> was the one that slipped
+    /// (F-44). The unrouted list is what the gateway serves itself or fans out to directly, never through a YARP route.
+    /// </summary>
+    [Test]
+    public void EveryAdminEndpoint_IsBehindTheGatewaysAdminGate()
+    {
+        var report = GatewayAdminGate.Check(Factory.Services);
+
+        Assert.That(report.Violations, Is.Empty);
+        Assert.That(
+            report.AdminEndpoints.Except(report.Routed),
+            Is.EquivalentTo(new[] { "GET /api/v1/admin/audit" }),
+            "an admin endpoint the gateway does not proxy, other than these, means a route stopped matching its path");
+    }
 }

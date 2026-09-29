@@ -1,6 +1,7 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
 using EShop.Identity.Domain.Entities;
+using EShop.Identity.Domain.Interfaces;
 using Microsoft.AspNetCore.Identity;
 
 namespace EShop.Identity.Application.Account.Queries.GetProfile;
@@ -11,10 +12,14 @@ namespace EShop.Identity.Application.Account.Queries.GetProfile;
 public class GetProfileQueryHandler : IRequestHandler<GetProfileQuery, Result<UserProfileResponse>>
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IRolePermissionResolver _permissionResolver;
 
-    public GetProfileQueryHandler(UserManager<ApplicationUser> userManager)
+    public GetProfileQueryHandler(
+        UserManager<ApplicationUser> userManager,
+        IRolePermissionResolver permissionResolver)
     {
         _userManager = userManager;
+        _permissionResolver = permissionResolver;
     }
 
     public async Task<Result<UserProfileResponse>> Handle(GetProfileQuery request, CancellationToken cancellationToken)
@@ -50,7 +55,8 @@ public class GetProfileQueryHandler : IRequestHandler<GetProfileQuery, Result<Us
             IsActive = user.IsActive,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
-            Roles = roles.ToList()
+            Roles = roles.ToList(),
+            Permissions = _permissionResolver.PermissionsFor(roles).ToList()
         });
     }
 }

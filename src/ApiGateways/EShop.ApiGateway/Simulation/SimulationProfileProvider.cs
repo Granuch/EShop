@@ -45,6 +45,8 @@ public sealed class SimulationProfileProvider : ISimulationProfileProvider
             .ToArray();
     }
 
+    public IReadOnlyList<SimulationProfile> Profiles => _profilesByPrefix;
+
     public bool TryGetByRouteId(string routeId, out SimulationProfile profile)
     {
         return _byRouteId.TryGetValue(routeId, out profile!);

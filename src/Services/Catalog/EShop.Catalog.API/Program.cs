@@ -4,8 +4,11 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using EShop.Catalog.API.Endpoints;
 using EShop.Catalog.API.Infrastructure.Configuration;
 using EShop.Catalog.API.Infrastructure.HealthChecks;
@@ -66,6 +69,10 @@ try
     // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
     // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<CatalogDbContext>("catalog");
 
     // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
     // behaviors in DI registration order (first registered = outermost), so these three calls are
@@ -230,6 +237,11 @@ try
         options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
     });
 
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
+
     // Add CORS. L27: the shared CorsOriginGuard, as Identity and Basket use, replacing a hand-rolled
     // copy. Two differences, both the point of the shared guard: it runs HERE, while the host is
     // composed — the old check sat inside the AddPolicy lambda, which CORS builds lazily, so a
@@ -244,7 +256,8 @@ try
             policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowCredentials()
+                  .WithEShopExposedHeaders();
         });
     });
 
@@ -259,10 +272,15 @@ try
     var searchPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Search:PermitLimit")
         ?? (rateLimitingEnabled ? 30 : int.MaxValue);
     var searchWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Search:WindowSeconds") ?? 60;
+    // Admin panel S16 (G9, risk A8). Ten bulk actions, imports or exports a minute per client: each one can rewrite a
+    // thousand products or read ten thousand, so the global limiter's hundred a minute is no bound at all here.
+    var bulkPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Bulk:PermitLimit")
+        ?? (rateLimitingEnabled ? 10 : int.MaxValue);
+    var bulkWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:Bulk:WindowSeconds") ?? 60;
 
     builder.Services.AddRateLimiter(options =>
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.UseEShopRejectionResponse();
 
         if (rateLimitingEnabled)
         {
@@ -295,6 +313,19 @@ try
                     AutoReplenishment = true,
                     PermitLimit = searchPermitLimit,
                     Window = TimeSpan.FromSeconds(searchWindowSeconds)
+                }));
+
+        // Admin panel S16. Partitioned per client exactly like "search" — an AddFixedWindowLimiter here would be one
+        // bucket for every admin at once. Throttled at the service rather than the gateway, the gateway guide's rule for
+        // per-route limits, so it holds for a caller that reaches the service directly too.
+        options.AddPolicy<string>(ProductBulkEndpoints.RateLimitPolicy, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: EShopForwardedHeaders.GetClientPartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = bulkPermitLimit,
+                    Window = TimeSpan.FromSeconds(bulkWindowSeconds)
                 }));
     });
 
@@ -336,6 +367,9 @@ try
         options.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     });
 
+    // Enums as PascalCase names, in and out (frontend-contracts F-01): ProductDto.Status was an integer before.
+    builder.Services.AddEShopJson();
+
     // Without this, minimal API binding swallows the JsonException and writes a bare 400 with
     // an EMPTY body — the caller learns the request was rejected but not which property caused
     // it, which is the same opacity problem as the old DomainError responses. Throwing instead
@@ -362,6 +396,7 @@ try
         .AddEfConcurrency()
         .AddProductSkuConflict()
         .AddCategorySlugConflict()
+        .AddProductAttributeConflict()
         .AddEfDuplicateKey()
         .AddMalformedJsonBody());
 
@@ -464,6 +499,12 @@ try
     // Map Minimal API endpoints
     app.MapProductEndpoints();
     app.MapCategoryEndpoints();
+    app.MapAdminCatalogEndpoints();
+    app.MapProductBulkEndpoints();
+    // The System page's cache lever (S19, #88) — the gateway proxies /api/v1/admin/cache/** here.
+    app.MapAdminCacheEndpoints();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Map Prometheus metrics endpoints:
     // /prometheus — prometheus-net custom business metrics (http_requests_received_total, etc.)
@@ -522,12 +563,16 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Catalog Service terminated unexpectedly");
-    throw;
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 static bool IsPostgresStartupException(Exception exception)
 {

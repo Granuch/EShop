@@ -65,7 +65,9 @@ public class GetOrdersByUserTests : AuthenticatedIntegrationTestBase
         var body = await response.Content.ReadAsStringAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("Validation.Failed").And.Contain("Cursor");
+        using var problem = System.Text.Json.JsonDocument.Parse(body);
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be("ValidationError");
+        problem.RootElement.GetProperty("errors").TryGetProperty("cursor", out _).Should().BeTrue(body);
     }
 
     [Test]

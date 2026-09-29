@@ -70,6 +70,23 @@ public sealed class EmailService : IEmailService
         return await SendAsync(recipient, "Reset your EShop password", htmlBody, ct);
     }
 
+    public async Task<string> SendEmailConfirmationAsync(
+        RecipientAddress recipient,
+        EmailConfirmationEmailModel model,
+        CancellationToken ct = default)
+    {
+        var htmlBody = await _templateRenderer.RenderAsync(
+            NotificationTemplates.EmailConfirmation,
+            new Dictionary<string, string>
+            {
+                ["CustomerName"] = model.CustomerName,
+                ["ConfirmationLink"] = model.ConfirmationLink
+            },
+            ct);
+
+        return await SendAsync(recipient, "Confirm your EShop email address", htmlBody, ct);
+    }
+
     public async Task<string> SendPaymentCreatedAsync(
         RecipientAddress recipient,
         PaymentCreatedEmailModel model,

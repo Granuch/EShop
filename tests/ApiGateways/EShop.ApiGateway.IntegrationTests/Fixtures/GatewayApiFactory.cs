@@ -8,7 +8,9 @@ using EShop.ApiGateway.Notifications;
 
 namespace EShop.ApiGateway.IntegrationTests.Fixtures;
 
-public sealed class GatewayApiFactory : WebApplicationFactory<Program>
+// Not sealed: RouteAuthorizationApiFactory derives from it to raise the global rate limit, which
+// has to happen through UseSetting rather than the ConfigureAppConfiguration block below.
+public class GatewayApiFactory : WebApplicationFactory<Program>
 {
     public TestNotificationCollector NotificationCollector { get; } = new();
 
@@ -33,6 +35,8 @@ public sealed class GatewayApiFactory : WebApplicationFactory<Program>
                 ["Gateway:EnableAuditEmailNotifications"] = "true",
                 ["Gateway:EnableSimulationFailureEmailNotifications"] = "true",
                 ["Gateway:EnableRateLimitEmailNotifications"] = "true",
+                // Notices exist only when an operator is subscribed (frontend-contracts F-55).
+                ["Gateway:OperationsEmailRecipients:0"] = "ops@test.local",
                 ["RateLimiting:GlobalPermitLimit"] = "1",
                 ["RateLimiting:GlobalWindowSeconds"] = "60",
 
@@ -71,15 +75,14 @@ public sealed class GatewayApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IEmailNotificationService>();
             services.AddSingleton<IEmailNotificationService>(NotificationCollector);
 
-            // Drop the "downstream" readiness check. The clusters configured above point at
+            // Drop the real "downstream" check. The clusters configured above point at
             // 127.0.0.1:65000, which is deliberately unreachable so the proxy-failure tests can
-            // exercise the 502->503 path — but that also makes DownstreamHealthCheck report
-            // Unhealthy, which would turn /health/ready into a 503 for every test in this
-            // assembly. Downstream reachability is already covered directly by
-            // DownstreamHealthCheckTests in the unit-test project; what the readiness endpoint
-            // test needs to prove is that /health/ready aggregates the "ready"-tagged checks and
-            // maps a non-Unhealthy aggregate to 200. The remaining ready checks still do that:
-            // "smtp" is Degraded (Email:Host is blank above) and "email-queue" is Healthy.
+            // exercise the 502->503 path, so the real check would be Unhealthy and slow every
+            // /health call. It has not been on /health/ready since docker-ci DC-45, so readiness
+            // does not need this; SystemEndpointsTests does, because it registers a counting
+            // probe under the same name and a duplicate name throws. Downstream reachability is
+            // covered by DownstreamHealthCheckTests in the unit-test project, and the real
+            // registrations by Health/GatewayReadinessScopeTests, which does not use this fixture.
             services.Configure<HealthCheckServiceOptions>(options =>
             {
                 var downstream = options.Registrations.FirstOrDefault(r => r.Name == "downstream");

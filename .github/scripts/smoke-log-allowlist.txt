@@ -1,0 +1,11 @@
+# ERR/FTL entries a healthy Docker Smoke run is expected to log, read by scan_logs.py.
+# One regular expression per non-comment line, matched against an entry folded to "LVL <every line of the entry>".
+# Each pattern needs a comment above it: why the entry is expected, and which finding covers it. Keep patterns narrow,
+# so an unrelated error from the same logger still fails the run.
+#
+# Warnings are not scanned, so the standing ones need no entry: the bootstrap "[SECURITY] RabbitMQ UseSsl is disabled"
+# (compose runs RabbitMQ without TLS) and the gateway's 404/403 request-log lines the e2e run provokes on purpose.
+
+# docker-ci DC-40: on an empty database each EF service probes __EFMigrationsHistory before creating it, and EF logs
+# the failed probe at Error. It happens once per service on a cold start, which every smoke run is.
+^ERR Microsoft\.EntityFrameworkCore\.Database\.Command Failed executing DbCommand .*FROM "__EFMigrationsHistory"

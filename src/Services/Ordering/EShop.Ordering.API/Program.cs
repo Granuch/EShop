@@ -2,7 +2,10 @@ using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using EShop.Ordering.API.Endpoints;
 using EShop.Ordering.API.Infrastructure.Configuration;
 using EShop.Ordering.API.Infrastructure.HealthChecks;
@@ -61,6 +64,10 @@ try
     // works under Docker/Kubernetes, and logs rather than silently dropping an unparseable entry.
     // Also replaces the obsolete ForwardedHeadersOptions.KnownNetworks this used to call.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
+
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<OrderingDbContext>("ordering");
 
     // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
     // behaviors in DI registration order (first registered = outermost), so these three calls are
@@ -197,6 +204,11 @@ try
             policy.Requirements.Add(new SameUserOrAdminRequirement()));
     });
 
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
+
     // Scoped, not Singleton: the owner check reads the database through the scoped IOrderRepository.
     // As a Singleton it captured one root-scoped OrderingDbContext shared by every request (audit H1);
     // outside Development nothing validates scopes, so that failed only under concurrent load.
@@ -216,7 +228,8 @@ try
             policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowCredentials()
+                  .WithEShopExposedHeaders();
         });
     });
 
@@ -232,7 +245,7 @@ try
 
     builder.Services.AddRateLimiter(options =>
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.UseEShopRejectionResponse();
 
         if (rateLimitingEnabled)
         {
@@ -286,6 +299,8 @@ try
     // naming the offending member. Unknown properties are deliberately still ignored (no
     // UnmappedMemberHandling.Disallow, unlike Catalog): the C1 contract is that a client still sending
     // the old ProductName/Price fields gets them ignored in favour of Catalog's, not rejected.
+    // Enums as PascalCase names, in and out (frontend-contracts F-01).
+    builder.Services.AddEShopJson();
     builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 
     // AddEfConcurrency must precede AddEfDuplicateKey: DbUpdateConcurrencyException derives
@@ -384,6 +399,10 @@ try
 
     // Map Order endpoints
     app.MapOrderEndpoints();
+    // Ordering's slice of the System page's read-only settings (S19, #85); the gateway serves the composed view.
+    app.MapSystemSettingsEndpoints();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Map Prometheus metrics endpoints:
     // /prometheus — prometheus-net custom business metrics
@@ -452,18 +471,23 @@ try
 }
 catch (Exception ex) when (ex is not HostAbortedException)
 {
-    // Log, then rethrow. This used to swallow the exception, so a service that failed to start
+    // Log, then fail. This used to swallow the exception, so a service that failed to start
     // (a bad migration, an invalid CatalogService:BaseUrl) exited with code 0 and its reason
     // existed only in the log — and a test host saw an ObjectDisposedException instead of the
     // cause. HostAbortedException is excluded because EF design-time tooling uses it to stop the
     // host on purpose.
     Log.Fatal(ex, "Application terminated unexpectedly");
-    throw;
+
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 // Used by the startup migration loop. It sat between two middleware registrations (audit L10); a local
 // function declared at top level is in scope for all the statements above.

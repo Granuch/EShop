@@ -17,4 +17,5 @@ public interface IEmailService
     Task<string> SendPaymentFailedAsync(RecipientAddress recipient, PaymentFailedEmailModel model, CancellationToken ct = default);
     Task<string> SendPaymentRefundedAsync(RecipientAddress recipient, PaymentRefundedEmailModel model, CancellationToken ct = default);
     Task<string> SendPasswordResetAsync(RecipientAddress recipient, PasswordResetEmailModel model, CancellationToken ct = default);
+    Task<string> SendEmailConfirmationAsync(RecipientAddress recipient, EmailConfirmationEmailModel model, CancellationToken ct = default);
 }

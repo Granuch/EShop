@@ -42,16 +42,6 @@ spec:
             secretKeyRef:
               name: eshop-secrets
               key: jwt-audience
-        - name: IdentityService__ApiKey
-          valueFrom:
-            secretKeyRef:
-              name: eshop-secrets
-              key: internal-service-api-key
-        - name: IdentityService__ApiKeyHeaderName
-          valueFrom:
-            secretKeyRef:
-              name: eshop-secrets
-              key: internal-service-api-key-header
         # Migrations run at boot with up to 8 retries and linear backoff (~140s of waiting
         # before the last attempt), which is far longer than a readiness initialDelay should
         # cover. A startupProbe gives that its own budget: while it is pending Kubernetes

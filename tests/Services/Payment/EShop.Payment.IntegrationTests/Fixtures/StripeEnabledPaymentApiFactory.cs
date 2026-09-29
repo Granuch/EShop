@@ -15,7 +15,7 @@ namespace EShop.Payment.IntegrationTests.Fixtures;
 /// <para>The webhook parser is left real (Stage 4): it needs only <see cref="WebhookSecret"/>, so the webhook tests
 /// check genuine Stripe signatures.</para>
 /// </summary>
-public sealed class StripeEnabledPaymentApiFactory : PaymentApiFactory
+public class StripeEnabledPaymentApiFactory : PaymentApiFactory
 {
     public const string WebhookSecret = "whsec_eshop_payment_integration_tests";
 

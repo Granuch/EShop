@@ -1,6 +1,8 @@
 using MediatR;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Messaging.Events;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
@@ -17,15 +19,21 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IIntegrationEventOutbox _outbox;
+    private readonly ICurrentUserContext _currentUserContext;
     private readonly ILogger<ResetPasswordCommandHandler> _logger;
 
     public ResetPasswordCommandHandler(
         UserManager<ApplicationUser> userManager,
         IRefreshTokenRepository refreshTokenRepository,
+        IIntegrationEventOutbox outbox,
+        ICurrentUserContext currentUserContext,
         ILogger<ResetPasswordCommandHandler> logger)
     {
         _userManager = userManager;
         _refreshTokenRepository = refreshTokenRepository;
+        _outbox = outbox;
+        _currentUserContext = currentUserContext;
         _logger = logger;
     }
 
@@ -70,6 +78,25 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
             user.Id,
             "Password reset",
             cancellationToken: cancellationToken);
+
+        // A reset token only ever travels by email, so redeeming one proves the caller reads that
+        // mailbox — exactly what confirmation proves. Without this, a user an administrator invited
+        // (an unconfirmed account whose only email is the reset link) could set a password and
+        // still never sign in while SignIn.RequireConfirmedEmail is on.
+        //
+        // Set only AFTER ResetPasswordAsync succeeded: TransactionBehavior commits on a failure
+        // Result too, and a tracked user flagged before the token check would be confirmed by a
+        // request whose token was wrong. The tracked change is persisted by that same commit.
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            _outbox.Enqueue(new UserEmailConfirmedIntegrationEvent
+            {
+                UserId = user.Id,
+                CorrelationId = _currentUserContext.CorrelationId
+            }, _currentUserContext.CorrelationId);
+            _logger.LogInformation("Email confirmed by a password reset. UserId={UserId}", user.Id);
+        }
 
         _logger.LogInformation("Password reset successfully. UserId={UserId}", user.Id);
         IdentityTelemetry.RecordPasswordReset(true);

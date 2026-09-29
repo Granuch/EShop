@@ -17,18 +17,21 @@ public class GetOrdersTests : AuthenticatedIntegrationTestBase
 {
     private const string OrdersEndpoint = "/api/v1/orders";
 
-    [TestCase("pageNumber=0", "PageNumber")]
-    [TestCase("pageSize=0", "PageSize")]
-    [TestCase("pageSize=101", "PageSize")]
-    [TestCase("status=Payed", "Status")]
-    [TestCase("status=7", "Status")]
+    [TestCase("pageNumber=0", "pageNumber")]
+    [TestCase("pageSize=0", "pageSize")]
+    [TestCase("pageSize=101", "pageSize")]
+    [TestCase("status=Payed", "status")]
+    [TestCase("status=7", "status")]
     public async Task AnInvalidQuery_IsRejected_NamingTheParameter(string queryString, string parameter)
     {
         var response = await Client.GetAsync($"{OrdersEndpoint}?{queryString}");
         var body = await response.Content.ReadAsStringAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("Validation.Failed").And.Contain(parameter);
+        using var problem = System.Text.Json.JsonDocument.Parse(body);
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be("ValidationError");
+        problem.RootElement.GetProperty("errors").TryGetProperty(parameter, out _).Should().BeTrue(
+            $"the errors map names the query parameter as sent: {body}");
     }
 
     [Test]

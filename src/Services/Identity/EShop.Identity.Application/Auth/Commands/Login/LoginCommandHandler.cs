@@ -16,11 +16,21 @@ namespace EShop.Identity.Application.Auth.Commands.Login;
 /// </summary>
 public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginResponse>>
 {
+    /// <summary>
+    /// Correct password, unconfirmed address, while <c>SignIn.RequireConfirmedEmail</c> is on.
+    /// <c>AuthController</c> answers it with 403 rather than 401 — the caller is authenticated and
+    /// still refused — so a client can tell it apart and offer a new confirmation link.
+    /// </summary>
+    public static readonly Error EmailNotConfirmed = new(
+        "Auth.EmailNotConfirmed",
+        "Confirm your email address before signing in. You can request a new confirmation link.");
+
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly ITokenService _tokenService;
     private readonly ILoginAttemptTracker _loginAttemptTracker;
     private readonly IUserRepository _userRepository;
+    private readonly IRolePermissionResolver _permissionResolver;
     private readonly ILogger<LoginCommandHandler> _logger;
 
     public LoginCommandHandler(
@@ -29,6 +39,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         ITokenService tokenService,
         ILoginAttemptTracker loginAttemptTracker,
         IUserRepository userRepository,
+        IRolePermissionResolver permissionResolver,
         ILogger<LoginCommandHandler> logger)
     {
         _userManager = userManager;
@@ -36,6 +47,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         _tokenService = tokenService;
         _loginAttemptTracker = loginAttemptTracker;
         _userRepository = userRepository;
+        _permissionResolver = permissionResolver;
         _logger = logger;
     }
 
@@ -149,18 +161,33 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             _logger.LogWarning("Login attempt for locked account. UserId={UserId}, LockoutEnd={LockoutEnd}",
                 user.Id, user.LockoutEnd);
         }
-        else if (isNotAllowed)
-        {
-            canProceed = false;
-            failureReason = "email_not_confirmed";
-            _logger.LogWarning("Login attempt with unconfirmed email. UserId={UserId}", user.Id);
-        }
         else if (!isPasswordValid)
         {
             canProceed = false;
             failureReason = "invalid_password";
             _logger.LogWarning("Invalid password attempt. UserId={UserId}, IP={IpAddress}",
                 user.Id, request.IpAddress);
+        }
+        else if (isNotAllowed && IsBlockedOnlyByAnUnconfirmedEmail(user))
+        {
+            // The one refusal that names its reason, and only AFTER the password has been checked:
+            // a caller who does not know the password still gets the uniform 401 above, so this
+            // reveals "unconfirmed" to nobody but the account's owner — who needs it, or the client
+            // cannot offer "resend the confirmation email". It is not a failed attempt either: the
+            // credentials were right, and counting it would throttle, then lock, a user for trying
+            // to log in before clicking their link.
+            _logger.LogInformation("Login refused until the email is confirmed. UserId={UserId}", user.Id);
+            IdentityTelemetry.RecordLoginFailure("email_not_confirmed");
+            activity?.SetStatus(ActivityStatusCode.Error, "email_not_confirmed");
+            return Result<LoginResponse>.Failure(EmailNotConfirmed);
+        }
+        else if (isNotAllowed)
+        {
+            // CanSignInAsync also consults phone and account confirmation; neither is enabled here,
+            // so this is unreachable today, and it stays behind the uniform answer if it ever is.
+            canProceed = false;
+            failureReason = "sign_in_not_allowed";
+            _logger.LogWarning("Login attempt not allowed to sign in. UserId={UserId}", user.Id);
         }
 
         // Step 4: Handle failed login attempts
@@ -252,8 +279,20 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 Email = user.Email!,
                 FirstName = user.FirstName,
                 LastName = user.LastName,
-                Roles = roles.ToList()
+                Roles = roles.ToList(),
+                Permissions = _permissionResolver.PermissionsFor(roles).ToList()
             }
         });
     }
+
+    /// <summary>
+    /// Whether an unconfirmed address is what <c>CanSignInAsync</c> refused on. Read from the
+    /// options rather than assumed, so a host with <c>RequireConfirmedEmail</c> off can never answer
+    /// <see cref="EmailNotConfirmed"/>.
+    /// </summary>
+    private bool IsBlockedOnlyByAnUnconfirmedEmail(ApplicationUser user)
+        => _userManager.Options.SignIn.RequireConfirmedEmail
+           && !user.EmailConfirmed
+           && !_userManager.Options.SignIn.RequireConfirmedPhoneNumber
+           && !_userManager.Options.SignIn.RequireConfirmedAccount;
 }

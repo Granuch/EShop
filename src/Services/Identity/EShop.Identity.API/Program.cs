@@ -1,5 +1,6 @@
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Infrastructure.Data;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 using EShop.Identity.Infrastructure.Extensions;
 using EShop.Identity.Infrastructure.Configuration;
@@ -10,10 +11,10 @@ using EShop.Identity.API.Infrastructure.Metrics;
 using EShop.Identity.API.Infrastructure.Middleware;
 using EShop.Identity.API.Infrastructure.Security;
 using EShop.BuildingBlocks.Infrastructure.Configuration;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Extensions;
-using EShop.BuildingBlocks.Messaging.Events;
+using EShop.BuildingBlocks.Infrastructure.Hosting;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -69,6 +70,10 @@ try
     // under Docker/Kubernetes and why an unparseable entry is logged rather than dropped.
     var forwardedHeadersEnabled = builder.Services.AddEShopForwardedHeaders(builder.Configuration);
 
+    // Admin audit trail (S15, Q8a). FIRST, so AuditBehavior is the outermost behavior: outside the transaction,
+    // recording the outcome the caller got. Registered after the Application call it runs inside TransactionBehavior.
+    builder.Services.AddEShopAuditLog<IdentityDbContext>("identity");
+
     // CacheInvalidation FIRST, then Application, then Infrastructure. MediatR runs pipeline
     // behaviors in DI registration order (first registered = outermost), so these three calls are
     // what sets the pipeline:
@@ -102,8 +107,7 @@ try
         builder.Configuration,
         useInMemoryDatabase: useInMemoryDb,
         suppressPendingModelChangesWarning: suppressPendingModelChangesWarning,
-        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"),
-        isSandbox: builder.Environment.IsEnvironment("Sandbox"));
+        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
 
     builder.Services.AddHttpContextAccessor();
 
@@ -324,6 +328,11 @@ try
             policy.Requirements.Add(new InternalServiceRequirement()));
     });
 
+    // Decision Q4c: one policy per permission, resolved from the caller's roles through
+    // RolePermissionBundles. Additive — every existing role-based policy above is untouched, and
+    // the Admin role bundles every permission, so no existing caller loses access.
+    builder.Services.AddEShopPermissions();
+
     builder.Services.AddSingleton<IAuthorizationHandler, InternalServiceAuthorizationHandler>();
 
     var enableRateLimiting = !builder.Environment.IsEnvironment("Testing")
@@ -346,27 +355,9 @@ try
     // Add Rate Limiting (Testing uses permissive limits by default, can be hardened for dedicated tests)
     builder.Services.AddRateLimiter(options =>
     {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-        // DOC-01. A rejected request used to return 429 with an EMPTY body: RejectionStatusCode
-        // sets the status and nothing writes a payload. So the one response a client is most
-        // likely to need to handle programmatically was the only one carrying no errorCode, and
-        // scripts/verify-all.sh could not assert on it at all. Emit the same envelope as every
-        // other error, and advertise Retry-After when the limiter can tell us the window.
-        options.OnRejected = async (context, cancellationToken) =>
-        {
-            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-            {
-                context.HttpContext.Response.Headers.RetryAfter =
-                    ((int)retryAfter.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            await EShopProblem.WriteAsync(context.HttpContext, EShopProblem.Create(
-                context.HttpContext,
-                StatusCodes.Status429TooManyRequests,
-                detail: "Too many requests. Please retry later.",
-                errorCode: "Request.RateLimited"));
-        };
+        // DOC-01, since frontend-contracts F-05 shared by every component: problem+json with
+        // Request.RateLimited and Retry-After, rather than an empty 429.
+        options.UseEShopRejectionResponse();
 
         // Global rate limiter
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
@@ -418,7 +409,8 @@ try
             policy.WithOrigins(corsAllowedOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowCredentials()
+                  .WithEShopExposedHeaders();
         });
     });
 
@@ -452,7 +444,15 @@ try
             tags: ["live"]);
 
     // Add Controllers and OpenAPI
-    builder.Services.AddControllers();
+    // Frontend-contracts F-03: the automatic 400 answers the same validation envelope as every other service.
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+            options.InvalidModelStateResponseFactory = EShopMvcValidation.InvalidModelStateResponse)
+        .AddEShopJson();
+
+    // Enums as PascalCase names, in and out (frontend-contracts F-01). The controllers above read MVC's own
+    // JsonOptions; this covers the minimal endpoints (the root, health) as well.
+    builder.Services.AddEShopJson();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
@@ -462,27 +462,6 @@ try
         .AddNotFound());
 
     var app = builder.Build();
-
-    // BUG-03 rail. Email confirmation is deliberately parked scaffolding: RegisterCommandHandler
-    // mints a confirmation token and immediately discards it — it is on neither RegisterResponse
-    // nor UserRegisteredIntegrationEvent — while the response still tells the caller to check
-    // their email. That is harmless only while SignIn.RequireConfirmedEmail is false. The first
-    // time it is turned on, every newly registered account is permanently unable to log in and
-    // there is no path to mint a token for it.
-    //
-    // This guard does not finish the feature; it makes the trap impossible to walk into
-    // silently. It disarms itself the moment the token is actually carried on the event, so
-    // whoever completes the feature does not have to know this check exists.
-    var identityOptions = app.Services.GetRequiredService<IOptions<IdentityOptions>>().Value;
-    if (identityOptions.SignIn.RequireConfirmedEmail && !EmailConfirmationTokenIsDelivered())
-    {
-        throw new InvalidOperationException(
-            "Identity:RequireConfirmedEmail is enabled but registration does not deliver the " +
-            "confirmation token: RegisterCommandHandler generates one and discards it, and " +
-            $"{nameof(UserRegisteredIntegrationEvent)} carries no token property, so no " +
-            "confirmation email can be sent and every new account would be permanently locked " +
-            "out. Wire the token into the integration event before enabling this.");
-    }
 
     // Apply database migrations automatically (Production/Development/Sandbox)
     // Skip for Testing environment (uses in-memory database)
@@ -612,6 +591,8 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    // This service's slice of the admin audit trail (S15); the gateway serves the merged view on the same path.
+    app.MapEShopAuditLog();
 
     // Map Prometheus metrics endpoints:
     // /metrics/prom — prometheus-net custom business metrics (identity_login_attempts_total, etc.)
@@ -678,15 +659,19 @@ catch (Exception ex)
 {
     Log.Fatal(ex, "Identity Service terminated unexpectedly");
 
-    // Rethrow so the process exits non-zero. Without this the host logs [FTL] and then reports
-    // success, so a config-guard rejection or an unreachable broker looks like a clean shutdown
-    // to anything checking exit status instead of parsing logs.
-    throw;
+    // Exit non-zero. Swallowing the exception made the host log [FTL] and then report success, so a
+    // config-guard rejection or an unreachable broker looked like a clean shutdown to anything checking
+    // exit status instead of parsing logs.
+    // docker-ci DC-37: exit code 1, not a rethrow that the runtime ends with signal 139; a test host or dotnet ef
+    // still gets the exception (see EShopEntryPoint).
+    return EShopEntryPoint.ExitCodeFor(ex, typeof(Program).Assembly);
 }
 finally
 {
     Log.CloseAndFlush();
 }
+
+return 0;
 
 // API-10. These local functions used to sit between two app.Use* calls, which broke the
 // pipeline's top-to-bottom reading order — the one place in this file where order is the
@@ -703,11 +688,3 @@ static bool IsPostgresStartupException(Exception exception)
     return exception.InnerException is not null
         && IsPostgresStartupException(exception.InnerException);
 }
-
-// Reflection rather than a constant so the BUG-03 rail disarms itself when the parked
-// email-confirmation feature is finished, instead of becoming a stale flag someone has to
-// remember to flip. Any property on the event whose name ends in "ConfirmationToken" counts.
-static bool EmailConfirmationTokenIsDelivered() =>
-    typeof(UserRegisteredIntegrationEvent)
-        .GetProperties()
-        .Any(p => p.Name.EndsWith("ConfirmationToken", StringComparison.OrdinalIgnoreCase));

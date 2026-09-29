@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Payment.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using EShop.Tests.Shared;
 
 namespace EShop.Payment.IntegrationTests.Security;
 
@@ -32,7 +34,88 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
         ["POST /api/v1/payments/{id:guid}/refund"] = "Admin",
         ["GET /api/v1/payments/simulation"] = "Admin",
         ["GET /api/v1/users/{userId}/payments"] = "SameUserOrAdmin",
+
+        // Admin panel S10. Permission policies, not the Admin role (decision Q4c, §12.1: new admin endpoints declare
+        // a permission). Behaviour is identical for every existing caller, because the Admin role bundles every
+        // permission — so the two styles below are a migration in progress, not a disagreement. Payment's three older
+        // admin endpoints move when a stage touches them.
+        ["POST /api/v1/payments/offline"] = EShopPermissions.PaymentsWrite,
+        ["GET /api/v1/payments"] = EShopPermissions.PaymentsRead,
+        ["GET /api/v1/payments/stats"] = EShopPermissions.PaymentsRead,
+        ["GET /api/v1/payments/export"] = EShopPermissions.PaymentsRead,
+
+        // Admin panel S11. The timeline is a read; a replay re-applies a payment outcome, so it is a write — and
+        // deliberately not payments.refund, which is held back for the one action that moves money outward.
+        ["GET /api/v1/payments/{id:guid}/events"] = EShopPermissions.PaymentsRead,
+        // Admin panel S15: this service's slice of the audit trail; the gateway serves the merged view.
+        ["GET /api/v1/admin/audit"] = EShopPermissions.AuditRead,
+        // Admin panel S19: Payment's slices of the System page's read-only settings and feature flags.
+        ["GET /api/v1/admin/settings"] = EShopPermissions.SystemManage,
+        ["GET /api/v1/admin/feature-flags"] = EShopPermissions.SystemManage,
+        ["POST /api/v1/payments/webhooks/failed/replay"] = EShopPermissions.PaymentsWrite,
     };
+
+    /// <summary>
+    /// The behavioural half. A permission policy that was quietly redefined as
+    /// <c>RequireAuthenticatedUser()</c> leaves every attribute in place, so the structural check above cannot see
+    /// it — only a request with a valid non-admin token can.
+    /// </summary>
+    [TestCase("GET", "/api/v1/payments")]
+    [TestCase("GET", "/api/v1/payments/stats")]
+    [TestCase("GET", "/api/v1/payments/export")]
+    public async Task ACustomer_CannotUseTheAdminReads(string method, string path)
+    {
+        var response = await Client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    /// <summary>
+    /// The Q6a endpoint is the one a customer would most like to reach: it declares an order paid without any money
+    /// moving. The payment must stay as it was.
+    /// </summary>
+    [Test]
+    public async Task ACustomer_CannotDeclareTheirOwnOrderPaid()
+    {
+        var seeded = await Factory.SeedPaymentAsync(TestUserId);
+
+        var response = await Client.PostAsJsonAsync(
+            "/api/v1/payments/offline", new { seeded.OrderId, Reference = "TRF-1" });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+        var stored = (await Factory.FindByOrderIdAsync(seeded.OrderId))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(PaymentStatus.Pending));
+            Assert.That(stored.PaymentIntentId, Is.Empty);
+        });
+    }
+
+    /// <summary>
+    /// Admin panel S11. The timeline names operators, carries Stripe event ids and quotes decline reasons — none of
+    /// it a customer's business, even about their own payment, which is why this asks for one they own.
+    /// </summary>
+    [Test]
+    public async Task ACustomer_CannotReadTheTimelineOfTheirOwnPayment()
+    {
+        var seeded = await Factory.SeedPaymentAsync(TestUserId);
+
+        var response = await Client.GetAsync($"/api/v1/payments/{seeded.Id}/events");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    /// <summary>
+    /// Replaying a captured webhook re-applies a payment outcome. A customer reaching it could settle their own order
+    /// by resurrecting a delivery.
+    /// </summary>
+    [Test]
+    public async Task ACustomer_CannotReplayFailedWebhooks()
+    {
+        var response = await Client.PostAsJsonAsync("/api/v1/payments/webhooks/failed/replay", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
 
     /// <summary>
     /// The H4 defect: a customer could settle their own order through the simulator, bypassing Stripe. The payment
@@ -76,5 +159,25 @@ public class NonAdminAuthorizationTests : AuthenticatedIntegrationTestBase
                 Assert.That(endpoint.Metadata.GetMetadata<IAllowAnonymous>(), Is.Null, $"{route} must not be anonymous");
             }
         });
+    }
+
+    /// <summary>
+    /// frontend-contracts R6 (F-08, F-45). Every admin-only endpoint here must be refused at the gateway too: either it
+    /// is not proxied at all, or the YARP route it lands on carries <c>AdminArea</c>. This reads the gateway's shipped
+    /// <c>appsettings.json</c>, so a new admin endpoint on a path the gateway proxies under a storefront route fails
+    /// here until the gateway gains a route for it. Before R6 every Payment admin endpoint landed on
+    /// <c>payments-route</c>, which only asks for a token. The unrouted list is what the gateway serves itself or fans
+    /// out to directly, never through a YARP route.
+    /// </summary>
+    [Test]
+    public void EveryAdminEndpoint_IsBehindTheGatewaysAdminGate()
+    {
+        var report = GatewayAdminGate.Check(Factory.Services);
+
+        Assert.That(report.Violations, Is.Empty);
+        Assert.That(
+            report.AdminEndpoints.Except(report.Routed),
+            Is.EquivalentTo(new[] { "GET /api/v1/admin/audit", "GET /api/v1/admin/settings", "GET /api/v1/admin/feature-flags" }),
+            "an admin endpoint the gateway does not proxy, other than these, means a route stopped matching its path");
     }
 }

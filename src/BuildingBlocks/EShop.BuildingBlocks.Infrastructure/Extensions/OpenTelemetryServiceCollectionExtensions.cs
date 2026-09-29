@@ -1,12 +1,9 @@
 using EShop.BuildingBlocks.Infrastructure.Configuration;
-using EShop.BuildingBlocks.Infrastructure.Observability;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using OpenTelemetry;
-using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -144,30 +141,24 @@ public static class OpenTelemetryServiceCollectionExtensions
                 tracing.SetSampler(new ParentBasedSampler(
                     new TraceIdRatioBasedSampler(samplingRatio)));
 
-                // OTLP exporter (gRPC) wrapped in a circuit breaker.
-                // When the OTEL Collector / Jaeger is down, the circuit breaker
-                // drops traces silently after 5 consecutive failures for 30 seconds,
-                // preventing cascading export timeouts and log spam.
-                var otlpEndpoint = settings.OtlpEndpoint;
-                tracing.AddProcessor(sp =>
+                // OTLP exporter (gRPC). Registered through the SDK's own AddOtlpExporter on purpose: the SDK
+                // gives the provider's resource (service.name, service.version, deployment.environment) only
+                // to the exporter it is handed. From #31 until docker-ci Stage 6b a hand-built OtlpTraceExporter
+                // sat inside a circuit-breaker wrapper, never saw that resource, and every span reached Jaeger
+                // as "OTLPResourceNoServiceName" (DC-35). Export runs on the batch processor's own thread and
+                // the exporter reports failures through EventSource, not ILogger, so a collector outage costs
+                // dropped spans only: no request waits on it and nothing floods the logs.
+                // Guarded by BuildingBlocks.UnitTests/Observability/TraceExportResourceTests.
+                tracing.AddOtlpExporter(options =>
                 {
-                    var otlpExporter = new OtlpTraceExporter(new OtlpExporterOptions
+                    options.Endpoint = new Uri(settings.OtlpEndpoint);
+                    options.BatchExportProcessorOptions = new BatchExportActivityProcessorOptions
                     {
-                        Endpoint = new Uri(otlpEndpoint)
-                    });
-
-                    var logger = sp.GetRequiredService<ILogger<CircuitBreakerTraceExporter>>();
-                    var circuitBreakerExporter = new CircuitBreakerTraceExporter(
-                        otlpExporter, logger,
-                        failureThreshold: 5,
-                        openDuration: TimeSpan.FromSeconds(30));
-
-                    return new ActivityBatchExportProcessor(
-                        circuitBreakerExporter,
-                        maxQueueSize: 2048,
-                        maxExportBatchSize: 512,
-                        scheduledDelayMilliseconds: 5000,
-                        exporterTimeoutMilliseconds: 30000);
+                        MaxQueueSize = 2048,
+                        MaxExportBatchSize = 512,
+                        ScheduledDelayMilliseconds = 5000,
+                        ExporterTimeoutMilliseconds = 30000
+                    };
                 });
             });
         }
@@ -224,22 +215,5 @@ public static class OpenTelemetryServiceCollectionExtensions
         }
 
         return app;
-    }
-
-    /// <summary>
-    /// Concrete <see cref="BatchExportProcessor{T}"/> for <see cref="System.Diagnostics.Activity"/>.
-    /// Required because the SDK marks <c>BatchExportProcessor&lt;T&gt;</c> as abstract.
-    /// </summary>
-    private sealed class ActivityBatchExportProcessor : BatchExportProcessor<System.Diagnostics.Activity>
-    {
-        public ActivityBatchExportProcessor(
-            BaseExporter<System.Diagnostics.Activity> exporter,
-            int maxQueueSize = 2048,
-            int scheduledDelayMilliseconds = 5000,
-            int exporterTimeoutMilliseconds = 30000,
-            int maxExportBatchSize = 512)
-            : base(exporter, maxQueueSize, scheduledDelayMilliseconds, exporterTimeoutMilliseconds, maxExportBatchSize)
-        {
-        }
     }
 }

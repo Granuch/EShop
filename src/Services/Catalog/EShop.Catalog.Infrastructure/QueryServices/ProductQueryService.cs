@@ -29,16 +29,49 @@ public class ProductQueryService : IProductQueryService
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+        var query = await FilteredProductsAsync(filter, cancellationToken);
 
         var totalCount = await query.CountAsync(cancellationToken);
 
-        // Id is the tiebreaker on every sort. Name, Price and CreatedAt all repeat, and without a
-        // unique final key Postgres may order tied rows differently on each execution — so OFFSET
-        // paging could repeat one row on two pages and never show another.
-        //
-        // The Price sort orders by the EFFECTIVE price (DiscountPrice ?? Price) — see ApplyFilter.
-        query = sortBy switch
+        var dtos = await ApplySort(query, sortBy, isDescending)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ToDto)
+            .ToListAsync(cancellationToken);
+
+        return (dtos, totalCount);
+    }
+
+    public async Task<(List<ProductDto> Items, int TotalCount)> GetProductsForExportAsync(
+        ProductListFilter filter,
+        ProductSortBy sortBy,
+        bool isDescending,
+        int maxRows,
+        CancellationToken cancellationToken = default)
+    {
+        // The list's own filter and order, so an export is the list's rows, all pages at once.
+        var query = await FilteredProductsAsync(filter, cancellationToken);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        if (totalCount > maxRows)
+            return ([], totalCount);
+
+        // ToDto's main-image subquery runs once per row; bounded here by maxRows rather than by a page size, and
+        // index-only on IX_ProductImages_ProductId either way.
+        var dtos = await ApplySort(query, sortBy, isDescending)
+            .Select(ToDto)
+            .ToListAsync(cancellationToken);
+
+        return (dtos, totalCount);
+    }
+
+    /// <summary>
+    /// Id is the tiebreaker on every sort. Name, Price and CreatedAt all repeat, and without a unique final key Postgres
+    /// may order tied rows differently on each execution — so OFFSET paging could repeat one row on two pages and never
+    /// show another. The Price sort orders by the EFFECTIVE price (DiscountPrice ?? Price) — see ApplyFilter.
+    /// </summary>
+    private static IQueryable<Product> ApplySort(IQueryable<Product> query, ProductSortBy sortBy, bool isDescending)
+        => sortBy switch
         {
             ProductSortBy.Price => isDescending
                 ? query.OrderByDescending(p => p.DiscountPrice ?? p.Price).ThenBy(p => p.Id)
@@ -51,13 +84,38 @@ public class ProductQueryService : IProductQueryService
                 : query.OrderBy(p => p.Name).ThenBy(p => p.Id),
         };
 
-        var dtos = await query
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .Select(ToDto)
-            .ToListAsync(cancellationToken);
+    /// <summary>
+    /// One GroupBy-less aggregate over the live products in the category's subtree. Written as a
+    /// single projection so it is one round trip: five separate CountAsync calls would each be their
+    /// own query, and they could disagree with each other under concurrent writes.
+    /// </summary>
+    public async Task<CategoryProductStats> GetCategoryProductStatsAsync(
+        Guid categoryId,
+        CancellationToken cancellationToken = default)
+    {
+        // The subtree, not the category alone: every list read now means "this category and its
+        // descendants", and an admin reading a parent's row expects the number to match what
+        // clicking into it shows. That was the reason these counts were direct-only before.
+        var categoryIds = await GetSubtreeIdsAsync(categoryId, cancellationToken);
 
-        return (dtos, totalCount);
+        // The !IsDeleted global query filter applies, deliberately: a deleted product is invisible
+        // in every other read, and a stat that counted it would be the only place it surfaced.
+        var stats = await _context.Products
+            .AsNoTracking()
+            .Where(p => categoryIds.Contains(p.CategoryId))
+            .GroupBy(_ => 1)
+            .Select(g => new CategoryProductStats(
+                g.Count(),
+                g.Count(p => p.Status == ProductStatus.Active),
+                // Cast before summing: StockQuantity is int, and Postgres' sum(int) returns bigint,
+                // so leaving it as int would overflow where the database would not.
+                g.Sum(p => (long)p.StockQuantity),
+                g.Count(p => p.StockQuantity == 0)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // GroupBy over an empty set yields no rows, not a row of zeros — an empty category would
+        // otherwise come back null and read as "category not found" one layer up.
+        return stats ?? new CategoryProductStats(0, 0, 0, 0);
     }
 
     public async Task<List<ProductDto>> GetNewestProductsAsync(
@@ -66,7 +124,7 @@ public class ProductQueryService : IProductQueryService
         int take,
         CancellationToken cancellationToken = default)
     {
-        var query = ApplyFilter(_context.Products.AsNoTracking(), filter);
+        var query = await FilteredProductsAsync(filter, cancellationToken);
 
         if (after is { } cursor)
         {
@@ -95,20 +153,137 @@ public class ProductQueryService : IProductQueryService
     }
 
     /// <summary>
+    /// The filtered product query every list read starts from. Async only because a category filter
+    /// has to be resolved to its subtree first — see <see cref="GetSubtreeIdsAsync"/>.
+    /// </summary>
+    private async Task<IQueryable<Product>> FilteredProductsAsync(
+        ProductListFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var categoryIds = filter.CategoryId is { } categoryId
+            ? await GetSubtreeIdsAsync(categoryId, cancellationToken)
+            : null;
+
+        return ApplyFilter(_context.Products.AsNoTracking(), filter, categoryIds);
+    }
+
+    /// <summary>
+    /// The category and every descendant, at any depth. A category filter means the whole subtree:
+    /// products are normally filed under leaves, so an exact match on a parent ("Electronics") found
+    /// nothing, while its children ("Phones", "Laptops") held everything. The tree has no depth limit
+    /// (<c>Category.MoveTo</c> enforces none), so "self plus direct children" would silently drop
+    /// grandchildren; hence a recursive CTE rather than one level of <c>ParentCategoryId</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It reads the raw table, ignoring the <c>IsActive</c> filter, like
+    /// <c>CategoryRepository.GetAncestorIdsAsync</c>. For live products that changes nothing — a
+    /// deleted category has no live children and no live products, because delete refuses both and
+    /// restore and move refuse a deleted parent — but the recycle-bin read (<c>DeletedOnly</c>) needs
+    /// it, since a deleted product can sit in a deleted subcategory of the category being browsed.
+    /// </para>
+    /// <para>
+    /// A separate round trip rather than a composed subquery: the list reads count and page with the
+    /// same filter, and resolving once keeps both on one id set. The Categories table is small, and
+    /// the only index led by <c>ParentCategoryId</c> is filtered on <c>IsActive</c>, so the walk scans
+    /// it; revisit that if categories ever number in the tens of thousands. The depth guard is a
+    /// safety net against a cycle that <c>MoveTo</c> exists to prevent, as in the ancestor walk.
+    /// An unknown id seeds nothing and yields an empty set, so the read answers an empty page — the
+    /// same as the exact match did.
+    /// </para>
+    /// </remarks>
+    private async Task<List<Guid>> GetSubtreeIdsAsync(Guid categoryId, CancellationToken cancellationToken)
+    {
+        var sql = """
+            WITH RECURSIVE subtree AS (
+                SELECT c."Id", 0 AS depth
+                FROM "Categories" c
+                WHERE c."Id" = {0}
+                UNION ALL
+                SELECT child."Id", s.depth + 1
+                FROM "Categories" child
+                JOIN subtree s ON child."ParentCategoryId" = s."Id"
+                WHERE s.depth < 100
+            )
+            SELECT s."Id" AS "Value"
+            FROM subtree s
+            """;
+        // "Value" is required: SqlQueryRaw<T> for a scalar binds a single column of exactly that name.
+
+        return await _context.Database
+            .SqlQueryRaw<Guid>(sql, categoryId)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// The filters every list read applies. Status first, and before any count: TotalCount must
     /// describe what the caller can actually reach, or it reports pages that come back empty.
     /// </summary>
-    private static IQueryable<Product> ApplyFilter(IQueryable<Product> query, ProductListFilter filter)
+    /// <param name="categoryIds">
+    /// <see cref="ProductListFilter.CategoryId"/> resolved to its subtree, or null when the filter
+    /// names no category. Never filter on <c>filter.CategoryId</c> directly here — that is the exact
+    /// match this parameter replaced.
+    /// </param>
+    private static IQueryable<Product> ApplyFilter(
+        IQueryable<Product> query,
+        ProductListFilter filter,
+        IReadOnlyCollection<Guid>? categoryIds)
     {
+        // Admin panel S4. The recycle-bin read. IgnoreQueryFilters applies to the WHOLE query, not
+        // only to the clauses after it, so the explicit IsDeleted predicate is what actually scopes
+        // this — dropping it would widen the result to every product, deleted and live alike, while
+        // still looking like a "deleted products" query. Admin-only, set at the endpoint.
+        if (filter.DeletedOnly)
+            query = query.IgnoreQueryFilters().Where(p => p.IsDeleted);
+
         // D1 / H5a. Public callers see published products only.
+        //
+        // Note this still applies under DeletedOnly, and must: SoftDelete sets Status to
+        // Discontinued, so a deleted product is never Active and an anonymous caller who somehow
+        // reached this path would get an empty page rather than the bin. The endpoint's Admin policy
+        // is the real guard; this is the second one.
         if (!filter.IncludeUnpublished)
             query = query.Where(p => p.Status == ProductStatus.Active);
 
-        if (filter.CategoryId.HasValue)
+        // Admin panel S4. ANDs with the rule above rather than replacing it: a public caller asking
+        // for Draft gets an empty page, never the unpublished catalogue. Keep it on this side of
+        // that `if` — assigning `query = query.Where(p => p.Status == filter.Status)` in an `else`
+        // is the shape that would leak.
+        if (filter.Status.HasValue)
         {
-            var categoryId = filter.CategoryId.Value;
-            query = query.Where(p => p.CategoryId == categoryId);
+            var status = filter.Status.Value;
+            query = query.Where(p => p.Status == status);
         }
+
+        if (filter.HasDiscount.HasValue)
+        {
+            query = filter.HasDiscount.Value
+                ? query.Where(p => p.DiscountPrice != null)
+                : query.Where(p => p.DiscountPrice == null);
+        }
+
+        if (filter.StockBelow.HasValue)
+        {
+            // Strictly less than, so stockBelow=1 means "out of stock" and the low-stock read can
+            // pass its threshold straight through.
+            var stockBelow = filter.StockBelow.Value;
+            query = query.Where(p => p.StockQuantity < stockBelow);
+        }
+
+        if (filter.CreatedFrom.HasValue)
+        {
+            var createdFrom = filter.CreatedFrom.Value;
+            query = query.Where(p => p.CreatedAt >= createdFrom);
+        }
+
+        if (filter.CreatedTo.HasValue)
+        {
+            var createdTo = filter.CreatedTo.Value;
+            query = query.Where(p => p.CreatedAt <= createdTo);
+        }
+
+        if (categoryIds is not null)
+            query = query.Where(p => categoryIds.Contains(p.CategoryId));
 
         if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
         {

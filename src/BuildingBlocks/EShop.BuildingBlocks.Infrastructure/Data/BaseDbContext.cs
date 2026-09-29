@@ -263,6 +263,9 @@ public abstract class BaseDbContext : DbContext, IUnitOfWork
         // Apply Outbox configuration
         modelBuilder.ApplyConfiguration(new Configurations.OutboxMessageConfiguration());
         modelBuilder.ApplyConfiguration(new Configurations.ProcessedMessageConfiguration());
+
+        // Admin audit trail (admin panel S15, migration M11) — every service with a database carries it.
+        modelBuilder.ApplyConfiguration(new Configurations.AuditLogEntryConfiguration());
     }
 
     public override void Dispose()

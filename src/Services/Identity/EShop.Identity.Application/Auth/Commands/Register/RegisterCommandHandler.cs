@@ -88,13 +88,22 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Re
             _logger.LogWarning("Failed to assign User role. UserId={UserId}", user.Id);
         }
 
-        // Generate email confirmation token (for future email confirmation feature)
         var confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
-        // Enqueue integration event in the same transaction — atomic with user creation
+        // Both events join the transaction that creates the user, so there is never an account
+        // without its confirmation email, nor an email for an account that was rolled back. The
+        // token rides on its own sensitive event (redacted once dispatched), never on
+        // UserRegisteredIntegrationEvent, which stays a credential-free fact.
         _outbox.Enqueue(new UserRegisteredIntegrationEvent
         {
             UserId = user.Id,
+            CorrelationId = _currentUserContext.CorrelationId
+        }, _currentUserContext.CorrelationId);
+
+        _outbox.Enqueue(new EmailConfirmationRequestedIntegrationEvent
+        {
+            UserId = user.Id,
+            ConfirmationToken = confirmationToken,
             CorrelationId = _currentUserContext.CorrelationId
         }, _currentUserContext.CorrelationId);
 

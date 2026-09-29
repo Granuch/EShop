@@ -196,18 +196,32 @@ Full prerequisites: [02-getting-started/prerequisites.md](02-getting-started/pre
 - Seq: `http://localhost:5341`
 - RabbitMQ Management: `http://localhost:15672`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+- Grafana: `http://localhost:3001`
 - Jaeger: `http://localhost:16686`
+
+> **Port 3000 clash**: Grafana's default port is also the Next.js dev-server default (and the
+> default CORS origin in the gateway's `Cors:AllowedOrigins`). On Windows both can bind at once —
+> `localhost:3000` (`::1`) reaches one process and `127.0.0.1:3000` reaches the other — so if
+> `ui/` and the monitoring profile are both running locally, confirm which one answers before
+> assuming a request went to the wrong place.
 
 ---
 
 ## API Reference
 
-Service API behavior and route responsibilities are documented in:
+The authoritative, code-verified API contracts for frontend clients live in
+[01-overview/frontend/](01-overview/frontend/): one file per service plus shared conventions
+(JSON/error shapes, auth, permissions, paging, rate limits), end-to-end flows with sequence
+diagrams, and a single [endpoint index](01-overview/frontend/endpoint-index.md) covering all 141
+application endpoints. `01-overview/Data Contracts.md` is a redirect stub into this set.
+
+Service API behavior and route responsibilities are also documented in:
 - [Services documentation](05-services/)
 - [Architecture data flow](03-architecture/data-flow.md)
 
-In development mode, OpenAPI/Scalar endpoints are available per service as configured.
+OpenAPI/Scalar endpoints (`/openapi/v1.json`, `/scalar/v1`) are exposed in **every environment
+except Production**, uniformly across all seven components (gateway + six services), through the
+shared `EShopApiDocs.IsExposedIn` rule.
 
 ---
 
@@ -227,6 +241,8 @@ Details:
 ## Security Highlights
 
 - JWT-based authentication and policy enforcement
+- a permission model (`EShopPermissions`, 15 named permissions) layered under role checks: the
+  gateway gates admin routes by role, each service also checks a permission or a role-bundle claim
 - strict non-local configuration validation for placeholders/secrets
 - role/user-scoped authorization patterns
 - environment-aware runtime safeguards
@@ -241,6 +257,14 @@ Details: [03-architecture/security-architecture.md](03-architecture/security-arc
 - [Project Overview](01-overview/project-overview.md)
 - [Architecture Diagram](01-overview/architecture-diagram.md)
 - [Technology Stack](01-overview/tech-stack.md)
+- **Frontend API Contracts** (`01-overview/frontend/`) — authoritative, code-verified:
+  - [README](01-overview/frontend/README.md) · [Conventions](01-overview/frontend/conventions.md)
+  - [Identity](01-overview/frontend/identity.md) · [Catalog](01-overview/frontend/catalog.md) ·
+    [Basket](01-overview/frontend/basket.md) · [Ordering](01-overview/frontend/ordering.md) ·
+    [Payment](01-overview/frontend/payment.md) · [Notification](01-overview/frontend/notification.md)
+  - [Admin Platform (gateway-served)](01-overview/frontend/admin-platform.md)
+  - [Flows](01-overview/frontend/flows.md) · [Endpoint Index](01-overview/frontend/endpoint-index.md)
+- [Data Contracts (redirect stub)](01-overview/Data%20Contracts.md)
 
 ### 02. Getting Started
 - [Prerequisites](02-getting-started/prerequisites.md)
@@ -254,6 +278,7 @@ Details: [03-architecture/security-architecture.md](03-architecture/security-arc
 - [Data Flow](03-architecture/data-flow.md)
 - [Design Patterns](03-architecture/design-patterns.md)
 - [Security Architecture](03-architecture/security-architecture.md)
+- [Admin Audit Trail](03-architecture/audit-log.md)
 
 ### 04. Implementation Plan
 - [Phase 1: Foundation](04-implementation-plan/phase-1-foundation.md)
@@ -336,5 +361,5 @@ This project uses the MIT license.
 
 ---
 
-**Documentation Version**: 2.4  
-**Last Updated**: 2026-04-14
+**Documentation Version**: 2.5  
+**Last Updated**: 2026-09-26

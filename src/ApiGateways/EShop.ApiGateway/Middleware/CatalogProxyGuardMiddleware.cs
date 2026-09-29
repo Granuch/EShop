@@ -6,10 +6,29 @@ namespace EShop.ApiGateway.Middleware;
 
 public sealed class CatalogProxyGuardMiddleware
 {
-    private static readonly string[] CatalogPathPrefixes =
+    /// <inheritdoc cref="IdentityProxyGuardMiddleware.IdentityPathPrefixes"/>
+    public static readonly string[] CatalogPathPrefixes =
     [
         "/api/v1/products",
-        "/api/v1/categories"
+        "/api/v1/categories",
+        // G6 (Admin panel S4). Must be added alongside any new /api/v1/admin/catalog route: this
+        // array is what applies the request-body cap and turns a bare 502 into a ProblemDetails
+        // body, and it is matched by prefix only — a route the gateway proxies but this list does
+        // not name is guarded by nothing, silently. ProxyGuardCoverageTests is what catches it.
+        "/api/v1/admin/catalog",
+        // Admin panel S19 (#88): the cache lever is Catalog's, routed by admin-cache-route.
+        "/api/v1/admin/cache"
+    ];
+
+    /// <summary>
+    /// G8 (admin panel S16). Catalog paths whose body is capped by
+    /// <see cref="CatalogProxyOptions.ImportMaxRequestBodySizeBytes"/> instead of the general cap: product import, whose
+    /// largest legal request is several megabytes. Bulk actions are <b>not</b> here — a thousand ids or prices is well
+    /// under the general megabyte — so they keep the tighter cap.
+    /// </summary>
+    public static readonly string[] LargeBodyPathPrefixes =
+    [
+        "/api/v1/products/import"
     ];
 
     private readonly RequestDelegate _next;
@@ -29,7 +48,7 @@ public sealed class CatalogProxyGuardMiddleware
             return;
         }
 
-        if (IsPayloadTooLarge(context.Request.ContentLength))
+        if (IsPayloadTooLarge(context.Request.Path, context.Request.ContentLength))
         {
             await EShopProblem.WriteAsync(context, EShopProblem.Create(
                 context,
@@ -55,18 +74,24 @@ public sealed class CatalogProxyGuardMiddleware
         }
     }
 
-    private bool IsPayloadTooLarge(long? contentLength)
+    private bool IsPayloadTooLarge(PathString path, long? contentLength)
     {
-        return _options.MaxRequestBodySizeBytes > 0
+        var limit = MatchesAny(path, LargeBodyPathPrefixes)
+            ? _options.ImportMaxRequestBodySizeBytes
+            : _options.MaxRequestBodySizeBytes;
+
+        return limit > 0
             && contentLength.HasValue
-            && contentLength.Value > _options.MaxRequestBodySizeBytes;
+            && contentLength.Value > limit;
     }
 
-    private static bool IsCatalogPath(PathString path)
+    private static bool IsCatalogPath(PathString path) => MatchesAny(path, CatalogPathPrefixes);
+
+    private static bool MatchesAny(PathString path, string[] prefixes)
     {
-        for (var i = 0; i < CatalogPathPrefixes.Length; i++)
+        for (var i = 0; i < prefixes.Length; i++)
         {
-            if (path.StartsWithSegments(CatalogPathPrefixes[i], StringComparison.OrdinalIgnoreCase))
+            if (path.StartsWithSegments(prefixes[i], StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }

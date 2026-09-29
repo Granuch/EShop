@@ -101,4 +101,25 @@ public class HealthResponseWriterTests
         Assert.That(body, Does.Not.Contain("\"TotalDurationMs\""));
         Assert.That(body, Does.Contain("Healthy"));
     }
+
+    [Test]
+    public async Task Body_ReadsBackAsTheSharedRecord_WithWebDefaults()
+    {
+        // Admin panel S19. The gateway's aggregate health read deserializes every service's body into
+        // EShopHealthResponse with ReadFromJsonAsync's web defaults; if the written names and the record ever drifted,
+        // every service would read as "no health body" — Unhealthy — while each service's own /health looked fine.
+        var report = new HealthReport(
+            new Dictionary<string, HealthReportEntry>
+            {
+                ["database"] = new(HealthStatus.Degraded, null, TimeSpan.Zero, null, null),
+                ["rabbitmq"] = new(HealthStatus.Healthy, null, TimeSpan.Zero, null, null)
+            },
+            TimeSpan.FromMilliseconds(7));
+
+        var read = JsonSerializer.Deserialize<EShopHealthResponse>(
+            await WriteAsync(report), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        Assert.That(read.Status, Is.EqualTo("Degraded"));
+        Assert.That(read.Checks.Select(c => $"{c.Name}={c.Status}"), Is.EqualTo(new[] { "database=Degraded", "rabbitmq=Healthy" }));
+    }
 }

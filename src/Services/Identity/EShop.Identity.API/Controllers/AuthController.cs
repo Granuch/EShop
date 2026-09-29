@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -9,6 +10,7 @@ using EShop.Identity.Application.Auth.Commands.RevokeToken;
 using EShop.Identity.Application.Auth.Commands.ConfirmEmail;
 using EShop.Identity.Application.Auth.Commands.ForgotPassword;
 using EShop.Identity.Application.Auth.Commands.ResetPassword;
+using EShop.Identity.Application.Auth.Commands.ResendEmailConfirmation;
 
 namespace EShop.Identity.API.Controllers;
 
@@ -46,7 +48,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -60,6 +62,7 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginCommand command, CancellationToken cancellationToken)
     {
         // Add IP address to command
@@ -68,12 +71,19 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            if (result.Error?.Code == "Validation.Failed")
+            if (result.Error is FieldValidationError)
             {
-                return ProblemForError(result.Error.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+                return ProblemForError(result.Error, StatusCodes.Status400BadRequest);
             }
 
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status401Unauthorized);
+            // Right password, unconfirmed address: the caller is who they say, and still refused.
+            // The handler only produces this after the password check, so it enumerates nothing.
+            if (result.Error!.Code == LoginCommandHandler.EmailNotConfirmed.Code)
+            {
+                return ProblemForError(result.Error, StatusCodes.Status403Forbidden);
+            }
+
+            return ProblemForError(result.Error!, StatusCodes.Status401Unauthorized);
         }
 
         return Ok(result.Value);
@@ -94,12 +104,12 @@ public class AuthController : ApiControllerBase
         if (result.IsFailure)
         {
             // Validation errors return BadRequest
-            if (result.Error!.Code == "Validation.Failed")
+            if (result.Error is FieldValidationError)
             {
-                return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+                return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
             }
 
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status401Unauthorized);
+            return ProblemForError(result.Error!, StatusCodes.Status401Unauthorized);
         }
 
         return Ok(result.Value);
@@ -123,7 +133,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return NoContent();
@@ -141,7 +151,30 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Send a fresh email-confirmation link. Always 200 with the same message unless the request
+    /// itself is malformed, so it reveals nothing about which addresses have accounts; at most one
+    /// resend per account per minute.
+    /// </summary>
+    [HttpPost("resend-confirmation")]
+    [EnableRateLimiting("login")]
+    [ProducesResponseType(typeof(ResendEmailConfirmationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ResendEmailConfirmationResponse>> ResendConfirmation(
+        [FromBody] ResendEmailConfirmationCommand command,
+        CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);
@@ -160,9 +193,9 @@ public class AuthController : ApiControllerBase
         var result = await _mediator.Send(command, cancellationToken);
 
         // For validation errors, return BadRequest
-        if (result.IsFailure && result.Error!.Code == "Validation.Failed")
+        if (result.IsFailure && result.Error is FieldValidationError)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         // For all other cases (including user not found), return success to prevent email enumeration
@@ -189,7 +222,7 @@ public class AuthController : ApiControllerBase
 
         if (result.IsFailure)
         {
-            return ProblemForError(result.Error!.Code, result.Error.Message, StatusCodes.Status400BadRequest);
+            return ProblemForError(result.Error!, StatusCodes.Status400BadRequest);
         }
 
         return Ok(result.Value);

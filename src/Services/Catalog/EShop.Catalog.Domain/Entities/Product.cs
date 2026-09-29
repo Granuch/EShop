@@ -89,6 +89,75 @@ public class Product : AggregateRoot<Guid>
     }
     
     /// <summary>
+    /// Changes the descriptive fields: name, description and SKU (Admin panel S2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Until this existed <c>UpdateProductCommand</c> carried exactly three fields — id, price and
+    /// stock — so no endpoint anywhere could change a product's name, description or SKU after
+    /// creation. An admin "edit product" form could not edit the product.
+    /// </para>
+    /// <para>
+    /// <paramref name="description"/> follows the BUG-09 three-case rule: <c>null</c> leaves the
+    /// stored value alone, blank clears it, anything else replaces it. The null check below is the
+    /// contract, not a redundant guard — assigning unconditionally is exactly the bug that let a
+    /// name-only update silently wipe a description.
+    /// </para>
+    /// <para>
+    /// <b>SKU uniqueness is deliberately not checked here.</b> The aggregate cannot see other
+    /// products; uniqueness is owned by the partial unique index
+    /// <c>IX_Products_Sku ... WHERE NOT "IsDeleted"</c>, with a handler pre-check for the common
+    /// case and <c>AddProductSkuConflict()</c> mapping a lost race. Same division of labour as
+    /// <see cref="Create"/>.
+    /// </para>
+    /// </remarks>
+    public void UpdateDetails(string name, string? description, string sku)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update a deleted product.");
+
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Product name is required.");
+
+        if (string.IsNullOrWhiteSpace(sku))
+            throw new DomainException("SKU is required.");
+
+        Name = name.Trim();
+        Sku = sku.Trim();
+
+        if (description is not null)
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+    }
+
+    /// <summary>
+    /// Moves the product to another category (Admin panel S2). Idempotent: moving to the category
+    /// it is already in is a no-op.
+    /// </summary>
+    /// <remarks>
+    /// Only the id is set. Whether the target category <i>exists</i> is a cross-aggregate question
+    /// the handler answers with a repository lookup before calling this — the alternative, taking a
+    /// <c>Category</c> here, would let a caller attach an unsaved category to a tracked product and
+    /// have EF insert it, the trap <c>Category.ResolveRequestedSlug</c> exists to avoid.
+    /// </remarks>
+    public void ChangeCategory(Guid categoryId)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot change the category of a deleted product.");
+
+        if (categoryId == Guid.Empty)
+            throw new DomainException("Category id is required.");
+
+        if (categoryId == CategoryId)
+            return;
+
+        CategoryId = categoryId;
+
+        // The navigation is left alone on purpose. It may be loaded and would then contradict the
+        // id; EF fixes it up on the next load, and nothing in the aggregate reads it.
+        Category = null!;
+    }
+
+    /// <summary>
     /// Changes the list price.
     /// </summary>
     /// <remarks>
@@ -226,6 +295,46 @@ public class Product : AggregateRoot<Guid>
 
         StockQuantity = quantity;
     }
+
+    /// <summary>
+    /// Moves stock by a relative amount (Admin panel S4) — a delivery of +50, a write-off of −3.
+    /// Returns the new quantity.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="UpdateStock"/> because the two answer different questions, and
+    /// conflating them is how stock goes wrong. "Set it to 50" is a stock-take: the caller has
+    /// counted the shelf and its answer is correct whatever the database says. "Add 50" is a
+    /// movement: it composes with whatever anyone else did meanwhile. An admin UI that only has
+    /// the absolute form makes every delivery a read-modify-write across an HTTP round trip, and
+    /// two admins receiving two deliveries silently lose one of them.
+    /// </para>
+    /// <para>
+    /// A delta of zero is refused rather than treated as a no-op: it always means the caller
+    /// computed it, and answering 204 to a movement that moved nothing hides that.
+    /// </para>
+    /// </remarks>
+    public int AdjustStock(int delta)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot adjust stock of a deleted product.");
+
+        if (delta == 0)
+            throw new DomainException("Stock adjustment cannot be zero.");
+
+        var adjusted = (long)StockQuantity + delta;
+
+        // Checked as a long first: StockQuantity + delta can overflow int, and an overflowed
+        // negative would pass a plain `< 0` check on the wrapped value in an unchecked context.
+        if (adjusted < 0)
+            throw new DomainException($"Stock cannot go negative: {StockQuantity} adjusted by {delta}.");
+
+        if (adjusted > int.MaxValue)
+            throw new DomainException("Stock adjustment would exceed the maximum stock quantity.");
+
+        StockQuantity = (int)adjusted;
+        return StockQuantity;
+    }
     
     /// <summary>
     /// Makes the product publicly visible. Until Stage 4 this had no production caller, so every
@@ -269,10 +378,43 @@ public class Product : AggregateRoot<Guid>
     {
         if (IsDeleted)
             return;
-        
+
         IsDeleted = true;
         DeletedAt = DateTime.UtcNow;
         Status = ProductStatus.Discontinued;
+    }
+
+    /// <summary>
+    /// Brings a soft-deleted product back (Admin panel S4). Idempotent: restoring a live product
+    /// does nothing, mirroring <see cref="SoftDelete"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It restores to <see cref="ProductStatus.Draft"/>, not to whatever the product was before
+    /// deletion.</b> That status is not recoverable — <see cref="SoftDelete"/> overwrites it with
+    /// <c>Discontinued</c> and keeps no record of the previous value — so the only honest choices
+    /// are Draft or Active, and Draft is the safe one: restoring must never silently put a product
+    /// back in front of customers. An admin re-publishes deliberately, through
+    /// <see cref="Publish"/>. Restoring to <c>Discontinued</c> was rejected because it is
+    /// indistinguishable from "still deleted" to every read path that filters on Status.
+    /// </para>
+    /// <para>
+    /// <b>SKU uniqueness is not checked here, and cannot be.</b> <c>IX_Products_Sku</c> is unique
+    /// filtered <c>NOT "IsDeleted"</c>, so a deleted product's SKU is free for another product to
+    /// take — and once taken, restoring re-enters the filtered index and collides. The aggregate
+    /// cannot see other products, so the pre-check lives in
+    /// <c>RestoreProductCommandHandler</c> with the index as the race backstop, exactly as SKU
+    /// uniqueness works on create and update.
+    /// </para>
+    /// </remarks>
+    public void Restore()
+    {
+        if (!IsDeleted)
+            return;
+
+        IsDeleted = false;
+        DeletedAt = null;
+        Status = ProductStatus.Draft;
     }
     
     public Guid AddImage(string url, string? altText, int displayOrder)
@@ -304,6 +446,83 @@ public class Product : AggregateRoot<Guid>
         _images.Add(newImage);
 
         return newImage.Id;
+    }
+
+    /// <summary>
+    /// Replaces an existing image's URL and alt text (Admin panel S3). Until this existed the only
+    /// way to correct a mistyped CDN link was to delete the image and add it again, which loses its
+    /// position and its main flag.
+    /// </summary>
+    /// <remarks>
+    /// The duplicate-URL check excludes the image being edited, so re-submitting an unchanged URL —
+    /// what an admin form does every time it saves — is allowed. Compare
+    /// <c>UpdateProductCommandHandler</c>'s SKU self-exclusion, which solves the same problem one
+    /// layer up.
+    /// </remarks>
+    public void UpdateImage(Guid imageId, string url, string? altText)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update an image on a deleted product.");
+
+        var image = _images.FirstOrDefault(i => i.Id == imageId);
+        if (image is null)
+            throw new DomainException("Product image not found.");
+
+        // Normalize through a throwaway instance before comparing, so the duplicate check sees the
+        // same trimmed value that would be stored — the shape AddImage uses.
+        var normalized = new ProductImage(Id, url, altText, image.DisplayOrder);
+
+        if (_images.Any(x => x.Id != imageId
+                && string.Equals(x.Url, normalized.Url, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new DomainException("Product image URL already exists for this product.");
+        }
+
+        image.Update(url, altText);
+    }
+
+    /// <summary>
+    /// Assigns <c>DisplayOrder</c> from the position of each id in <paramref name="orderedImageIds"/>
+    /// (Admin panel S3). The list must be exactly this product's images — no missing, extra or
+    /// duplicated ids.
+    /// </summary>
+    /// <remarks>
+    /// Requiring the complete set rather than accepting a partial one is deliberate. A partial
+    /// reorder has no single correct answer for where the omitted images land, and silently
+    /// appending them is the kind of choice that only shows up as a shuffled gallery in production.
+    /// A drag-and-drop admin UI holds the whole list anyway, so it costs the caller nothing.
+    /// The main flag is untouched — position and "is the main image" are independent here, and
+    /// <see cref="RemoveImage"/> is the only thing that elects a main by order.
+    /// </remarks>
+    public void ReorderImages(IReadOnlyList<Guid> orderedImageIds)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot reorder images on a deleted product.");
+
+        ArgumentNullException.ThrowIfNull(orderedImageIds);
+
+        if (orderedImageIds.Count != _images.Count)
+        {
+            throw new DomainException(
+                $"Reordering requires every image exactly once: the product has {_images.Count} image(s) but {orderedImageIds.Count} id(s) were supplied.");
+        }
+
+        if (orderedImageIds.Distinct().Count() != orderedImageIds.Count)
+            throw new DomainException("Reordering requires every image exactly once: duplicate ids were supplied.");
+
+        // Counts match and the ids are distinct, so "every supplied id belongs to this product"
+        // is enough to also prove no image was left out. Note this is deliberately `Any` rather
+        // than `FirstOrDefault` — the latter returns Guid.Empty for "no match", which is
+        // indistinguishable from a caller that actually supplied Guid.Empty, and that case would
+        // then fall through to `Single` below and throw InvalidOperationException (a 500) instead
+        // of DomainException (a 400).
+        if (orderedImageIds.Any(id => _images.All(i => i.Id != id)))
+            throw new DomainException("Product image not found.");
+
+        for (var position = 0; position < orderedImageIds.Count; position++)
+        {
+            _images.Single(i => i.Id == orderedImageIds[position]).SetDisplayOrder(position);
+        }
     }
 
     public void SetMainImage(Guid imageId)
@@ -398,6 +617,123 @@ public class Product : AggregateRoot<Guid>
         _attributes.Add(newAttribute);
 
         return newAttribute.Id;
+    }
+
+    /// <summary>
+    /// Replaces an attribute's name and value (Admin panel S3).
+    /// </summary>
+    /// <remarks>
+    /// The name-collision check excludes the attribute being edited, so saving an admin form that
+    /// changed only the value is allowed. As with <see cref="AddAttribute"/>, comparison is
+    /// case-insensitive, which is why the M1 index is on <c>lower("Name")</c> rather than on
+    /// <c>"Name"</c> — a case-sensitive index would let "Color" and "color" both land under a race
+    /// that this check would have refused.
+    /// </remarks>
+    public void UpdateAttribute(Guid attributeId, string name, string value)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot update an attribute on a deleted product.");
+
+        var attribute = _attributes.FirstOrDefault(a => a.Id == attributeId);
+        if (attribute is null)
+            throw new DomainException("Product attribute not found.");
+
+        var normalizedName = new ProductAttribute(Id, name, value).Name;
+
+        if (_attributes.Any(a => a.Id != attributeId
+                && string.Equals(a.Name, normalizedName, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new DomainException($"Attribute '{normalizedName}' already exists for this product.");
+        }
+
+        attribute.Update(name, value);
+    }
+
+    /// <summary>
+    /// Removes an attribute (Admin panel S3). Throws when it does not exist, so the handler must
+    /// pre-check and return a <c>*.NotFound</c> Result if the endpoint owes a 404 — the same shape
+    /// as <see cref="RemoveImage"/>.
+    /// </summary>
+    public void RemoveAttribute(Guid attributeId)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot remove an attribute from a deleted product.");
+
+        var attribute = _attributes.FirstOrDefault(a => a.Id == attributeId);
+        if (attribute is null)
+            throw new DomainException("Product attribute not found.");
+
+        _attributes.Remove(attribute);
+    }
+
+    /// <summary>
+    /// Sets the product's attributes to exactly <paramref name="attributes"/> (Admin panel S3),
+    /// which is what an admin "edit attributes" grid submits.
+    /// </summary>
+    /// <remarks>
+    /// <b>This reconciles by name; it does not clear and re-add.</b> Rows whose name is already
+    /// present are updated in place, absent ones are removed, and only genuinely new names are
+    /// inserted. The obvious implementation — empty the collection and add everything back — has
+    /// two problems. Every attribute would get a fresh Guid on every save, so any future reference
+    /// to an attribute id would break for no reason. Worse, it makes a DELETE and an INSERT of the
+    /// <i>same</i> <c>(ProductId, lower(Name))</c> key land in one <c>SaveChanges</c>, and EF Core
+    /// does not guarantee it emits the DELETE first — against M1's non-deferrable unique index,
+    /// Postgres would then abort the whole batch with 23505 for a save that changed nothing but a
+    /// value. That is the same hazard <see cref="ClearMainImage"/> documents for the IsMain index,
+    /// and reconciling sidesteps it entirely rather than working around it.
+    ///
+    /// <para>
+    /// A name that differs only in case updates the existing row rather than adding a second one,
+    /// matching <see cref="AddAttribute"/>'s case-insensitive dedupe. The stored name becomes the
+    /// submitted casing.
+    /// </para>
+    /// </remarks>
+    public void ReplaceAttributes(IReadOnlyList<(string Name, string Value)> attributes)
+    {
+        if (IsDeleted)
+            throw new DomainException("Cannot replace attributes on a deleted product.");
+
+        ArgumentNullException.ThrowIfNull(attributes);
+
+        if (attributes.Count > MaxAttributes)
+            throw new DomainException($"A product cannot have more than {MaxAttributes} attributes.");
+
+        // Normalize first, so the cap, the duplicate check and the reconciliation below all see the
+        // trimmed names that would actually be stored. Constructing validates each pair the same
+        // way AddAttribute does; these instances are unreachable from the aggregate, so EF never
+        // discovers them — only the ones added to _attributes below.
+        var incoming = attributes
+            .Select(a => new ProductAttribute(Id, a.Name, a.Value))
+            .ToList();
+
+        var duplicateName = incoming
+            .GroupBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+
+        if (duplicateName is not null)
+            throw new DomainException($"Attribute '{duplicateName.Key}' is listed more than once.");
+
+        var incomingNames = incoming.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var removed in _attributes.Where(a => !incomingNames.Contains(a.Name)).ToList())
+        {
+            _attributes.Remove(removed);
+        }
+
+        foreach (var candidate in incoming)
+        {
+            var existing = _attributes.FirstOrDefault(
+                a => string.Equals(a.Name, candidate.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (existing is null)
+            {
+                _attributes.Add(candidate);
+            }
+            else
+            {
+                existing.Update(candidate.Name, candidate.Value);
+            }
+        }
     }
 }
 

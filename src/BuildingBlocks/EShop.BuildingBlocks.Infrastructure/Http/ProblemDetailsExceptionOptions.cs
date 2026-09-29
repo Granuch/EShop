@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Exceptions;
 using EShop.BuildingBlocks.Domain.Exceptions;
 using Microsoft.AspNetCore.Http;
@@ -36,12 +37,12 @@ public sealed class ProblemDetailsExceptionOptions
     public ProblemDetailsExceptionOptions AddCommon()
         => Add((exception, context) => exception switch
         {
-            ValidationException validationEx => EShopProblem.Create(
+            // The same envelope as a returned validation failure (frontend-contracts F-03): detail lists the
+            // messages, and errors is keyed by camelCase wire name.
+            ValidationException validationEx => EShopProblem.ForError(
                 context,
-                StatusCodes.Status400BadRequest,
-                detail: "One or more validation errors occurred.",
-                errorCode: ProblemErrorCodes.ValidationError,
-                errors: validationEx.Errors),
+                new FieldValidationError(validationEx.Errors),
+                StatusCodes.Status400BadRequest),
 
             // Detail carries the domain's own message ("A product cannot have more than 10
             // images.", "Attribute 'Color' already exists for this product.", ...). Without it

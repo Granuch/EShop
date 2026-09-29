@@ -1,3 +1,4 @@
+using EShop.BuildingBlocks.Application.Abstractions;
 using EShop.BuildingBlocks.Domain;
 using EShop.Identity.Application.Account.Commands.ChangePassword;
 using EShop.Identity.Application.Auth.Commands.ResetPassword;
@@ -112,6 +113,8 @@ public class PasswordRotationRevokesSessionsTests
         var handler = new ResetPasswordCommandHandler(
             _userManagerMock.Object,
             _refreshTokenRepositoryMock.Object,
+            Mock.Of<IIntegrationEventOutbox>(),
+            Mock.Of<ICurrentUserContext>(),
             Mock.Of<ILogger<ResetPasswordCommandHandler>>());
 
         Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(
@@ -134,6 +137,8 @@ public class PasswordRotationRevokesSessionsTests
         var handler = new ResetPasswordCommandHandler(
             _userManagerMock.Object,
             _refreshTokenRepositoryMock.Object,
+            Mock.Of<IIntegrationEventOutbox>(),
+            Mock.Of<ICurrentUserContext>(),
             Mock.Of<ILogger<ResetPasswordCommandHandler>>());
 
         var result = await handler.Handle(

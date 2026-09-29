@@ -1,5 +1,6 @@
 using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Behaviors;
+using EShop.BuildingBlocks.Infrastructure.Auditing;
 using EShop.BuildingBlocks.Infrastructure.Behaviors;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using FluentAssertions;
@@ -58,5 +59,22 @@ public class BehaviorOrderTests : IntegrationTestBase
         transaction.Should().BeLessThan(validation,
             "Transaction before Validation is the Stage 7 ordering; this test must not be read as "
             + "licence to reorder the Application registration either");
+    }
+
+    [Test]
+    public void AuditRunsOutermost()
+    {
+        using var scope = Factory.Services.CreateScope();
+
+        var order = scope.ServiceProvider
+            .GetServices<IPipelineBehavior<CreateProductCommand, Result<Guid>>>()
+            .Select(b => b.GetType().GetGenericTypeDefinition())
+            .ToList();
+
+        // Admin panel S15. Inside TransactionBehavior the audit would record Succeeded for a handler that returned
+        // success and whose commit then failed — and the commit is where most of this service's writes happen.
+        order.IndexOf(typeof(AuditBehavior<,>)).Should().Be(0,
+            "AuditBehavior must be the outermost behavior, outside the transaction, so it records the outcome the "
+            + "caller got");
     }
 }

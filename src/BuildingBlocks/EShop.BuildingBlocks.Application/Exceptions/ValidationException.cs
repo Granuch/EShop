@@ -21,11 +21,10 @@ public class ValidationException : Exception
         Errors = failures.ToDictionary(k => k.Key, v => v.Value);
     }
 
+    /// <summary>Keys are the camelCase wire names, as on the Result path (<see cref="FieldValidationError.KeyFor"/>).</summary>
     public ValidationException(IEnumerable<ValidationFailure> failures)
         : this()
     {
-        Errors = failures
-            .GroupBy(e => e.PropertyName, e => e.ErrorMessage)
-            .ToDictionary(g => g.Key, g => g.ToArray());
+        Errors = FieldValidationError.ToErrorMap(failures);
     }
 }

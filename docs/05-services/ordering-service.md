@@ -58,12 +58,36 @@ Uses role/policy-based authorization, including user-scoped access policies.
 
 ## API Areas (High Level)
 
-Typical capabilities include:
-- User order list/detail
-- Order lifecycle actions (where allowed)
-- Admin-focused order visibility/management paths
+**Full endpoint-by-endpoint contracts (routes, both auth layers, request/response shapes, error
+tables, TypeScript types, the `OrderStatus` state machine) live in
+[frontend/ordering.md](../01-overview/frontend/ordering.md), the authoritative source. This
+section is a summary, not a duplicate.**
+
+17 endpoints:
+- **Storefront** (owner or admin; `userId` is forced to the caller for non-admins on create):
+  create an order, get by id, `GET /api/v1/users/{userId}/orders` (filtered/paged), item
+  add/update/remove, shipping-address update, cancel. Item and address changes are refused
+  (409) once the order is paid.
+  - An order is normally created asynchronously from a basket checkout, so the client polls
+    `GET /api/v1/users/{userId}/orders` for it rather than getting one back from checkout.
+  - `OrderStatus` is sent as its PascalCase **name** (`"Pending"`), which is also what the admin list's
+    `status` filter takes, in any case.
+- **Admin** (gateway `Authenticated` only — see the note below — service's own `Admin` check):
+  list (name-only status filter), stats (buckets and window totals), notes (add/list), status
+  history (with the actor), ship, deliver.
+
+Each admin endpoint has its own gateway route with the `AdminArea` policy, ahead of the
+storefront's `/api/v1/orders/**` route, and Ordering checks the `Admin` role again behind it (see
+[frontend/ordering.md](../01-overview/frontend/ordering.md#base-paths-through-the-gateway)).
 
 Exact route exposure is mediated by gateway policy and service authorization rules.
+
+Admin-reachable commands are recorded in this service's `audit_log` and served on `GET /api/v1/admin/audit`
+(`audit.read`); see [Admin Audit Trail](../03-architecture/audit-log.md).
+
+`GET /api/v1/admin/settings` (`system.manage`, admin panel S19) is this service's slice of the System page's read-only
+settings: the pricing currency (`Order.PricingCurrency`, USD) and `taxApplied`/`shippingCharged`, both `false` because an
+order's total is the sum of its lines. The gateway serves the composed page on the same path and does not route it here.
 
 ---
 
@@ -96,6 +120,7 @@ Ordering service exposes health endpoints and emits:
 
 ## Related Documents
 
+- [Frontend contracts: Ordering](../01-overview/frontend/ordering.md) — the authoritative endpoint reference
 - [Basket Service](basket-service.md)
 - [Payment Service](payment-service.md)
 - [Notification Service](notification-service.md)
@@ -103,5 +128,5 @@ Ordering service exposes health endpoints and emits:
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

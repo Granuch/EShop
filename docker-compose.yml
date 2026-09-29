@@ -8,7 +8,7 @@ services:
   # PostgreSQL Database for Identity
   # ============================================
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     container_name: eshop-identity-postgres
     restart: unless-stopped
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -34,7 +34,7 @@ services:
   # Redis Cache for Brute-Force Protection
   # ============================================
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.8-alpine
     container_name: eshop-redis
     restart: unless-stopped
     command: >
@@ -47,6 +47,9 @@ services:
       --save 900 1
       --save 300 10
       --save 60 10000
+    environment:
+      # redis-cli reads the password from here, so the healthcheck does not put it on a command line.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
@@ -54,7 +57,8 @@ services:
     networks:
       - data-network
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping"]
+      # redis-cli exits 0 even for an error reply (NOAUTH, LOADING), so require the literal PONG.
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -64,7 +68,7 @@ services:
   # RabbitMQ Message Broker
   # ============================================
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:3.13.7-management-alpine
     container_name: eshop-rabbitmq
     restart: unless-stopped
     environment:
@@ -168,7 +172,7 @@ services:
   # PostgreSQL Database for Catalog
   # ============================================
   catalog-postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     container_name: eshop-catalog-postgres
     restart: unless-stopped
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -219,11 +223,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Database
       ConnectionStrings__IdentityDb: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};MaxPoolSize=40;Timeout=30;Command Timeout=30"
@@ -237,9 +245,10 @@ services:
       RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
 
-      # Seq (centralized logging)
-      Serilog__WriteTo__1__Name: Seq
-      Serilog__WriteTo__1__Args__serverUrl: http://seq:5341
+      # Seq (centralized logging). Index 2 is the Seq sink in appsettings; index 1 is the File sink, and overriding
+      # it (as this block once did) left Identity with no log file and every event sent to Seq twice.
+      Serilog__WriteTo__2__Name: Seq
+      Serilog__WriteTo__2__Args__serverUrl: http://seq:5341
 
       # Internal service authorization
       InternalServiceAuth__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
@@ -253,7 +262,9 @@ services:
       JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
 
       # Identity
-      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-false}
+      # On since email-confirmation Stage 3: registration emails a confirmation link (Notification), and an
+      # unconfirmed login answers 403 Auth.EmailNotConfirmed. Set false to let new accounts sign in unconfirmed.
+      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-true}
 
       # Seed Admin (Development/Sandbox only)
       Identity__SeedAdminEmail: ${IDENTITY_SEED_ADMIN_EMAIL:-admin@eshop.com}
@@ -322,11 +333,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # JWT
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
@@ -337,11 +352,9 @@ services:
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
-      # Internal identity resolver for email recipients
-      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
-      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
-      IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
-      IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+      # Operational notices (failures, rate limiting, critical writes) go to operators only, never to the user
+      # whose request caused them (frontend-contracts F-55). Empty means no notice is sent.
+      Gateway__OperationsEmailRecipients__0: ${GATEWAY_OPERATIONS_EMAIL:-ops@eshop.local}
 
       # Email notifications via Mailpit in local profiles
       Email__Host: ${GATEWAY_SMTP_HOST:-mailpit}
@@ -406,11 +419,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Redis
       ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
@@ -418,8 +435,8 @@ services:
       # RabbitMQ
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__2__Name: Seq
@@ -491,11 +508,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Database
       ConnectionStrings__CatalogDb: "Host=catalog-postgres;Port=5432;Database=${CATALOG_POSTGRES_DB};Username=${CATALOG_POSTGRES_USER};Password=${CATALOG_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -506,8 +527,8 @@ services:
       # RabbitMQ
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__2__Name: Seq
@@ -551,7 +572,7 @@ services:
   # PostgreSQL Database for Ordering
   # ============================================
   ordering-postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     container_name: eshop-ordering-postgres
     restart: unless-stopped
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -602,11 +623,15 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       # Database
       ConnectionStrings__OrderingDb: "Host=ordering-postgres;Port=5432;Database=${ORDERING_POSTGRES_DB};Username=${ORDERING_POSTGRES_USER};Password=${ORDERING_POSTGRES_PASSWORD};MaxPoolSize=80;Timeout=30;Command Timeout=30"
@@ -617,8 +642,8 @@ services:
       # RabbitMQ
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
 
       # Seq (centralized logging)
       Serilog__WriteTo__2__Name: Seq
@@ -665,7 +690,7 @@ services:
   # PostgreSQL Database for Payment
   # ============================================
   payment-postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     container_name: eshop-payment-postgres
     restart: unless-stopped
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -677,6 +702,7 @@ services:
       - "127.0.0.1:${PAYMENT_POSTGRES_PORT:-5436}:5432"
     volumes:
       - payment-postgres-data:/var/lib/postgresql/data
+      # Shares ordering's small-instance tuning (256MB shared_buffers); identity and catalog use 512MB.
       - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
       - data-network
@@ -711,18 +737,22 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       ConnectionStrings__PaymentDb: "Host=payment-postgres;Port=5432;Database=${PAYMENT_POSTGRES_DB:-eshop_payment};Username=${PAYMENT_POSTGRES_USER:-postgres};Password=${PAYMENT_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
 
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
       JwtSettings__Issuer: ${JWT_ISSUER}
@@ -816,7 +846,7 @@ services:
   # PostgreSQL Database for Notification
   # ============================================
   notification-postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     container_name: eshop-notification-postgres
     restart: unless-stopped
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -828,6 +858,7 @@ services:
       - "127.0.0.1:${NOTIFICATION_POSTGRES_PORT:-5435}:5432"
     volumes:
       - notification-postgres-data:/var/lib/postgresql/data
+      # Shares ordering's small-instance tuning (256MB shared_buffers); identity and catalog use 512MB.
       - ./infrastructure/postgres/ordering-postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
       - data-network
@@ -867,22 +898,30 @@ services:
       # AddEShopForwardedHeaders returns false when neither KnownProxies nor KnownNetworks is
       # set, and the middleware is then not registered at all, which is why the omission was
       # silent. KnownNetworks (not KnownProxies) is the option that works here: the gateway's
-      # address comes from Docker's bridge pool and is not stable. These are the same three
-      # RFC 1918 ranges k8s/02-configmap.yaml already sets.
+      # address comes from Docker's bridge pool and is not stable. The three RFC 1918 ranges,
+      # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
+      # the gateway then reaches every service over IPv6 first. Without the fourth entry each
+      # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
+      # bucket again. k8s/02-configmap.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
+      ForwardedHeaders__KnownNetworks__3: "fc00::/7"
 
       ConnectionStrings__NotificationDb: "Host=notification-postgres;Port=5432;Database=${NOTIFICATION_POSTGRES_DB:-eshop_notification};Username=${NOTIFICATION_POSTGRES_USER:-postgres};Password=${NOTIFICATION_POSTGRES_PASSWORD:-postgres};MaxPoolSize=40;Timeout=30;Command Timeout=30"
 
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
-      RabbitMQ__Username: ${RABBITMQ_USERNAME}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Username: ${RABBITMQ_USERNAME:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-guest}
       RabbitMQ__RetryCount: "3"
       RabbitMQ__RetryIntervalSeconds: "5"
       RabbitMQ__RetryIncrementSeconds: "5"
-      RabbitMQ__UseDelayedExchangePlugin: "true"
+      # false: the stock rabbitmq image has no delayed-message exchange plugin. With it on,
+      # MassTransit declared an x-delayed-message exchange, the broker closed the channel (406), and a
+      # failing message was requeued forever instead of reaching _error (frontend-contracts F-56). The
+      # redelivery intervals below apply only when a broker with the plugin is configured.
+      RabbitMQ__UseDelayedExchangePlugin: "false"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__0: "1"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__1: "5"
       RabbitMQ__DelayedRedeliveryIntervalsMinutes__2: "15"
@@ -900,11 +939,24 @@ services:
       # Notification audit S4 (D4). Required, with no tracked default: the local stack's browser reaches the storefront
       # on localhost:3000. docker-compose.override.production.yml requires PASSWORD_RESET_URL_BASE instead.
       PasswordReset__ResetUrlBase: ${PASSWORD_RESET_URL_BASE:-http://localhost:3000/reset-password}
+      # Where confirmation emails link to, on the same terms; the override requires EMAIL_CONFIRMATION_URL_BASE.
+      EmailConfirmation__ConfirmUrlBase: ${EMAIL_CONFIRMATION_URL_BASE:-http://localhost:3000/confirm-email}
 
       IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://identity-api:8080}
       IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-5}
       IdentityService__ApiKey: ${INTERNAL_SERVICE_API_KEY:?INTERNAL_SERVICE_API_KEY must be set (see .env.example)}
       IdentityService__ApiKeyHeaderName: ${INTERNAL_SERVICE_API_KEY_HEADER:-X-Internal-Api-Key}
+
+      # Admin panel S12. Notification gained a web surface (the delivery journal), so it now validates tokens like
+      # every other service. NotificationConfigurationGuard refuses a missing, short or placeholder key and an empty
+      # issuer or audience, so an unset JWT_SECRET_KEY crash-loops notification-api rather than starting a host that
+      # rejects every token while reporting healthy.
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER}
+      JwtSettings__Audience: ${JWT_AUDIENCE}
+
+      Cors__AllowedOrigins__0: ${CORS_ORIGIN_1:-http://localhost:3000}
+      Cors__AllowedOrigins__1: ${CORS_ORIGIN_2:-https://localhost:3000}
 
       OpenTelemetry__Enabled: "true"
       OpenTelemetry__OtlpEndpoint: http://otel-collector:4317
@@ -934,7 +986,7 @@ services:
   # Mailpit (local SMTP catcher for development)
   # ============================================
   mailpit:
-    image: axllent/mailpit:v1.27
+    image: axllent/mailpit:v1.27.11
     container_name: eshop-mailpit
     restart: unless-stopped
     ports:
@@ -1082,7 +1134,9 @@ services:
   # Redis Commander (Web UI for Redis - alternative)
   # ============================================
   redis-commander:
-    image: rediscommander/redis-commander:latest
+    # Unmaintained upstream: its only tag, latest, was last pushed on 2021-07-26. Pinned by digest so it cannot
+    # change underneath us; RedisInsight (above) covers the same ground.
+    image: rediscommander/redis-commander:latest@sha256:19cd0c49f418779fa2822a0496c5e6516d0c792effc39ed20089e6268477e40a
     container_name: eshop-redis-commander
     restart: unless-stopped
     depends_on:
@@ -1103,7 +1157,7 @@ services:
   # Seq - Centralized Structured Logging
   # ============================================
   seq:
-    image: datalust/seq:2025.1
+    image: datalust/seq:2025.1.14117
     container_name: eshop-seq
     restart: unless-stopped
     ports:
@@ -1111,12 +1165,21 @@ services:
       - "127.0.0.1:${SEQ_INGEST_PORT:-5342}:5341" # Ingestion only
     environment:
       ACCEPT_EULA: Y
-      SEQ_FIRSTRUN_ADMINUSERNAME: ${SEQ_ADMIN_USERNAME:-admin}
-      SEQ_FIRSTRUN_ADMINPASSWORD: ${SEQ_ADMIN_PASSWORD:-qweasdz1}
+      # Local Seq needs no login: its ports are bound to 127.0.0.1, and a first-run admin password forced a password
+      # change on first login, which blocked any script from reading events. docker-compose.override.production.yml
+      # turns authentication back on with a required SEQ_ADMIN_PASSWORD. FIRSTRUN settings apply only to an empty
+      # seq-data volume; an existing one keeps the users it has.
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
     volumes:
       - seq-data:/data
     networks:
       - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     profiles:
       - monitoring
 
@@ -1136,13 +1199,18 @@ services:
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      # Use existing infrastructure config if available, fallback to monitoring
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infrastructure/prometheus/recording-rules.yml:/etc/prometheus/recording-rules.yml:ro
       - ./monitoring/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     networks:
       - eshop-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     profiles:
       - monitoring
 
@@ -1162,13 +1230,19 @@ services:
       GF_USERS_ALLOW_SIGN_UP: false
       GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
     ports:
-      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+      # 3001 on the host: 3000 is the ui/ dev server's port and the default CORS origin.
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
-      # Use existing infrastructure config if available, fallback to monitoring
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - eshop-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     profiles:
       - monitoring
 

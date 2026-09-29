@@ -31,7 +31,7 @@ public class PaymentQueryTests : AuthenticatedIntegrationTestBase
         Assert.That(payload, Is.Not.Null);
         Assert.That(payload!.Id, Is.EqualTo(seeded.Id));
         Assert.That(payload.UserId, Is.EqualTo(TestUserId));
-        Assert.That(payload.Status, Is.EqualTo("SUCCESS"));
+        Assert.That(payload.Status, Is.EqualTo("Success"));
     }
 
     /// <summary>

@@ -22,6 +22,9 @@ public sealed class NotificationLogRepository : INotificationLogRepository
     public Task<NotificationLog?> FindByEventIdAsync(Guid eventId, CancellationToken ct = default)
         => _dbContext.NotificationLogs.FirstOrDefaultAsync(x => x.EventId == eventId, ct);
 
+    public Task<NotificationLog?> FindByIdAsync(Guid id, CancellationToken ct = default)
+        => _dbContext.NotificationLogs.FirstOrDefaultAsync(x => x.Id == id, ct);
+
     public async Task<bool> TryAddAsync(NotificationLog log, CancellationToken ct = default)
     {
         _dbContext.NotificationLogs.Add(log);

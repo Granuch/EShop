@@ -25,12 +25,17 @@ namespace EShop.Catalog.Application.Products.Queries.GetProductByCategory;
 /// </para>
 ///
 /// <para>
-/// D1 / H5a. <b>Published products only, for every caller including admins.</b> Stage 4 chose
-/// that because an admin variant would have been a second exact key nothing evicted. Being in the
-/// family removes that constraint — a role variant would now invalidate correctly — so the
-/// restriction is a decision rather than a limitation. Lifting it means adding
-/// <c>IncludeUnpublished</c> here, overwriting it at the endpoint, and putting it in the key.
-/// Admins meanwhile use <c>GET /api/v1/products?CategoryId=…</c>.
+/// D1 / H5a. Admins see drafts, everyone else published products only — see
+/// <see cref="IncludeUnpublished"/> (Admin panel S5, #54). Before S5 it was published-only for every
+/// caller, because an admin variant would have been a second exact key nothing evicted; the family
+/// removed that constraint.
+/// </para>
+///
+/// <para>
+/// The category means its <b>whole subtree</b>: products filed under any descendant are included, at
+/// any depth. The resolution happens once, in <c>ProductQueryService</c>, and applies identically to
+/// <c>GET /api/v1/products?CategoryId=…</c>. The key needs nothing for it — the id does not change,
+/// only its meaning — and a move or restore that reshapes a subtree already bumps the family.
 /// </para>
 /// </summary>
 public record GetProductByCategoryQuery : IRequest<Result<PagedResult<ProductDto>>>, ICacheableQuery, IVersionedCacheKey
@@ -39,10 +44,33 @@ public record GetProductByCategoryQuery : IRequest<Result<PagedResult<ProductDto
     public int? PageNumber { get; init; }
     public int? PageSize { get; init; }
 
+    /// <summary>
+    /// D1 / H5a (Admin panel S5, endpoint #54). Whether unpublished products are included.
+    /// <b>Set server-side by the endpoint from the caller's role — never trust the bound value</b>,
+    /// exactly as <c>GetProductsQuery.IncludeUnpublished</c> is, and for the same reason: this
+    /// record binds from the route and query string, so a client could otherwise ask for it.
+    /// </summary>
+    /// <remarks>
+    /// Nullable so <c>[AsParameters]</c> keeps it optional; a non-nullable value type there is a
+    /// required query-string parameter.
+    /// </remarks>
+    public bool? IncludeUnpublished { get; init; }
+
     public int EffectivePageNumber => PageNumber ?? 1;
     public int EffectivePageSize => PageSize ?? 10;
+    public bool EffectiveIncludeUnpublished => IncludeUnpublished ?? false;
 
-    public string CacheKey => $"products:category:{CategoryId}:p={EffectivePageNumber}:ps={EffectivePageSize}";
+    /// <summary>
+    /// The visibility flag is part of the key and must stay that way: an admin's page contains
+    /// draft products, and without it in the key that response would be cached and then served to
+    /// anonymous callers — leaking the unpublished catalogue through the cache rather than the API.
+    /// Safe to vary only because this key is in the versioned <c>products:list</c> family, so both
+    /// variants are evicted by one bump; that is what the Stage 4 note above meant by the
+    /// restriction being a decision rather than a limitation.
+    /// </summary>
+    public string CacheKey =>
+        $"products:category:{CategoryId}:p={EffectivePageNumber}:ps={EffectivePageSize}" +
+        $":unpub={EffectiveIncludeUnpublished}";
     public string CacheKeyFamily => ProductCacheFamilies.ProductList;
     public TimeSpan? CacheDuration => TimeSpan.FromMinutes(5);
     public TimeSpan? SlidingExpiration => null;

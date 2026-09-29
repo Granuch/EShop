@@ -10,7 +10,9 @@ using EShop.Notification.Infrastructure.Configuration;
 using EShop.Notification.Infrastructure.Consumers;
 using EShop.Notification.Infrastructure.Data;
 using EShop.Notification.Infrastructure.HealthChecks;
+using EShop.Notification.Infrastructure.QueryServices;
 using EShop.Notification.Infrastructure.Repositories;
+using EShop.Notification.Infrastructure.Resend;
 using EShop.Notification.Infrastructure.Services;
 using MassTransit;
 using Microsoft.AspNetCore.Http;
@@ -23,6 +25,13 @@ namespace EShop.Notification.Infrastructure.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// The prefix on every queue this service's bus binds (<c>notification_order_created</c>). One constant because two
+    /// places need it to agree: <see cref="AddNotificationMessaging"/> configures the bus with it, and
+    /// <see cref="ResendableNotifications"/> derives the queue an operator's resend is sent to from it (Admin panel S13).
+    /// </summary>
+    public const string MessagingServiceName = "notification";
+
     public static IServiceCollection AddNotificationInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -35,6 +44,7 @@ public static class ServiceCollectionExtensions
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
         services.Configure<IdentityServiceSettings>(configuration.GetSection(IdentityServiceSettings.SectionName));
         services.Configure<PasswordResetSettings>(configuration.GetSection(PasswordResetSettings.SectionName));
+        services.Configure<EmailConfirmationSettings>(configuration.GetSection(EmailConfirmationSettings.SectionName));
         services.Configure<RabbitMqSettings>(configuration.GetSection(RabbitMqSettings.SectionName));
 
         if (useInMemoryDatabase)
@@ -57,6 +67,15 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IEmailService, EmailService>();
         services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
         services.AddScoped<INotificationLogRepository, NotificationLogRepository>();
+
+        // Admin panel S12. The read side of the journal, separate from the repository: everything here is AsNoTracking
+        // and answers a screen, while the repository's reads are tracked and race on the row version.
+        services.AddScoped<INotificationQueryService, NotificationQueryService>();
+
+        // Admin panel S13. The operator's actions: a resend hands the stored event back to this service's own consumer
+        // queue, and the template catalog renders and test-sends through the real IEmailService.
+        services.AddScoped<INotificationRedispatcher, NotificationRedispatcher>();
+        services.AddScoped<INotificationTemplateCatalog, NotificationTemplateCatalog>();
 
         services.AddHttpClient<IUserContactResolver, UserContactResolver>((sp, client) =>
         {
@@ -103,14 +122,15 @@ public static class ServiceCollectionExtensions
     {
         // The bus alone (Notification audit S6, debt 4): AddMessaging would also register an integration event outbox,
         // and Notification publishes nothing.
-        services.AddEShopBus(configuration, "notification", isDevelopment, bus => bus.AddNotificationConsumers());
+        services.AddEShopBus(configuration, MessagingServiceName, isDevelopment, bus => bus.AddNotificationConsumers());
 
         return services;
     }
 
     /// <summary>
-    /// The seven consumers, with the password-reset endpoint's definition (Notification audit D6). Public so the tests
-    /// register exactly what production does.
+    /// The eight consumers, with the definitions of the two whose messages carry a live token — password reset
+    /// (Notification audit D6) and email confirmation — which discard a faulted message rather than park it. Public so
+    /// the tests register exactly what production does.
     /// </summary>
     public static void AddNotificationConsumers(this IBusRegistrationConfigurator bus)
     {
@@ -121,5 +141,6 @@ public static class ServiceCollectionExtensions
         bus.AddConsumer<PaymentFailedConsumer>();
         bus.AddConsumer<PaymentRefundedConsumer>();
         bus.AddConsumer<PasswordResetRequestedConsumer, PasswordResetRequestedConsumerDefinition>();
+        bus.AddConsumer<EmailConfirmationRequestedConsumer, EmailConfirmationRequestedConsumerDefinition>();
     }
 }

@@ -4,15 +4,23 @@ using EShop.BuildingBlocks.Application;
 using EShop.BuildingBlocks.Application.Pagination;
 using EShop.Catalog.Application.Products.Commands.AddProductAttribute;
 using EShop.Catalog.Application.Products.Commands.AddProductImage;
+using EShop.Catalog.Application.Products.Commands.AdjustProductStock;
+using EShop.Catalog.Application.Products.Commands.RestoreProduct;
+using EShop.Catalog.Application.Products.Queries.GetDeletedProducts;
 using EShop.Catalog.Application.Products.Commands.ClearProductDiscount;
 using EShop.Catalog.Application.Products.Commands.CreateProduct;
 using EShop.Catalog.Application.Products.Commands.PublishProduct;
 using EShop.Catalog.Application.Products.Commands.SetProductDiscount;
 using EShop.Catalog.Application.Products.Commands.UnpublishProduct;
 using EShop.Catalog.Application.Products.Commands.DeleteProduct;
+using EShop.Catalog.Application.Products.Commands.RemoveProductAttribute;
 using EShop.Catalog.Application.Products.Commands.RemoveProductImage;
+using EShop.Catalog.Application.Products.Commands.ReorderProductImages;
+using EShop.Catalog.Application.Products.Commands.ReplaceProductAttributes;
 using EShop.Catalog.Application.Products.Commands.SetMainProductImage;
 using EShop.Catalog.Application.Products.Commands.UpdateProduct;
+using EShop.Catalog.Application.Products.Commands.UpdateProductAttribute;
+using EShop.Catalog.Application.Products.Commands.UpdateProductImage;
 using EShop.Catalog.Application.Products.Queries.GetNewestProducts;
 using EShop.Catalog.Application.Products.Queries.GetProducts;
 using EShop.Catalog.Application.Products.Queries.GetProductsById;
@@ -30,13 +38,13 @@ public static class ProductEndpoints
     /// <summary>
     /// Maps a failed Result to a problem response. A read or sub-resource endpoint can fail two
     /// ways: the product or image genuinely does not exist (404), or the request was rejected by
-    /// ValidationBehavior, which surfaces as a "Validation.Failed" Result error rather than an
+    /// ValidationBehavior, which surfaces as a "ValidationError" Result error rather than an
     /// exception (400). Mapping every error to one status gets one of those cases wrong.
     ///
     /// Used by GET /{id}, the image/attribute/publish/discount sub-resource endpoints, and
-    /// CategoryEndpoints' GET /{id}/products (hence internal). POST/PUT still hard-code 400 and
-    /// DELETE 404 — they have the same latent issue, left alone here because changing their codes
-    /// would alter existing contract behaviour (e.g. Product.SkuConflict).
+    /// CategoryEndpoints' GET /{id}/products and reorder (hence internal). POST still hard-codes 400
+    /// and DELETE 404; PUT maps only Product.NotFound to 404 since frontend-contracts R5 (F-40) —
+    /// see its comment for why it does not use this suffix rule.
     /// </summary>
     internal static IResult ProblemForError(Error error)
         => ProblemResults.For(
@@ -44,6 +52,29 @@ public static class ProductEndpoints
             error.Code.EndsWith(".NotFound", StringComparison.Ordinal)
                 ? StatusCodes.Status404NotFound
                 : StatusCodes.Status400BadRequest);
+
+    /// <summary>
+    /// Restore's status mapping (Admin panel S4). Identical to <see cref="ProblemForError"/> except
+    /// that a SKU conflict is a <b>409</b>, not a 400.
+    /// </summary>
+    /// <remarks>
+    /// The distinction is worth the extra method: restoring fails here because of the state of a
+    /// <i>different</i> product — some other product took this SKU while this one was deleted — so
+    /// nothing about the request was wrong and re-sending it unchanged will succeed once that
+    /// conflict is resolved. That is a 409, and it matches what <c>AddProductSkuConflict()</c>
+    /// already answers when the same collision is detected by <c>IX_Products_Sku</c> instead of by
+    /// the handler's pre-check, so the two paths agree on both status and errorCode.
+    /// <c>Product.NotDeleted</c> stays a 400: that one really is a request about the wrong product.
+    /// </remarks>
+    private static IResult RestoreProblem(Error error)
+        => ProblemResults.For(
+            error,
+            error.Code switch
+            {
+                "Product.SkuConflict" => StatusCodes.Status409Conflict,
+                var code when code.EndsWith(".NotFound", StringComparison.Ordinal) => StatusCodes.Status404NotFound,
+                _ => StatusCodes.Status400BadRequest
+            });
 
     /// <summary>
     /// D1 / H5a. Whether this caller may see unpublished (Draft) products — admins only.
@@ -97,6 +128,28 @@ public static class ProductEndpoints
         .Produces<CursorPagedResult<ProductDto>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        // GET /api/v1/products/deleted (admin only) — the recycle bin
+        //
+        // Declared before /{id:guid}: a literal segment and a parameter segment both match here,
+        // and while ASP.NET's :guid constraint means "deleted" could not bind as an id anyway,
+        // keeping the literal first is the habit that stops a later unconstrained parameter route
+        // from silently swallowing it.
+        group.MapGet("/deleted", async ([AsParameters] GetDeletedProductsQuery query, IMediator mediator) =>
+        {
+            // No IncludeUnpublished overwrite to do: GetDeletedProductsQuery does not expose one.
+            // The handler sets it, because a deleted product is always Discontinued and would
+            // otherwise be filtered out of its own list — see the handler's comment.
+            var result = await mediator.Send(query);
+
+            return result.Match(
+                value => Results.Ok(value),
+                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+        })
+        .WithName("GetDeletedProducts")
+        .RequireAuthorization("Admin")
+        .Produces<PagedResult<ProductDto>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
         // GET /api/v1/products/{id}
         group.MapGet("/{id:guid}", async (Guid id, HttpContext http, IMediator mediator) =>
         {
@@ -107,7 +160,7 @@ public static class ProductEndpoints
             });
 
             // Discriminates rather than mapping every error to 404: a Guid.Empty id is rejected
-            // by ValidationBehavior as a "Validation.Failed" Result, which owes a 400. Mapping
+            // by ValidationBehavior as a "ValidationError" Result, which owes a 400. Mapping
             // it to 404 reported a malformed request as a missing product.
             return result.Match(
                 value => Results.Ok(value),
@@ -143,14 +196,22 @@ public static class ProductEndpoints
 
             var result = await mediator.Send(command);
 
+            // F-40 (frontend-contracts R5): only the route's product being missing is a 404 — it
+            // answered 400 Product.NotFound. Everything else stays 400 on purpose, including
+            // Category.NotFound, which here means the BODY's categoryId points at nothing (the
+            // create endpoint answers 400 for it too), and the pre-checked Product.SkuConflict. So
+            // the suffix rule of ProblemForError is deliberately not used.
             return result.Match(
                 () => Results.NoContent(),
-                error => ProblemResults.For(error, StatusCodes.Status400BadRequest));
+                error => ProblemResults.For(
+                    error,
+                    error.Code == "Product.NotFound" ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest));
         })
         .WithName("UpdateProduct")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status400BadRequest);
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
 
         // DELETE /api/v1/products/{id} (admin only)
         group.MapDelete("/{id:guid}", async (Guid id, IMediator mediator) =>
@@ -164,6 +225,41 @@ public static class ProductEndpoints
         .WithName("DeleteProduct")
         .RequireAuthorization("Admin")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // POST /api/v1/products/{id}/restore (admin only)
+        group.MapPost("/{id:guid}/restore", async (Guid id, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new RestoreProductCommand { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                RestoreProblem);
+        })
+        .WithName("RestoreProduct")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // PATCH /api/v1/products/{id}/stock (admin only)
+        group.MapPatch("/{id:guid}/stock", async (Guid id, AdjustProductStockCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            // Returns the new quantity rather than 204: the whole point of a relative adjustment is
+            // that the caller does not know the resulting value, and making it issue a follow-up GET
+            // to find out reintroduces the read-modify-write this endpoint exists to avoid.
+            return result.Match(
+                quantity => Results.Ok(new ProductStockResponse(id, quantity)),
+                ProblemForError);
+        })
+        .WithName("AdjustProductStock")
+        .RequireAuthorization("Admin")
+        .Produces<ProductStockResponse>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
         // POST /api/v1/products/{id}/publish (admin only)
@@ -259,6 +355,41 @@ public static class ProductEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // PUT /api/v1/products/{id}/images/reorder (admin only)
+        //
+        // Declared before the {imageId:guid} routes below for readability only — it cannot actually
+        // be shadowed by them, because "reorder" does not satisfy the :guid constraint.
+        group.MapPut("/{id:guid}/images/reorder", async (Guid id, ReorderProductImagesCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("ReorderProductImages")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/images/{imageId} (admin only)
+        group.MapPut("/{id:guid}/images/{imageId:guid}", async (Guid id, Guid imageId, UpdateProductImageCommand command, IMediator mediator) =>
+        {
+            // The route owns both ids, so the body never has to repeat them.
+            var result = await mediator.Send(command with { ProductId = id, ImageId = imageId });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("UpdateProductImage")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
         // DELETE /api/v1/products/{id}/images/{imageId} (admin only)
         group.MapDelete("/{id:guid}/images/{imageId:guid}", async (Guid id, Guid imageId, IMediator mediator) =>
         {
@@ -313,6 +444,60 @@ public static class ProductEndpoints
         .RequireAuthorization("Admin")
         .Produces<CreatedResourceResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/products/{id}/attributes (admin only) — replaces the whole set
+        group.MapPut("/{id:guid}/attributes", async (Guid id, ReplaceProductAttributesCommand command, IMediator mediator) =>
+        {
+            // The route owns the product id, so the body never has to repeat it.
+            var result = await mediator.Send(command with { ProductId = id });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("ReplaceProductAttributes")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // PUT /api/v1/products/{id}/attributes/{attributeId} (admin only)
+        group.MapPut("/{id:guid}/attributes/{attributeId:guid}", async (Guid id, Guid attributeId, UpdateProductAttributeCommand command, IMediator mediator) =>
+        {
+            // The route owns both ids, so the body never has to repeat them.
+            var result = await mediator.Send(command with { ProductId = id, AttributeId = attributeId });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("UpdateProductAttribute")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        // A duplicate name this request can see is a 400 from the domain; one that arrives
+        // concurrently reaches M1's unique index and becomes Product.AttributeConflict.
+        .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // DELETE /api/v1/products/{id}/attributes/{attributeId} (admin only)
+        group.MapDelete("/{id:guid}/attributes/{attributeId:guid}", async (Guid id, Guid attributeId, IMediator mediator) =>
+        {
+            var result = await mediator.Send(new RemoveProductAttributeCommand
+            {
+                ProductId = id,
+                AttributeId = attributeId
+            });
+
+            return result.Match(
+                () => Results.NoContent(),
+                ProblemForError);
+        })
+        .WithName("RemoveProductAttribute")
+        .RequireAuthorization("Admin")
+        .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound);
     }
 }

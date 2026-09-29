@@ -1,8 +1,6 @@
 using EShop.Catalog.Application.Categories.Queries.GetCategoryById;
-using EShop.Catalog.Application.Categories;
 using EShop.Catalog.Domain.Entities;
 using EShop.Catalog.Domain.Interfaces;
-using MapsterMapper;
 using Moq;
 
 namespace EShop.Catalog.UnitTests.Categories;
@@ -11,65 +9,65 @@ namespace EShop.Catalog.UnitTests.Categories;
 public class GetCategoryByIdQueryHandlerTests
 {
     private Mock<ICategoryRepository> _categoryRepositoryMock = null!;
-    private Mock<IMapper> _mapperMock = null!;
     private GetCategoryByIdQueryHandler _handler = null!;
 
     [SetUp]
     public void SetUp()
     {
         _categoryRepositoryMock = new Mock<ICategoryRepository>();
-        _mapperMock = new Mock<IMapper>();
-        _handler = new GetCategoryByIdQueryHandler(
-            _categoryRepositoryMock.Object,
-            _mapperMock.Object);
+        _handler = new GetCategoryByIdQueryHandler(_categoryRepositoryMock.Object);
     }
+
+    private void RepositoryReturns(params Category[] categories)
+        => _categoryRepositoryMock
+            .Setup(x => x.GetAllAsync(false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(categories.ToList());
 
     [Test]
     public async Task Handle_WithExistingCategory_ShouldReturnCategoryDto()
     {
-        // Arrange
         var category = Category.Create("Electronics", "electronics", null);
-        var query = new GetCategoryByIdQuery { Id = category.Id };
+        RepositoryReturns(category, Category.Create("Other", "other", null));
 
-        var expectedDto = new CategoryDto
-        {
-            Id = category.Id,
-            Name = "Electronics",
-            Slug = "electronics",
-            IsActive = true
-        };
+        var result = await _handler.Handle(new GetCategoryByIdQuery { Id = category.Id }, CancellationToken.None);
 
-        _categoryRepositoryMock
-            .Setup(x => x.GetById(category.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(category);
-
-        _mapperMock
-            .Setup(x => x.Map<CategoryDto>(category))
-            .Returns(expectedDto);
-
-        // Act
-        var result = await _handler.Handle(query, CancellationToken.None);
-
-        // Assert
         Assert.That(result.IsSuccess, Is.True);
-        Assert.That(result.Value.Id, Is.EqualTo(category.Id));
+        Assert.That(result.Value!.Id, Is.EqualTo(category.Id));
         Assert.That(result.Value.Name, Is.EqualTo("Electronics"));
+        Assert.That(result.Value.Slug, Is.EqualTo("electronics"));
+        Assert.That(result.Value.IsActive, Is.True);
+    }
+
+    /// <summary>
+    /// F-37. The detail used to include one level of children, each with <c>childCategories: []</c>
+    /// whatever lay below. Read from the middle of a four-level chain, so both the parent's name above
+    /// and two levels below are in play.
+    /// </summary>
+    [Test]
+    public async Task Handle_ReturnsTheWholeSubtree_AndTheParentsName()
+    {
+        var root = Category.Create("Root", "root", null);
+        var middle = Category.Create("Middle", "middle", root);
+        var child = Category.Create("Child", "child", middle);
+        var grandchild = Category.Create("Grandchild", "grandchild", child);
+        RepositoryReturns(root, middle, child, grandchild);
+
+        var result = await _handler.Handle(new GetCategoryByIdQuery { Id = middle.Id }, CancellationToken.None);
+
+        var dto = result.Value!;
+        Assert.That(dto.ParentCategoryName, Is.EqualTo("Root"));
+        Assert.That(dto.ChildCategories!.Single().Name, Is.EqualTo("Child"));
+        Assert.That(dto.ChildCategories!.Single().ParentCategoryName, Is.EqualTo("Middle"));
+        Assert.That(dto.ChildCategories!.Single().ChildCategories!.Single().Name, Is.EqualTo("Grandchild"));
     }
 
     [Test]
     public async Task Handle_WithNonExistentCategory_ShouldReturnNotFoundError()
     {
-        // Arrange
-        var query = new GetCategoryByIdQuery { Id = Guid.NewGuid() };
+        RepositoryReturns(Category.Create("Other", "other", null));
 
-        _categoryRepositoryMock
-            .Setup(x => x.GetById(query.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Category?)null);
+        var result = await _handler.Handle(new GetCategoryByIdQuery { Id = Guid.NewGuid() }, CancellationToken.None);
 
-        // Act
-        var result = await _handler.Handle(query, CancellationToken.None);
-
-        // Assert
         Assert.That(result.IsFailure, Is.True);
         Assert.That(result.Error!.Code, Is.EqualTo("Category.NotFound"));
     }

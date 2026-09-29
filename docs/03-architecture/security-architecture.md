@@ -46,6 +46,56 @@ Typical flow:
 
 The gateway enforces route-level authorization policies (for example authenticated and admin-only paths), reducing unauthorized access surface before requests reach downstream services.
 
+### Permission Model
+
+See [ADR-008](architecture-decisions.md#adr-008-layer-a-fine-grained-permission-model-under-role-based-authorization)
+for the decision record (context, alternatives considered, and the risks accepted on adoption).
+
+Underneath the gateway's role checks sits a fine-grained permission layer,
+`EShopPermissions` (`BuildingBlocks/…/Authorization/`): 15 named permissions
+(`users.read`, `users.manage`, `payments.write`, `system.manage`, `audit.read`, …), where the
+permission string **is** the policy name. `RolePermissionBundles` maps the `Admin` role to all 15,
+so a caller is granted a permission by either an explicit `permission` claim or an `Admin` role
+claim — existing role-based tokens keep working with no re-issue needed. `AddEShopPermissions()` is
+called in all seven components (gateway + six services).
+
+Two layers apply independently and both must pass:
+- **Gateway layer**: every admin route requires `AdminArea` at the route level
+  (`AuthorizationPolicy: AdminArea` in the YARP route table): the caller must hold **at least one**
+  permission, by a `permission` claim or a role bundle. This is a coarse gate — the gateway does not
+  know which permission an endpoint needs and leaves that to the service. Admin paths under a
+  storefront prefix (Ordering's list, stats, notes, history, ship and deliver; Payment's list,
+  settle, offline, stats, export, simulation, webhook replay, events and refund; Catalog's
+  `/products/deleted`, `/products/export` and `/categories/{id}/stats`) have their own routes that
+  take precedence over the storefront route by `Order`. There is no gateway `Admin` role policy any
+  more (frontend-contracts F-08, F-44, F-45, fixed 2026-09-27).
+- **Service layer**: the service re-checks, either a specific permission (Identity's admin-users
+  endpoints: `users.read`/`users.manage`/`roles.manage`; Payment's read/write endpoints:
+  `payments.read`/`payments.write`; Notification's: `notifications.read`/`notifications.manage`;
+  Catalog's/Ordering's system endpoints: `system.manage`; every service's own audit endpoint:
+  `audit.read`) or, on endpoints that predate the permission model and have not been migrated, the
+  `Admin` role directly (Payment's refund, settle and simulation endpoints; two of Basket's outbox
+  endpoints).
+
+**Known gaps, not yet fixed (docs-only findings, tracked for a decision):**
+- **A new admin endpoint under a storefront prefix needs its own gateway route.** The storefront
+  catch-alls (`/api/v1/orders/**`, `/api/v1/payments/**`, the anonymous Catalog reads) still admit
+  any signed-in (or any) caller. Each service's integration suite reads the gateway's shipped route
+  table and fails if one of its admin endpoints lands on a route without `AdminArea`
+  (`EveryAdminEndpoint_IsBehindTheGatewaysAdminGate`), so the gap cannot reopen silently.
+- **Permissions are reported, not carried.** Access tokens carry no `permission` claim. The login
+  response's `user.permissions` and `GET /api/v1/account/profile`'s `permissions` list what the
+  caller's roles grant, computed from the same `RolePermissionBundles` table the services
+  authorize against, so the UI and the services cannot disagree about the bundle. They report the
+  roles held *now*, which after a role change can differ from the roles in a token already issued.
+- **A role change and a role deletion are not retroactive on an already-issued token**, and a
+  deleted role's claim can persist in a member's cached role list for up to 5 minutes after
+  deletion.
+
+See [`docs/01-overview/frontend/conventions.md`](../01-overview/frontend/conventions.md#5-permissions-and-admin-access)
+for the full table of admin screens and the permission/role each needs, verified live against the
+running stack.
+
 ---
 
 ## Internal Service Security
@@ -77,9 +127,29 @@ Gateway and service middlewares enforce:
 
 ## Rate Limiting and Abuse Protection
 
-Rate limiting is configured in gateway runtime and helps reduce abuse and brute-force style traffic pressure.
+Rate limiting is applied **twice**: once at the gateway (a global partitioned limiter, keyed on
+the client's forwarded IP address) and again inside each service (its own global limiter, plus
+named policies on specific hot paths). Both layers are per-client-IP partitioned in every
+deployment that sets `ForwardedHeaders:KnownNetworks`/`KnownProxies` correctly (compose and k8s
+do); without that configuration a limiter degrades to one shared bucket for every caller behind
+the gateway.
 
-This applies at ingress level before downstream service execution.
+Representative limits (see each service's own `CLAUDE.md` and
+[`frontend/conventions.md#7-rate-limits`](../01-overview/frontend/conventions.md#7-rate-limits)
+for the current, code-verified numbers):
+- Global default: 100 requests / 60 s per client IP, enforced at the gateway and independently in
+  each service.
+- Identity: `auth` (register/refresh/revoke/confirm) 10/min; `login` (login/forgot/reset) 5/min —
+  plus a separate per-account login-throttle mechanism (`LoginAttemptTracker`) that is not a rate
+  limiter and is not reset by it.
+- Catalog: `search` (product list/newest) 30/min; `bulk` (bulk actions, import, export) 10/min.
+
+Every component answers a rejected request the same way, through the shared
+`EShopRateLimiting.UseEShopRejectionResponse()`: a problem+json 429 with `errorCode`
+`Request.RateLimited` and a `Retry-After` header in whole seconds.
+
+This applies at ingress level before downstream service execution, and again inside each service
+as a second line of defense against a caller that reaches it directly.
 
 ---
 
@@ -143,15 +213,16 @@ remote address to evaluate.
 
 ### Accepted risk: OpenAPI in production
 
-Identity, Catalog and Ordering serve their OpenAPI document and Scalar UI in **every environment
-except `Testing`**, so the full API schema is published in Production. The gateway, Basket and
-Payment gate the same endpoints on `IsDevelopment()`.
+All seven components (the gateway and all six services) serve their OpenAPI document and Scalar
+UI in **every environment except Production**, through one shared rule, `EShopApiDocs.IsExposedIn`
+(`BuildingBlocks`). This was unified from an earlier, inconsistent state where three services
+exposed the schema in Production too and three gated it on `IsDevelopment()` only — that split no
+longer exists; every component now agrees.
 
-This inconsistency is **known and accepted, not an oversight**: the three permissive services do
-it deliberately, and changing it would alter published behaviour. It is recorded here so the
-divergence is a stated decision rather than something rediscovered during a review. Revisit it
-before any public deployment — a published schema is reconnaissance material, and the split means
-consumers cannot rely on the document being reachable for a given service.
+Exposing the full schema outside Production (including in a shared Sandbox/staging environment)
+is a **known and deliberate choice, not an oversight**: it is recorded here so it is a stated
+decision rather than something rediscovered during a review. Revisit it before any deployment that
+is reachable from outside a trusted network — a published schema is reconnaissance material.
 
 ---
 
@@ -184,8 +255,9 @@ Mitigation is distributed across gateway policy, service validation, configurati
 - [Architecture Decisions](architecture-decisions.md)
 - [Data Flow](data-flow.md)
 - [Infrastructure Security and Resilience](../06-infrastructure/)
+- [Frontend API Contracts — Conventions](../01-overview/frontend/conventions.md)
 
 ---
 
-**Version**: 2.0  
-**Last Updated**: 2026-04-14
+**Version**: 2.1  
+**Last Updated**: 2026-09-26

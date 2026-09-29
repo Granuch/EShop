@@ -41,16 +41,28 @@ public class BlindSlugCheckApiFactory : PostgresCatalogApiFactory
         public Task<Category?> GetById(Guid id, CancellationToken cancellationToken = default)
             => inner.GetById(id, cancellationToken);
 
+        public Task<HashSet<Guid>> GetExistingIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+            => inner.GetExistingIdsAsync(ids, cancellationToken);
+
         public Task AddAsync(Category category, CancellationToken cancellationToken = default)
             => inner.AddAsync(category, cancellationToken);
 
         public Task UpdateAsync(Category category, CancellationToken cancellationToken = default)
             => inner.UpdateAsync(category, cancellationToken);
 
-        public Task<List<Category>> GetRootCategories(CancellationToken cancellationToken = default)
-            => inner.GetRootCategories(cancellationToken);
+        public Task<List<Category>> GetAllAsync(bool includeInactive = false, CancellationToken cancellationToken = default)
+            => inner.GetAllAsync(includeInactive, cancellationToken);
 
         public Task<bool> SlugExistsAsync(Guid? parentCategoryId, string slug, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<Category?> GetByIdIncludingInactiveAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.GetByIdIncludingInactiveAsync(id, cancellationToken);
+
+        public Task<List<Guid>> GetAncestorIdsAsync(Guid categoryId, CancellationToken cancellationToken = default)
+            => inner.GetAncestorIdsAsync(categoryId, cancellationToken);
+
+        public Task<List<Category>> GetSiblingsAsync(Guid? parentCategoryId, CancellationToken cancellationToken = default)
+            => inner.GetSiblingsAsync(parentCategoryId, cancellationToken);
     }
 }

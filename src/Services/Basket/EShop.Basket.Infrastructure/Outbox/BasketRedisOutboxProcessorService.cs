@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using EShop.Basket.Application.Abstractions;
+using EShop.Basket.Domain.Interfaces;
 using EShop.BuildingBlocks.Messaging;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
@@ -66,9 +67,6 @@ public class BasketRedisOutboxProcessorService : BackgroundService
     private const string AllowedNamespacePrefix = "EShop.";
     private const int MaxTypeCacheEntries = 1000;
     private const int PromoteBatchSize = 100;
-
-    /// <summary>A message whose type cannot be resolved can never be published; it is dead-lettered on sight.</summary>
-    private const int UnpublishableRetryCount = int.MaxValue;
 
     private static readonly ConcurrentDictionary<string, Type?> TypeCache = new();
 
@@ -171,7 +169,12 @@ public class BasketRedisOutboxProcessorService : BackgroundService
             _logger.LogError(
                 "Outbox message {MessageId} has an unresolvable, disallowed or unreadable type '{Type}'. Moving it to the dead-letter list",
                 message.Id, message.Type);
-            var unpublishable = message with { RetryCount = UnpublishableRetryCount };
+            var unpublishable = message with
+            {
+                RetryCount = RedisOutboxMessage.UnpublishableRetryCount,
+                FailureReason = OutboxDeadLetterReasons.Unpublishable,
+                DeadLetteredAtUtc = _time.GetUtcNow().UtcDateTime
+            };
             await MoveOutOfProcessingAsync(payload, unpublishable.ToJson(), BasketOutboxKeys.DeadLetter, leaseKey);
             _metrics.RecordOutboxRecovery("dead_letter");
             return true;
@@ -213,7 +216,9 @@ public class BasketRedisOutboxProcessorService : BackgroundService
         }
         catch (Exception ex)
         {
-            await RetryOrDeadLetterAsync(payload, message, leaseKey, ex);
+            // Not the stopping token (the catch above takes that), so a cancellation here is the publish timeout firing.
+            var timedOut = ex is OperationCanceledException;
+            await RetryOrDeadLetterAsync(payload, message, leaseKey, ex, timedOut);
             return true;
         }
 
@@ -307,13 +312,27 @@ public class BasketRedisOutboxProcessorService : BackgroundService
         }
     }
 
-    private async Task RetryOrDeadLetterAsync(string payload, RedisOutboxMessage message, string leaseKey, Exception error)
+    private async Task RetryOrDeadLetterAsync(
+        string payload,
+        RedisOutboxMessage message,
+        string leaseKey,
+        Exception error,
+        bool timedOut)
     {
         var next = message with { RetryCount = message.RetryCount + 1 };
 
         if (next.RetryCount >= _options.MaxAttempts)
         {
-            await MoveOutOfProcessingAsync(payload, next.ToJson(), BasketOutboxKeys.DeadLetter, leaseKey);
+            // Admin panel S14 (#81): why and when, so the admin view can say more than "it is dead". The exception's
+            // type, never its message — a broker exception's text can name hosts and users.
+            var deadLetter = next with
+            {
+                FailureReason = timedOut ? OutboxDeadLetterReasons.PublishTimedOut : OutboxDeadLetterReasons.PublishFailed,
+                ExceptionType = error.GetType().Name,
+                DeadLetteredAtUtc = _time.GetUtcNow().UtcDateTime
+            };
+
+            await MoveOutOfProcessingAsync(payload, deadLetter.ToJson(), BasketOutboxKeys.DeadLetter, leaseKey);
             _metrics.RecordOutboxRecovery("dead_letter");
             _logger.LogError(error,
                 "Basket outbox message {MessageId} failed its last attempt ({Attempts}) and was dead-lettered. It is an order Ordering has not received; replay it once the cause is fixed",

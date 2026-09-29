@@ -12,6 +12,7 @@ using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
 using EShop.Identity.Infrastructure.Configuration;
 using EShop.Identity.Infrastructure.Data;
+using EShop.Identity.Infrastructure.QueryServices;
 using EShop.Identity.Infrastructure.Repositories;
 using EShop.Identity.Infrastructure.Services;
 using EShop.Identity.Infrastructure.Security;
@@ -36,8 +37,7 @@ public static class ServiceCollectionExtensions
         bool useInMemoryDatabase = false,
         string? inMemoryDatabaseName = null,
         bool suppressPendingModelChangesWarning = false,
-        bool isDevelopment = false,
-        bool isSandbox = false)
+        bool isDevelopment = false)
     {
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -89,8 +89,10 @@ public static class ServiceCollectionExtensions
             // User requirements
             options.User.RequireUniqueEmail = true;
 
-            // Sign-in requirements
-            options.SignIn.RequireConfirmedEmail = requireConfirmedEmailOverride ?? !(isDevelopment || isSandbox);
+            // Sign-in requirements. Required everywhere but Development and Testing (email-confirmation Stage 3):
+            // Sandbox used to be exempt because nothing could deliver the token, and Notification now emails it.
+            // Identity:RequireConfirmedEmail overrides either way; compose passes IDENTITY_REQUIRE_CONFIRMED_EMAIL.
+            options.SignIn.RequireConfirmedEmail = requireConfirmedEmailOverride ?? !isDevelopment;
 
             // Lockout settings
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
@@ -110,6 +112,11 @@ public static class ServiceCollectionExtensions
         // Add repositories
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
+
+        // Read-side projections for the admin user screens (Admin panel S6). Separate from
+        // IUserRepository on purpose: that is the write-side boundary and returns tracked
+        // ApplicationUser aggregates, while this only ever projects into records.
+        services.AddScoped<IAdminUserQueryService, AdminUserQueryService>();
 
         // Register IUnitOfWork (implemented by IdentityDbContext)
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<IdentityDbContext>());
@@ -153,9 +160,11 @@ public static class ServiceCollectionExtensions
         // Add cached services for performance optimization
         services.AddScoped<ICachedUserRolesService, CachedUserRolesService>();
         services.AddSingleton<IRevokedTokenCache, RevokedTokenCache>();
+        services.AddSingleton<IRolePermissionResolver, RolePermissionResolver>();
 
         // Add security services
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
+        services.AddScoped<IEmailConfirmationResendThrottle, EmailConfirmationResendThrottle>();
 
         return services;
     }
