@@ -7,7 +7,7 @@ type itemProp = {
   itemData: itemData;
 };
 
-const FALLBACK_IMAGE = "/372KT-MLC-030-2-1325574.avif";
+const FALLBACK_IMAGE = "/image-not-found-failure-network-260nw-2330163829.webp";
 
 function Item({ itemData }: itemProp) {
   return (
@@ -30,12 +30,10 @@ function Item({ itemData }: itemProp) {
         <h3 className="line-clamp-1 font-medium group-hover:underline">
           {itemData.name}
         </h3>
-        {/* {itemData.description && (
-          <p className="line-clamp-2 text-sm text-muted-foreground">
-            {itemData.description}
-          </p>
-        )} */}
-        <p className="text-sm text-gray-400">${itemData.price}</p>
+        <div>
+          <p className={`text-sm text-gray-400 ${itemData.discountPrice && "line-through"}`}>${itemData.price}</p>
+          {itemData.discountPrice && <p>${itemData.discountPrice}</p>}
+        </div>
       </div>
     </Link>
   );

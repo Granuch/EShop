@@ -6,6 +6,14 @@ import { cookies } from "next/headers";
 export async function addToCart(productId:string) {
     const session = await getSession()
     const token = (await cookies()).get("access_token")?.value
+
+    if(!session) {
+        return {
+            success: false,
+            error: "UNAUTHORIZED",
+            message: "Only authorized users can add items to the cart"
+        }
+      }
     
     const body = {
         ProductId: productId,
@@ -15,7 +23,7 @@ export async function addToCart(productId:string) {
     const res = await fetch(`http://localhost:7000/api/v1/basket/${session.id}/items`, {
         method: "POST",
         body: JSON.stringify(body),
-        headers: {"Content-Type": "application/json", Authorization: `Bearer ${token}`}
+        headers: {"Content-Type": "application/json", "Authorization": `Bearer ${token}`}
     })
     
     if(!res.ok) throw new Error("Error");

@@ -10,6 +10,7 @@ export async function getCategories() {
     const data = await res.json()
 
     const categories = data.map((item:any) => ({
+        id: item.id,
         slug: item.slug,
         label: item.name
     }))

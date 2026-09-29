@@ -22,6 +22,11 @@ async function fetchProducts(params: ShopParams): Promise<itemData[]> {
     ...apiSort,
   })
   const res = await fetch(`http://localhost:7000/api/v1/products?${query}`, {next: {revalidate: 60}})
+
+  if(!res.ok) {
+    console.error("Products fetch failed:", res.status, await res.text());
+    return [];
+  }
   
   const data = await res.json()
   return data.items
@@ -34,8 +39,14 @@ export default async function Home({
   searchParams: Promise<ShopParams>;
 }) {
   const params = await searchParams;
-  const products = await fetchProducts(params);
   const categories = await getCategories()
+
+  const selectedCategory = categories.find((c:any) => c.slug == params.category)
+
+  const products = await fetchProducts({
+    ...params,
+    category: selectedCategory?.id
+  })
  
   const activeSort = params.sort ?? "newest";
   const title =

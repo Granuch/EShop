@@ -4,6 +4,7 @@ export type itemData = {
     description:string | null,
     sku:string,
     price:number,
+    discountPrice:number | null,
     stockQuantity:number,
     mainImageUrl:string,
     createdAt:Date

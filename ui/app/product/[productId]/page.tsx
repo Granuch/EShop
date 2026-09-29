@@ -11,7 +11,6 @@ type ProductpageProps = {
 async function fetchProductData(productId: string) {
     const res = await fetch(`http://localhost:7000/api/v1/products/${productId}`)
     if (!res.ok) notFound();
-
     return await res.json()
 }
 
@@ -24,6 +23,20 @@ async function page({ params }: ProductpageProps) {
     return (
         <div className='flex flex-col md:flex-row 2k:mx-62'>
             <div className='w-full md:w-2/3 p-4'>
+
+                {count === 0 && (
+                    <div className='relative w-full aspect-4/3 overflow-hidden rounded-2xl'>
+                        <Image
+                            src='/big_notFound.jpg'
+                            fill
+                            sizes="(min-width: 768px) 66vw, 100vw"
+                            alt="Product image"
+                            className='object-cover'
+                            priority
+                        />
+                    </div>
+                )}
+
                 {count === 1 && (
                     <div className='relative w-full aspect-4/3 overflow-hidden rounded-2xl'>
                         <Image
@@ -120,8 +133,8 @@ async function page({ params }: ProductpageProps) {
             </div>
 
             <div className='flex flex-col w-full md:w-1/3 md:mx-18 p-10'>
-                <p>{product.id}</p>
-                <OrderForm productId={productId} />
+                {/* <p>{product.id}</p> */}
+                <OrderForm product={product}/>
             </div>
         </div>
     )

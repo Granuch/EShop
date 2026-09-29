@@ -3,7 +3,8 @@ export type basketItem = {
     productName:string,
     price:number,
     quantity:number,
-    subTotal:number
+    subTotal:number,
+    mainImage:string
 }
 
 export type basketRes = {

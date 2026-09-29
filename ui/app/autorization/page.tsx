@@ -2,9 +2,12 @@ import React from 'react'
 import LoginForm from './loginForm'
 import RegisterForm from './registerForm'
 import { getSession } from '@/lib/session'
+import { redirect } from 'next/navigation'
 
 async function page() {
   const session = await getSession()
+
+  if(session) redirect("/")
 
   return (
     <div className='flex'>
