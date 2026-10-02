@@ -54,6 +54,7 @@ public static class OrderEndpoints
         .RequireAuthorization()
         .Produces<CreateOrderResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         // GET /api/v1/orders/{id}
