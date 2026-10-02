@@ -1,13 +1,41 @@
+'use client'
 import React from 'react'
 
 function RegisterForm() {
+  
+  async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    const name = formData.get("name")
+    const email = formData.get("email")
+    const password = formData.get("password")
+
+    const registerBody = {
+      email: email,
+      password: password,
+      firstName: name,
+      lastName: name
+    }
+
+    const loginBody = {
+      email: email,
+      password: password
+    }
+
+    const res = await fetch("http://localhost:7000/api/v1/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registerBody)
+    })
+  }
+  
   return (
-    <form action="">
+    <form onSubmit={handleSubmit}>
         <div className='flex flex-col mt-35 mr-64 items-start gap-8'>
             <h2 className='text-2xl w-full text-center'>Is this your first visit?</h2>
-            <input type="text" placeholder='Name' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
-            <input type="email"  placeholder='Email' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
-            <input type="password" placeholder='Pasword' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
+            <input type="text" placeholder='Name' name='name' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
+            <input type="email"  placeholder='Email' name='email' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
+            <input type="password" placeholder='Pasword' name='password' className='outline-none border-b-2 px-4 py-2 focus:border-black hover:border-gray-300 transition-all w-92'/>
             <div className='flex flex-col gap-3'>
               <label className='flex gap-2 text-[15px]'>
                 <input type="checkbox" name="" id="" className='accent-black w-5 h-5'/>

@@ -13,7 +13,7 @@ function LoginForm() {
         const body = Object.fromEntries(formData.entries())
 
         try {
-            const res = await fetch("/api/auth/login", {
+            const res = await fetch("http://localhost:7000/api/v1/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body)
