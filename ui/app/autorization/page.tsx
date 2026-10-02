@@ -7,8 +7,6 @@ import { redirect } from 'next/navigation'
 async function page() {
   const session = await getSession()
 
-  if(session) redirect("/")
-
   return (
     <div className='flex'>
         <div className='flex justify-center w-screen h-screen'>

@@ -1,8 +1,10 @@
-import { Menu, User, ShoppingCart, Search } from "lucide-react";
+import { Menu, User, ShoppingCart, Search, Users, Wallet, LogOut } from "lucide-react";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { getSession } from "@/lib/session";
 import { buildHref, getCategories } from "@/lib/temp";
+import { Button } from "../ui/button";
+import LogoutButton from "./logoutButton";
 
 
 async function Navbar() {
@@ -10,7 +12,7 @@ async function Navbar() {
   const categories = await getCategories()
  
   const actionLink =
-    "flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium transition-colors hover:bg-muted";
+    "flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium transition-colors hover:bg-muted hover:cursor-pointer";
  
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
@@ -47,10 +49,26 @@ async function Navbar() {
               <span className="hidden sm:inline">Account</span>
             </Link>
           ) : (
-            <div className={actionLink}>
-              <User className="size-5" />
-              <span className="hidden sm:inline">{session.firstName}</span>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<button className={actionLink}/>}>
+                  <User className="size-5" />
+                  <span className="hidden sm:inline">{session.firstName}</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem>
+                  <Users />
+                  <Link href="/account">My data</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <Wallet />
+                  <Link href="/orders">My orders</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <LogOut color="#fb2c36"/>
+                  <LogoutButton/>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>         
           )}
           <Link href="/cart" className={actionLink}>
             <ShoppingCart className="size-5" />

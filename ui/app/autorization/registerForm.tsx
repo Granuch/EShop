@@ -1,7 +1,10 @@
 'use client'
+import { useRouter } from 'next/navigation'
 import React from 'react'
 
 function RegisterForm() {
+
+  const router = useRouter()
   
   async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -22,11 +25,20 @@ function RegisterForm() {
       password: password
     }
 
-    const res = await fetch("http://localhost:7000/api/v1/auth/register", {
+    const reg = await fetch("http://localhost:7000/api/v1/Auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(registerBody)
     })
+
+    const log = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(loginBody)
+    })
+
+    router.push("/")
+    router.refresh()
   }
   
   return (
