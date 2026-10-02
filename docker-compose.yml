@@ -115,7 +115,7 @@ services:
   # PostgreSQL Exporter — Notification DB
   # ============================================
   postgres-exporter-notification:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: eshop-postgres-exporter-notification
     restart: unless-stopped
     depends_on:
@@ -1010,7 +1010,7 @@ services:
   # PostgreSQL Exporter — Identity DB
   # ============================================
   postgres-exporter-identity:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: eshop-postgres-exporter-identity
     restart: unless-stopped
     depends_on:
@@ -1030,7 +1030,7 @@ services:
   # PostgreSQL Exporter — Catalog DB
   # ============================================
   postgres-exporter-catalog:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: eshop-postgres-exporter-catalog
     restart: unless-stopped
     depends_on:
@@ -1050,7 +1050,7 @@ services:
   # PostgreSQL Exporter — Ordering DB
   # ============================================
   postgres-exporter-ordering:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: eshop-postgres-exporter-ordering
     restart: unless-stopped
     depends_on:
@@ -1070,7 +1070,7 @@ services:
   # PostgreSQL Exporter — Payment DB
   # ============================================
   postgres-exporter-payment:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: eshop-postgres-exporter-payment
     restart: unless-stopped
     depends_on:
