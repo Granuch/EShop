@@ -8,6 +8,7 @@ using EShop.Basket.Application.Queries.GetBasket;
 using EShop.Basket.API.Infrastructure.Security;
 using EShop.Basket.Application.Common;
 using EShop.BuildingBlocks.Application;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.BuildingBlocks.Infrastructure.Http;
 
 namespace EShop.Basket.API.Endpoints;
@@ -169,6 +170,11 @@ public static class BasketEndpoints
                     : Problem(error));
         })
         .WithName("CheckoutBasket")
+        // Soft email verification: anyone signed in may fill a basket, but checking it out places an order, so the
+        // token must say email_verified=true — else 403 Auth.EmailNotConfirmed, before the basket is read or locked.
+        // This is the storefront's order entry point: Ordering receives the result only as BasketCheckedOutEvent, with
+        // no token to check.
+        .RequireVerifiedEmail()
         .Produces<CheckoutResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status409Conflict)

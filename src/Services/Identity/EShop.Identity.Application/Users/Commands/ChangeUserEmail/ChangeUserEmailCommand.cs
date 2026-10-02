@@ -71,15 +71,18 @@ public class ChangeUserEmailCommandHandler : IRequestHandler<ChangeUserEmailComm
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserRepository _userRepository;
+    private readonly IRefreshTokenRepository _refreshTokenRepository;
     private readonly ILogger<ChangeUserEmailCommandHandler> _logger;
 
     public ChangeUserEmailCommandHandler(
         UserManager<ApplicationUser> userManager,
         IUserRepository userRepository,
+        IRefreshTokenRepository refreshTokenRepository,
         ILogger<ChangeUserEmailCommandHandler> logger)
     {
         _userManager = userManager;
         _userRepository = userRepository;
+        _refreshTokenRepository = refreshTokenRepository;
         _logger = logger;
     }
 
@@ -106,6 +109,8 @@ public class ChangeUserEmailCommandHandler : IRequestHandler<ChangeUserEmailComm
             return Result<Unit>.Failure(AdminUserErrors.EmailConflict);
         }
 
+        var wasConfirmed = user.EmailConfirmed;
+
         user.Email = email;
         user.UserName = email;
         user.EmailConfirmed = request.MarkConfirmed;
@@ -114,6 +119,19 @@ public class ChangeUserEmailCommandHandler : IRequestHandler<ChangeUserEmailComm
         // lands is the same one self-service registration would produce.
         AdminUserErrors.EnsureSucceededAfterMutation(
             await _userManager.UpdateAsync(user), "Changing the user's email");
+
+        // Soft email verification: every access token says email_verified=true until it expires, and so would the
+        // next one minted from an old session's refresh token if this left them alive. Ending those sessions makes the
+        // user sign in again on the new, unconfirmed address. Only the confirmed-to-unconfirmed move needs it: an
+        // account that was never confirmed already holds false tokens. No try/catch and no SaveChangesAsync, as in
+        // ChangePasswordCommandHandler: under ITransactionalCommand a failed revoke rolls the email change back.
+        if (wasConfirmed && !request.MarkConfirmed)
+        {
+            await _refreshTokenRepository.RevokeAllUserTokensAsync(
+                user.Id,
+                "Email changed to an unconfirmed address by an administrator",
+                cancellationToken: cancellationToken);
+        }
 
         _logger.LogInformation(
             "Admin changed a user's email. UserId={UserId}, MarkConfirmed={MarkConfirmed}",

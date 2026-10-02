@@ -19,8 +19,8 @@ namespace EShop.Identity.Application.Users.Commands.ConfirmUserEmail;
 /// The support path beside self-service confirmation: registration emails a link
 /// (<c>EmailConfirmationRequestedIntegrationEvent</c>) and <c>POST /api/v1/auth/resend-confirmation</c>
 /// sends another, but a user whose mailbox never receives it — or an account an administrator
-/// created with <c>emailConfirmed: false</c> — still needs someone to vouch for the address while
-/// <c>SignIn.RequireConfirmedEmail</c> is on.
+/// created with <c>emailConfirmed: false</c> — still needs someone to vouch for the address before
+/// they can place an order (or sign in at all, in strict mode: <c>SignIn.RequireConfirmedEmail</c>).
 /// </para>
 /// <para>
 /// It sets the flag directly instead of minting a token and calling <c>ConfirmEmailAsync</c>. A

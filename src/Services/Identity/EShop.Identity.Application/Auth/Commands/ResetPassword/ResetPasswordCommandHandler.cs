@@ -82,7 +82,7 @@ public class ResetPasswordCommandHandler : IRequestHandler<ResetPasswordCommand,
         // A reset token only ever travels by email, so redeeming one proves the caller reads that
         // mailbox — exactly what confirmation proves. Without this, a user an administrator invited
         // (an unconfirmed account whose only email is the reset link) could set a password and
-        // still never sign in while SignIn.RequireConfirmedEmail is on.
+        // still never place an order — or, in strict mode (SignIn.RequireConfirmedEmail), sign in.
         //
         // Set only AFTER ResetPasswordAsync succeeded: TransactionBehavior commits on a failure
         // Result too, and a tracked user flagged before the token check would be confirmed by a

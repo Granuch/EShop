@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using EShop.BuildingBlocks.Domain;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using EShop.Identity.Domain.Entities;
 using EShop.Identity.Domain.Interfaces;
 using EShop.Identity.Domain.Security;
@@ -72,7 +73,11 @@ public class TokenService : ITokenService
             new(JwtRegisteredClaimNames.Email, user.Email!),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new("firstName", user.FirstName),
-            new("lastName", user.LastName)
+            new("lastName", user.LastName),
+            // Soft email verification: read from the user on every issue, login and refresh alike, so confirming the
+            // address and then refreshing is what turns it true. Basket's checkout and Ordering's POST /orders refuse
+            // anything but true (EmailVerification, BuildingBlocks).
+            new(EmailVerification.ClaimType, user.EmailConfirmed ? "true" : "false", ClaimValueTypes.Boolean)
         };
 
         claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));

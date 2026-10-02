@@ -47,8 +47,10 @@ Notes:
   `NOTIFICATION_SMTP_USERNAME`/`NOTIFICATION_SMTP_PASSWORD` **empty** for Mailpit. Mailpit has no authentication, and a
   username makes every email fail. Pointing Notification at a real SMTP server means registrations, resets and order
   emails are really sent.
-- Values in your shell override `.env`, which is handy for a one-off change:
-  `IDENTITY_REQUIRE_CONFIRMED_EMAIL=false docker compose --profile sandbox up -d identity-api`.
+- Values in your shell override `.env`, which is handy for a one-off change. For example, to try Identity's strict
+  mode, where an unconfirmed account cannot even sign in (by default it can, and only placing an order needs the
+  confirmed address):
+  `IDENTITY_REQUIRE_CONFIRMED_EMAIL=true docker compose --profile sandbox up -d identity-api`.
 
 ---
 

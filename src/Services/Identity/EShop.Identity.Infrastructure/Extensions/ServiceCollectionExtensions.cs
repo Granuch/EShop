@@ -36,8 +36,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         bool useInMemoryDatabase = false,
         string? inMemoryDatabaseName = null,
-        bool suppressPendingModelChangesWarning = false,
-        bool isDevelopment = false)
+        bool suppressPendingModelChangesWarning = false)
     {
         // Add ICurrentUserContext for audit field population
         services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -89,10 +88,11 @@ public static class ServiceCollectionExtensions
             // User requirements
             options.User.RequireUniqueEmail = true;
 
-            // Sign-in requirements. Required everywhere but Development and Testing (email-confirmation Stage 3):
-            // Sandbox used to be exempt because nothing could deliver the token, and Notification now emails it.
-            // Identity:RequireConfirmedEmail overrides either way; compose passes IDENTITY_REQUIRE_CONFIRMED_EMAIL.
-            options.SignIn.RequireConfirmedEmail = requireConfirmedEmailOverride ?? !isDevelopment;
+            // Sign-in requirements. Soft email verification: an unconfirmed address may sign in in every environment,
+            // and a confirmed one is needed only to place an order (the access token's email_verified claim, checked
+            // by Basket's checkout and Ordering's POST /orders). Identity:RequireConfirmedEmail=true restores strict
+            // mode, where login answers 403 Auth.EmailNotConfirmed; compose passes IDENTITY_REQUIRE_CONFIRMED_EMAIL.
+            options.SignIn.RequireConfirmedEmail = requireConfirmedEmailOverride ?? false;
 
             // Lockout settings
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
