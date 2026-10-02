@@ -37,7 +37,7 @@ Not routed through the gateway: `GET /api/v1/users/{userId}/contact` and Identit
 
 - [Storefront / customer](#storefront--customer)
   - [Sign-up and sign-in](#sign-up-and-sign-in): register, login, refresh, revoke, confirm email, forgot and reset
-    password, resend confirmation
+    password, resend confirmation, and [email verification for ordering](#email-verification-and-ordering)
   - [Own account](#own-account): profile, change password, two-factor authentication
   - [Failed logins and lockout](#failed-logins-and-lockout)
 - [Admin panel](#admin-panel)
@@ -96,10 +96,11 @@ Creates a customer account with the `User` role. Source: `RegisterCommand`.
 ```
 
 Registration also emails a confirmation link a few seconds later (sent by the Notification service; see
-[the confirmation link](#the-confirmation-link)). While `Identity:RequireConfirmedEmail` is on — the default
-everywhere except Development, so the Sandbox compose stack and k8s included — login answers
-[403 `Auth.EmailNotConfirmed`](#post-apiv1authlogin) until the address is confirmed. With it off, the account can
-log in immediately.
+[the confirmation link](#the-confirmation-link)). **The account can sign in at once** and use the shop — browse, fill a
+basket — but **placing an order needs a confirmed address**: until it is confirmed, the access token says
+`email_verified=false` and checkout answers [403 `Auth.EmailNotConfirmed`](#email-verification-and-ordering).
+`Identity:RequireConfirmedEmail=true` is a strict mode in which login itself answers that 403 until the address is
+confirmed; nothing ships it (the code default, compose, k8s and `.env.example` are all `false`).
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -108,8 +109,9 @@ log in immediately.
 | 400 | `Auth.CreateFailed` | ASP.NET Identity refused the account; `detail` lists its reasons. From source, not observed: the checks above run first |
 | 429 | `Request.RateLimited` | `auth` bucket spent |
 
-Show `message`: the confirmation email really is sent. Follow sign-up with a "check your email" screen that offers
-[`resend-confirmation`](#post-apiv1authresend-confirmation) if nothing arrives.
+Show `message`: the confirmation email really is sent. Sign the user in straight away with
+[`login`](#post-apiv1authlogin), and keep a "confirm your email" notice, with
+[`resend-confirmation`](#post-apiv1authresend-confirmation), until `user.emailConfirmed` is `true`.
 
 #### `POST /api/v1/auth/login`
 
@@ -125,7 +127,7 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
    ```json
    {"accessToken":"eyJhbGciOi…","refreshToken":"FfbrHl18…","expiresIn":3600,"tokenType":"Bearer","requires2FA":false,
     "user":{"id":"afc10747-33cb-491d-bf78-7de7ed9da476","email":"fe-contracts-s2a@example.com","firstName":"José",
-    "lastName":"O'Brien-Müller","roles":["User"],"permissions":[]}}
+    "lastName":"O'Brien-Müller","emailConfirmed":false,"roles":["User"],"permissions":[]}}
    ```
 
    For an admin, `permissions` lists all 15, in the order of
@@ -148,7 +150,7 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
 | 400 | `ValidationError` | Missing email or password, a malformed email, a `twoFactorCode` that is not 6 digits, or a body that is not JSON (key `$`) |
 | 401 | `Auth.InvalidCredentials` | `detail` `"Invalid email or password"`. Wrong password, unknown email, **and also** a deactivated, deleted or admin-locked account. The response never says which |
 | 401 | `Auth.Invalid2FA` | `twoFactorCode` was sent and is wrong |
-| 403 | `Auth.EmailNotConfirmed` | The password is **right** but the address is not confirmed, while `Identity:RequireConfirmedEmail` is on. Offer [`resend-confirmation`](#post-apiv1authresend-confirmation). A wrong password on such an account is the uniform 401 above, so this reveals nothing to someone without the password |
+| 403 | `Auth.EmailNotConfirmed` | **Strict mode only** (`Identity:RequireConfirmedEmail=true`, which nothing ships): the password is **right** but the address is not confirmed. Offer [`resend-confirmation`](#post-apiv1authresend-confirmation). A wrong password on such an account is the uniform 401 above, so this reveals nothing to someone without the password |
 | 401 | `Auth.TooManyAttempts` | The account is in its post-failure delay or locked, or the client IP is blocked. See [Failed logins and lockout](#failed-logins-and-lockout) |
 | 429 | `Request.RateLimited` | `login` bucket spent |
 
@@ -158,6 +160,8 @@ Checks the credentials and returns a token pair. Source: `LoginCommand`.
 - **Permissions.** Use `user.permissions` to decide which admin screens and actions to show, and `user.roles` only to
   display the role names. Do not decode the JWT for either: it carries the roles under a long claim type and no
   permissions at all ([conventions.md §4](conventions.md#claims-and-roles), [§5](conventions.md#5-permissions-and-admin-access)).
+- **Email verification.** `user.emailConfirmed` says whether the address is confirmed; the access token carries the same
+  value as its `email_verified` claim. See [Email verification and ordering](#email-verification-and-ordering).
 
 #### `POST /api/v1/auth/refresh-token`
 
@@ -170,6 +174,9 @@ Unlike login, it carries no `user` and no `tokenType`.
 
 **The old refresh token is dead from this point.** Store the new one before anything else. Run one refresh at a time
 ([conventions.md §4](conventions.md#tokens)).
+
+The new access token is built from the account as it is now, so after [`confirm-email`](#post-apiv1authconfirm-email) it
+carries `email_verified=true`. That is how a signed-in user becomes able to order without signing in again.
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -228,9 +235,34 @@ The email (sent by the Notification service a few seconds after registration or 
 
 Both values are URL-encoded. The compose default for the base is `http://localhost:3000/confirm-email`
 (`EMAIL_CONFIRMATION_URL_BASE` in `.env`). **The frontend must serve that page.** It reads `userId` and `token` with
-`URLSearchParams`, which decodes them, and posts them to this endpoint. On 200, send the user to sign in; on
-`Auth.InvalidToken`, offer [`resend-confirmation`](#post-apiv1authresend-confirmation). A token is valid for 24 hours,
-and any unexpired one works, including one from an earlier email.
+`URLSearchParams`, which decodes them, and posts them to this endpoint. On 200, if the user is signed in in this
+browser, call [`refresh-token`](#post-apiv1authrefresh-token) so the access token says `email_verified=true`;
+otherwise send them to sign in. On `Auth.InvalidToken`, offer [`resend-confirmation`](#post-apiv1authresend-confirmation).
+A token is valid for 24 hours, and any unexpired one works, including one from an earlier email.
+
+`confirm-email` deliberately returns no tokens: that would turn the emailed link into a password-free (and
+second-factor-free) sign-in for whoever holds it.
+
+##### Email verification and ordering
+
+An unconfirmed account signs in and uses the shop normally. Only the two ways to place an order check the address:
+[`POST /api/v1/basket/{userId}/checkout`](basket.md#post-apiv1basketuseridcheckout) (the storefront's checkout) and
+[`POST /api/v1/orders`](ordering.md#post-apiv1orders). Each reads the access token's `email_verified` claim and, unless
+it is `true`, answers:
+
+```json
+{"status":403,"detail":"Confirm your email address before placing an order. You can request a new confirmation link.",
+ "errorCode":"Auth.EmailNotConfirmed","traceId":"…"}
+```
+
+The basket is left as it was, so the same checkout works once the address is confirmed.
+
+- **The claim is a snapshot.** It is written when the token is issued and changes only with a new token. After the user
+  confirms, call [`refresh-token`](#post-apiv1authrefresh-token).
+- **On this 403, refresh once and retry.** If the retry is still 403, the address really is unconfirmed: show the
+  `detail` and offer [`resend-confirmation`](#post-apiv1authresend-confirmation). The single retry also covers a token
+  that predates the claim, which counts as unconfirmed.
+- An admin creating an order for a user with `POST /api/v1/orders` is not checked.
 
 #### `POST /api/v1/auth/resend-confirmation`
 
@@ -677,7 +709,9 @@ Changes the email **and the user name** (they are always equal). Body
 trimmed) and `markConfirmed` (optional boolean).
 
 **204.** The new address is confirmed only if `markConfirmed` is `true`; **omitting it resets `emailConfirmed` to
-`false`**, even when it was confirmed before.
+`false`**, even when it was confirmed before. When that turns a confirmed account unconfirmed, **every session of the
+user is signed out** (their refresh tokens stop working), so no old session keeps issuing `email_verified=true` tokens
+for the new address. An access token already issued stays valid until it expires (at most an hour).
 
 | Status | `errorCode` | When |
 |---|---|---|
@@ -960,7 +994,8 @@ A union of two shapes. Branch on `requires2FA`.
 
 #### UserSummary
 
-Source: `UserDto`. `id`, `email`, `firstName`, `lastName` (strings), `roles` (string[]) and `permissions` (string[]:
+Source: `UserDto`. `id`, `email`, `firstName`, `lastName` (strings), `emailConfirmed` (boolean: whether the address is
+confirmed, the same value as the token's `email_verified` claim), `roles` (string[]) and `permissions` (string[]:
 what the roles grant, each [permission](conventions.md#the-permission-vocabulary) once, in the vocabulary's order;
 empty for a role with no bundle).
 
@@ -1240,6 +1275,8 @@ export interface UserSummary {
   email: string;
   firstName: string;
   lastName: string;
+  /** Same value as the access token's email_verified claim. Placing an order needs true. */
+  emailConfirmed: boolean;
   roles: string[];
   /** What the roles grant, each once, in the vocabulary's order. Empty for a customer. */
   permissions: Permission[];
@@ -1485,10 +1522,12 @@ export interface UserInRole {
 > and offer a password reset. See [Failed logins and lockout](#failed-logins-and-lockout).
 > F-28 made this delay real in `bb8c148`; before that it blocked the account for 15 minutes.
 
-> ⚠ **Confirm before signing in.** New accounts get a confirmation email and cannot sign in until they follow it:
-> login answers 403 `Auth.EmailNotConfirmed` (only when the password is right). Show its `detail` and offer
-> [`resend-confirmation`](#post-apiv1authresend-confirmation). The storefront must serve the page the link points at
-> ([the confirmation link](#the-confirmation-link)). A completed password reset also confirms the address.
+> ⚠ **Confirm before ordering.** New accounts get a confirmation email and can sign in and shop before following it,
+> but checkout answers 403 `Auth.EmailNotConfirmed` until the address is confirmed. Keep a "confirm your email" notice
+> with [`resend-confirmation`](#post-apiv1authresend-confirmation) while `user.emailConfirmed` is `false`; after the
+> confirmation page succeeds, call `refresh-token`; on that 403, refresh once and retry
+> ([Email verification and ordering](#email-verification-and-ordering)). The storefront must serve the page the link
+> points at ([the confirmation link](#the-confirmation-link)). A completed password reset also confirms the address.
 
 > ⚠ **Recovery codes are not accepted anywhere.** A lost authenticator needs an admin `disable-2fa`. (F-29)
 

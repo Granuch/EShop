@@ -17,7 +17,8 @@ using EShop.Identity.Domain.Entities;
 namespace EShop.Identity.IntegrationTests.Auth;
 
 /// <summary>
-/// Email confirmation end to end, on real Postgres, on a host that requires it.
+/// Email confirmation end to end, on real Postgres, on a host that requires it to sign in — strict mode, which is
+/// off by default since soft email verification (that default is <see cref="SoftEmailVerificationTests"/>).
 ///
 /// <para>
 /// This replaces the startup rail that refused to boot with <c>RequireConfirmedEmail</c> on while

@@ -211,6 +211,10 @@ There is no `paymentMethod` — Payment chooses it when the payment intent is cr
 
 **200** [`CheckoutResponse`](#checkoutresponse): `{ "checkoutId": "<GUID>" }`.
 
+- **Checking out needs a confirmed email.** Unless the access token says `email_verified=true`, the answer is **403
+  `Auth.EmailNotConfirmed`** before the basket is read: nothing is ordered and the basket is unchanged, so the same
+  request works once the address is confirmed and the token refreshed
+  ([identity.md](identity.md#email-verification-and-ordering)). Every other basket call works without it.
 - **Every line is re-read from Catalog first**, using the same anonymous, unauthenticated internal call
   [add](#post-apiv1basketuseriditems) uses. A line whose product is now gone from the public catalog, short of
   stock, or repriced blocks the whole checkout with **409** and a `lines` array (below) — nothing is ordered, and
@@ -225,6 +229,7 @@ There is no `paymentMethod` — Payment chooses it when the payment intent is cr
 |---|---|---|
 | 400 | `ValidationError` | `shippingAddress` missing or `null` (key `shippingAddress`: "Shipping address is required"); any address field fails its pattern — each failing field has its own key (`shippingAddress.street`, `shippingAddress.zipCode`, …), and `detail` joins every message with "; " |
 | 400 | `Basket.Empty` | No stored basket, or a stored basket with no items, and no completed-checkout marker to repeat |
+| 403 | `Auth.EmailNotConfirmed` | The access token does not say `email_verified=true` (an unconfirmed address, or a token issued before the claim existed). Refresh the token once and retry; if it is still 403, ask the shopper to confirm their address. The basket is untouched |
 | 409 | `Basket.CheckoutRevalidationFailed` | One or more lines no longer match the catalog (see `lines`, below) |
 | 409 | `Basket.CheckoutInProgress` | A checkout for this user is already running (3-minute internal lock) |
 | 409 | `Basket.CheckoutConflict` | The stored basket changed between the read and the atomic commit, and there is no completed-checkout marker to explain it as a retry |

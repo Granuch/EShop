@@ -46,11 +46,16 @@ public class BasketApiFactory : WebApplicationFactory<Program>
     /// <summary>The host's own multiplexer, for asserting on what it stored.</summary>
     public IConnectionMultiplexer Redis => Services.GetRequiredService<IConnectionMultiplexer>();
 
-    /// <summary>A client carrying a token for <paramref name="userId"/>.</summary>
-    public HttpClient CreateClientFor(string userId, bool isAdmin = false)
+    /// <summary>
+    /// A client carrying a token for <paramref name="userId"/>. <paramref name="emailVerified"/> is the token's
+    /// <c>email_verified</c> claim — <c>"true"</c> by default, as Identity issues it to a confirmed account, because
+    /// checkout refuses anything else; <c>null</c> leaves the claim out, as in a token issued before it existed.
+    /// </summary>
+    public HttpClient CreateClientFor(string userId, bool isAdmin = false, string? emailVerified = "true")
     {
         var client = CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreateToken(userId, isAdmin));
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", CreateToken(userId, isAdmin, emailVerified: emailVerified));
         return client;
     }
 
@@ -66,9 +71,15 @@ public class BasketApiFactory : WebApplicationFactory<Program>
         return client;
     }
 
-    public static string CreateToken(string userId, bool isAdmin = false, IEnumerable<string>? permissions = null)
+    public static string CreateToken(
+        string userId, bool isAdmin = false, IEnumerable<string>? permissions = null, string? emailVerified = "true")
     {
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId) };
+        if (emailVerified is not null)
+        {
+            claims.Add(new Claim(EmailVerification.ClaimType, emailVerified, ClaimValueTypes.Boolean));
+        }
+
         if (isAdmin)
         {
             claims.Add(new Claim(ClaimTypes.Role, "Admin"));

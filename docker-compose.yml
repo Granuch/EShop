@@ -262,9 +262,10 @@ services:
       JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_EXPIRATION:-7}
 
       # Identity
-      # On since email-confirmation Stage 3: registration emails a confirmation link (Notification), and an
-      # unconfirmed login answers 403 Auth.EmailNotConfirmed. Set false to let new accounts sign in unconfirmed.
-      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-true}
+      # Off by default (soft email verification): a new account signs in and shops at once, and only placing an
+      # order needs the confirmed address that Notification's link proves. Set true for strict mode, where an
+      # unconfirmed login answers 403 Auth.EmailNotConfirmed.
+      Identity__RequireConfirmedEmail: ${IDENTITY_REQUIRE_CONFIRMED_EMAIL:-false}
 
       # Seed Admin (Development/Sandbox only)
       Identity__SeedAdminEmail: ${IDENTITY_SEED_ADMIN_EMAIL:-admin@eshop.com}
