@@ -401,6 +401,31 @@ public class AdminUserWritesTests : AuthenticatedIntegrationTestBase
             "nobody has verified the new address, and the safe default is to say so");
     }
 
+    /// <summary>
+    /// Soft email verification: a session that survived the move would keep minting <c>email_verified=true</c> tokens
+    /// for an address nobody has confirmed, so moving a confirmed account to an unconfirmed address ends its sessions —
+    /// and keeps them when the admin vouches for the new address.
+    /// </summary>
+    [TestCase(false, HttpStatusCode.Unauthorized)]
+    [TestCase(true, HttpStatusCode.OK)]
+    public async Task ChangeEmail_EndsTheUsersSessions_OnlyWhenTheNewAddressIsUnconfirmed(
+        bool markConfirmed, HttpStatusCode expectedRefresh)
+    {
+        var email = UniqueEmail("sessions");
+        var userId = await UserManagementHelper.CreateTestUserAsync(Factory.Services, email);
+        var session = await LoginAsync(email, DefaultPassword);
+
+        (await Client.PutAsJsonAsync($"{Endpoint}/{userId}/email",
+                new { email = UniqueEmail("sessions-new"), markConfirmed }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var anonymous = Factory.CreateClient();
+        var refresh = await anonymous.PostAsJsonAsync("/api/v1/auth/refresh-token",
+            new RefreshTokenRequest { RefreshToken = session.RefreshToken });
+
+        refresh.StatusCode.Should().Be(expectedRefresh, await refresh.Content.ReadAsStringAsync());
+    }
+
     [Test]
     public async Task ChangeEmail_ToATakenAddress_Is409_AndChangesNothing()
     {

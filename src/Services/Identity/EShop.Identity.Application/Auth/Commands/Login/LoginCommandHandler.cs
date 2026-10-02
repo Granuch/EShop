@@ -17,7 +17,9 @@ namespace EShop.Identity.Application.Auth.Commands.Login;
 public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginResponse>>
 {
     /// <summary>
-    /// Correct password, unconfirmed address, while <c>SignIn.RequireConfirmedEmail</c> is on.
+    /// Correct password, unconfirmed address, while <c>SignIn.RequireConfirmedEmail</c> is on — strict mode, which is
+    /// off by default since soft email verification (then an unconfirmed account signs in and only ordering needs the
+    /// confirmation).
     /// <c>AuthController</c> answers it with 403 rather than 401 — the caller is authenticated and
     /// still refused — so a client can tell it apart and offer a new confirmation link.
     /// </summary>
@@ -279,6 +281,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 Email = user.Email!,
                 FirstName = user.FirstName,
                 LastName = user.LastName,
+                EmailConfirmed = user.EmailConfirmed,
                 Roles = roles.ToList(),
                 Permissions = _permissionResolver.PermissionsFor(roles).ToList()
             }

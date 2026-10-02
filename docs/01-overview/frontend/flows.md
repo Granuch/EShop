@@ -31,11 +31,7 @@ sequenceDiagram
     U->>GW: POST /api/v1/auth/register
     GW->>ID: (proxied, anonymous)
     ID-->>U: 200 { userId, email, message }
-    Note over U,ID: Notification emails a confirmation link.<br/>Login answers 403 Auth.EmailNotConfirmed until it is used.
-
-    U->>GW: POST /api/v1/auth/confirm-email { userId, token } (from the link)
-    GW->>ID: (proxied)
-    ID-->>U: 200 { success, message }
+    Note over U,ID: Notification emails a confirmation link.<br/>The account can sign in at once, but cannot order until the link is used.
 
     U->>GW: POST /api/v1/auth/login { email, password }
     GW->>ID: (proxied)
@@ -48,7 +44,15 @@ sequenceDiagram
         ID-->>U: 200 { accessToken, refreshToken, expiresIn, requires2FA:false, user }
     end
 
-    Note over U: Use accessToken for 60 min. Store user.permissions and user.roles —<br/>do not decode the JWT for authorization.
+    Note over U: Use accessToken for 60 min. Store user.permissions and user.roles —<br/>do not decode the JWT for authorization.<br/>user.emailConfirmed is false until the link is used.
+
+    U->>GW: POST /api/v1/auth/confirm-email { userId, token } (from the link)
+    GW->>ID: (proxied)
+    ID-->>U: 200 { success, message }
+    U->>GW: POST /api/v1/auth/refresh-token { refreshToken }
+    GW->>ID: (proxied)
+    ID-->>U: 200 { accessToken, refreshToken, expiresIn }
+    Note over U: The new accessToken says email_verified=true,<br/>so this user can now place an order.
 
     loop Every ~55 min, or on a 401
         U->>GW: POST /api/v1/auth/refresh-token { refreshToken }
@@ -63,12 +67,16 @@ sequenceDiagram
     Note over U: Access token still works until it expires (up to 60 min).<br/>Drop it client-side too.
 ```
 
-- **Registration requires email confirmation.** [`POST /auth/register`](identity.md#post-apiv1authregister) is
+- **Sign in at once, confirm before ordering.** [`POST /auth/register`](identity.md#post-apiv1authregister) is
   followed a few seconds later by an email whose link (`<ConfirmUrlBase>?userId=…&token=…`, both URL-encoded) must be
   served by the frontend; that page posts to [`POST /auth/confirm-email`](identity.md#post-apiv1authconfirm-email).
-  Until then, login with the right password answers 403 `Auth.EmailNotConfirmed`: show a "check your email" screen
-  with [`resend-confirmation`](identity.md#post-apiv1authresend-confirmation) (always 200, at most one email per
-  account per minute). A wrong password is still the uniform 401.
+  The new account can log in straight after registering and browse and fill a basket, but checkout answers 403
+  `Auth.EmailNotConfirmed` until the address is confirmed
+  ([Email verification and ordering](identity.md#email-verification-and-ordering)). While `user.emailConfirmed` is
+  `false`, keep a "confirm your email" notice with
+  [`resend-confirmation`](identity.md#post-apiv1authresend-confirmation) (always 200, at most one email per account
+  per minute). After the confirmation page succeeds, refresh the token: the new access token says
+  `email_verified=true`. `confirm-email` itself returns no tokens.
 - **Branch on `requires2FA`, never on the HTTP status.** Both the plain and the 2FA-pending answers are 200
   ([`POST /auth/login`](identity.md#post-apiv1authlogin)). Re-send the exact same login request with `twoFactorCode`
   added once the user enters a code from their authenticator app.
@@ -117,6 +125,7 @@ sequenceDiagram
 
     U->>GW: POST /api/v1/basket/{userId}/checkout { shippingAddress }
     GW->>BAS: (proxied)
+    Note over U,BAS: Unless the token says email_verified=true, this answers<br/>403 Auth.EmailNotConfirmed and the basket is left as it was.
     Note over BAS,CAT: Basket re-reads every line from Catalog first.<br/>A stale line answers 409 with a "lines" array — nothing is ordered.
     BAS-->>U: 200 { checkoutId }
     BAS--)ORD: BasketCheckedOut event (async)
@@ -158,6 +167,10 @@ sequenceDiagram
     end
 ```
 
+- **Checkout needs a confirmed email.** A 403 `Auth.EmailNotConfirmed` from checkout means the access token does not
+  say `email_verified=true`. Refresh the token once and retry; if it is still 403, ask the shopper to confirm their
+  address ([Email verification and ordering](identity.md#email-verification-and-ordering)). Nothing was ordered and the
+  basket is unchanged.
 - **There is no endpoint that returns an order id from a `checkoutId`.** Poll
   [`GET /users/{userId}/orders`](ordering.md#get-apiv1usersuseridorders) (newest first) and take the top row; do not
   try to correlate by amount or item list, since a second concurrent checkout would race it.

@@ -242,6 +242,40 @@ public class LoginCommandHandlerTests
         Assert.That(user.EmailConfirmed, Is.False, "the arrangement under test");
     }
 
+    /// <summary>
+    /// Soft email verification, the default: with confirmation not required, <c>CanSignInAsync</c> admits an
+    /// unconfirmed account, and the login succeeds like any other — tokens issued, nothing counted against the user,
+    /// and the response telling the client the address still needs confirming before an order can be placed.
+    /// </summary>
+    [Test]
+    public async Task Handle_InSoftMode_AnUnconfirmedAccountSignsIn_AndTheResponseSaysItIsUnconfirmed()
+    {
+        var user = ArrangeSignInReadyUser();
+        user.EmailConfirmed = false;
+        _userManagerMock.Object.Options.SignIn.RequireConfirmedEmail = false;
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(result.Value!.AccessToken, Is.EqualTo("access-token"));
+        Assert.That(result.Value.RefreshToken, Is.EqualTo("refresh-token"));
+        Assert.That(result.Value.User!.EmailConfirmed, Is.False);
+        _trackerMock.Verify(
+            x => x.RecordFailedAttemptAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task Handle_ForAConfirmedAccount_TheResponseSaysItIsConfirmed()
+    {
+        var user = ArrangeSignInReadyUser();
+        user.EmailConfirmed = true;
+
+        var result = await _handler.Handle(Command(), CancellationToken.None);
+
+        Assert.That(result.Value!.User!.EmailConfirmed, Is.True);
+    }
+
     /// <summary>A rejected login must issue nothing, whatever the cause.</summary>
     [Test]
     public async Task Handle_WithAWrongPassword_IssuesNoTokens()

@@ -106,8 +106,7 @@ try
     builder.Services.AddIdentityInfrastructure(
         builder.Configuration,
         useInMemoryDatabase: useInMemoryDb,
-        suppressPendingModelChangesWarning: suppressPendingModelChangesWarning,
-        isDevelopment: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"));
+        suppressPendingModelChangesWarning: suppressPendingModelChangesWarning);
 
     builder.Services.AddHttpContextAccessor();
 

@@ -32,8 +32,7 @@ public class ServiceCollectionExtensionsTests
         services.AddIdentityInfrastructure(
             configuration,
             useInMemoryDatabase: true,
-            inMemoryDatabaseName: $"IdentityUnitTestDb_{Guid.NewGuid()}",
-            isDevelopment: true);
+            inMemoryDatabaseName: $"IdentityUnitTestDb_{Guid.NewGuid()}");
 
         using var provider = services.BuildServiceProvider(validateScopes: true);
         using var scopeA = provider.CreateScope();
@@ -51,15 +50,14 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// Email-confirmation Stage 3: confirmation is required everywhere but Development and Testing — Sandbox included,
-    /// now that Notification emails the link — and <c>Identity:RequireConfirmedEmail</c> overrides either way.
+    /// Soft email verification: an unconfirmed address may sign in by default in every environment — a confirmed one is
+    /// needed only to place an order — and <c>Identity:RequireConfirmedEmail=true</c> restores strict mode. There is no
+    /// environment input any more: the default used to be "required outside Development and Testing".
     /// </summary>
-    [TestCase(false, null, true, TestName = "Sandbox, Production and k8s require it by default")]
-    [TestCase(true, null, false, TestName = "Development and Testing do not by default")]
-    [TestCase(false, "false", false, TestName = "The setting turns it off outside Development")]
-    [TestCase(true, "true", true, TestName = "The setting turns it on in Development")]
-    public void RequireConfirmedEmail_FollowsTheEnvironment_UnlessConfigured(
-        bool isDevelopment, string? setting, bool expected)
+    [TestCase(null, false, TestName = "Confirmation is not required to sign in by default")]
+    [TestCase("false", false, TestName = "The setting can say so explicitly")]
+    [TestCase("true", true, TestName = "The setting turns strict mode on")]
+    public void RequireConfirmedEmail_IsOffByDefault_UnlessConfigured(string? setting, bool expected)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -72,8 +70,7 @@ public class ServiceCollectionExtensionsTests
         services.AddIdentityInfrastructure(
             configuration,
             useInMemoryDatabase: true,
-            inMemoryDatabaseName: $"IdentityUnitTestDb_{Guid.NewGuid()}",
-            isDevelopment: isDevelopment);
+            inMemoryDatabaseName: $"IdentityUnitTestDb_{Guid.NewGuid()}");
 
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions>>();
