@@ -433,13 +433,18 @@ This section is an overview. The request and response contracts are in [identity
 | Register | `POST /api/v1/auth/register` | Account created. The body is `{ userId, email, message }` |
 | Log in | `POST /api/v1/auth/login` | `{ accessToken, refreshToken, expiresIn, tokenType, requires2FA, user }` |
 
-- **Email confirmation is required.** Registration emails a confirmation link, and login with the right password
-  answers 403 `Auth.EmailNotConfirmed` until it is followed.
-  - Every shipped configuration (compose, k8s) sets `Identity:RequireConfirmedEmail=true`; only Development runs
-    without it.
+- **Email confirmation is needed to order, not to sign in.** Registration emails a confirmation link. The new account
+  can log in at once (`user.emailConfirmed: false`), browse and fill a basket, but placing an order — basket checkout or
+  `POST /api/v1/orders` — answers 403 `Auth.EmailNotConfirmed` until the link is followed
+  ([identity.md](identity.md#email-verification-and-ordering)).
+  - Every shipped configuration (code default, compose, k8s, `.env.example`) sets
+    `Identity:RequireConfirmedEmail=false`. `true` is a strict mode in which login itself answers that 403.
   - The storefront serves the page the link points at and posts `userId` and `token` to
     `POST /api/v1/auth/confirm-email`; `POST /api/v1/auth/resend-confirmation` sends a new link
-    ([identity.md](identity.md#the-confirmation-link)).
+    ([identity.md](identity.md#the-confirmation-link)). After a successful confirmation, call
+    `POST /api/v1/auth/refresh-token`: the access token's `email_verified` claim only changes with a new token.
+  - **On a 403 `Auth.EmailNotConfirmed` from checkout or `POST /orders`, refresh once and retry.** If it is still 403,
+    the address is unconfirmed: show the `detail` and offer resend-confirmation.
 - **Two-factor login.** When the account has 2FA enabled and the login request has no `twoFactorCode`, login answers
   **200** with `requires2FA: true`, empty `accessToken`/`refreshToken`, and `user: null`. Ask the user for the
   authenticator code, then **send the same login request again** with `twoFactorCode` added. There is no separate 2FA
@@ -472,6 +477,8 @@ This section is an overview. The request and response contracts are in [identity
 
 The JWT carries:
 - `sub` (user id), `email`, `firstName`, `lastName`, `jti`;
+- `email_verified`, a JSON boolean: whether the address was confirmed when the token was issued. Basket checkout and
+  `POST /api/v1/orders` require `true`; `user.emailConfirmed` in the login response carries the same value;
 - `iss` `EShop.Identity` and `aud` `EShop.Services`;
 - `exp`;
 - the role under the long claim type `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`.
