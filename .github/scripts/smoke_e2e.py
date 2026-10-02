@@ -2,8 +2,9 @@
 """End-to-end smoke test of a running EShop compose stack, through the API gateway.
 
 Walks one customer from sign-up to a delivered order:
-register -> confirmation email (Mailpit) -> confirm -> login -> browse -> basket -> checkout
--> order appears -> admin settles the payment offline -> order Paid -> ship -> deliver,
+register -> login (unconfirmed: allowed, token says email_verified=false) -> browse -> basket
+-> checkout refused (403 Auth.EmailNotConfirmed) -> confirmation email (Mailpit) -> confirm -> refresh (token says true)
+-> checkout -> order appears -> admin settles the payment offline -> order Paid -> ship -> deliver,
 then checks the customer received the expected emails. On the way it also checks that a protected route refuses an
 anonymous caller (ported from the old scripts/gateway-verify-target.ps1) and, when SMOKE_CHECK_TRACES is set, that
 every service's spans reached Jaeger under its own name during the run (the docker-ci DC-35 regression).
@@ -26,6 +27,7 @@ Environment (all optional):
   NOTIFICATION_CONTAINER  default eshop-notification-api; the Mailpit guard reads its Smtp__Host
 """
 
+import base64
 import json
 import os
 import re
@@ -84,6 +86,13 @@ def call(method, url, body=None, token=None, expect=(200,)):
     if expect is not None and status not in expect:
         raise StepFailed(f"{method} {url} -> {status} (expected {expect}): {text[:400]}")
     return status, payload
+
+
+def email_verified_claim(access_token):
+    """The email_verified claim of a JWT, decoded without verifying it (the gateway already did)."""
+    payload = access_token.split(".")[1]
+    claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    return claims.get("email_verified")
 
 
 def poll(what, fn, timeout=TIMEOUT, interval=1.0):
@@ -162,7 +171,7 @@ def main():
     call("GET", f"{GATEWAY}/api/v1/orders", expect=(401,))
     log("anonymous GET /api/v1/orders refused with 401")
 
-    # 1. Sign-up and confirmation
+    # 1. Sign-up, and a login before the address is confirmed
     _, reg = call("POST", f"{GATEWAY}/api/v1/auth/register",
                   {"email": email, "password": password, "firstName": "Smoke", "lastName": "Test"})
     user_id = reg["userId"]
@@ -178,22 +187,12 @@ def main():
                 return urllib.parse.unquote(match.group(1)), urllib.parse.unquote(match.group(2))
         return None
 
-    link_user, token = poll("the confirmation email", confirmation_link)
-    if link_user != user_id:
-        raise StepFailed(f"confirmation link names user {link_user}, expected {user_id}")
-    log("confirmation email received")
-
-    # Login before confirming must be refused with 403 Auth.EmailNotConfirmed (confirmation is on in Sandbox).
-    status, body = call("POST", f"{GATEWAY}/api/v1/auth/login", {"email": email, "password": password},
-                        expect=(403,))
-    if (body or {}).get("errorCode") != "Auth.EmailNotConfirmed":
-        raise StepFailed(f"unconfirmed login answered {status} {body}")
-    call("POST", f"{GATEWAY}/api/v1/auth/confirm-email", {"userId": user_id, "token": token})
-    log("email confirmed")
-
+    # Soft email verification: an unconfirmed customer signs in at once; only placing an order needs the address.
     _, login = call("POST", f"{GATEWAY}/api/v1/auth/login", {"email": email, "password": password})
     user_token = login["accessToken"]
-    log("customer logged in")
+    if (login.get("user") or {}).get("emailConfirmed") is not False or email_verified_claim(user_token) is not False:
+        raise StepFailed(f"an unconfirmed login should say emailConfirmed=false and email_verified=false: {login}")
+    log("customer logged in before confirming (email_verified=false)")
 
     # 2. Browse and fill the basket
     _, page = call("GET", f"{GATEWAY}/api/v1/products?pageSize=50")
@@ -204,10 +203,31 @@ def main():
 
     call("POST", f"{GATEWAY}/api/v1/basket/{user_id}/items", {"productId": product["id"], "quantity": 1},
          token=user_token, expect=(204,))
-    _, checkout = call("POST", f"{GATEWAY}/api/v1/basket/{user_id}/checkout",
-                       {"shippingAddress": {"street": "1 Smoke Street", "city": "Testville", "state": "Texas",
-                                            "zipCode": "12345", "country": "US"}},
-                       token=user_token)
+    checkout_body = {"shippingAddress": {"street": "1 Smoke Street", "city": "Testville", "state": "Texas",
+                                         "zipCode": "12345", "country": "US"}}
+
+    # Checking out places an order, so it is refused until the address is confirmed; the basket survives.
+    status, body = call("POST", f"{GATEWAY}/api/v1/basket/{user_id}/checkout", checkout_body,
+                        token=user_token, expect=(403,))
+    if (body or {}).get("errorCode") != "Auth.EmailNotConfirmed":
+        raise StepFailed(f"an unconfirmed checkout answered {status} {body}")
+    log("unconfirmed checkout refused with 403 Auth.EmailNotConfirmed")
+
+    link_user, token = poll("the confirmation email", confirmation_link)
+    if link_user != user_id:
+        raise StepFailed(f"confirmation link names user {link_user}, expected {user_id}")
+    log("confirmation email received")
+    call("POST", f"{GATEWAY}/api/v1/auth/confirm-email", {"userId": user_id, "token": token})
+    log("email confirmed")
+
+    # The access token in hand is a snapshot; a refresh re-reads the user and says email_verified=true.
+    _, refreshed = call("POST", f"{GATEWAY}/api/v1/auth/refresh-token", {"refreshToken": login["refreshToken"]})
+    user_token = refreshed["accessToken"]
+    if email_verified_claim(user_token) is not True:
+        raise StepFailed(f"the refreshed token does not say email_verified=true: {email_verified_claim(user_token)}")
+    log("token refreshed (email_verified=true)")
+
+    _, checkout = call("POST", f"{GATEWAY}/api/v1/basket/{user_id}/checkout", checkout_body, token=user_token)
     log(f"checked out, checkoutId {checkout['checkoutId']}")
 
     # 3. The order appears (asynchronously, via BasketCheckedOut)

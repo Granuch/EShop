@@ -3,9 +3,9 @@ using Microsoft.AspNetCore.Hosting;
 namespace EShop.Identity.IntegrationTests.Fixtures;
 
 /// <summary>
-/// The Postgres-backed host with <c>SignIn.RequireConfirmedEmail</c> on, as Production and (since the
-/// email-confirmation feature landed) Sandbox run it. Every other fixture runs under Testing, where
-/// confirmation is not required, so this is the only host on which an unconfirmed login is refused.
+/// The Postgres-backed host in strict mode, <c>SignIn.RequireConfirmedEmail</c> on. Since soft email verification
+/// nothing ships it (the code default, compose, k8s and <c>.env.example</c> are all off), but the switch still works,
+/// and this is the only host on which an unconfirmed login is refused.
 /// </summary>
 public class ConfirmedEmailRequiredApiFactory : PostgresIdentityApiFactory
 {

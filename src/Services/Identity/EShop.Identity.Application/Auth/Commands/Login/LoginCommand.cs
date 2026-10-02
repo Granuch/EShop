@@ -35,6 +35,13 @@ public record UserDto
     public string Email { get; init; } = string.Empty;
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Whether the address is confirmed — the same value as the access token's <c>email_verified</c> claim. An
+    /// unconfirmed account may sign in and shop; only placing an order needs it (soft email verification).
+    /// </summary>
+    public bool EmailConfirmed { get; init; }
+
     public List<string> Roles { get; init; } = new();
 
     /// <summary>

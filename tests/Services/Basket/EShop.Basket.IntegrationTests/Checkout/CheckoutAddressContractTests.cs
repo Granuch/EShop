@@ -1,11 +1,6 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Text;
 using EShop.Basket.IntegrationTests.Fixtures;
-using Microsoft.IdentityModel.Tokens;
 
 namespace EShop.Basket.IntegrationTests.Checkout;
 
@@ -68,8 +63,10 @@ public class CheckoutAddressContractTests
         });
         var body = await response.Content.ReadAsStringAsync();
 
+        // A code from the checkout pipeline itself: Basket.* or ValidationError. Not merely "not MalformedRequest" —
+        // an unverified token would answer Auth.EmailNotConfirmed from the endpoint filter without reaching it.
         var errorCode = ErrorCodeOf(body);
-        Assert.That(errorCode, Is.Not.Null.And.Not.EqualTo("MalformedRequest"),
+        Assert.That(errorCode, Does.StartWith("Basket.").Or.EqualTo("ValidationError"),
             "the control must reach the checkout pipeline, or the string test proves nothing");
     }
 
@@ -79,20 +76,6 @@ public class CheckoutAddressContractTests
         return json.RootElement.TryGetProperty("errorCode", out var code) ? code.GetString() : null;
     }
 
-    private static HttpClient AuthenticatedClient(BasketApiFactory factory)
-    {
-        var client = factory.CreateClient();
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes("TestSecretKeyThatIsLongEnoughForHS256Algorithm12345!"));
-        var token = new JwtSecurityToken(
-            issuer: "EShop.Basket.Test",
-            audience: "EShop.Test",
-            claims: [new Claim(ClaimTypes.NameIdentifier, "user-1")],
-            expires: DateTime.UtcNow.AddMinutes(30),
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
-
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));
-        return client;
-    }
+    /// <summary>A verified customer's client: checkout refuses an unverified email before the pipeline runs.</summary>
+    private static HttpClient AuthenticatedClient(BasketApiFactory factory) => factory.CreateClientFor("user-1");
 }

@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using EShop.BuildingBlocks.Infrastructure.Authorization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -42,8 +43,17 @@ public abstract class AuthenticatedIntegrationTestBase : IntegrationTestBase
     /// <summary>
     /// A token for <see cref="TestUserId"/> carrying <paramref name="role"/> (none when <c>null</c>) and any extra claims —
     /// a <c>permission</c> claim with no role is how a test shows a permission policy admits a non-Admin caller.
+    /// It says <c>email_verified=true</c>, as Identity issues it to a confirmed account, unless an extra claim sets that
+    /// type itself; <see cref="CreateTokenWithoutEmailVerified"/> leaves the claim out.
     /// </summary>
     protected string CreateToken(string? role, params Claim[] extraClaims)
+        => CreateToken(role, includeEmailVerified: true, extraClaims);
+
+    /// <summary>A token issued before Identity added <c>email_verified</c>: no such claim at all.</summary>
+    protected string CreateTokenWithoutEmailVerified(string? role, params Claim[] extraClaims)
+        => CreateToken(role, includeEmailVerified: false, extraClaims);
+
+    private string CreateToken(string? role, bool includeEmailVerified, Claim[] extraClaims)
     {
         using var scope = Factory.Services.CreateScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -80,6 +90,11 @@ public abstract class AuthenticatedIntegrationTestBase : IntegrationTestBase
         if (role is not null)
         {
             claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
+        if (includeEmailVerified && extraClaims.All(c => c.Type != EmailVerification.ClaimType))
+        {
+            claims.Add(new Claim(EmailVerification.ClaimType, "true", ClaimValueTypes.Boolean));
         }
 
         claims.AddRange(extraClaims);

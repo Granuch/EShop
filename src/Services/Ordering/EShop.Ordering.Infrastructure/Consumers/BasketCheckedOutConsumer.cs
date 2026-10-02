@@ -20,6 +20,12 @@ namespace EShop.Ordering.Infrastructure.Consumers;
 /// acknowledged message with only a log line behind it. By the time this runs, Basket has already
 /// cleared the basket, so the message is the only remaining record of what the customer bought.
 /// </para>
+///
+/// <para>
+/// No email-verification check here, on purpose: the message carries no token, and Basket's checkout endpoint already
+/// refused a caller without <c>email_verified=true</c> before the event existed. Refusing here as well would only
+/// dead-letter an order whose basket is already gone.
+/// </para>
 /// </summary>
 public class BasketCheckedOutConsumer : IdempotentConsumer<BasketCheckedOutEvent, OrderingDbContext>
 {

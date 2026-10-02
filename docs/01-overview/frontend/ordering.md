@@ -148,6 +148,11 @@ Every address field is trimmed before it is checked and stored (`" us "` is stor
 - **An admin** must send `userId` and creates the order on that user's behalf. Nothing checks that the user exists:
   an order for `"fe-contracts-no-such-user"` was accepted.
 
+**A non-admin needs a confirmed email.** Unless the access token says `email_verified=true`, the answer is **403
+`Auth.EmailNotConfirmed`** and nothing is created ([identity.md](identity.md#email-verification-and-ordering)). An admin
+creating an order for a user is not checked. The storefront's usual path,
+[Basket checkout](basket.md#post-apiv1basketuseridcheckout), applies the same rule.
+
 **201** [`CreateOrderResponse`](#createorderresponse): `{"id":"67435990-209a-41b6-8623-13cb86d3d5ad"}`, with
 `Location: /api/v1/orders/{id}`.
 
@@ -160,6 +165,7 @@ Every address field is trimmed before it is checked and stored (`" us "` is stor
 | 400 | `MalformedRequest` | The body is not valid JSON (F-25 wording) |
 | 401 | — | No token (the gateway answers) |
 | 403 | `Forbidden` | A non-admin sent another user's `userId`: `"You are not allowed to create orders on behalf of other users."` |
+| 403 | `Auth.EmailNotConfirmed` | A non-admin whose access token does not say `email_verified=true`. Refresh the token once and retry; if it is still 403, the address is unconfirmed |
 | 503 | `Catalog.Unavailable` | Catalog could not be reached to price the order (observed with Catalog stopped). Nothing was created; retry |
 
 - **Side effects:** the order is Pending with one history row. Ordering publishes `OrderCreated`, from which Payment
