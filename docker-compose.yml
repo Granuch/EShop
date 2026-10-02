@@ -1090,7 +1090,7 @@ services:
   # Redis Exporter (Prometheus Metrics)
   # ============================================
   redis-exporter:
-    image: oliver006/redis_exporter:v1.67.0
+    image: oliver006/redis_exporter:v1.92.0
     container_name: eshop-redis-exporter
     restart: unless-stopped
     depends_on:
