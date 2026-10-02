@@ -42,6 +42,7 @@ public record UserDto
     public string Email { get; init; } = string.Empty;
     public string FirstName { get; init; } = string.Empty;
     public string LastName { get; init; } = string.Empty;
+    public bool EmailConfirmed { get; init; }
     public List<string> Roles { get; init; } = [];
     public List<string> Permissions { get; init; } = [];
 }

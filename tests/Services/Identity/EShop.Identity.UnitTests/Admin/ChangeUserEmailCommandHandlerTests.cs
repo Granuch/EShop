@@ -28,6 +28,7 @@ public class ChangeUserEmailCommandHandlerTests
 
     private Mock<UserManager<ApplicationUser>> _userManager = null!;
     private Mock<IUserRepository> _userRepository = null!;
+    private Mock<IRefreshTokenRepository> _refreshTokens = null!;
     private ChangeUserEmailCommandHandler _handler = null!;
     private ApplicationUser _user = null!;
 
@@ -51,9 +52,12 @@ public class ChangeUserEmailCommandHandlerTests
             .Setup(x => x.EmailIsTakenAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
+        _refreshTokens = new Mock<IRefreshTokenRepository>();
+
         _handler = new ChangeUserEmailCommandHandler(
             _userManager.Object,
             _userRepository.Object,
+            _refreshTokens.Object,
             new Mock<ILogger<ChangeUserEmailCommandHandler>>().Object);
     }
 
@@ -95,6 +99,53 @@ public class ChangeUserEmailCommandHandlerTests
         Assert.That(_user.EmailConfirmed, Is.True);
     }
 
+    /// <summary>
+    /// Soft email verification: an existing session would keep minting <c>email_verified=true</c> tokens for an
+    /// address nobody has confirmed, so moving a confirmed account to an unconfirmed address ends every session.
+    /// </summary>
+    [Test]
+    public async Task Handle_FromConfirmedToUnconfirmed_RevokesEverySession()
+    {
+        await HandleAsync("new@test.com");
+
+        _refreshTokens.Verify(
+            x => x.RevokeAllUserTokensAsync(UserId, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task Handle_WithMarkConfirmed_KeepsTheSessions()
+    {
+        await HandleAsync("new@test.com", markConfirmed: true);
+
+        _refreshTokens.Verify(
+            x => x.RevokeAllUserTokensAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never, "a confirmed address keeps true tokens truthful");
+    }
+
+    [Test]
+    public async Task Handle_ForAnAccountThatWasNeverConfirmed_KeepsTheSessions()
+    {
+        _user.EmailConfirmed = false;
+
+        await HandleAsync("new@test.com");
+
+        _refreshTokens.Verify(
+            x => x.RevokeAllUserTokensAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never, "its tokens already say email_verified=false");
+    }
+
+    [Test]
+    public void Handle_WhenTheRevokeFails_Throws_SoTheEmailChangeRollsBack()
+    {
+        _refreshTokens
+            .Setup(x => x.RevokeAllUserTokensAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database unavailable"));
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => HandleAsync("new@test.com"),
+            "a swallowed failure would commit the change and leave the old sessions alive");
+    }
+
     [Test]
     public async Task Handle_WithATakenEmail_LeavesTheStoredAddressUntouched()
     {
@@ -114,6 +165,9 @@ public class ChangeUserEmailCommandHandlerTests
             Assert.That(_user.EmailConfirmed, Is.True);
         });
         _userManager.Verify(x => x.UpdateAsync(It.IsAny<ApplicationUser>()), Times.Never);
+        _refreshTokens.Verify(
+            x => x.RevokeAllUserTokensAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Test]
