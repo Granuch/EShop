@@ -9,7 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { classifyFailure } from "@/lib/admin/api";
 import { getAdminSession, hasPermission } from "@/lib/admin/auth";
-import { flattenCategories, getCategoryTree, listProducts, type CategoryOption } from "@/lib/admin/catalog";
+import { flattenCategories, getCategoryTree, listProducts, toCategoryChoices, type CategoryOption } from "@/lib/admin/catalog";
 import { formatDate, formatMoney } from "@/lib/admin/format";
 import { buildAdminHref } from "@/lib/admin/href";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { PagedResult } from "@/lib/admin/types/common";
 import type { Product } from "@/lib/admin/types/catalog";
 import { hasActiveFilters, parseProductFilters, PRODUCTS_PATH, toLinkParams, toProductListQuery } from "./filters";
+import BulkToolbar, { BULK_FORM_ID, SelectPageCheckbox } from "./bulkToolbar";
 import ProductFilters from "./productFilters";
 
 export const metadata = { title: "Products · Admin · EShop" };
@@ -69,6 +70,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
   const categoryNames = new Map(categories?.map((category) => [category.id, category]) ?? []);
 
   const linkParams = toLinkParams(filters);
+  const canWrite = hasPermission(session, "catalog.write");
   const filtered = hasActiveFilters(filters);
 
   return (
@@ -81,7 +83,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
           <Trash2 aria-hidden data-icon="inline-start" />
           Recycle bin
         </Link>
-        {hasPermission(session, "catalog.write") && (
+        {canWrite && (
           <Link href={`${PRODUCTS_PATH}/new`} className={cn(buttonVariants())}>
             <Plus aria-hidden data-icon="inline-start" />
             New product
@@ -106,11 +108,23 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
         </Alert>
       )}
 
+      {page && canWrite && (
+        <BulkToolbar
+          categories={categories ? toCategoryChoices(categories) : null}
+          names={Object.fromEntries(page.items.map((product) => [product.id, product.name]))}
+        />
+      )}
+
       {page && page.items.length > 0 && (
         <>
           <Table>
             <TableHeader>
               <TableRow>
+                {canWrite && (
+                  <TableHead className="w-8">
+                    <SelectPageCheckbox />
+                  </TableHead>
+                )}
                 <TableHead>Product</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Status</TableHead>
@@ -124,6 +138,19 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
                 const category = categoryNames.get(product.categoryId);
                 return (
                   <TableRow key={product.id}>
+                    {canWrite && (
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          name="ids"
+                          value={product.id}
+                          form={BULK_FORM_ID}
+                          aria-label={`Select ${product.name}`}
+                          className="size-4 accent-primary"
+                        />
+                        <input type="hidden" name={`price:${product.id}`} value={product.price} form={BULK_FORM_ID} />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Thumbnail url={product.mainImageUrl} />
