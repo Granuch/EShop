@@ -142,3 +142,30 @@ export interface OrderStatusHistoryEntry {
   actorId: string | null;
   occurredAt: string;
 }
+
+// ---- Owner-or-admin writes (OrderOwnerOrAdmin: the order's owner, or the Admin role) ----
+
+export interface AddOrderItemRequest {
+  /** An Active product not already on the order. */
+  productId: string;
+  /** > 0. */
+  quantity: number;
+  /** If sent, must equal the route's {id}. */
+  orderId?: string;
+}
+
+export interface UpdateOrderItemQuantityRequest {
+  /** An integer > 0; there is no "0 removes the line". */
+  quantity: number;
+}
+
+export interface CancelOrderRequest {
+  /** Not blank, at most 500 characters. */
+  reason: string;
+}
+
+export interface UserOrdersQuery {
+  pageNumber?: number;
+  /** Default 10, 1-100. */
+  pageSize?: number;
+}

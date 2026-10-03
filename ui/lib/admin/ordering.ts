@@ -5,14 +5,19 @@ import { requirePermission } from "@/lib/admin/auth";
 import { buildAdminHref } from "@/lib/admin/href";
 import type { PagedResult } from "@/lib/admin/types/common";
 import type {
+  AddOrderItemRequest,
   AddOrderNoteRequest,
   AdminOrderListQuery,
+  CancelOrderRequest,
   CreatedOrderNoteResponse,
   Order,
   OrderNote,
   OrderStats,
   OrderStatsQuery,
   OrderStatusHistoryEntry,
+  ShippingAddress,
+  UpdateOrderItemQuantityRequest,
+  UserOrdersQuery,
 } from "@/lib/admin/types/ordering";
 
 // Every admin endpoint here needs the Admin ROLE at Ordering (RequireRole, not a permission): a caller with
@@ -66,4 +71,46 @@ export async function addOrderNote(id: string, body: AddOrderNoteRequest): Promi
 export async function transitionOrder(id: string, transition: "ship" | "deliver"): Promise<void> {
   await requirePermission("orders.write");
   await adminFetch<void>(`${order(id)}/${transition}`, { method: "POST" });
+}
+
+// ---- Owner-or-admin writes: Pending only for items and cancel; Pending or Paid for the address ----
+
+function jsonBody(body: unknown): RequestInit {
+  return { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } };
+}
+
+/** POST /cancel: Pending only (409 Order.NotCancellable otherwise); the pending payment is cancelled shortly after. */
+export async function cancelOrder(id: string, body: CancelOrderRequest): Promise<void> {
+  await requirePermission("orders.write");
+  await adminFetch<void>(`${order(id)}/cancel`, { method: "POST", ...jsonBody(body) });
+}
+
+/** POST /items: priced from Catalog now; 503 Catalog.Unavailable if Catalog cannot be reached. */
+export async function addOrderItem(id: string, body: AddOrderItemRequest): Promise<void> {
+  await requirePermission("orders.write");
+  await adminFetch<void>(`${order(id)}/items`, { method: "POST", ...jsonBody(body) });
+}
+
+/** PUT /items/{itemId}: the line's id, not the product's; the unit price is kept. */
+export async function updateOrderItemQuantity(id: string, itemId: string, body: UpdateOrderItemQuantityRequest): Promise<void> {
+  await requirePermission("orders.write");
+  await adminFetch<void>(`${order(id)}/items/${encodeURIComponent(itemId)}`, { method: "PUT", ...jsonBody(body) });
+}
+
+/** DELETE /items/{itemId}: the last line is refused (400 DomainError); cancel the order instead. */
+export async function removeOrderItem(id: string, itemId: string): Promise<void> {
+  await requirePermission("orders.write");
+  await adminFetch<void>(`${order(id)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+}
+
+/** PUT /shipping-address: a full replacement (all five fields); Pending or Paid only (409 otherwise). */
+export async function updateShippingAddress(id: string, body: ShippingAddress): Promise<void> {
+  await requirePermission("orders.write");
+  await adminFetch<void>(`${order(id)}/shipping-address`, { method: "PUT", ...jsonBody(body) });
+}
+
+/** GET /api/v1/users/{userId}/orders: newest first. Send userId exactly as stored: the query is case-sensitive (F-48). */
+export async function listUserOrders(userId: string, query: UserOrdersQuery): Promise<PagedResult<Order>> {
+  await requirePermission("orders.read");
+  return adminFetch<PagedResult<Order>>(buildAdminHref(`/api/v1/users/${encodeURIComponent(userId)}/orders`, { ...query }));
 }
