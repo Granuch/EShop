@@ -16,6 +16,16 @@ export const PRODUCT_STATUS_TONES = {
   Discontinued: "danger",
 } as const satisfies Record<string, StatusTone>;
 
+/** Order status → tone. Paid, Shipped and Delivered are the healthy path; Pending waits on Payment. */
+export const ORDER_STATUS_TONES = {
+  Pending: "warning",
+  Paid: "success",
+  Shipped: "success",
+  Delivered: "success",
+  Cancelled: "neutral",
+  Refunded: "danger",
+} as const satisfies Record<string, StatusTone>;
+
 /** An enum name shown as sent (PascalCase), coloured by its domain's tone map. */
 function StatusBadge({ status, tone }: { status: string; tone: StatusTone }) {
   return (

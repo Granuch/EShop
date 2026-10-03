@@ -29,6 +29,7 @@ export interface AdminSection {
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { label: "Dashboard", href: "/adminPanel", icon: "dashboard", permission: null },
   { label: "Products", href: "/adminPanel/products", icon: "products", permission: "catalog.read" },
+  { label: "Orders", href: "/adminPanel/orders", icon: "orders", permission: "orders.read" },
 ];
 
 export function canSee(permissions: readonly Permission[], section: AdminSection): boolean {
