@@ -23,7 +23,7 @@ function MoveForm({ action, parents, currentParentId }: MoveFormProps) {
     <form key={formKey(state)} action={formAction} className="space-y-3" aria-label="Move category">
       <div className="space-y-1.5">
         <Label htmlFor="newParentCategoryId">Parent</Label>
-        <NativeSelect id="newParentCategoryId" name="newParentCategoryId" defaultValue={value}>
+        <NativeSelect id="newParentCategoryId" name="newParentCategoryId" className="w-full" defaultValue={value}>
           <NativeSelectOption value="">None (top level)</NativeSelectOption>
           {parents.map((parent) => (
             <NativeSelectOption key={parent.id} value={parent.id}>

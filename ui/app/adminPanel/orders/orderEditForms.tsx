@@ -107,7 +107,7 @@ export function AddItemForm({ action, products }: { action: Action; products: { 
         <div className="space-y-1.5">
           <Label htmlFor="productId">Product</Label>
           {products ? (
-            <NativeSelect id="productId" name="productId" defaultValue={value("productId")} {...invalidProps(state, "productId")}>
+            <NativeSelect id="productId" name="productId" className="w-full" defaultValue={value("productId")} {...invalidProps(state, "productId")}>
               <NativeSelectOption value="">Choose an active product…</NativeSelectOption>
               {products.map((product) => (
                 <NativeSelectOption key={product.id} value={product.id}>

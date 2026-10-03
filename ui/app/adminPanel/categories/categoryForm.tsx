@@ -68,7 +68,7 @@ function CategoryForm({ mode, action, initial, parents }: CategoryFormProps) {
       {mode === "create" && (
         <div className="space-y-1.5">
           <Label htmlFor="parentCategoryId">Parent</Label>
-          <NativeSelect id="parentCategoryId" name="parentCategoryId" defaultValue={value("parentCategoryId")} disabled={!parents} {...invalid("parentCategoryId")}>
+          <NativeSelect id="parentCategoryId" name="parentCategoryId" className="w-full" defaultValue={value("parentCategoryId")} disabled={!parents} {...invalid("parentCategoryId")}>
             <NativeSelectOption value="">None (top level)</NativeSelectOption>
             {parents?.map((parent) => (
               <NativeSelectOption key={parent.id} value={parent.id}>
