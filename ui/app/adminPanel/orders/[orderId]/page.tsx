@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Trash2 } from "lucide-react";
+import ActionButton from "@/components/Admin/actionButton";
 import AccessDenied from "@/components/Admin/accessDenied";
 import PageHeader from "@/components/Admin/pageHeader";
 import StatusBadge, { ORDER_STATUS_TONES } from "@/components/Admin/statusBadge";
@@ -20,14 +21,25 @@ import { classifyFailure } from "@/lib/admin/api";
 import { getAdminSession, hasPermission, type AdminSession } from "@/lib/admin/auth";
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { getAdminUser } from "@/lib/admin/identity";
-import { getOrder, getOrderHistory, getOrderNotes } from "@/lib/admin/ordering";
+import { listProducts } from "@/lib/admin/catalog";
+import { getOrder, getOrderHistory, getOrderNotes, listUserOrders } from "@/lib/admin/ordering";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { AdminUserDetails } from "@/lib/admin/types/identity";
+import type { PagedResult } from "@/lib/admin/types/common";
 import type { Order, OrderStatusHistoryEntry } from "@/lib/admin/types/ordering";
 import { cn } from "@/lib/utils";
-import { addOrderNoteAction, transitionOrderAction } from "../actions";
+import {
+  addItemAction,
+  addOrderNoteAction,
+  cancelOrderAction,
+  removeItemAction,
+  transitionOrderAction,
+  updateAddressAction,
+  updateItemQuantityAction,
+} from "../actions";
 import { ORDERS_PATH } from "../filters";
 import NoteForm from "../noteForm";
+import { AddItemForm, AddressForm, CancelOrderForm, QuantityForm } from "../orderEditForms";
 import TransitionButton from "../transitionButton";
 
 export const metadata = { title: "Order · Admin · EShop" };
@@ -134,6 +146,30 @@ function Customer({ userId, customer }: { userId: string; customer: CustomerLook
   return <p className="font-mono text-xs break-all">{userId}</p>;
 }
 
+/** The customer's latest orders (GET /users/{userId}/orders, newest first), this one marked. */
+function CustomerOrders({ result, currentId }: { result: PagedResult<Order> | null; currentId: string }) {
+  if (!result) return <p className="mt-4 text-xs text-muted-foreground">Their other orders could not be loaded.</p>;
+  return (
+    <div className="mt-4 border-t pt-3">
+      <h3 className="text-xs font-medium text-muted-foreground">{`Latest orders (${result.totalCount} in all)`}</h3>
+      <ul className="mt-2 space-y-1 text-sm">
+        {result.items.map((other) => (
+          <li key={other.id} className="flex items-center justify-between gap-2">
+            {other.id === currentId ? (
+              <span className="font-mono text-xs">{`${other.id.slice(0, 8)} (this one)`}</span>
+            ) : (
+              <Link href={`${ORDERS_PATH}/${other.id}`} className="font-mono text-xs hover:underline">
+                {other.id.slice(0, 8)}
+              </Link>
+            )}
+            <span className="text-xs text-muted-foreground">{`${other.status} · ${formatMoney(other.totalPrice)}`}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default async function OrderDetailsPage({ params }: PageProps<"/adminPanel/orders/[orderId]">) {
   const session = await getAdminSession();
   if (!hasPermission(session, "orders.read")) return <AccessDenied />;
@@ -166,13 +202,31 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
   const history = historyResult.status === "fulfilled" ? historyResult.value : null;
   if (notesResult.status === "rejected" && !classifyFailure(notesResult.reason)) throw notesResult.reason;
   const notes = notesResult.status === "fulfilled" ? notesResult.value : null;
+  const canWrite = hasPermission(session, "orders.write");
+  const canEditItems = canWrite && order.status === "Pending";
+  const canEditAddress = canWrite && (order.status === "Pending" || order.status === "Paid");
   // PLAN Q12: resolve the customer through Identity only when users.read is held; otherwise show the id.
-  const customer = canReadUsers ? await loadCustomer(order.userId) : null;
+  const [customer, customerOrders, products] = await Promise.all([
+    canReadUsers ? loadCustomer(order.userId) : Promise.resolve(null),
+    listUserOrders(order.userId, { pageSize: 5 }).catch((error) => {
+      if (!classifyFailure(error)) throw error;
+      return null;
+    }),
+    // The add-product picker: Active products by name, when the catalog can be read; otherwise an id field.
+    canEditItems && hasPermission(session, "catalog.read")
+      ? listProducts({ status: "Active", sortBy: "Name", isDescending: false, pageSize: 100 }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const onOrder = new Set(order.items.map((item) => item.productId));
+  const productChoices =
+    products?.items
+      .filter((product) => !onOrder.has(product.id))
+      .map((product) => ({ id: product.id, label: `${product.name} — ${formatMoney(product.discountPrice ?? product.price)}` })) ??
+    null;
 
   const items = [...order.items].sort((a, b) => a.productName.localeCompare(b.productName));
   const address = order.shippingAddress;
   const detailPath = `${ORDERS_PATH}/${order.id}`;
-  const canWrite = hasPermission(session, "orders.write");
   // Only the two admin transitions; Paid and Refunded come from Payment, Cancelled from the customer or Payment.
   const transition = order.status === "Paid" ? "ship" : order.status === "Shipped" ? "deliver" : null;
 
@@ -225,6 +279,11 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                     <TableHead className="text-right">Unit price</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Subtotal</TableHead>
+                    {canEditItems && (
+                      <TableHead className="w-10">
+                        <span className="sr-only">Remove</span>
+                      </TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -236,8 +295,30 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                         </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{formatMoney(item.unitPrice)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{item.quantity}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {canEditItems ? (
+                          <QuantityForm
+                            action={updateItemQuantityAction.bind(null, order.id, item.id)}
+                            quantity={item.quantity}
+                            productName={item.productName}
+                          />
+                        ) : (
+                          item.quantity
+                        )}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{formatMoney(item.subTotal)}</TableCell>
+                      {canEditItems && (
+                        <TableCell className="whitespace-normal">
+                          <ActionButton
+                            action={removeItemAction.bind(null, order.id, item.id)}
+                            label={`Remove ${item.productName}`}
+                            size="icon-sm"
+                            variant="ghost"
+                          >
+                            <Trash2 aria-hidden />
+                          </ActionButton>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -245,9 +326,15 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                   <TableRow>
                     <TableCell colSpan={3}>Total</TableCell>
                     <TableCell className="text-right tabular-nums">{formatMoney(order.totalPrice)}</TableCell>
+                    {canEditItems && <TableCell />}
                   </TableRow>
                 </TableFooter>
               </Table>
+              {canEditItems && (
+                <div className="mt-6 border-t pt-4">
+                  <AddItemForm action={addItemAction.bind(null, order.id)} products={productChoices} />
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -315,6 +402,17 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
             </CardContent>
           </Card>
 
+          {canEditItems && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Cancel order</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CancelOrderForm action={cancelOrderAction.bind(null, order.id)} orderLabel={order.id.slice(0, 8)} />
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Shipping address</CardTitle>
@@ -327,6 +425,14 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                 <br />
                 {address.country}
               </address>
+              {canEditAddress && (
+                <details className="mt-4 text-sm">
+                  <summary className="cursor-pointer text-xs underline">Edit address</summary>
+                  <div className="mt-3">
+                    <AddressForm action={updateAddressAction.bind(null, order.id)} address={address} />
+                  </div>
+                </details>
+              )}
             </CardContent>
           </Card>
 
@@ -336,6 +442,7 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
             </CardHeader>
             <CardContent>
               <Customer userId={order.userId} customer={customer} />
+              <CustomerOrders result={customerOrders} currentId={order.id} />
             </CardContent>
           </Card>
         </div>
