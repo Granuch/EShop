@@ -118,7 +118,9 @@ function Customer({ userId, customer }: { userId: string; customer: CustomerLook
     const name = `${user.firstName} ${user.lastName}`.trim();
     return (
       <div className="text-sm">
-        <p className="font-medium">{name || user.email}</p>
+        <Link href={`/adminPanel/users/${user.id}`} className="font-medium hover:underline">
+          {name || user.email}
+        </Link>
         {user.email && <p className="text-muted-foreground">{user.email}</p>}
         {(user.isDeleted || !user.isActive) && (
           <p className="mt-1 text-xs text-destructive">{user.isDeleted ? "Deleted account" : "Deactivated account"}</p>
