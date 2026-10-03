@@ -12,6 +12,7 @@ import { getAdminSession, hasPermission } from "@/lib/admin/auth";
 import { flattenCategories, getCategoryTree, listProducts, type CategoryOption } from "@/lib/admin/catalog";
 import { formatDate, formatMoney } from "@/lib/admin/format";
 import { buildAdminHref } from "@/lib/admin/href";
+import { cn } from "@/lib/utils";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { PagedResult } from "@/lib/admin/types/common";
 import type { Product } from "@/lib/admin/types/catalog";
@@ -77,7 +78,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
         description={page ? `${page.totalCount} ${page.totalCount === 1 ? "product" : "products"}` : undefined}
       >
         {hasPermission(session, "catalog.write") && (
-          <Link href={`${PRODUCTS_PATH}/new`} className={buttonVariants()}>
+          <Link href={`${PRODUCTS_PATH}/new`} className={cn(buttonVariants())}>
             <Plus aria-hidden data-icon="inline-start" />
             New product
           </Link>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { buildAdminHref, type QueryValue } from "@/lib/admin/href";
+import { cn } from "@/lib/utils";
 
 type PagerProps = {
   path: string;
@@ -13,8 +14,9 @@ type PagerProps = {
 };
 
 // Links styled as buttons, not <Button render={<Link/>}>: Base UI gives a non-native button role="button",
-// which would announce these links as buttons.
-const linkClass = buttonVariants({ variant: "outline", size: "sm" });
+// which would announce these links as buttons. cn() merges the variant over the base classes, as <Button> does
+// (without it the base `border-transparent` wins over the outline border).
+const linkClass = cn(buttonVariants({ variant: "outline", size: "sm" }));
 
 /** Prev / "Page X of Y" / Next from a PagedResult. A page past the end points Prev at the last real page. */
 function Pager({ path, params, pageNumber, totalPages, totalCount }: PagerProps) {
