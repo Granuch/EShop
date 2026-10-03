@@ -16,11 +16,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { classifyFailure } from "@/lib/admin/api";
 import { getAdminSession, hasPermission } from "@/lib/admin/auth";
-import { flattenCategories, getCategoryTree, getProduct } from "@/lib/admin/catalog";
+import { flattenCategories, getCategoryTree, getProduct, toCategoryChoices } from "@/lib/admin/catalog";
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { ProductDetails } from "@/lib/admin/types/catalog";
+import { updateProductAction } from "../actions";
 import { PRODUCTS_PATH } from "../filters";
+import ProductForm from "../productForm";
 
 export const metadata = { title: "Product · Admin · EShop" };
 
@@ -62,10 +64,9 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
   const product: ProductDetails = productResult.value;
 
   if (treeResult.status === "rejected" && !classifyFailure(treeResult.reason)) throw treeResult.reason;
-  const category =
-    treeResult.status === "fulfilled"
-      ? flattenCategories(treeResult.value).find((option) => option.id === product.categoryId)
-      : undefined;
+  const categoryOptions = treeResult.status === "fulfilled" ? flattenCategories(treeResult.value) : null;
+  const category = categoryOptions?.find((option) => option.id === product.categoryId);
+  const canWrite = hasPermission(session, "catalog.write");
 
   const attributes = [...product.attributes].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -106,53 +107,86 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle>{canWrite ? "Edit details" : "Details"}</CardTitle>
           </CardHeader>
           <CardContent>
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <Field label="Category">
-                {category ? `${category.path}${category.isActive ? "" : " (deleted)"}` : product.categoryId}
-              </Field>
-              <Field label="Stock">
-                <span className={product.stockQuantity === 0 ? "font-medium text-destructive" : undefined}>
-                  {product.stockQuantity === 0 ? "Out of stock" : product.stockQuantity}
-                </span>
-              </Field>
-              <Field label="Price">{formatMoney(product.price)}</Field>
-              <Field label="Discount price">
-                {product.discountPrice === null ? "None" : formatMoney(product.discountPrice)}
-              </Field>
-              <Field label="Customers pay">{formatMoney(product.discountPrice ?? product.price)}</Field>
-              <Field label="Created">{formatDateTime(product.createdAt)}</Field>
-            </dl>
-            <div className="mt-6">
-              <h2 className="text-xs font-medium text-muted-foreground">Description</h2>
-              <p className="mt-0.5 text-sm whitespace-pre-line">
-                {product.description || <span className="text-muted-foreground">No description</span>}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Attributes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {attributes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No attributes</p>
+            {canWrite ? (
+              <ProductForm
+                mode="edit"
+                action={updateProductAction.bind(null, product.id)}
+                categories={
+                  categoryOptions
+                    ? toCategoryChoices(categoryOptions, product.categoryId)
+                    : [{ id: product.categoryId, label: "Current category (list unavailable)" }]
+                }
+                initial={{
+                  name: product.name,
+                  sku: product.sku,
+                  price: String(product.price),
+                  categoryId: product.categoryId,
+                  description: product.description ?? "",
+                }}
+              />
             ) : (
-              <dl className="space-y-2">
-                {attributes.map((attribute) => (
-                  <div key={attribute.id} className="flex justify-between gap-4 text-sm">
-                    <dt className="text-muted-foreground">{attribute.name}</dt>
-                    <dd className="text-right">{attribute.value}</dd>
-                  </div>
-                ))}
-              </dl>
+              <>
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Category">
+                    {category ? `${category.path}${category.isActive ? "" : " (deleted)"}` : product.categoryId}
+                  </Field>
+                  <Field label="Price">{formatMoney(product.price)}</Field>
+                </dl>
+                <div className="mt-6">
+                  <h2 className="text-xs font-medium text-muted-foreground">Description</h2>
+                  <p className="mt-0.5 text-sm whitespace-pre-line">
+                    {product.description || <span className="text-muted-foreground">No description</span>}
+                  </p>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Stock and pricing</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-2 gap-4">
+                <Field label="Stock">
+                  <span className={product.stockQuantity === 0 ? "font-medium text-destructive" : undefined}>
+                    {product.stockQuantity === 0 ? "Out of stock" : product.stockQuantity}
+                  </span>
+                </Field>
+                <Field label="Customers pay">{formatMoney(product.discountPrice ?? product.price)}</Field>
+                <Field label="Discount price">
+                  {product.discountPrice === null ? "None" : formatMoney(product.discountPrice)}
+                </Field>
+                <Field label="Created">{formatDateTime(product.createdAt)}</Field>
+              </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Attributes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {attributes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No attributes</p>
+              ) : (
+                <dl className="space-y-2">
+                  {attributes.map((attribute) => (
+                    <div key={attribute.id} className="flex justify-between gap-4 text-sm">
+                      <dt className="text-muted-foreground">{attribute.name}</dt>
+                      <dd className="text-right">{attribute.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <section aria-labelledby="images-heading">

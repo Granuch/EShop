@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toFormState } from "@/lib/admin/actionErrors";
-import { createProduct } from "@/lib/admin/catalog";
+import { createProduct, getProduct, updateProduct } from "@/lib/admin/catalog";
 import { readFields, type FormState } from "@/lib/admin/forms";
 import type { CreateProductRequest } from "@/lib/admin/types/catalog";
 
@@ -69,4 +69,58 @@ export async function createProductAction(_state: FormState, formData: FormData)
 
   revalidatePath(PRODUCTS_PATH);
   redirect(`${PRODUCTS_PATH}/${id}`);
+}
+
+const EDIT_FIELDS = ["name", "sku", "price", "categoryId", "description"] as const;
+
+/** Paths that show a product: the admin list and page, and the storefront's home and product page. */
+function revalidateProduct(productId: string) {
+  revalidatePath(PRODUCTS_PATH);
+  revalidatePath(`${PRODUCTS_PATH}/${productId}`);
+  revalidatePath("/");
+  revalidatePath(`/product/${productId}`);
+}
+
+/**
+ * PUT replaces the stock with whatever is sent (an omitted stockQuantity is 0), and the form has no stock field. So
+ * the product is re-read just before the PUT and its current stock sent back: the race window is milliseconds
+ * instead of the form's lifetime (PLAN §3.4, "Stale-stock guard").
+ */
+export async function updateProductAction(productId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, EDIT_FIELDS);
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product.", values };
+
+  const price = parseNumber(values.price);
+  const fieldErrors: Record<string, string[]> = {};
+  if (price === null) fieldErrors.price = ["Enter a price."];
+  if (!GUID.test(values.categoryId)) fieldErrors.categoryId = ["Choose a category."];
+  // Update does not enforce create's SKU rule (F-41); the UI does.
+  if (values.sku && !SKU.test(values.sku)) fieldErrors.sku = ["Use only letters, digits, - and _."];
+  if (Object.keys(fieldErrors).length > 0) {
+    return { status: "error", message: "Check the highlighted fields.", fieldErrors, values };
+  }
+
+  try {
+    const current = await getProduct(productId);
+    await updateProduct(productId, {
+      productId,
+      price: price!,
+      stockQuantity: current.stockQuantity,
+      name: values.name,
+      sku: values.sku,
+      categoryId: values.categoryId,
+      // "" clears the description, as the form says; null would keep it.
+      description: values.description,
+    });
+  } catch (error) {
+    return toFormState(error, {
+      fields: EDIT_FIELDS,
+      codeFields: PRODUCT_CODE_FIELDS,
+      service: "catalog",
+      values,
+    });
+  }
+
+  revalidateProduct(productId);
+  return { status: "ok", message: "Changes saved." };
 }
