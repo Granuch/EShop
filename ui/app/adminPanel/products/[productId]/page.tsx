@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Trash2 } from "lucide-react";
+import ActionButton from "@/components/Admin/actionButton";
 import AccessDenied from "@/components/Admin/accessDenied";
 import PageHeader from "@/components/Admin/pageHeader";
 import StatusBadge, { PRODUCT_STATUS_TONES } from "@/components/Admin/statusBadge";
@@ -20,7 +21,7 @@ import { flattenCategories, getCategoryTree, getProduct, toCategoryChoices } fro
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { ProductDetails } from "@/lib/admin/types/catalog";
-import { adjustStockAction, setPublishedAction, updateProductAction } from "../actions";
+import { adjustStockAction, deleteProductAction, setPublishedAction, updateProductAction } from "../actions";
 import { PRODUCTS_PATH } from "../filters";
 import ProductForm from "../productForm";
 import PublishToggle from "../publishToggle";
@@ -109,6 +110,21 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
             <ExternalLink aria-hidden className="size-3.5" />
             <span className="sr-only">(opens in a new tab)</span>
           </Link>
+        )}
+        {canWrite && (
+          <ActionButton
+            action={deleteProductAction.bind(null, product.id)}
+            variant="destructive"
+            size="default"
+            confirm={{
+              title: "Delete this product?",
+              description: `"${product.name}" leaves the shop and every admin list, and its SKU ${product.sku} becomes free. It can be restored from the recycle bin, as a draft.`,
+              confirmLabel: "Delete product",
+            }}
+          >
+            <Trash2 aria-hidden data-icon="inline-start" />
+            Delete
+          </ActionButton>
         )}
       </PageHeader>
 

@@ -3,7 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toFormState } from "@/lib/admin/actionErrors";
-import { adjustStock, createProduct, getProduct, setPublished, updateProduct } from "@/lib/admin/catalog";
+import { ApiError } from "@/lib/admin/api";
+import {
+  adjustStock,
+  createProduct,
+  deleteProduct,
+  getProduct,
+  restoreProduct,
+  setPublished,
+  updateProduct,
+} from "@/lib/admin/catalog";
 import { readFields, type FormState } from "@/lib/admin/forms";
 import type { AdjustStockRequest, CreateProductRequest } from "@/lib/admin/types/catalog";
 
@@ -11,6 +20,7 @@ import type { AdjustStockRequest, CreateProductRequest } from "@/lib/admin/types
 // sends only the documented fields, and answers its form instead of throwing.
 
 const PRODUCTS_PATH = "/adminPanel/products";
+const DELETED_PATH = `${PRODUCTS_PATH}/deleted`;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SKU = /^[A-Za-z0-9_-]+$/;
 const CREATE_FIELDS = ["name", "sku", "price", "stockQuantity", "categoryId", "description", "imageUrls"] as const;
@@ -172,4 +182,38 @@ export async function adjustStockAction(productId: string, _state: FormState, fo
 
   revalidateProduct(productId);
   return { status: "ok", message: `Stock is now ${stockQuantity}.` };
+}
+
+/** Soft delete. The page it was on no longer exists afterwards, so success goes to the list. */
+export async function deleteProductAction(productId: string): Promise<FormState> {
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product." };
+  try {
+    await deleteProduct(productId);
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  revalidateProduct(productId);
+  revalidatePath(DELETED_PATH);
+  redirect(PRODUCTS_PATH);
+}
+
+/**
+ * Restore comes back as a Draft. A deleted category (400 Product.CategoryNotActive) or a SKU taken meanwhile (409
+ * Product.SkuConflict) are answered with the API's own `detail`, which names the fix.
+ */
+export async function restoreProductAction(productId: string): Promise<FormState> {
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product." };
+  try {
+    await restoreProduct(productId);
+  } catch (error) {
+    const state = toFormState(error, { fields: [], service: "catalog" });
+    // toFormState appends "Reload the page" to a 409; here the detail already says what to change.
+    if (error instanceof ApiError && error.problem?.errorCode === "Product.SkuConflict" && error.problem.detail) {
+      return { ...state, message: error.problem.detail };
+    }
+    return state;
+  }
+  revalidateProduct(productId);
+  revalidatePath(DELETED_PATH);
+  redirect(`${PRODUCTS_PATH}/${productId}`);
 }
