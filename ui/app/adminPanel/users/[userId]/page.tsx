@@ -119,6 +119,11 @@ export default async function UserPage({ params, searchParams }: PageProps<"/adm
             Emails to this user
           </Link>
         )}
+        {hasPermission(session, "baskets.read") && (
+          <Link href={`/adminPanel/baskets/${user.id}`} className="text-sm underline">
+            Basket
+          </Link>
+        )}
       </PageHeader>
 
       {isDoneNotice(done) && (
