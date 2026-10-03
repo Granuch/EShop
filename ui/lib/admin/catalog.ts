@@ -14,20 +14,25 @@ import type {
   BulkProductReport,
   BulkUpdateProductPricesRequest,
   Category,
+  CategoryStats,
+  CreateCategoryRequest,
   CreatedResourceResponse,
   CreateProductRequest,
   DeletedProductsQuery,
   ExportProductsQuery,
   ImportProductsRequest,
   LowStockQuery,
+  MoveCategoryRequest,
   Product,
   ProductDetails,
   ProductImportReport,
   ProductListQuery,
   ProductStockResponse,
+  ReorderCategoriesRequest,
   ReorderImagesRequest,
   ReplaceAttributesRequest,
   SetDiscountRequest,
+  UpdateCategoryRequest,
   UpdateImageRequest,
   UpdateProductRequest,
 } from "@/lib/admin/types/catalog";
@@ -256,4 +261,65 @@ export async function exportProducts(query: ExportProductsQuery): Promise<Respon
   const response = await apiFetch(buildAdminHref("/api/v1/products/export", { ...query }), { cache: "no-store" });
   if (!response.ok) throw await toApiError(response);
   return response;
+}
+
+// ---- Categories ----
+
+const categoryPath = (id: string, rest = "") => `/api/v1/categories/${encodeURIComponent(id)}${rest}`;
+
+/** GET /api/v1/categories/{id}: one LIVE category with its subtree (a deleted one is 404, for admins too). */
+export async function getCategory(id: string): Promise<Category> {
+  await requirePermission("catalog.read");
+  return adminFetch<Category>(categoryPath(id));
+}
+
+/** GET /api/v1/categories/{id}/products: the subtree's products by name, drafts included for the Admin role. */
+export async function getCategoryProducts(
+  id: string,
+  query: { pageNumber?: number; pageSize?: number },
+): Promise<PagedResult<Product>> {
+  await requirePermission("catalog.read");
+  return adminFetch<PagedResult<Product>>(buildAdminHref(categoryPath(id, "/products"), { ...query }));
+}
+
+/** GET /api/v1/categories/{id}/stats: not cached; 404 for a deleted category. */
+export async function getCategoryStats(id: string): Promise<CategoryStats> {
+  await requirePermission("catalog.read");
+  return adminFetch<CategoryStats>(categoryPath(id, "/stats"));
+}
+
+/** POST /api/v1/categories. Every refusal is 400, the slug conflict included. */
+export async function createCategory(body: CreateCategoryRequest): Promise<CreatedResourceResponse> {
+  await requirePermission("catalog.write");
+  return adminFetch<CreatedResourceResponse>("/api/v1/categories", { method: "POST", ...jsonBody(body) });
+}
+
+/** PUT /api/v1/categories/{id}: name is required on every call; slug "" is 400, null keeps it. */
+export async function updateCategory(id: string, body: UpdateCategoryRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(categoryPath(id), { method: "PUT", ...jsonBody(body) });
+}
+
+/** DELETE /api/v1/categories/{id}: only an empty category; 409 HasChildren / HasProducts otherwise. */
+export async function deleteCategory(id: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(categoryPath(id), { method: "DELETE" });
+}
+
+/** PUT /api/v1/categories/{id}/parent: newParentCategoryId must be sent, null for the root. */
+export async function moveCategory(id: string, body: MoveCategoryRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(categoryPath(id, "/parent"), { method: "PUT", ...jsonBody(body) });
+}
+
+/** POST /api/v1/categories/{id}/restore: back at its old place; its parent must be live. */
+export async function restoreCategory(id: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(categoryPath(id, "/restore"), { method: "POST" });
+}
+
+/** PUT /api/v1/categories/reorder: every live category of one level, once each. */
+export async function reorderCategories(body: ReorderCategoriesRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>("/api/v1/categories/reorder", { method: "PUT", ...jsonBody(body) });
 }

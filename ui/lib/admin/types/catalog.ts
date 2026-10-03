@@ -260,3 +260,50 @@ export interface ProductImportReport {
 
 /** GET /api/v1/products/export takes ProductListQuery's filters minus paging. */
 export type ExportProductsQuery = Omit<ProductListQuery, "pageNumber" | "pageSize">;
+
+// ---- Admin: categories ----
+
+export interface CreateCategoryRequest {
+  name: string;
+  /** Omit (or send blank) to generate one from the name. Otherwise ^[a-z0-9]+(?:-[a-z0-9]+)*$, as sent. */
+  slug?: string | null;
+  parentCategoryId?: string | null;
+  description?: string | null;
+  displayOrder?: number | null;
+}
+
+export interface UpdateCategoryRequest {
+  /** Must equal the {id} in the route. */
+  id: string;
+  name: string;
+  /** Omitted or null keeps it. Otherwise ^[a-z0-9]+(?:-[a-z0-9]+)*$ and free among the live siblings; "" is 400. */
+  slug?: string | null;
+  /** Omitted or null keeps it; "" clears it. */
+  description?: string | null;
+  /** Omitted or null keeps it. */
+  displayOrder?: number | null;
+}
+
+export interface MoveCategoryRequest {
+  /** Required. null makes the category a root; omitting it ({}) is 400. */
+  newParentCategoryId: string | null;
+}
+
+export interface ReorderCategoriesRequest {
+  /** null or omitted: the root level. */
+  parentCategoryId?: string | null;
+  /** Every live category of that level, once each, in the new order. */
+  categoryIds: string[];
+}
+
+/** GET /api/v1/categories/{id}/stats (CategoryStatsDto). Product counts cover the whole subtree. */
+export interface CategoryStats {
+  categoryId: string;
+  categoryName: string;
+  productCount: number;
+  publishedProductCount: number;
+  totalStock: number;
+  outOfStockCount: number;
+  /** Live direct children only. */
+  childCategoryCount: number;
+}

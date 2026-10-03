@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut, Package, ShoppingBag, Store, type LucideIcon } from "lucide-react";
+import { FolderTree, LayoutDashboard, LogOut, Package, ShoppingBag, Store, type LucideIcon } from "lucide-react";
 import LogoutButton from "@/components/Navbar/logoutButton";
 import {
   Sidebar,
@@ -23,6 +23,7 @@ import type { AdminIcon } from "@/lib/admin/permissions";
 const ICONS: Record<AdminIcon, LucideIcon> = {
   dashboard: LayoutDashboard,
   products: Package,
+  categories: FolderTree,
   orders: ShoppingBag,
 };
 
