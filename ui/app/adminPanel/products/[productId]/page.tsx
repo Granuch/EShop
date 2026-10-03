@@ -20,9 +20,10 @@ import { flattenCategories, getCategoryTree, getProduct, toCategoryChoices } fro
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { ProductDetails } from "@/lib/admin/types/catalog";
-import { updateProductAction } from "../actions";
+import { setPublishedAction, updateProductAction } from "../actions";
 import { PRODUCTS_PATH } from "../filters";
 import ProductForm from "../productForm";
+import PublishToggle from "../publishToggle";
 
 export const metadata = { title: "Product · Admin · EShop" };
 
@@ -90,6 +91,12 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
 
       <PageHeader title={product.name} description={`SKU ${product.sku}`}>
         <StatusBadge status={product.status} tone={PRODUCT_STATUS_TONES[product.status]} />
+        {canWrite && product.status !== "Discontinued" && (
+          <PublishToggle
+            published={product.status === "Active"}
+            action={setPublishedAction.bind(null, product.id, product.status !== "Active")}
+          />
+        )}
         {product.status === "Active" && (
           <Link
             href={`/product/${product.id}`}

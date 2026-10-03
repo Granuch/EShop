@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toFormState } from "@/lib/admin/actionErrors";
-import { createProduct, getProduct, updateProduct } from "@/lib/admin/catalog";
+import { createProduct, getProduct, setPublished, updateProduct } from "@/lib/admin/catalog";
 import { readFields, type FormState } from "@/lib/admin/forms";
 import type { CreateProductRequest } from "@/lib/admin/types/catalog";
 
@@ -123,4 +123,17 @@ export async function updateProductAction(productId: string, _state: FormState, 
 
   revalidateProduct(productId);
   return { status: "ok", message: "Changes saved." };
+}
+
+/** Publish (Draft → Active) or unpublish (Active → Draft). Idempotent at the API, so a double click is harmless. */
+export async function setPublishedAction(productId: string, published: boolean): Promise<FormState> {
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product." };
+  try {
+    await setPublished(productId, published);
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  // The storefront's home page caches the product list for 60 s; this makes the change show at once.
+  revalidateProduct(productId);
+  return { status: "ok", message: published ? "Published." : "Moved back to drafts." };
 }
