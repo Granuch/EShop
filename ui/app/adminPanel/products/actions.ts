@@ -5,14 +5,19 @@ import { redirect } from "next/navigation";
 import { toFormState } from "@/lib/admin/actionErrors";
 import { ApiError } from "@/lib/admin/api";
 import {
+  addImage,
   adjustStock,
   clearDiscount,
   createProduct,
+  deleteImage,
   deleteProduct,
   getProduct,
+  reorderImages,
   restoreProduct,
   setDiscount,
+  setMainImage,
   setPublished,
+  updateImage,
   updateProduct,
 } from "@/lib/admin/catalog";
 import { readFields, type FormState } from "@/lib/admin/forms";
@@ -247,4 +252,85 @@ export async function clearDiscountAction(productId: string): Promise<FormState>
   }
   revalidateProduct(productId);
   return { status: "ok", message: "Discount removed." };
+}
+
+const IMAGE_FIELDS = ["url", "altText"] as const;
+
+/** POST /images, appended after the current last image. The 11th image or a repeated URL answer a DomainError. */
+export async function addImageAction(productId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, IMAGE_FIELDS);
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product.", values };
+  try {
+    // displayOrder defaults to 0, which would sort the new image among the first ones; put it last instead.
+    const { images } = await getProduct(productId);
+    const displayOrder = images.reduce((max, image) => Math.max(max, image.displayOrder + 1), 0);
+    await addImage(productId, { url: values.url, altText: values.altText || null, displayOrder });
+  } catch (error) {
+    return toFormState(error, { fields: IMAGE_FIELDS, service: "catalog", values });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Image added." };
+}
+
+/** PUT /images/{imageId}: both fields are replaced, so an emptied alt text is sent as null and clears it. */
+export async function updateImageAction(
+  productId: string,
+  imageId: string,
+  _state: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const values = readFields(formData, IMAGE_FIELDS);
+  if (!GUID.test(productId) || !GUID.test(imageId)) return { status: "error", message: "Unknown image.", values };
+  try {
+    await updateImage(productId, imageId, { url: values.url, altText: values.altText || null });
+  } catch (error) {
+    return toFormState(error, { fields: IMAGE_FIELDS, service: "catalog", values });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Image saved." };
+}
+
+/** DELETE /images/{imageId}; the API promotes another image if this one was main. */
+export async function deleteImageAction(productId: string, imageId: string): Promise<FormState> {
+  if (!GUID.test(productId) || !GUID.test(imageId)) return { status: "error", message: "Unknown image." };
+  try {
+    await deleteImage(productId, imageId);
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Image deleted." };
+}
+
+/** PUT /images/{imageId}/main. Idempotent. */
+export async function setMainImageAction(productId: string, imageId: string): Promise<FormState> {
+  if (!GUID.test(productId) || !GUID.test(imageId)) return { status: "error", message: "Unknown image." };
+  try {
+    await setMainImage(productId, imageId);
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Main image set." };
+}
+
+/**
+ * Moves one image a place earlier (-1) or later (+1). Reorder takes every image id exactly once, so the gallery is
+ * re-read here and the full list sent: a list held by the page could miss an image another admin just added.
+ */
+export async function moveImageAction(productId: string, imageId: string, offset: -1 | 1): Promise<FormState> {
+  if (!GUID.test(productId) || !GUID.test(imageId)) return { status: "error", message: "Unknown image." };
+  try {
+    const ids = (await getProduct(productId)).images.map((image) => image.id);
+    const from = ids.indexOf(imageId);
+    const to = from + offset;
+    if (from < 0) return { status: "error", message: "This image was deleted meanwhile. Reload the page." };
+    if (to < 0 || to >= ids.length) return { status: "ok" };
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    await reorderImages(productId, { imageIds: ids });
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  revalidateProduct(productId);
+  return { status: "ok" };
 }

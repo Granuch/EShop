@@ -30,6 +30,7 @@ import {
   updateProductAction,
 } from "../actions";
 import DiscountForm from "../discountForm";
+import ImageGallery from "../imageGallery";
 import { PRODUCTS_PATH } from "../filters";
 import ProductForm from "../productForm";
 import PublishToggle from "../publishToggle";
@@ -236,33 +237,7 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
         </div>
       </div>
 
-      <section aria-labelledby="images-heading">
-        <h2 id="images-heading" className="text-sm font-semibold">
-          Images
-        </h2>
-        {product.images.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">No images</p>
-        ) : (
-          <ul className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {product.images.map((image) => (
-              <li key={image.id} className="space-y-1">
-                {/* A plain <img>: images may come from any host; next.config only allows picsum (PLAN Q7). */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={image.url}
-                  alt={image.altText ?? ""}
-                  loading="lazy"
-                  className="aspect-square w-full rounded-lg bg-muted object-cover ring-1 ring-foreground/10"
-                />
-                <p className="truncate text-xs text-muted-foreground">
-                  {image.isMain && <span className="font-medium text-foreground">Main · </span>}
-                  {image.altText || "No alt text"}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <ImageGallery productId={product.id} images={product.images} canWrite={canWrite} />
     </div>
   );
 }
