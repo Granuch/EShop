@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CreditCard, FolderTree, LayoutDashboard, LogOut, Mail, Package, ShieldCheck, ShoppingBag, ShoppingCart, Store, Users, type LucideIcon } from "lucide-react";
+import { Activity, CreditCard, History, FolderTree, LayoutDashboard, LogOut, Mail, Package, ShieldCheck, ShoppingBag, ShoppingCart, Store, Users, type LucideIcon } from "lucide-react";
 import LogoutButton from "@/components/Navbar/logoutButton";
 import {
   Sidebar,
@@ -28,6 +28,8 @@ const ICONS: Record<AdminIcon, LucideIcon> = {
   payments: CreditCard,
   notifications: Mail,
   baskets: ShoppingCart,
+  audit: History,
+  system: Activity,
   users: Users,
   roles: ShieldCheck,
 };
