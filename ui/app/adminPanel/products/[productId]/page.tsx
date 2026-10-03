@@ -20,10 +20,11 @@ import { flattenCategories, getCategoryTree, getProduct, toCategoryChoices } fro
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { ProductDetails } from "@/lib/admin/types/catalog";
-import { setPublishedAction, updateProductAction } from "../actions";
+import { adjustStockAction, setPublishedAction, updateProductAction } from "../actions";
 import { PRODUCTS_PATH } from "../filters";
 import ProductForm from "../productForm";
 import PublishToggle from "../publishToggle";
+import StockForm from "../stockForm";
 
 export const metadata = { title: "Product · Admin · EShop" };
 
@@ -171,6 +172,11 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
                 </Field>
                 <Field label="Created">{formatDateTime(product.createdAt)}</Field>
               </dl>
+              {canWrite && (
+                <div className="mt-6 border-t pt-4">
+                  <StockForm action={adjustStockAction.bind(null, product.id)} />
+                </div>
+              )}
             </CardContent>
           </Card>
 

@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toFormState } from "@/lib/admin/actionErrors";
-import { createProduct, getProduct, setPublished, updateProduct } from "@/lib/admin/catalog";
+import { adjustStock, createProduct, getProduct, setPublished, updateProduct } from "@/lib/admin/catalog";
 import { readFields, type FormState } from "@/lib/admin/forms";
-import type { CreateProductRequest } from "@/lib/admin/types/catalog";
+import type { AdjustStockRequest, CreateProductRequest } from "@/lib/admin/types/catalog";
 
 // Server actions: each re-checks the permission inside the DAL call (a page check does not cover its actions),
 // sends only the documented fields, and answers its form instead of throwing.
@@ -136,4 +136,40 @@ export async function setPublishedAction(productId: string, published: boolean):
   // The storefront's home page caches the product list for 60 s; this makes the change show at once.
   revalidateProduct(productId);
   return { status: "ok", message: published ? "Published." : "Moved back to drafts." };
+}
+
+const STOCK_FIELDS = ["delta", "absolute", "reason"] as const;
+
+/**
+ * PATCH /stock with whichever of delta / absolute was filled. "Neither" and "both" are sent as they are, so the API's
+ * own `$` rule answers them at form level.
+ */
+export async function adjustStockAction(productId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, STOCK_FIELDS);
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product.", values };
+
+  const delta = values.delta === "" ? undefined : parseInteger(values.delta);
+  const absolute = values.absolute === "" ? undefined : parseInteger(values.absolute);
+  const fieldErrors: Record<string, string[]> = {};
+  if (delta === null) fieldErrors.delta = ["Enter a whole number, e.g. 5 or -2."];
+  if (absolute === null) fieldErrors.absolute = ["Enter a whole number."];
+  if (Object.keys(fieldErrors).length > 0) {
+    return { status: "error", message: "Check the highlighted fields.", fieldErrors, values };
+  }
+
+  let stockQuantity: number;
+  try {
+    // Built field by field: AdjustStockRequest's union cannot express "neither" or "both", which the API must judge.
+    const body = {
+      ...(delta !== undefined ? { delta } : {}),
+      ...(absolute !== undefined ? { absolute } : {}),
+      ...(values.reason ? { reason: values.reason } : {}),
+    } as AdjustStockRequest;
+    ({ stockQuantity } = await adjustStock(productId, body));
+  } catch (error) {
+    return toFormState(error, { fields: STOCK_FIELDS, service: "catalog", values });
+  }
+
+  revalidateProduct(productId);
+  return { status: "ok", message: `Stock is now ${stockQuantity}.` };
 }
