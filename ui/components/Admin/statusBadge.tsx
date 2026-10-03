@@ -26,6 +26,16 @@ export const ORDER_STATUS_TONES = {
   Refunded: "danger",
 } as const satisfies Record<string, StatusTone>;
 
+/** Payment status → tone. Success is the money taken; Processing/Pending wait on the customer or Stripe. */
+export const PAYMENT_STATUS_TONES = {
+  Pending: "warning",
+  Processing: "warning",
+  Success: "success",
+  Failed: "danger",
+  Refunded: "danger",
+  Cancelled: "neutral",
+} as const satisfies Record<string, StatusTone>;
+
 /** An enum name shown as sent (PascalCase), coloured by its domain's tone map. */
 function StatusBadge({ status, tone }: { status: string; tone: StatusTone }) {
   return (
