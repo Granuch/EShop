@@ -21,7 +21,15 @@ import { flattenCategories, getCategoryTree, getProduct, toCategoryChoices } fro
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { ProductDetails } from "@/lib/admin/types/catalog";
-import { adjustStockAction, deleteProductAction, setPublishedAction, updateProductAction } from "../actions";
+import {
+  adjustStockAction,
+  clearDiscountAction,
+  deleteProductAction,
+  setDiscountAction,
+  setPublishedAction,
+  updateProductAction,
+} from "../actions";
+import DiscountForm from "../discountForm";
 import { PRODUCTS_PATH } from "../filters";
 import ProductForm from "../productForm";
 import PublishToggle from "../publishToggle";
@@ -189,9 +197,19 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
                 <Field label="Created">{formatDateTime(product.createdAt)}</Field>
               </dl>
               {canWrite && (
-                <div className="mt-6 border-t pt-4">
-                  <StockForm action={adjustStockAction.bind(null, product.id)} />
-                </div>
+                <>
+                  <div className="mt-6 border-t pt-4">
+                    <StockForm action={adjustStockAction.bind(null, product.id)} />
+                  </div>
+                  <div className="mt-6 space-y-3 border-t pt-4">
+                    <DiscountForm action={setDiscountAction.bind(null, product.id)} current={product.discountPrice} />
+                    {product.discountPrice !== null && (
+                      <ActionButton action={clearDiscountAction.bind(null, product.id)} align="start">
+                        Remove discount
+                      </ActionButton>
+                    )}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

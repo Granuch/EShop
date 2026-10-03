@@ -6,10 +6,12 @@ import { toFormState } from "@/lib/admin/actionErrors";
 import { ApiError } from "@/lib/admin/api";
 import {
   adjustStock,
+  clearDiscount,
   createProduct,
   deleteProduct,
   getProduct,
   restoreProduct,
+  setDiscount,
   setPublished,
   updateProduct,
 } from "@/lib/admin/catalog";
@@ -216,4 +218,33 @@ export async function restoreProductAction(productId: string): Promise<FormState
   revalidateProduct(productId);
   revalidatePath(DELETED_PATH);
   redirect(`${PRODUCTS_PATH}/${productId}`);
+}
+
+/** PUT /discount. Below the list price, which the API checks ("Discount price must be less than the product price."). */
+export async function setDiscountAction(productId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, ["discountPrice"] as const);
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product.", values };
+  const discountPrice = parseNumber(values.discountPrice);
+  if (discountPrice === null) {
+    return { status: "error", message: "Check the highlighted fields.", fieldErrors: { discountPrice: ["Enter a price."] }, values };
+  }
+  try {
+    await setDiscount(productId, { discountPrice });
+  } catch (error) {
+    return toFormState(error, { fields: ["discountPrice"], service: "catalog", values });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Discount saved. Baskets are repriced shortly." };
+}
+
+/** DELETE /discount; 204 also when there is none. */
+export async function clearDiscountAction(productId: string): Promise<FormState> {
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product." };
+  try {
+    await clearDiscount(productId);
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Discount removed." };
 }
