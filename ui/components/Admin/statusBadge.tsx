@@ -36,6 +36,15 @@ export const PAYMENT_STATUS_TONES = {
   Cancelled: "neutral",
 } as const satisfies Record<string, StatusTone>;
 
+/** Notification status → tone. Sent and Undeliverable are final; Failed is retried. */
+export const NOTIFICATION_STATUS_TONES = {
+  Pending: "warning",
+  Sending: "warning",
+  Sent: "success",
+  Failed: "danger",
+  Undeliverable: "neutral",
+} as const satisfies Record<string, StatusTone>;
+
 /** An enum name shown as sent (PascalCase), coloured by its domain's tone map. */
 function StatusBadge({ status, tone }: { status: string; tone: StatusTone }) {
   return (
