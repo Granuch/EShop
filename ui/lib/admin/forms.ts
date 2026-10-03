@@ -21,3 +21,20 @@ export function readFields<K extends string>(formData: FormData, names: readonly
   }
   return out;
 }
+
+const formKeys = new WeakMap<FormState, number>();
+let lastFormKey = 0;
+
+/**
+ * A key that changes with every action result. Put it on the <form> so the fields remount with their new
+ * defaultValue: Base UI's Input (a FieldControl) logs an error when an uncontrolled field's defaultValue changes after
+ * it was initialised, which is exactly what echoing `values` back, or re-rendering with fresh data, does.
+ */
+export function formKey(state: FormState): number {
+  let key = formKeys.get(state);
+  if (key === undefined) {
+    key = ++lastFormKey;
+    formKeys.set(state, key);
+  }
+  return key;
+}

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { IDLE, type FormState } from "@/lib/admin/forms";
+import { formKey, IDLE, type FormState } from "@/lib/admin/forms";
 
 export type CategoryChoice = { id: string; label: string };
 
@@ -47,7 +47,7 @@ function ProductForm({ mode, action, categories, initial }: ProductFormProps) {
     state.fieldErrors?.[name]?.length ? { "aria-invalid": true, "aria-describedby": errorId(name) } : {};
 
   return (
-    <form action={formAction} className="space-y-5">
+    <form key={formKey(state)} action={formAction} className="space-y-5">
       <FormMessage state={state} />
 
       <div className="grid gap-5 sm:grid-cols-2">
