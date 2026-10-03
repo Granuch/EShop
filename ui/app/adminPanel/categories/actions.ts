@@ -30,12 +30,24 @@ function revalidateCategories() {
   revalidatePath("/", "layout");
 }
 
-/** The API's 409/400 details here name the fix ("Restore the parent first…"), so they are shown as they are. */
-function withDetail(error: unknown, state: FormState): FormState {
-  if (error instanceof ApiError && error.problem?.detail && error.status === 409) {
-    return { ...state, message: error.problem.detail };
+/**
+ * The API's 409 details name the fix, but some quote an API path ("PUT /api/v1/categories/{id} with a new slug"). A
+ * slug conflict is reworded for this screen with the slug from the detail; the others are shown as they are.
+ */
+function withDetail(error: unknown, state: FormState, action: "move" | "restore" | "delete"): FormState {
+  if (!(error instanceof ApiError) || error.status !== 409 || !error.problem?.detail) return state;
+  if (error.problem.errorCode === "Category.SlugConflict") {
+    const slug = /'([^']+)'/.exec(error.problem.detail)?.[1];
+    const taken = slug ? `the slug "${slug}"` : "this slug";
+    return {
+      ...state,
+      message:
+        action === "move"
+          ? `A category at that level already uses ${taken}. Change this category's slug, or the other one's, then move it.`
+          : `A live category at this level now uses ${taken}. Change that category's slug, move it or delete it, then restore this one.`,
+    };
   }
-  return state;
+  return { ...state, message: error.problem.detail };
 }
 
 function findLevel(tree: Category[], parentId: string | null): Category[] | null {
@@ -101,7 +113,7 @@ export async function restoreCategoryAction(categoryId: string): Promise<FormSta
         message: `Its parent category${parent ? ` "${parent}"` : ""} is deleted. Restore the parent first, then this one.`,
       };
     }
-    return withDetail(error, toFormState(error, { fields: [], service: "catalog" }));
+    return withDetail(error, toFormState(error, { fields: [], service: "catalog" }), "restore");
   }
   revalidateCategories();
   return { status: "ok", message: "Restored." };
@@ -184,7 +196,7 @@ export async function moveCategoryParentAction(categoryId: string, _state: FormS
   try {
     await moveCategory(categoryId, { newParentCategoryId: parent || null });
   } catch (error) {
-    return withDetail(error, toFormState(error, { fields: ["newParentCategoryId"], service: "catalog", values }));
+    return withDetail(error, toFormState(error, { fields: ["newParentCategoryId"], service: "catalog", values }), "move");
   }
   revalidateCategories();
   return { status: "ok", message: "Moved." };
@@ -196,7 +208,7 @@ export async function deleteCategoryAction(categoryId: string): Promise<FormStat
   try {
     await deleteCategory(categoryId);
   } catch (error) {
-    return withDetail(error, toFormState(error, { fields: [], service: "catalog" }));
+    return withDetail(error, toFormState(error, { fields: [], service: "catalog" }), "delete");
   }
   revalidateCategories();
   redirect(CATEGORIES_PATH);
