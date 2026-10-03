@@ -148,3 +148,37 @@ export interface UpdateProductRequest {
 export type AdjustStockRequest =
   | { delta: number; absolute?: never; reason?: string | null }
   | { absolute: number; delta?: never; reason?: string | null };
+
+export interface SetDiscountRequest {
+  /** Greater than 0 and below the product's price. */
+  discountPrice: number;
+}
+
+export interface AddImageRequest {
+  url: string;
+  altText?: string | null;
+  displayOrder?: number;
+}
+
+/** Both fields replace the stored values: an omitted altText clears it. */
+export interface UpdateImageRequest {
+  url: string;
+  altText?: string | null;
+}
+
+export interface ReorderImagesRequest {
+  /** Every image id of the product, once each, in the new order. */
+  imageIds: string[];
+}
+
+export interface ReplaceAttributesRequest {
+  /** The complete new set. [] removes every attribute. */
+  attributes: AttributeInput[];
+}
+
+export interface DeletedProductsQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  categoryId?: string;
+  searchTerm?: string;
+}

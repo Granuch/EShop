@@ -5,15 +5,22 @@ import { requirePermission } from "@/lib/admin/auth";
 import { buildAdminHref } from "@/lib/admin/href";
 import type { PagedResult } from "@/lib/admin/types/common";
 import type {
+  AddImageRequest,
   AdjustStockRequest,
+  AttributeInput,
   Category,
   CreatedResourceResponse,
   CreateProductRequest,
+  DeletedProductsQuery,
   LowStockQuery,
   Product,
   ProductDetails,
   ProductListQuery,
   ProductStockResponse,
+  ReorderImagesRequest,
+  ReplaceAttributesRequest,
+  SetDiscountRequest,
+  UpdateImageRequest,
   UpdateProductRequest,
 } from "@/lib/admin/types/catalog";
 
@@ -80,6 +87,98 @@ export async function setPublished(id: string, published: boolean): Promise<void
   await adminFetch<void>(`/api/v1/products/${encodeURIComponent(id)}/${published ? "publish" : "unpublish"}`, {
     method: "POST",
   });
+}
+
+const productPath = (id: string, rest = "") => `/api/v1/products/${encodeURIComponent(id)}${rest}`;
+
+/** GET /api/v1/products/deleted: the recycle bin, ordered by creation time, not deletion time (F-42). Not cached. */
+export async function listDeletedProducts(query: DeletedProductsQuery): Promise<PagedResult<Product>> {
+  await requirePermission("catalog.read");
+  return adminFetch<PagedResult<Product>>(buildAdminHref("/api/v1/products/deleted", { ...query }));
+}
+
+/** DELETE /api/v1/products/{id}: soft delete; the product moves to the bin and its SKU becomes free. Not idempotent. */
+export async function deleteProduct(id: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id), { method: "DELETE" });
+}
+
+/** POST /api/v1/products/{id}/restore: back as a Draft. 400 CategoryNotActive / 409 SkuConflict carry a `detail`. */
+export async function restoreProduct(id: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, "/restore"), { method: "POST" });
+}
+
+/** PUT /api/v1/products/{id}/discount: strictly below the price. */
+export async function setDiscount(id: string, body: SetDiscountRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, "/discount"), { method: "PUT", ...jsonBody(body) });
+}
+
+/** DELETE /api/v1/products/{id}/discount: 204 also when there is none. */
+export async function clearDiscount(id: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, "/discount"), { method: "DELETE" });
+}
+
+/** POST /api/v1/products/{id}/images: at most 10 per product; the first one becomes main. Returns the image id. */
+export async function addImage(id: string, body: AddImageRequest): Promise<CreatedResourceResponse> {
+  await requirePermission("catalog.write");
+  return adminFetch<CreatedResourceResponse>(productPath(id, "/images"), { method: "POST", ...jsonBody(body) });
+}
+
+/** PUT /api/v1/products/{id}/images/{imageId}: replaces url AND altText (an omitted altText clears it). */
+export async function updateImage(id: string, imageId: string, body: UpdateImageRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, `/images/${encodeURIComponent(imageId)}`), {
+    method: "PUT",
+    ...jsonBody(body),
+  });
+}
+
+/** DELETE /api/v1/products/{id}/images/{imageId}: deleting the main image promotes another. */
+export async function deleteImage(id: string, imageId: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, `/images/${encodeURIComponent(imageId)}`), { method: "DELETE" });
+}
+
+/** PUT /api/v1/products/{id}/images/{imageId}/main. Idempotent, no body. */
+export async function setMainImage(id: string, imageId: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, `/images/${encodeURIComponent(imageId)}/main`), { method: "PUT" });
+}
+
+/** PUT /api/v1/products/{id}/images/reorder: every image id exactly once; they get displayOrder 0, 1, 2, … */
+export async function reorderImages(id: string, body: ReorderImagesRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, "/images/reorder"), { method: "PUT", ...jsonBody(body) });
+}
+
+/** POST /api/v1/products/{id}/attributes: names unique per product ignoring case; at most 50. */
+export async function addAttribute(id: string, body: AttributeInput): Promise<CreatedResourceResponse> {
+  await requirePermission("catalog.write");
+  return adminFetch<CreatedResourceResponse>(productPath(id, "/attributes"), { method: "POST", ...jsonBody(body) });
+}
+
+/** PUT /api/v1/products/{id}/attributes: replaces the whole set, reconciling by name (ids kept for known names). */
+export async function replaceAttributes(id: string, body: ReplaceAttributesRequest): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, "/attributes"), { method: "PUT", ...jsonBody(body) });
+}
+
+/** PUT /api/v1/products/{id}/attributes/{attributeId}: name and value are both replaced. */
+export async function updateAttribute(id: string, attributeId: string, body: AttributeInput): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, `/attributes/${encodeURIComponent(attributeId)}`), {
+    method: "PUT",
+    ...jsonBody(body),
+  });
+}
+
+/** DELETE /api/v1/products/{id}/attributes/{attributeId}. */
+export async function deleteAttribute(id: string, attributeId: string): Promise<void> {
+  await requirePermission("catalog.write");
+  await adminFetch<void>(productPath(id, `/attributes/${encodeURIComponent(attributeId)}`), { method: "DELETE" });
 }
 
 export interface CategoryOption {
