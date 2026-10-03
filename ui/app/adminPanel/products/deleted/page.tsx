@@ -149,7 +149,7 @@ export default async function DeletedProductsPage({ searchParams }: PageProps<"/
                     <TableCell className="text-muted-foreground tabular-nums">{formatDate(product.createdAt)}</TableCell>
                     {canWrite && (
                       <TableCell className="text-right whitespace-normal">
-                        <ActionButton action={restoreProductAction.bind(null, product.id)} label={`Restore ${product.name}`}>
+                        <ActionButton action={restoreProductAction.bind(null, product.id, product.categoryId)} label={`Restore ${product.name}`}>
                           <RotateCcw aria-hidden data-icon="inline-start" />
                           Restore
                         </ActionButton>

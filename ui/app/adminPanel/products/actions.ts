@@ -13,6 +13,8 @@ import {
   deleteAttribute,
   deleteImage,
   deleteProduct,
+  flattenCategories,
+  getCategoryTree,
   getProduct,
   reorderImages,
   replaceAttributes,
@@ -208,16 +210,33 @@ export async function deleteProductAction(productId: string): Promise<FormState>
   redirect(PRODUCTS_PATH);
 }
 
+/** "Its category "Shoes" is deleted…", naming the category from the admin tree (which lists deleted ones). */
+async function deletedCategoryMessage(categoryId: string | undefined): Promise<string> {
+  const fallback = "Its category is deleted. Restore the category first (Categories), then this product.";
+  try {
+    const category = flattenCategories(await getCategoryTree()).find((option) => option.id === categoryId);
+    return category
+      ? `Its category "${category.path}" is deleted. Restore the category first (Categories), then this product.`
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Restore comes back as a Draft. A deleted category (400 Product.CategoryNotActive) or a SKU taken meanwhile (409
  * Product.SkuConflict) are answered with the API's own `detail`, which names the fix.
  */
-export async function restoreProductAction(productId: string): Promise<FormState> {
+export async function restoreProductAction(productId: string, categoryId?: string): Promise<FormState> {
   if (!GUID.test(productId)) return { status: "error", message: "Unknown product." };
   try {
     await restoreProduct(productId);
   } catch (error) {
     const state = toFormState(error, { fields: [], service: "catalog" });
+    // The API's detail names the category's id and an API path: name the category and the screen instead.
+    if (error instanceof ApiError && error.problem?.errorCode === "Product.CategoryNotActive") {
+      return { ...state, message: await deletedCategoryMessage(categoryId) };
+    }
     // toFormState appends "Reload the page" to a 409; here the detail already says what to change.
     if (error instanceof ApiError && error.problem?.errorCode === "Product.SkuConflict" && error.problem.detail) {
       return { ...state, message: error.problem.detail };
