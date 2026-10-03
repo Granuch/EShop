@@ -23,7 +23,9 @@ import { getOrder, getOrderHistory } from "@/lib/admin/ordering";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { Order, OrderStatusHistoryEntry } from "@/lib/admin/types/ordering";
 import { cn } from "@/lib/utils";
+import { transitionOrderAction } from "../actions";
 import { ORDERS_PATH } from "../filters";
+import TransitionButton from "../transitionButton";
 
 export const metadata = { title: "Order · Admin · EShop" };
 
@@ -109,6 +111,9 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
   const items = [...order.items].sort((a, b) => a.productName.localeCompare(b.productName));
   const address = order.shippingAddress;
   const detailPath = `${ORDERS_PATH}/${order.id}`;
+  const canWrite = hasPermission(session, "orders.write");
+  // Only the two admin transitions; Paid and Refunded come from Payment, Cancelled from the customer or Payment.
+  const transition = order.status === "Paid" ? "ship" : order.status === "Shipped" ? "deliver" : null;
 
   return (
     <div className="space-y-6">
@@ -130,6 +135,14 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
 
       <PageHeader title={`Order ${order.id.slice(0, 8)}`} description={`Created ${formatDateTime(order.createdAt)}`}>
         <StatusBadge status={order.status} tone={ORDER_STATUS_TONES[order.status]} />
+        {canWrite && (
+          // Kept mounted when no transition is left, so the last confirmation stays visible.
+          <TransitionButton
+            transition={transition}
+            orderLabel={order.id.slice(0, 8)}
+            action={transitionOrderAction.bind(null, order.id, transition ?? "deliver")}
+          />
+        )}
         {/* Paid and Refunded arrive from Payment by message, seconds later; no polling (PLAN §2.4). */}
         <Link href={detailPath} className={cn(buttonVariants({ variant: "outline", size: "sm" }))} prefetch={false}>
           <RefreshCw aria-hidden data-icon="inline-start" />
