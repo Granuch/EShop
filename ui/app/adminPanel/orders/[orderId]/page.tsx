@@ -19,8 +19,10 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { classifyFailure } from "@/lib/admin/api";
 import { getAdminSession, hasPermission, type AdminSession } from "@/lib/admin/auth";
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
+import { getAdminUser } from "@/lib/admin/identity";
 import { getOrder, getOrderHistory, getOrderNotes } from "@/lib/admin/ordering";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
+import type { AdminUserDetails } from "@/lib/admin/types/identity";
 import type { Order, OrderStatusHistoryEntry } from "@/lib/admin/types/ordering";
 import { cn } from "@/lib/utils";
 import { addOrderNoteAction, transitionOrderAction } from "../actions";
@@ -83,6 +85,55 @@ function Payment({ order }: { order: Order }) {
   );
 }
 
+type CustomerLookup = { kind: "found"; user: AdminUserDetails } | { kind: "unknown" } | { kind: "unavailable" };
+
+/** A missing user is "unknown" (orders can be created for any user id); any other failure must not hide the order. */
+async function loadCustomer(userId: string): Promise<CustomerLookup> {
+  try {
+    return { kind: "found", user: await getAdminUser(userId) };
+  } catch (error) {
+    const failure = classifyFailure(error);
+    if (failure?.kind === "notFound") return { kind: "unknown" };
+    if (failure) return { kind: "unavailable" };
+    throw error;
+  }
+}
+
+function Customer({ userId, customer }: { userId: string; customer: CustomerLookup | null }) {
+  const id = <p className="mt-1 font-mono text-xs break-all text-muted-foreground">{userId}</p>;
+  if (customer?.kind === "found") {
+    const { user } = customer;
+    const name = `${user.firstName} ${user.lastName}`.trim();
+    return (
+      <div className="text-sm">
+        <p className="font-medium">{name || user.email}</p>
+        {user.email && <p className="text-muted-foreground">{user.email}</p>}
+        {(user.isDeleted || !user.isActive) && (
+          <p className="mt-1 text-xs text-destructive">{user.isDeleted ? "Deleted account" : "Deactivated account"}</p>
+        )}
+        {id}
+      </div>
+    );
+  }
+  if (customer?.kind === "unknown") {
+    return (
+      <div className="text-sm">
+        <p className="text-muted-foreground">No account has this id.</p>
+        {id}
+      </div>
+    );
+  }
+  if (customer?.kind === "unavailable") {
+    return (
+      <div className="text-sm">
+        <p className="text-muted-foreground">The account could not be loaded.</p>
+        {id}
+      </div>
+    );
+  }
+  return <p className="font-mono text-xs break-all">{userId}</p>;
+}
+
 export default async function OrderDetailsPage({ params }: PageProps<"/adminPanel/orders/[orderId]">) {
   const session = await getAdminSession();
   if (!hasPermission(session, "orders.read")) return <AccessDenied />;
@@ -95,6 +146,7 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
     getOrderHistory(orderId),
     getOrderNotes(orderId),
   ]);
+  const canReadUsers = hasPermission(session, "users.read");
   if (orderResult.status === "rejected") {
     const failure = classifyFailure(orderResult.reason);
     if (failure?.kind === "notFound") notFound();
@@ -114,6 +166,8 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
   const history = historyResult.status === "fulfilled" ? historyResult.value : null;
   if (notesResult.status === "rejected" && !classifyFailure(notesResult.reason)) throw notesResult.reason;
   const notes = notesResult.status === "fulfilled" ? notesResult.value : null;
+  // PLAN Q12: resolve the customer through Identity only when users.read is held; otherwise show the id.
+  const customer = canReadUsers ? await loadCustomer(order.userId) : null;
 
   const items = [...order.items].sort((a, b) => a.productName.localeCompare(b.productName));
   const address = order.shippingAddress;
@@ -227,7 +281,7 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                       <p className="text-xs text-muted-foreground">
                         {note.authorName} · {formatDateTime(note.createdAt)}
                       </p>
-                      <p className="mt-1 text-sm whitespace-pre-line">{note.body}</p>
+                      <p className="mt-1 text-sm whitespace-pre-line [overflow-wrap:anywhere]">{note.body}</p>
                     </li>
                   ))}
                 </ol>
@@ -253,7 +307,7 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                 {order.cancelledAt && <Field label="Cancelled">{formatDateTime(order.cancelledAt)}</Field>}
               </dl>
               {order.cancellationReason && (
-                <p className="mt-4 text-sm">
+                <p className="mt-4 text-sm [overflow-wrap:anywhere]">
                   <span className="text-muted-foreground">Cancellation reason: </span>
                   {order.cancellationReason}
                 </p>
@@ -281,7 +335,7 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
               <CardTitle>Customer</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="font-mono text-xs break-all">{order.userId}</p>
+              <Customer userId={order.userId} customer={customer} />
             </CardContent>
           </Card>
         </div>
