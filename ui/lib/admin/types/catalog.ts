@@ -182,3 +182,81 @@ export interface DeletedProductsQuery {
   categoryId?: string;
   searchTerm?: string;
 }
+
+// ---- Admin: bulk, import, export ----
+
+export interface BulkProductItemResult {
+  productId: string;
+  succeeded: boolean;
+  /** Product.NotFound, or DomainError for a rule the product's own methods refused. */
+  errorCode: string | null;
+  error: string | null;
+}
+
+/** The answer to every bulk product action. Items are in request order. A 200 is not "every row succeeded". */
+export interface BulkProductReport {
+  requested: number;
+  succeeded: number;
+  failed: number;
+  items: BulkProductItemResult[];
+}
+
+/** Body of bulk/publish, bulk/unpublish and bulk/delete. */
+export interface BulkIdsRequest {
+  /** 1-1000, no duplicates, no all-zero id. */
+  productIds: string[];
+}
+
+export interface BulkChangeProductCategoryRequest {
+  productIds: string[];
+  categoryId: string;
+}
+
+export interface BulkProductPriceItem {
+  productId: string;
+  /** > 0. Subject to the same active-discount rule as PUT /products/{id}. */
+  price: number;
+}
+
+export interface BulkUpdateProductPricesRequest {
+  /** 1-1000 by id, no duplicate productId. */
+  items: BulkProductPriceItem[];
+}
+
+/** One row to create: CreateProductRequest minus images and attributes. */
+export interface ImportProductRow {
+  name: string;
+  sku: string;
+  price: number;
+  stockQuantity: number;
+  categoryId: string;
+  description?: string | null;
+}
+
+export interface ImportProductsRequest {
+  /** 1-1000 rows. */
+  products: ImportProductRow[];
+}
+
+export interface ProductImportRowResult {
+  /** Zero-based position in the request. */
+  index: number;
+  sku: string | null;
+  /** null for a refused row. */
+  productId: string | null;
+  succeeded: boolean;
+  /** ValidationError, Product.SkuConflict, Category.NotFound or DomainError. */
+  errorCode: string | null;
+  error: string | null;
+}
+
+export interface ProductImportReport {
+  requested: number;
+  created: number;
+  failed: number;
+  /** In the order sent. */
+  rows: ProductImportRowResult[];
+}
+
+/** GET /api/v1/products/export takes ProductListQuery's filters minus paging. */
+export type ExportProductsQuery = Omit<ProductListQuery, "pageNumber" | "pageSize">;

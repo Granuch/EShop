@@ -1,6 +1,7 @@
 import "server-only";
 
-import { adminFetch } from "@/lib/admin/api";
+import { apiFetch } from "@/lib/api";
+import { adminFetch, toApiError } from "@/lib/admin/api";
 import { requirePermission } from "@/lib/admin/auth";
 import { buildAdminHref } from "@/lib/admin/href";
 import type { PagedResult } from "@/lib/admin/types/common";
@@ -8,13 +9,20 @@ import type {
   AddImageRequest,
   AdjustStockRequest,
   AttributeInput,
+  BulkChangeProductCategoryRequest,
+  BulkIdsRequest,
+  BulkProductReport,
+  BulkUpdateProductPricesRequest,
   Category,
   CreatedResourceResponse,
   CreateProductRequest,
   DeletedProductsQuery,
+  ExportProductsQuery,
+  ImportProductsRequest,
   LowStockQuery,
   Product,
   ProductDetails,
+  ProductImportReport,
   ProductListQuery,
   ProductStockResponse,
   ReorderImagesRequest,
@@ -212,4 +220,40 @@ export function toCategoryChoices(options: CategoryOption[], keepId?: string): {
   return options
     .filter((option) => option.isActive || option.id === keepId)
     .map((option) => ({ id: option.id, label: option.isActive ? option.path : `${option.path} (deleted)` }));
+}
+
+// ---- Bulk, import, export: one shared `bulk` bucket at Catalog, 10 requests / 60 s per client IP ----
+
+export type BulkProductOperation = "publish" | "unpublish" | "delete" | "category" | "price";
+
+type BulkBody<O extends BulkProductOperation> = O extends "category"
+  ? BulkChangeProductCategoryRequest
+  : O extends "price"
+    ? BulkUpdateProductPricesRequest
+    : BulkIdsRequest;
+
+/**
+ * POST /api/v1/products/bulk/{operation}: at most 1000 ids, no repeats. A non-2xx refused the whole request and changed
+ * nothing; a 200 is a per-row report in request order, successes and failures mixed.
+ */
+export async function bulkProducts<O extends BulkProductOperation>(operation: O, body: BulkBody<O>): Promise<BulkProductReport> {
+  await requirePermission("catalog.write");
+  return adminFetch<BulkProductReport>(`/api/v1/products/bulk/${operation}`, { method: "POST", ...jsonBody(body) });
+}
+
+/** POST /api/v1/products/import: create-only, rows become Drafts; a per-row report in the order sent. */
+export async function importProducts(body: ImportProductsRequest): Promise<ProductImportReport> {
+  await requirePermission("catalog.write");
+  return adminFetch<ProductImportReport>("/api/v1/products/import", { method: "POST", ...jsonBody(body) });
+}
+
+/**
+ * GET /api/v1/products/export: the CSV of every product matching the list filters (at most 10 000), as the raw
+ * response so the caller can stream it with its Content-Disposition. Throws ApiError for a non-2xx.
+ */
+export async function exportProducts(query: ExportProductsQuery): Promise<Response> {
+  await requirePermission("catalog.read");
+  const response = await apiFetch(buildAdminHref("/api/v1/products/export", { ...query }), { cache: "no-store" });
+  if (!response.ok) throw await toApiError(response);
+  return response;
 }
