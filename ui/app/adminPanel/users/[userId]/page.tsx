@@ -124,6 +124,11 @@ export default async function UserPage({ params, searchParams }: PageProps<"/adm
             Basket
           </Link>
         )}
+        {hasPermission(session, "audit.read") && (
+          <Link href={`/adminPanel/audit?entityId=${user.id}`} className="text-sm underline">
+            Audit trail
+          </Link>
+        )}
       </PageHeader>
 
       {isDoneNotice(done) && (

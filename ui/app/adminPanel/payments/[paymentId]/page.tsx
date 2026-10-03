@@ -122,6 +122,11 @@ export default async function PaymentPage({ params, searchParams }: PageProps<"/
 
       <PageHeader title={`Payment ${payment.id.slice(0, 8)}`} description={`${formatMoney(payment.amount)} ${payment.currency}`}>
         <StatusBadge status={payment.status} tone={PAYMENT_STATUS_TONES[payment.status]} />
+        {hasPermission(session, "audit.read") && (
+          <Link href={`/adminPanel/audit?entityId=${payment.id}`} className="text-sm underline">
+            Audit trail
+          </Link>
+        )}
       </PageHeader>
 
       {notice && (

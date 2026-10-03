@@ -119,6 +119,11 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
             <span className="sr-only">(opens in a new tab)</span>
           </Link>
         )}
+        {hasPermission(session, "audit.read") && (
+          <Link href={`/adminPanel/audit?entityId=${product.id}`} className="text-sm underline">
+            Audit trail
+          </Link>
+        )}
         {canWrite && (
           <ActionButton
             action={deleteProductAction.bind(null, product.id)}

@@ -271,6 +271,11 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
           <RefreshCw aria-hidden data-icon="inline-start" />
           Refresh
         </Link>
+        {hasPermission(session, "audit.read") && (
+          <Link href={`/adminPanel/audit?entityId=${order.id}`} className="text-sm underline">
+            Audit trail
+          </Link>
+        )}
       </PageHeader>
 
       <div className="grid gap-6 lg:grid-cols-3">
