@@ -15,7 +15,7 @@ export function isPermission(value: string): value is Permission {
 }
 
 /** Icon keys, mapped to lucide components on the client (component functions cannot cross to the client). */
-export type AdminIcon = "dashboard" | "products" | "categories" | "orders" | "users" | "roles";
+export type AdminIcon = "dashboard" | "products" | "categories" | "orders" | "users" | "roles" | "payments";
 
 export interface AdminSection {
   label: string;
@@ -31,6 +31,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { label: "Products", href: "/adminPanel/products", icon: "products", permission: "catalog.read" },
   { label: "Categories", href: "/adminPanel/categories", icon: "categories", permission: "catalog.read" },
   { label: "Orders", href: "/adminPanel/orders", icon: "orders", permission: "orders.read" },
+  { label: "Payments", href: "/adminPanel/payments", icon: "payments", permission: "payments.read" },
   { label: "Users", href: "/adminPanel/users", icon: "users", permission: "users.read" },
   { label: "Roles", href: "/adminPanel/roles", icon: "roles", permission: "users.read" },
 ];
