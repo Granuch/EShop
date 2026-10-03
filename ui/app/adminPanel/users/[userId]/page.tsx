@@ -114,6 +114,11 @@ export default async function UserPage({ params, searchParams }: PageProps<"/adm
 
       <PageHeader title={name} description={user.email ?? undefined}>
         <UserStateBadges user={user} />
+        {hasPermission(session, "notifications.read") && (
+          <Link href={`/adminPanel/notifications?userId=${user.id}`} className="text-sm underline">
+            Emails to this user
+          </Link>
+        )}
       </PageHeader>
 
       {isDoneNotice(done) && (
