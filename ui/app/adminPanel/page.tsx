@@ -5,6 +5,7 @@ import PageHeader from "@/components/Admin/pageHeader";
 import { getAdminSession, hasAnyPermission, hasPermission } from "@/lib/admin/auth";
 import { visibleSections } from "@/lib/admin/permissions";
 import HealthCard, { HealthCardSkeleton } from "./healthCard";
+import StatsCard, { StatsCardSkeleton } from "./statsCard";
 
 const DASHBOARD = "/adminPanel";
 
@@ -17,6 +18,7 @@ export default async function AdminDashboard() {
 
   const sections = visibleSections(session.permissions).filter((section) => section.href !== DASHBOARD);
   const canSeeHealth = hasPermission(session, "system.manage");
+  const canSeeOrders = hasPermission(session, "orders.read");
 
   return (
     <div className="space-y-8">
@@ -42,15 +44,25 @@ export default async function AdminDashboard() {
         </section>
       )}
 
-      {canSeeHealth && (
-        <section aria-labelledby="health-heading" className="max-w-xl">
-          <Suspense fallback={<HealthCardSkeleton />}>
-            <HealthCard />
-          </Suspense>
-        </section>
-      )}
+      {/* Each card streams on its own, so one slow service (health waits up to 5 s) does not hold the others. */}
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        {canSeeOrders && (
+          <section aria-labelledby="stats-heading">
+            <Suspense fallback={<StatsCardSkeleton />}>
+              <StatsCard />
+            </Suspense>
+          </section>
+        )}
+        {canSeeHealth && (
+          <section aria-labelledby="health-heading">
+            <Suspense fallback={<HealthCardSkeleton />}>
+              <HealthCard />
+            </Suspense>
+          </section>
+        )}
+      </div>
 
-      {sections.length === 0 && !canSeeHealth && (
+      {sections.length === 0 && !canSeeHealth && !canSeeOrders && (
         <p className="text-sm text-muted-foreground">Nothing on the dashboard for this account yet.</p>
       )}
     </div>

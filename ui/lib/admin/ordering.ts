@@ -10,6 +10,8 @@ import type {
   CreatedOrderNoteResponse,
   Order,
   OrderNote,
+  OrderStats,
+  OrderStatsQuery,
   OrderStatusHistoryEntry,
 } from "@/lib/admin/types/ordering";
 
@@ -22,6 +24,12 @@ const order = (id: string) => `/api/v1/orders/${encodeURIComponent(id)}`;
 export async function listOrders(query: AdminOrderListQuery): Promise<PagedResult<Order>> {
   await requirePermission("orders.read");
   return adminFetch<PagedResult<Order>>(buildAdminHref("/api/v1/orders", { ...query }));
+}
+
+/** GET /api/v1/orders/stats. Not cached; `byStatus` always has six entries, `buckets` only non-empty periods. */
+export async function getOrderStats(query: OrderStatsQuery): Promise<OrderStats> {
+  await requirePermission("orders.read");
+  return adminFetch<OrderStats>(buildAdminHref("/api/v1/orders/stats", { ...query }));
 }
 
 /** GET /api/v1/orders/{id}. 404 Order.NotFound for an admin; `items` come in no defined order. */
