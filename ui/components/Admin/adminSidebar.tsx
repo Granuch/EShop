@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderTree, LayoutDashboard, LogOut, Package, ShoppingBag, Store, Users, type LucideIcon } from "lucide-react";
+import { FolderTree, LayoutDashboard, LogOut, Package, ShieldCheck, ShoppingBag, Store, Users, type LucideIcon } from "lucide-react";
 import LogoutButton from "@/components/Navbar/logoutButton";
 import {
   Sidebar,
@@ -26,6 +26,7 @@ const ICONS: Record<AdminIcon, LucideIcon> = {
   categories: FolderTree,
   orders: ShoppingBag,
   users: Users,
+  roles: ShieldCheck,
 };
 
 const DASHBOARD = "/adminPanel";
