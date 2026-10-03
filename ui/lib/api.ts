@@ -1,29 +1,17 @@
 import { cookies } from "next/headers";
 
+// Server-only: only the Next server calls the gateway, so this is never NEXT_PUBLIC_*.
+const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:7000"
+
+// Token refresh happens in proxy.ts: a render cannot store new cookies, so there is no retry on 401 here.
 export async function apiFetch(path:string, options:RequestInit = {}) {
-    const cookieStore = await cookies()
-    let accessToken = cookieStore.get("access_token")?.value
+    const accessToken = (await cookies()).get("access_token")?.value
 
-    const doFetch = (token?: string) => {
-        return fetch(`http://localhost:7000${path}`, {
-            ...options,
-            headers: {...options.headers, Authorization: `Bearer ${token}`}
-        })
-    }
-
-    let res: Response = await doFetch(accessToken)
-
-    if(res.status === 401) {
-        const refreshed = await fetch("http://localhost:7000/api/auth/refresh", {
-            method: "POST",
-            headers: { cookie: cookieStore.toString() }
-        })
-
-        if(refreshed.ok) {
-            accessToken = (await cookies()).get("access_token")?.value
-            res = await doFetch(accessToken)
+    return fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+            ...options.headers,
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         }
-    }
-
-    return res    
+    })
 }
