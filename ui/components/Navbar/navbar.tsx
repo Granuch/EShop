@@ -1,4 +1,4 @@
-import { Menu, User, ShoppingCart, Search, Users, Wallet, LogOut } from "lucide-react";
+import { Menu, User, ShoppingCart, Search, Users, Wallet, LogOut, LockKeyhole } from "lucide-react";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { getSession } from "@/lib/session";
@@ -63,6 +63,12 @@ async function Navbar() {
                   <Wallet />
                   <Link href="/orders">My orders</Link>
                 </DropdownMenuItem>
+                {session.roles.includes("Admin") && 
+                <DropdownMenuItem>
+                  <LockKeyhole />
+                  <Link href="/adminPanel" >Admin Panel</Link>
+                </DropdownMenuItem>
+                }
                 <DropdownMenuItem>
                   <LogOut color="#fb2c36"/>
                   <LogoutButton/>
