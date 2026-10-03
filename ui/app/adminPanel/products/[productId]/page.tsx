@@ -145,7 +145,7 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
                 </dl>
                 <div className="mt-6">
                   <h2 className="text-xs font-medium text-muted-foreground">Description</h2>
-                  <p className="mt-0.5 text-sm whitespace-pre-line">
+                  <p className="mt-0.5 text-sm whitespace-pre-line [overflow-wrap:anywhere]">
                     {product.description || <span className="text-muted-foreground">No description</span>}
                   </p>
                 </div>
