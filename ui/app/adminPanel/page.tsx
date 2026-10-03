@@ -5,6 +5,7 @@ import PageHeader from "@/components/Admin/pageHeader";
 import { getAdminSession, hasAnyPermission, hasPermission } from "@/lib/admin/auth";
 import { visibleSections } from "@/lib/admin/permissions";
 import HealthCard, { HealthCardSkeleton } from "./healthCard";
+import LowStockCard, { LowStockCardSkeleton } from "./lowStockCard";
 import StatsCard, { StatsCardSkeleton } from "./statsCard";
 
 const DASHBOARD = "/adminPanel";
@@ -19,6 +20,7 @@ export default async function AdminDashboard() {
   const sections = visibleSections(session.permissions).filter((section) => section.href !== DASHBOARD);
   const canSeeHealth = hasPermission(session, "system.manage");
   const canSeeOrders = hasPermission(session, "orders.read");
+  const canSeeStock = hasPermission(session, "catalog.read");
 
   return (
     <div className="space-y-8">
@@ -53,6 +55,13 @@ export default async function AdminDashboard() {
             </Suspense>
           </section>
         )}
+        {canSeeStock && (
+          <section aria-labelledby="low-stock-heading">
+            <Suspense fallback={<LowStockCardSkeleton />}>
+              <LowStockCard />
+            </Suspense>
+          </section>
+        )}
         {canSeeHealth && (
           <section aria-labelledby="health-heading">
             <Suspense fallback={<HealthCardSkeleton />}>
@@ -62,7 +71,7 @@ export default async function AdminDashboard() {
         )}
       </div>
 
-      {sections.length === 0 && !canSeeHealth && !canSeeOrders && (
+      {sections.length === 0 && !canSeeHealth && !canSeeOrders && !canSeeStock && (
         <p className="text-sm text-muted-foreground">Nothing on the dashboard for this account yet.</p>
       )}
     </div>

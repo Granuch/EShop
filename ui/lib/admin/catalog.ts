@@ -9,6 +9,7 @@ import type {
   Category,
   CreatedResourceResponse,
   CreateProductRequest,
+  LowStockQuery,
   Product,
   ProductDetails,
   ProductListQuery,
@@ -26,6 +27,12 @@ import type {
 export async function listProducts(query: ProductListQuery): Promise<PagedResult<Product>> {
   await requirePermission("catalog.read");
   return adminFetch<PagedResult<Product>>(buildAdminHref("/api/v1/products", { ...query }));
+}
+
+/** GET /api/v1/admin/catalog/low-stock: stock strictly below `threshold`, drafts included, sorted by name, not cached. */
+export async function getLowStock(query: LowStockQuery): Promise<PagedResult<Product>> {
+  await requirePermission("catalog.read");
+  return adminFetch<PagedResult<Product>>(buildAdminHref("/api/v1/admin/catalog/low-stock", { ...query }));
 }
 
 /** GET /api/v1/products/{id}. A draft is 404 for a caller without the Admin role; a deleted product for everyone. */

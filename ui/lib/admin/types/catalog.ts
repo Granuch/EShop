@@ -31,6 +31,14 @@ export interface ProductListQuery {
   createdTo?: string;
 }
 
+export interface LowStockQuery {
+  /** Strictly less than. Defaults to 10; use 1 for "out of stock". Must be > 0. */
+  threshold?: number;
+  pageNumber?: number;
+  pageSize?: number;
+  categoryId?: string;
+}
+
 // ---- Responses ----
 
 /** A list item (ProductDto). */
