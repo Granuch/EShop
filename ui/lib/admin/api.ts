@@ -40,6 +40,29 @@ export async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, problem, parseRetryAfter(response.headers.get("retry-after")));
 }
 
+/** The failures a page handles itself (PLAN §2.3). Anything else is rethrown to error.tsx. */
+export type ExpectedFailure =
+  | { kind: "forbidden" }
+  | { kind: "notFound" }
+  | { kind: "rateLimited"; message: string }
+  | { kind: "invalid"; message: string };
+
+export function classifyFailure(error: unknown): ExpectedFailure | null {
+  if (!(error instanceof ApiError)) return null;
+  switch (error.status) {
+    case 403:
+      return { kind: "forbidden" };
+    case 404:
+      return { kind: "notFound" };
+    case 429:
+      return { kind: "rateLimited", message: `Too many requests — try again in ${error.retryAfter ?? 60} s.` };
+    case 400:
+      return { kind: "invalid", message: error.problem?.detail ?? "The request was not valid." };
+    default:
+      return null;
+  }
+}
+
 /**
  * Server-side call to the gateway with the caller's token. Resolves with the parsed body (undefined for 204),
  * throws ApiError for any non-2xx, and lets network failures propagate.

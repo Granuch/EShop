@@ -28,6 +28,7 @@ export interface AdminSection {
 /** Every admin section, in sidebar order. A section is added here in the stage that builds its page. */
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { label: "Dashboard", href: "/adminPanel", icon: "dashboard", permission: null },
+  { label: "Products", href: "/adminPanel/products", icon: "products", permission: "catalog.read" },
 ];
 
 export function canSee(permissions: readonly Permission[], section: AdminSection): boolean {
