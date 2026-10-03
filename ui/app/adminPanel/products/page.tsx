@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Download, Info, Plus, Trash2 } from "lucide-react";
+import { Download, Info, Plus, Trash2, Upload } from "lucide-react";
 import AccessDenied from "@/components/Admin/accessDenied";
 import PageHeader from "@/components/Admin/pageHeader";
 import Pager from "@/components/Admin/pager";
@@ -93,6 +93,12 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
           <Trash2 aria-hidden data-icon="inline-start" />
           Recycle bin
         </Link>
+        {canWrite && (
+          <Link href={`${PRODUCTS_PATH}/import`} className={cn(buttonVariants({ variant: "outline" }))}>
+            <Upload aria-hidden data-icon="inline-start" />
+            Import
+          </Link>
+        )}
         {canWrite && (
           <Link href={`${PRODUCTS_PATH}/new`} className={cn(buttonVariants())}>
             <Plus aria-hidden data-icon="inline-start" />
