@@ -92,7 +92,15 @@ function count(nodes: Category[]): { live: number; deleted: number } {
   );
 }
 
-export default async function CategoriesPage() {
+/**
+ * Without deleted categories. A deleted category has no live descendants (delete needs it empty, restore needs a live
+ * parent), so dropping its whole subtree hides nothing live.
+ */
+function liveOnly(nodes: Category[]): Category[] {
+  return nodes.filter((node) => node.isActive).map((node) => ({ ...node, childCategories: liveOnly(node.childCategories) }));
+}
+
+export default async function CategoriesPage({ searchParams }: PageProps<"/adminPanel/categories">) {
   const session = await getAdminSession();
   if (!hasPermission(session, "catalog.read")) return <AccessDenied />;
 
@@ -113,6 +121,8 @@ export default async function CategoriesPage() {
   }
   const canWrite = hasPermission(session, "catalog.write");
   const totals = count(tree);
+  const showDeleted = (await searchParams).deleted === "1";
+  const shown = showDeleted ? tree : liveOnly(tree);
 
   return (
     <div className="space-y-6">
@@ -128,17 +138,23 @@ export default async function CategoriesPage() {
         )}
       </PageHeader>
 
+      {totals.deleted > 0 && (
+        <Link href={showDeleted ? CATEGORIES_PATH : `${CATEGORIES_PATH}?deleted=1`} className="inline-block text-sm underline">
+          {showDeleted ? "Hide deleted categories" : `Show deleted categories (${totals.deleted})`}
+        </Link>
+      )}
+
       {!session.roles.includes("Admin") && (
         <Alert>
           <AlertDescription>Deleted categories are listed only for the Admin role.</AlertDescription>
         </Alert>
       )}
 
-      {tree.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="mt-12 text-center font-medium">No categories yet</p>
       ) : (
         <nav aria-label="Category tree" className="max-w-3xl">
-          <Level nodes={tree} parentId={null} canWrite={canWrite} depth={0} />
+          <Level nodes={shown} parentId={null} canWrite={canWrite} depth={0} />
         </nav>
       )}
     </div>
