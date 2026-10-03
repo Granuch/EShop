@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { Info } from "lucide-react";
+import { Info, Plus } from "lucide-react";
 import AccessDenied from "@/components/Admin/accessDenied";
 import PageHeader from "@/components/Admin/pageHeader";
 import Pager from "@/components/Admin/pager";
 import StatusBadge, { PRODUCT_STATUS_TONES } from "@/components/Admin/statusBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { classifyFailure } from "@/lib/admin/api";
 import { getAdminSession, hasPermission } from "@/lib/admin/auth";
@@ -74,7 +75,14 @@ export default async function ProductsPage({ searchParams }: PageProps<"/adminPa
       <PageHeader
         title="Products"
         description={page ? `${page.totalCount} ${page.totalCount === 1 ? "product" : "products"}` : undefined}
-      />
+      >
+        {hasPermission(session, "catalog.write") && (
+          <Link href={`${PRODUCTS_PATH}/new`} className={buttonVariants()}>
+            <Plus aria-hidden data-icon="inline-start" />
+            New product
+          </Link>
+        )}
+      </PageHeader>
 
       {!session.roles.includes("Admin") && (
         <Alert>
