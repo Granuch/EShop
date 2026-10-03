@@ -29,6 +29,7 @@ import {
   setPublishedAction,
   updateProductAction,
 } from "../actions";
+import AttributesCard from "../attributesCard";
 import DiscountForm from "../discountForm";
 import ImageGallery from "../imageGallery";
 import { PRODUCTS_PATH } from "../filters";
@@ -79,8 +80,6 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
   const categoryOptions = treeResult.status === "fulfilled" ? flattenCategories(treeResult.value) : null;
   const category = categoryOptions?.find((option) => option.id === product.categoryId);
   const canWrite = hasPermission(session, "catalog.write");
-
-  const attributes = [...product.attributes].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="space-y-6">
@@ -215,25 +214,7 @@ export default async function ProductDetailsPage({ params }: PageProps<"/adminPa
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Attributes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {attributes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No attributes</p>
-              ) : (
-                <dl className="space-y-2">
-                  {attributes.map((attribute) => (
-                    <div key={attribute.id} className="flex justify-between gap-4 text-sm">
-                      <dt className="text-muted-foreground">{attribute.name}</dt>
-                      <dd className="text-right">{attribute.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-            </CardContent>
-          </Card>
+          <AttributesCard productId={product.id} attributes={product.attributes} canWrite={canWrite} />
         </div>
       </div>
 

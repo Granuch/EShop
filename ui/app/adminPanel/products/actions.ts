@@ -5,18 +5,22 @@ import { redirect } from "next/navigation";
 import { toFormState } from "@/lib/admin/actionErrors";
 import { ApiError } from "@/lib/admin/api";
 import {
+  addAttribute,
   addImage,
   adjustStock,
   clearDiscount,
   createProduct,
+  deleteAttribute,
   deleteImage,
   deleteProduct,
   getProduct,
   reorderImages,
+  replaceAttributes,
   restoreProduct,
   setDiscount,
   setMainImage,
   setPublished,
+  updateAttribute,
   updateImage,
   updateProduct,
 } from "@/lib/admin/catalog";
@@ -333,4 +337,87 @@ export async function moveImageAction(productId: string, imageId: string, offset
   }
   revalidateProduct(productId);
   return { status: "ok" };
+}
+
+const ATTRIBUTE_FIELDS = ["name", "value"] as const;
+// "Attribute 'colour' already exists for this product." is a DomainError: it belongs to the name field.
+const ATTRIBUTE_CODE_FIELDS = { DomainError: "name" };
+
+/** POST /attributes: names are unique per product ignoring case; at most 50. */
+export async function addAttributeAction(productId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, ATTRIBUTE_FIELDS);
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product.", values };
+  try {
+    await addAttribute(productId, { name: values.name, value: values.value });
+  } catch (error) {
+    return toFormState(error, { fields: ATTRIBUTE_FIELDS, codeFields: ATTRIBUTE_CODE_FIELDS, service: "catalog", values });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Attribute added." };
+}
+
+/** PUT /attributes/{attributeId}: renames it or changes its value; both are replaced. */
+export async function updateAttributeAction(
+  productId: string,
+  attributeId: string,
+  _state: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const values = readFields(formData, ATTRIBUTE_FIELDS);
+  if (!GUID.test(productId) || !GUID.test(attributeId)) return { status: "error", message: "Unknown attribute.", values };
+  try {
+    await updateAttribute(productId, attributeId, { name: values.name, value: values.value });
+  } catch (error) {
+    return toFormState(error, { fields: ATTRIBUTE_FIELDS, codeFields: ATTRIBUTE_CODE_FIELDS, service: "catalog", values });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Attribute saved." };
+}
+
+/** DELETE /attributes/{attributeId}. */
+export async function deleteAttributeAction(productId: string, attributeId: string): Promise<FormState> {
+  if (!GUID.test(productId) || !GUID.test(attributeId)) return { status: "error", message: "Unknown attribute." };
+  try {
+    await deleteAttribute(productId, attributeId);
+  } catch (error) {
+    return toFormState(error, { fields: [], service: "catalog" });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: "Attribute removed." };
+}
+
+/**
+ * PUT /attributes with the whole set, parsed from "Name: Value" lines (split at the first colon). Blank lines are
+ * skipped; an empty box sends [] and removes every attribute. Duplicate names are left to the API's rule.
+ */
+export async function replaceAttributesAction(productId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, ["attributes"] as const);
+  if (!GUID.test(productId)) return { status: "error", message: "Unknown product.", values };
+
+  const attributes: { name: string; value: string }[] = [];
+  const bad: number[] = [];
+  values.attributes.split(/\r?\n/).forEach((line, index) => {
+    if (!line.trim()) return;
+    const colon = line.indexOf(":");
+    const name = colon < 0 ? "" : line.slice(0, colon).trim();
+    const value = colon < 0 ? "" : line.slice(colon + 1).trim();
+    if (!name || !value) bad.push(index + 1);
+    else attributes.push({ name, value });
+  });
+  if (bad.length > 0) {
+    return {
+      status: "error",
+      message: "Check the highlighted fields.",
+      fieldErrors: { attributes: [`Line ${bad.join(", ")}: write each attribute as Name: Value.`] },
+      values,
+    };
+  }
+
+  try {
+    await replaceAttributes(productId, { attributes });
+  } catch (error) {
+    return toFormState(error, { fields: ["attributes"], service: "catalog", values });
+  }
+  revalidateProduct(productId);
+  return { status: "ok", message: attributes.length === 0 ? "All attributes removed." : "Attributes saved." };
 }
