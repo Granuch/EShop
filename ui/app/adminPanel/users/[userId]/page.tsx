@@ -20,6 +20,7 @@ import { getAdminSession, hasPermission } from "@/lib/admin/auth";
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { getAdminUser, getAdminUserRoles, getAdminUserSessions, listRoles } from "@/lib/admin/identity";
 import { listUserOrders } from "@/lib/admin/ordering";
+import { listUserPayments } from "@/lib/admin/payment";
 import type { AdminUserDetails } from "@/lib/admin/types/identity";
 import {
   accountAction,
@@ -78,11 +79,13 @@ export default async function UserPage({ params, searchParams }: PageProps<"/adm
   const canManage = hasPermission(session, "users.manage");
   const canSetRoles = hasPermission(session, "roles.manage");
   const canReadOrders = hasPermission(session, "orders.read");
-  const [rolesResult, allRolesResult, sessionsResult, ordersResult] = await Promise.allSettled([
+  const canReadPayments = hasPermission(session, "payments.read");
+  const [rolesResult, allRolesResult, sessionsResult, ordersResult, paymentsResult] = await Promise.allSettled([
     getAdminUserRoles(user.id),
     canSetRoles ? listRoles({ pageSize: 100 }) : Promise.reject(null),
     getAdminUserSessions(user.id),
     canReadOrders ? listUserOrders(user.id, { pageSize: 10 }) : Promise.reject(null),
+    canReadPayments ? listUserPayments(user.id, { pageSize: 10 }) : Promise.reject(null),
   ]);
   const currentRoles = rolesResult.status === "fulfilled" ? rolesResult.value : user.roles;
   const allRoles = allRolesResult.status === "fulfilled" ? allRolesResult.value.items.map((role) => role.name) : null;
@@ -252,6 +255,37 @@ export default async function UserPage({ params, searchParams }: PageProps<"/adm
         </div>
 
         <div className="min-w-0 space-y-6">
+          {canReadPayments && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Payments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {paymentsResult.status === "rejected" ? (
+                  <p role="alert" className="text-sm text-destructive">{`Payments: ${unavailable(paymentsResult.reason)}`}</p>
+                ) : paymentsResult.value.items.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No payments.</p>
+                ) : (
+                  <>
+                    <ul className="divide-y text-sm">
+                      {paymentsResult.value.items.map((payment) => (
+                        <li key={payment.id} className="flex items-center justify-between gap-4 py-1.5">
+                          <Link href={`/adminPanel/payments/${payment.id}`} className="font-mono text-xs hover:underline">
+                            {payment.id.slice(0, 8)}
+                          </Link>
+                          <span className="text-xs">{`${payment.status} · ${formatMoney(payment.amount)}`}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Link href={`/adminPanel/payments?userId=${user.id}`} className="mt-3 inline-block text-sm underline">
+                      {`All ${paymentsResult.value.totalCount} in the payments list`}
+                    </Link>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {canManage && (
             <Card>
               <CardHeader>

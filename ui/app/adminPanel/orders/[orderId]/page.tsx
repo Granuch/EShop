@@ -23,6 +23,7 @@ import { formatDateTime, formatMoney } from "@/lib/admin/format";
 import { getAdminUser } from "@/lib/admin/identity";
 import { listProducts } from "@/lib/admin/catalog";
 import { getOrder, getOrderHistory, getOrderNotes, listUserOrders } from "@/lib/admin/ordering";
+import { listPayments } from "@/lib/admin/payment";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { AdminUserDetails } from "@/lib/admin/types/identity";
 import type { PagedResult } from "@/lib/admin/types/common";
@@ -208,7 +209,7 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
   const canEditItems = canWrite && order.status === "Pending";
   const canEditAddress = canWrite && (order.status === "Pending" || order.status === "Paid");
   // PLAN Q12: resolve the customer through Identity only when users.read is held; otherwise show the id.
-  const [customer, customerOrders, products] = await Promise.all([
+  const [customer, customerOrders, products, paymentPage] = await Promise.all([
     canReadUsers ? loadCustomer(order.userId) : Promise.resolve(null),
     listUserOrders(order.userId, { pageSize: 5 }).catch((error) => {
       if (!classifyFailure(error)) throw error;
@@ -218,7 +219,12 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
     canEditItems && hasPermission(session, "catalog.read")
       ? listProducts({ status: "Active", sortBy: "Name", isDescending: false, pageSize: 100 }).catch(() => null)
       : Promise.resolve(null),
+    // The order's payment record (one per order), for a link to it.
+    hasPermission(session, "payments.read")
+      ? listPayments({ orderId: order.id, pageSize: 1 }).catch(() => null)
+      : Promise.resolve(null),
   ]);
+  const paymentRecord = paymentPage?.items[0] ?? null;
   const onOrder = new Set(order.items.map((item) => item.productId));
   const productChoices =
     products?.items
@@ -389,6 +395,11 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                 <Field label="Total">{formatMoney(order.totalPrice)}</Field>
                 <Field label="Payment">
                   <Payment order={order} />
+                  {paymentRecord && (
+                    <Link href={`/adminPanel/payments/${paymentRecord.id}`} className="mt-0.5 block text-xs underline">
+                      {`Payment record: ${paymentRecord.status}`}
+                    </Link>
+                  )}
                 </Field>
                 <Field label="Paid">{formatDateTime(order.paidAt)}</Field>
                 <Field label="Shipped">{formatDateTime(order.shippedAt)}</Field>
