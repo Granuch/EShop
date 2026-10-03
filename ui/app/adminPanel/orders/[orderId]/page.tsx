@@ -19,12 +19,13 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { classifyFailure } from "@/lib/admin/api";
 import { getAdminSession, hasPermission, type AdminSession } from "@/lib/admin/auth";
 import { formatDateTime, formatMoney } from "@/lib/admin/format";
-import { getOrder, getOrderHistory } from "@/lib/admin/ordering";
+import { getOrder, getOrderHistory, getOrderNotes } from "@/lib/admin/ordering";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { Order, OrderStatusHistoryEntry } from "@/lib/admin/types/ordering";
 import { cn } from "@/lib/utils";
-import { transitionOrderAction } from "../actions";
+import { addOrderNoteAction, transitionOrderAction } from "../actions";
 import { ORDERS_PATH } from "../filters";
+import NoteForm from "../noteForm";
 import TransitionButton from "../transitionButton";
 
 export const metadata = { title: "Order · Admin · EShop" };
@@ -89,7 +90,11 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
   const { orderId } = await params;
   if (!GUID.test(orderId) || orderId === EMPTY_GUID) notFound();
 
-  const [orderResult, historyResult] = await Promise.allSettled([getOrder(orderId), getOrderHistory(orderId)]);
+  const [orderResult, historyResult, notesResult] = await Promise.allSettled([
+    getOrder(orderId),
+    getOrderHistory(orderId),
+    getOrderNotes(orderId),
+  ]);
   if (orderResult.status === "rejected") {
     const failure = classifyFailure(orderResult.reason);
     if (failure?.kind === "notFound") notFound();
@@ -107,6 +112,8 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
   // The history is secondary: show the order even when it cannot be read.
   if (historyResult.status === "rejected" && !classifyFailure(historyResult.reason)) throw historyResult.reason;
   const history = historyResult.status === "fulfilled" ? historyResult.value : null;
+  if (notesResult.status === "rejected" && !classifyFailure(notesResult.reason)) throw notesResult.reason;
+  const notes = notesResult.status === "fulfilled" ? notesResult.value : null;
 
   const items = [...order.items].sort((a, b) => a.productName.localeCompare(b.productName));
   const address = order.shippingAddress;
@@ -199,6 +206,31 @@ export default async function OrderDetailsPage({ params }: PageProps<"/adminPane
                 <History entries={history} session={session} />
               ) : (
                 <p className="text-sm text-muted-foreground">The history could not be loaded.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Notes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {canWrite && <NoteForm action={addOrderNoteAction.bind(null, order.id)} />}
+              {notes === null ? (
+                <p className="text-sm text-muted-foreground">The notes could not be loaded.</p>
+              ) : notes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No notes yet.</p>
+              ) : (
+                <ol className="space-y-4" aria-label="Notes, newest first">
+                  {notes.map((note) => (
+                    <li key={note.id} className="border-l-2 pl-3">
+                      <p className="text-xs text-muted-foreground">
+                        {note.authorName} · {formatDateTime(note.createdAt)}
+                      </p>
+                      <p className="mt-1 text-sm whitespace-pre-line">{note.body}</p>
+                    </li>
+                  ))}
+                </ol>
               )}
             </CardContent>
           </Card>

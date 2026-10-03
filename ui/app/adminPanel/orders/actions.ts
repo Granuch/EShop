@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { toFormState } from "@/lib/admin/actionErrors";
 import { ApiError } from "@/lib/admin/api";
-import type { FormState } from "@/lib/admin/forms";
-import { getOrder, transitionOrder } from "@/lib/admin/ordering";
+import { readFields, type FormState } from "@/lib/admin/forms";
+import { addOrderNote, getOrder, transitionOrder } from "@/lib/admin/ordering";
 
 const ORDERS_PATH = "/adminPanel/orders";
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,4 +43,20 @@ export async function transitionOrderAction(orderId: string, transition: "ship" 
   revalidatePath(detailPath);
   revalidatePath(ORDERS_PATH);
   return { status: "ok", message: `Marked as ${verb}.` };
+}
+
+/**
+ * POST /notes. The body is sent trimmed: the API counts its 2000-character limit BEFORE trimming, so a padded but
+ * otherwise valid note would be refused. Empty and over-long bodies are the API's to refuse (key `body`).
+ */
+export async function addOrderNoteAction(orderId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  const values = readFields(formData, ["body"] as const);
+  if (!GUID.test(orderId)) return { status: "error", message: "Unknown order.", values };
+  try {
+    await addOrderNote(orderId, { body: values.body });
+  } catch (error) {
+    return toFormState(error, { fields: ["body"], service: "ordering", values });
+  }
+  revalidatePath(`${ORDERS_PATH}/${orderId}`);
+  return { status: "ok", message: "Note added." };
 }
