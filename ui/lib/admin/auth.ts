@@ -9,6 +9,8 @@ import { isPermission } from "@/lib/admin/permissions";
 import type { Permission } from "@/lib/admin/types/common";
 
 const SIGN_IN = "/autorization";
+/** Account-state codes the profile read answers for an account that can no longer be used (F-34). */
+const ACCOUNT_GONE = ["Account.NotFound", "Account.UserNotFound", "Auth.AccountDisabled"];
 
 /** The parts of the profile the admin uses. Only plain data: safe to pass to a client component piecewise. */
 export interface AdminSession {
@@ -37,6 +39,9 @@ export const loadAdminSession = cache(async (): Promise<AdminSessionResult> => {
     profile = await adminFetch<UserProfile>("/api/v1/account/profile");
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect(SIGN_IN);
+    // A deleted or deactivated account whose access token has not expired yet: retrying cannot help, so it is
+    // treated as signed out (identity.md "Frontend notes", F-34: these codes and statuses vary by endpoint).
+    if (error instanceof ApiError && ACCOUNT_GONE.includes(error.errorCode ?? "")) redirect(SIGN_IN);
     const reason = error instanceof ApiError
       ? `The account service answered ${error.status}${error.errorCode ? ` (${error.errorCode})` : ""}.`
       : "The API gateway could not be reached.";
