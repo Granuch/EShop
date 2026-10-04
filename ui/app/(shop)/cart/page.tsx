@@ -4,16 +4,10 @@ import React from "react";
 import CartItem from "./cartItem";
 import OrderForm from "./orderForm";
 import { basketItem, basketRes } from "./types";
-import { cookies } from "next/headers";
+import { apiFetch } from "@/lib/api";
 
 async function getBasket(sessionId: string): Promise<basketRes> {
-  const accessToken = (await cookies()).get("access_token")?.value;
-  const res = await fetch(`http://localhost:7000/api/v1/basket/${sessionId}`, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  const res = await apiFetch(`/api/v1/basket/${sessionId}`);
 
   if (!res.ok) {
     return { items: [], totalPrice: 0 } as unknown as basketRes;

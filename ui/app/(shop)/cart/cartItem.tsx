@@ -3,8 +3,6 @@ import { basketItem, basketRes } from './types'
 import Image from 'next/image'
 import { Trash } from 'lucide-react'
 import DeleteButton from './deleteButton'
-import { getSession } from '@/lib/session'
-import { cookies } from 'next/headers'
 import Link from 'next/link'
 
 type itemProp = {
@@ -13,8 +11,6 @@ type itemProp = {
 
 
 async function CartItem({prop}:itemProp) {
-    const session = await getSession()
-    const accessToken: string | undefined = (await cookies()).get("access_token")?.value
   return (
     <div className='flex gap-4 w-full border-b border-border py-6 last:border-none sm:mx-6'>
         <Link href={`/product/${prop.productId}`} className='relative aspect-3/4 overflow-hidden bg-muted w-26'>
@@ -31,7 +27,7 @@ async function CartItem({prop}:itemProp) {
             <p>{prop.quantity}</p>
         </div>
         <div className='flex flex-col justify-between items-center'>
-            <DeleteButton productId={prop.productId} userId={session.id} cookie={accessToken}/>
+            <DeleteButton productId={prop.productId}/>
             <div>
                 <p>{prop.subTotal}$</p>
             </div>

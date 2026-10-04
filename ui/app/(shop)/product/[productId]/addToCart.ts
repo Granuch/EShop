@@ -1,11 +1,10 @@
 'use server'
 
 import { getSession } from "@/lib/session";
-import { cookies } from "next/headers";
+import { apiFetch } from "@/lib/api";
 
 export async function addToCart(productId:string) {
     const session = await getSession()
-    const token = (await cookies()).get("access_token")?.value
 
     if(!session) {
         return {
@@ -20,10 +19,10 @@ export async function addToCart(productId:string) {
         Quantity: 1
     }
 
-    const res = await fetch(`http://localhost:7000/api/v1/basket/${session.id}/items`, {
+    const res = await apiFetch(`/api/v1/basket/${session.id}/items`, {
         method: "POST",
         body: JSON.stringify(body),
-        headers: {"Content-Type": "application/json", "Authorization": `Bearer ${token}`}
+        headers: {"Content-Type": "application/json"}
     })
     
     if(!res.ok) throw new Error("Error");
