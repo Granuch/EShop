@@ -55,18 +55,18 @@ async function Navbar() {
                   <span className="hidden sm:inline">{session.firstName}</span>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem>
-                  <Users />
-                  <Link href="/account">My data</Link>
+                <DropdownMenuItem render={<Link href="/account" className="hover:cursor-pointer"></Link>}>
+                    <Users />
+                    <span>My data</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem render={<Link href="/orders" className="hover:cursor-pointer"></Link>}>
                   <Wallet />
-                  <Link href="/orders">My orders</Link>
+                  <span>My orders</span>
                 </DropdownMenuItem>
                 {session.roles.includes("Admin") && 
-                <DropdownMenuItem>
+                <DropdownMenuItem render={<Link href="/adminPanel" className="hover:cursor-pointer"></Link>}>
                   <LockKeyhole />
-                  <Link href="/adminPanel" >Admin Panel</Link>
+                  <span>Admin Panel</span>
                 </DropdownMenuItem>
                 }
                 <DropdownMenuItem>

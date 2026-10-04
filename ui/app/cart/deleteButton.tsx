@@ -1,4 +1,5 @@
 'use client'
+import { toast } from '@/components/ui/toast'
 import { Trash } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React from 'react'
@@ -14,6 +15,9 @@ async function handleDelete(userId:string, productId:string, cookie:string | und
     })
 
     refresh()
+    toast.add({
+        title: "Cart item deleted"
+    })
 }
 
 function DeleteButton({productId, userId, cookie}: {productId:string, userId:string, cookie:string | undefined}) {

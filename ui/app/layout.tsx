@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Roboto } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar/navbar";
+import { Toaster } from "@/components/ui/toast";
 
 const roboto = Roboto({
   subsets: ['cyrillic'],
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Navbar />
           {children}
           </body>
+          <Toaster/>
     </html>
   );
 }

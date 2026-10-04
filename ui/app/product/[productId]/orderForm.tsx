@@ -3,6 +3,7 @@ import React from 'react'
 import { addToCart } from './addToCart'
 import { getSession } from '@/lib/session'
 import { itemDatabyId } from '@/components/Item/types/itemType'
+import { toast } from '@/components/ui/toast'
 
 function OrderForm({product}: {product:itemDatabyId}) {  
     async function handleSubmit(e:React.SubmitEvent) {
@@ -11,10 +12,16 @@ function OrderForm({product}: {product:itemDatabyId}) {
       try {
         const result = await addToCart(product.id)
         if(!result.success) {
-          alert(result.message)
+          toast.add({
+            title: `Something went wrong`,
+            type: 'error'
+          })
           return
         }
-        alert("item added to basket")
+        toast.add({
+            title: `${product.name} was added to your cart`,
+            type: 'success'
+          })
       }
       catch(err) {
         console.error(err)
