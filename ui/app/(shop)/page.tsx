@@ -2,7 +2,7 @@ import Image from "next/image";
 import Item from "@/components/Item/item";
 import { itemData } from "@/components/Item/types/itemType";
 import Link from "next/link";
-import { buildHref, getCategories, sortOptions, toApiSort } from "@/lib/temp";
+import { buildHref, findCategoryBySlug, getCategoryTree, sortOptions, toApiSort } from "@/lib/temp";
 import FilterSidebar from "@/components/Navbar/filterSidebar";
 import { gatewayFetch } from "@/lib/api";
 
@@ -40,18 +40,17 @@ export default async function Home({
   searchParams: Promise<ShopParams>;
 }) {
   const params = await searchParams;
-  const categories = await getCategories()
-
-  const selectedCategory = categories.find((c:any) => c.slug == params.category)
+  // Search the whole tree: a product page's breadcrumbs link to subcategories, which the Navbar does not list.
+  const tree = await getCategoryTree()
+  const selectedCategory = params.category ? findCategoryBySlug(tree, params.category) : undefined
 
   const products = await fetchProducts({
     ...params,
     category: selectedCategory?.id
   })
- 
+
   const activeSort = params.sort ?? "newest";
-  const title =
-    categories.find((c:any) => c.slug === params.category)?.label ?? "All products";
+  const title = selectedCategory?.name ?? "All products";
   const isFiltered = Boolean(params.category || params.minPrice || params.maxPrice);
  
   return (

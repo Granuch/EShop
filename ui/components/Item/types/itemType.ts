@@ -1,3 +1,5 @@
+export type ProductStatus = 'Draft' | 'Active' | 'Discontinued'
+
 export type itemData = {
     id:string,
     name:string,
@@ -6,27 +8,27 @@ export type itemData = {
     price:number,
     discountPrice:number | null,
     stockQuantity:number,
-    mainImageUrl:string,
+    status:ProductStatus,
+    categoryId:string,
+    mainImageUrl:string | null,
     createdAt:Date
 }
 
-export type itemDatabyId = {
-    id:string,
-    name:string,
-    description:string | null,
-    sku:string,
-    price:number,
-    stockQuantity:number,
-    mainImageUrl:string,
-    createdAt:Date
+export type itemDatabyId = itemData & {
     images: Array<image>,
-    Attributes: Array<object>
+    attributes: Array<attribute>
 }
 
 type image = {
     id:string,
     url:string,
-    altText:string,
+    altText:string | null,
     displayOrder:number,
     isMain:boolean
+}
+
+type attribute = {
+    id:string,
+    name:string,
+    value:string
 }
