@@ -2,18 +2,10 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { classifyFailure } from "@/lib/admin/api";
-import { endOfDayUtc, formatDate, formatMoney, startOfDayUtc } from "@/lib/admin/format";
-import { getOrderStats } from "@/lib/admin/ordering";
+import { formatDate, formatMoney } from "@/lib/admin/format";
 import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
 import type { OrderStats } from "@/lib/admin/types/ordering";
-
-const DAYS = 30;
-
-/** The last 30 whole UTC days, today included: from the start of day −29 to the end of today. */
-export function statsWindow(now = new Date()): { from: string; to: string } {
-  const day = (offset: number) => new Date(now.getTime() - offset * 86_400_000).toISOString().slice(0, 10);
-  return { from: startOfDayUtc(day(DAYS - 1))!, to: endOfDayUtc(day(0))! };
-}
+import { DAYS, loadOrderStats } from "./dashboardData";
 
 function Shell({ children, description }: { children: React.ReactNode; description?: React.ReactNode }) {
   return (
@@ -49,10 +41,9 @@ export function StatsCardSkeleton() {
 
 /** Totals and the per-status breakdown, as the API computes them (never recomputed here). Never throws. */
 export default async function StatsCard() {
-  const range = statsWindow();
   let stats: OrderStats;
   try {
-    stats = await getOrderStats({ ...range, groupBy: "Day" });
+    stats = await loadOrderStats();
   } catch (error) {
     const failure = classifyFailure(error);
     const message =
