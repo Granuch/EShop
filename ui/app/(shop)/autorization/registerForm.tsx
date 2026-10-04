@@ -25,7 +25,7 @@ function RegisterForm() {
       password: password
     }
 
-    const reg = await fetch("http://localhost:7000/api/v1/Auth/register", {
+    const reg = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(registerBody)
