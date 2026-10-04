@@ -56,17 +56,20 @@ export async function proxy(req: NextRequest) {
 
     let refreshRes: Response
     try {
+        // The visitor's X-Forwarded-For goes along, so the refresh is counted against their own rate limit
+        // (lib/api.ts decides whether to trust it).
+        const forwardedFor = req.headers.get("x-forwarded-for")
         refreshRes = await fetch(new URL("/api/auth/refresh", req.url), {
             method: "POST",
-            headers: { cookie: req.headers.get("cookie") ?? "" },
+            headers: { cookie: req.headers.get("cookie") ?? "", ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
         })
     }
     catch {
         return NextResponse.next()
     }
 
-    // 401: the refresh token was refused. Anything else is an outage, which must not sign the user out;
-    // the page renders its own error instead.
+    // 401: the refresh token was refused. Anything else (429, 5xx) is a rate limit or an outage, which must not
+    // sign the user out; the page renders its own error instead.
     if (refreshRes.status === 401) return redirectToSignIn(req)
     if (!refreshRes.ok) return NextResponse.next()
 
