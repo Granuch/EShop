@@ -4,6 +4,7 @@ import { itemData } from "@/components/Item/types/itemType";
 import Link from "next/link";
 import { buildHref, getCategories, sortOptions, toApiSort } from "@/lib/temp";
 import FilterSidebar from "@/components/Navbar/filterSidebar";
+import { gatewayFetch } from "@/lib/api";
 
 type ShopParams = {
   category?: string;
@@ -21,7 +22,7 @@ async function fetchProducts(params: ShopParams): Promise<itemData[]> {
     ...(params.maxPrice ? { MaxPrice: params.maxPrice } : {}),
     ...apiSort,
   })
-  const res = await fetch(`http://localhost:7000/api/v1/products?${query}`, {next: {revalidate: 60}})
+  const res = await gatewayFetch(`/api/v1/products?${query}`, {next: {revalidate: 60}})
 
   if(!res.ok) {
     console.error("Products fetch failed:", res.status, await res.text());

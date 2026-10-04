@@ -3,13 +3,14 @@ import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import React from 'react'
 import OrderForm from './orderForm'
+import { gatewayFetch } from '@/lib/api'
 
 type ProductpageProps = {
     params: Promise<{ productId: string }>
 }
 
 async function fetchProductData(productId: string) {
-    const res = await fetch(`http://localhost:7000/api/v1/products/${productId}`)
+    const res = await gatewayFetch(`/api/v1/products/${productId}`)
     if (!res.ok) notFound();
     return await res.json()
 }
