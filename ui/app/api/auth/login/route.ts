@@ -1,19 +1,29 @@
-import { getSession } from "@/lib/session";
 import { NextResponse } from "next/server";
+import { gatewayFetch } from "@/lib/api";
 
 export async function POST(req: Request): Promise<NextResponse> {
     const body = await req.json()
 
-    const res: Response = await fetch("http://localhost:7000/api/v1/auth/login", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(body)
-    })
+    let res: Response
+    try {
+        res = await gatewayFetch("/api/v1/auth/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body)
+        })
+    }
+    catch {
+        return NextResponse.json({error: "The sign-in service could not be reached"}, {status: 503})
+    }
 
-    const data = await res.json()
+    // A 429 or a gateway error may carry no JSON body.
+    const data = await res.json().catch(() => null)
 
     if(!res.ok) {
-        return NextResponse.json(data, {status: res.status})
+        const failure = NextResponse.json(data ?? {error: "Sign-in failed"}, {status: res.status})
+        const retryAfter = res.headers.get("retry-after")
+        if(retryAfter) failure.headers.set("Retry-After", retryAfter)
+        return failure
     }
 
     // TODO 2FA

@@ -1,0 +1,229 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ExternalLink, Trash2 } from "lucide-react";
+import ActionButton from "@/components/Admin/actionButton";
+import AccessDenied from "@/components/Admin/accessDenied";
+import PageHeader from "@/components/Admin/pageHeader";
+import StatusBadge, { PRODUCT_STATUS_TONES } from "@/components/Admin/statusBadge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { classifyFailure } from "@/lib/admin/api";
+import { getAdminSession, hasPermission } from "@/lib/admin/auth";
+import { flattenCategories, getCategoryTree, getProduct, toCategoryChoices } from "@/lib/admin/catalog";
+import { formatDateTime, formatMoney } from "@/lib/admin/format";
+import { ADMIN_ROLE_HINTS } from "@/lib/admin/permissions";
+import type { ProductDetails } from "@/lib/admin/types/catalog";
+import {
+  adjustStockAction,
+  clearDiscountAction,
+  deleteProductAction,
+  setDiscountAction,
+  setPublishedAction,
+  updateProductAction,
+} from "../actions";
+import AttributesCard from "../attributesCard";
+import DiscountForm from "../discountForm";
+import ImageGallery from "../imageGallery";
+import { PRODUCTS_PATH } from "../filters";
+import ProductForm from "../productForm";
+import PublishToggle from "../publishToggle";
+import StockForm from "../stockForm";
+
+export const metadata = { title: "Product · Admin · EShop" };
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMPTY_GUID = "00000000-0000-0000-0000-000000000000";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm">{children}</dd>
+    </div>
+  );
+}
+
+export default async function ProductDetailsPage({ params }: PageProps<"/adminPanel/products/[productId]">) {
+  const session = await getAdminSession();
+  if (!hasPermission(session, "catalog.read")) return <AccessDenied />;
+
+  const { productId } = await params;
+  // A non-GUID would be a bare 404 at the gateway, and the all-zero id a 400: neither is worth a call.
+  if (!GUID.test(productId) || productId === EMPTY_GUID) notFound();
+
+  const [productResult, treeResult] = await Promise.allSettled([getProduct(productId), getCategoryTree()]);
+
+  if (productResult.status === "rejected") {
+    const failure = classifyFailure(productResult.reason);
+    if (failure?.kind === "notFound") notFound();
+    if (failure?.kind === "forbidden") return <AccessDenied hint={ADMIN_ROLE_HINTS.catalog} />;
+    if (failure?.kind === "rateLimited") {
+      return (
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{failure.message}</AlertDescription>
+        </Alert>
+      );
+    }
+    throw productResult.reason;
+  }
+  const product: ProductDetails = productResult.value;
+
+  if (treeResult.status === "rejected" && !classifyFailure(treeResult.reason)) throw treeResult.reason;
+  const categoryOptions = treeResult.status === "fulfilled" ? flattenCategories(treeResult.value) : null;
+  const category = categoryOptions?.find((option) => option.id === product.categoryId);
+  const canWrite = hasPermission(session, "catalog.write");
+
+  return (
+    <div className="space-y-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink render={<Link href="/adminPanel" />}>Dashboard</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink render={<Link href={PRODUCTS_PATH} />}>Products</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage className="max-w-64 truncate">{product.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      <PageHeader title={product.name} description={`SKU ${product.sku}`}>
+        <StatusBadge status={product.status} tone={PRODUCT_STATUS_TONES[product.status]} />
+        {canWrite && product.status !== "Discontinued" && (
+          <PublishToggle
+            published={product.status === "Active"}
+            action={setPublishedAction.bind(null, product.id, product.status !== "Active")}
+          />
+        )}
+        {product.status === "Active" && (
+          <Link
+            href={`/product/${product.id}`}
+            className="inline-flex items-center gap-1 text-sm underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View in shop
+            <ExternalLink aria-hidden className="size-3.5" />
+            <span className="sr-only">(opens in a new tab)</span>
+          </Link>
+        )}
+        {hasPermission(session, "audit.read") && (
+          <Link href={`/adminPanel/audit?entityId=${product.id}`} className="text-sm underline">
+            Audit trail
+          </Link>
+        )}
+        {canWrite && (
+          <ActionButton
+            action={deleteProductAction.bind(null, product.id)}
+            variant="destructive"
+            size="default"
+            confirm={{
+              title: "Delete this product?",
+              description: `"${product.name}" leaves the shop and every admin list, and its SKU ${product.sku} becomes free. It can be restored from the recycle bin, as a draft.`,
+              confirmLabel: "Delete product",
+            }}
+          >
+            <Trash2 aria-hidden data-icon="inline-start" />
+            Delete
+          </ActionButton>
+        )}
+      </PageHeader>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>{canWrite ? "Edit details" : "Details"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {canWrite ? (
+              <ProductForm
+                mode="edit"
+                action={updateProductAction.bind(null, product.id)}
+                categories={
+                  categoryOptions
+                    ? toCategoryChoices(categoryOptions, product.categoryId)
+                    : [{ id: product.categoryId, label: "Current category (list unavailable)" }]
+                }
+                initial={{
+                  name: product.name,
+                  sku: product.sku,
+                  price: String(product.price),
+                  categoryId: product.categoryId,
+                  description: product.description ?? "",
+                }}
+              />
+            ) : (
+              <>
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Category">
+                    {category ? `${category.path}${category.isActive ? "" : " (deleted)"}` : product.categoryId}
+                  </Field>
+                  <Field label="Price">{formatMoney(product.price)}</Field>
+                </dl>
+                <div className="mt-6">
+                  <h2 className="text-xs font-medium text-muted-foreground">Description</h2>
+                  <p className="mt-0.5 text-sm whitespace-pre-line [overflow-wrap:anywhere]">
+                    {product.description || <span className="text-muted-foreground">No description</span>}
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Stock and pricing</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-2 gap-4">
+                <Field label="Stock">
+                  <span className={product.stockQuantity === 0 ? "font-medium text-destructive" : undefined}>
+                    {product.stockQuantity === 0 ? "Out of stock" : product.stockQuantity}
+                  </span>
+                </Field>
+                <Field label="Customers pay">{formatMoney(product.discountPrice ?? product.price)}</Field>
+                <Field label="Discount price">
+                  {product.discountPrice === null ? "None" : formatMoney(product.discountPrice)}
+                </Field>
+                <Field label="Created">{formatDateTime(product.createdAt)}</Field>
+              </dl>
+              {canWrite && (
+                <>
+                  <div className="mt-6 border-t pt-4">
+                    <StockForm action={adjustStockAction.bind(null, product.id)} />
+                  </div>
+                  <div className="mt-6 space-y-3 border-t pt-4">
+                    <DiscountForm action={setDiscountAction.bind(null, product.id)} current={product.discountPrice} />
+                    {product.discountPrice !== null && (
+                      <ActionButton action={clearDiscountAction.bind(null, product.id)} align="start">
+                        Remove discount
+                      </ActionButton>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <AttributesCard productId={product.id} attributes={product.attributes} canWrite={canWrite} />
+        </div>
+      </div>
+
+      <ImageGallery productId={product.id} images={product.images} canWrite={canWrite} />
+    </div>
+  );
+}

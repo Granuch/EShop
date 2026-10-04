@@ -13,6 +13,7 @@ export type UserProfile = {
   createdAt: string;
   lastLoginAt: string | null;
   roles: string[];
+  permissions: string[];
 }
 
 export async function getSession() {

@@ -63,7 +63,7 @@ async function Navbar() {
                   <Wallet />
                   <Link href="/orders">My orders</Link>
                 </DropdownMenuItem>
-                {session.roles.includes("Admin") && 
+                {session.permissions?.length > 0 &&
                 <DropdownMenuItem>
                   <LockKeyhole />
                   <Link href="/adminPanel" >Admin Panel</Link>
