@@ -1,3 +1,5 @@
+import { gatewayFetch } from "./api";
+
 export type ShopParams = {
   category?: string;
   sort?: string;
@@ -6,7 +8,7 @@ export type ShopParams = {
 };
 
 export async function getCategories() {
-    const res = await fetch("http://localhost:7000/api/v1/categories")
+    const res = await gatewayFetch("/api/v1/categories")
     const data = await res.json()
 
     const categories = data.map((item:any) => ({

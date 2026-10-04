@@ -1,4 +1,4 @@
-import { buildHref, getCategories, ShopParams } from "@/lib/temp.ts";
+import { buildHref, getCategories, ShopParams } from "@/lib/temp";
 import Link from "next/link";
 
 export default async function FilterSidebar({ params }: { params: ShopParams }) {
