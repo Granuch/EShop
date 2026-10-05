@@ -13,7 +13,7 @@ function OrderForm({product}: {product:itemDatabyId}) {
         const result = await addToCart(product.id)
         if(!result.success) {
           toast.add({
-            title: `Something went wrong`,
+            title: `${result.message}`,
             type: 'error'
           })
           return

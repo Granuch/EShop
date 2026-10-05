@@ -3,6 +3,7 @@ import { Trash } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React from 'react'
 import { removeFromCart } from './actions'
+import { toast } from '@/components/ui/toast'
 
 function DeleteButton({productId}: {productId:string}) {
     const router = useRouter()
@@ -10,6 +11,9 @@ function DeleteButton({productId}: {productId:string}) {
     async function handleDelete() {
         await removeFromCart(productId)
         router.refresh()
+        toast.add({
+          title: "Cart item deleted"
+    })
     }
 
   return (
