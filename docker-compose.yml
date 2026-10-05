@@ -34,7 +34,7 @@ services:
   # Redis Cache for Brute-Force Protection
   # ============================================
   redis:
-    image: redis:7.4.8-alpine
+    image: redis:7.4.11-alpine
     container_name: eshop-redis
     restart: unless-stopped
     command: >
