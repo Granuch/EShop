@@ -133,6 +133,7 @@ updates:
     directories:
       - "/src/ApiGateways/*"
       - "/src/Services/*/*.API"
+      - "/ui"
     schedule:
       interval: "weekly"
       day: "monday"

@@ -85,7 +85,7 @@ jobs:
         # .hadolint.yaml holds the one ignored rule and why. Any finding, info level included, fails the step.
         run: |
           status=0
-          for f in src/ApiGateways/*/Dockerfile src/Services/*/*.API/Dockerfile; do
+          for f in src/ApiGateways/*/Dockerfile src/Services/*/*.API/Dockerfile ui/Dockerfile; do
             echo "== $f"
             docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" hadolint/hadolint:v2.15.1 \
               hadolint --config /.config/hadolint.yaml - < "$f" || status=1
