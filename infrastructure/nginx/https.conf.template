@@ -1,0 +1,68 @@
+# Rendered by start.sh once /etc/letsencrypt/live/${SELFHOST_DOMAIN}/ holds a certificate.
+# The only public entry point: nginx -> ui:3000 (Next.js) -> api-gateway:8080, all on eshop-network.
+
+# No version in the Server header or error pages.
+server_tokens off;
+
+# Requests for any other name (scanners hitting the bare IP) get no answer and no certificate.
+server {
+    listen 80 default_server;
+    listen 443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+    return 444;
+}
+
+server {
+    listen 80;
+    server_name ${SELFHOST_DOMAIN};
+
+    # certbot renews through this webroot (the certbot service shares the volume).
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${SELFHOST_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${SELFHOST_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SELFHOST_DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Server actions cap their own bodies at 1 MB (Next's default); this only has to be above that.
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass http://ui:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # Next's server actions compare the Origin header with the forwarded host, so these must be the public name.
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        # Overwrite, never append: the UI trusts the rightmost entry (TRUST_PROXY_HEADERS), and an appended
+        # browser-supplied value would let a visitor choose their own rate-limit bucket.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Pages stream (loading.tsx, Suspense); buffering would hold every chunk until the response ends.
+        proxy_buffering off;
+        proxy_read_timeout 120s;
+    }
+}

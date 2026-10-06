@@ -1,0 +1,20 @@
+# Rendered by start.sh while no certificate exists for ${SELFHOST_DOMAIN}: answers the ACME HTTP-01 challenge so the
+# first certificate can be issued, and nothing else. The app is not proxied over plain HTTP: its auth cookies are
+# Secure, so sign-in would silently fail.
+
+# No version in the Server header or error pages.
+server_tokens off;
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        default_type text/plain;
+        return 503 "HTTPS certificate not issued yet.\n";
+    }
+}
