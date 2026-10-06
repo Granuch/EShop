@@ -57,7 +57,9 @@ The override also points the password-reset and email-confirmation links at `htt
 
 ## 3. Router and firewall
 
-1. Give the machine a fixed LAN address (a DHCP reservation in the router).
+1. Give the machine a fixed LAN address (a DHCP reservation in the router). Read the address from the adapter that has a
+   default gateway, `Get-NetIPConfiguration | Where-Object IPv4DefaultGateway`, not from a virtual adapter
+   (VirtualBox's `192.168.56.1`, WSL's `vEthernet`). A forward to any other device's address fails silently.
 2. Forward TCP **80** and **443** to that address. Nothing else.
 3. Windows: Docker Desktop normally adds its own firewall rule when it is installed. If the test in step 6 times out,
    allow the ports explicitly (elevated PowerShell):
@@ -84,7 +86,10 @@ Check that DuckDNS points at you: `nslookup myshop.duckdns.org` must return your
 
 ## 5. Issue the first certificate (once)
 
-Try against Let's Encrypt's staging server first, so a mistake does not count against the production rate limits:
+Try against Let's Encrypt's staging server first, so a mistake does not count against the production rate limits. A
+successful dry run also proves that port 80 is reachable from the internet. From Git Bash, prefix each command with
+`MSYS_NO_PATHCONV=1`, or it rewrites `/var/www/certbot` into `C:/Program Files/Git/var/www/certbot` and certbot
+fails with `does not exist or is not a directory`; PowerShell needs nothing:
 
 ```bash
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.override.selfhost.yml --profile sandbox --profile selfhost"
