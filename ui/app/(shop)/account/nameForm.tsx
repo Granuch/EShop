@@ -2,6 +2,7 @@
 import { toast } from '@/components/ui/toast'
 import { useRouter } from 'next/navigation'
 import React from 'react'
+import { changePassword, updateProfile } from './actions'
 
 type prop = {
     firstName:string,
@@ -10,11 +11,10 @@ type prop = {
 
 type props = {
     name:prop,
-    token?: string
 }
 
 
-function NameForm({name,token}:props) {
+function NameForm({name}:props) {
 
     const router = useRouter()
 
@@ -28,22 +28,14 @@ function NameForm({name,token}:props) {
         const newpass = formData.get("newPass")
 
         if(firstName || lastName) {
-            const accountReq = {
-                firstName: firstName || name.firstName,
-                lastName: lastName || name.lastName
-            }
+            const result = await updateProfile(
+                String(firstName || name.firstName),
+                String(lastName || name.lastName)
+            )
 
-            const res = await fetch("http://localhost:7000/api/v1/Account/profile", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(accountReq)
-            })
-
-            const data = await res.json()
-
-            if(!res.ok) {
+            if(!result.success) {
                 toast.add({
-                    title: `${data.detail}`,
+                    title: result.message,
                     type: 'error'
                 })
                 return
@@ -52,22 +44,11 @@ function NameForm({name,token}:props) {
         }
 
         if(currentpass && newpass) {
-            const newPassReq = {
-                currentPassword: currentpass,
-                newPassword: newpass
-            }
+            const result = await changePassword(String(currentpass), String(newpass))
 
-            const res = await fetch("http://localhost:7000/api/v1/Account/change-password", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(newPassReq)
-            })
-
-            const data = await res.json()
-
-            if(!res.ok) {
+            if(!result.success) {
                 toast.add({
-                    title: `${data.detail}`,
+                    title: result.message,
                     type: 'error'
                 })
                 return
@@ -97,11 +78,11 @@ function NameForm({name,token}:props) {
                 <h2 className='text-lg'>Change password</h2>
                 <div>
                     <label htmlFor="newPass" className='text-sm'>New password</label>
-                    <input type="text" id='newPass' name='newPass' className='w-full py-2 outline-none border-b focus:border-black transition-all'/>
+                    <input type="password" id='newPass' name='newPass' className='w-full py-2 outline-none border-b focus:border-black transition-all'/>
                 </div>
                 <div>
                     <label htmlFor="oldPass" className='text-sm'>Current password</label>
-                    <input type="text" id='oldPass' name='oldPass' className='w-full py-2 outline-none border-b focus:border-black transition-all'/>
+                    <input type="password" id='oldPass' name='oldPass' className='w-full py-2 outline-none border-b focus:border-black transition-all'/>
                 </div>
             </div>
             <button className='bg-black text-white text-lg px-14 py-3 hover:opacity-75 hover:cursor-pointer ' type='submit'>Save Changes</button>
