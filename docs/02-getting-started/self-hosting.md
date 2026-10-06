@@ -110,6 +110,14 @@ $COMPOSE restart nginx
 nginx would pick the certificate up by itself within an hour; the restart just does it now. From then on the
 `certbot` service renews it automatically and nginx reloads every hour, so nothing else needs doing.
 
+To check that renewal will work, without waiting for it:
+
+```bash
+$COMPOSE run --rm --entrypoint certbot certbot renew --webroot -w /var/www/certbot --dry-run --no-random-sleep-on-renew
+```
+
+Without `--no-random-sleep-on-renew` certbot first waits up to 8 minutes in silence, which looks like a hang.
+
 ## 6. Check it from outside
 
 Use a phone on **mobile data**, not your Wi-Fi: many routers cannot reach their own public address from inside
@@ -138,12 +146,13 @@ good. The rest of the stack keeps running locally.
 
 ## Known limitations
 
-- **Visitors may share one client IP.** Docker Desktop on Windows forwards published ports through its own proxy,
-  which may hide the visitor's address from nginx (locally every request arrives as `172.18.0.1`). If it does, every
-  visitor shares the gateway's per-IP rate limits, including Identity's sign-in limit of 5 per minute. To check,
-  open the site from a phone on mobile data and look at the last lines of `docker logs eshop-nginx`: the first field
-  is the address nginx saw. If it is `172.x`, the fix is to run the stack on Docker Engine inside a Linux VM or WSL
-  distribution (or on a Linux server, see below), not on Docker Desktop.
+- **On Docker Desktop, all visitors share one client IP.** Docker Desktop on Windows forwards published ports
+  through its own proxy, so nginx sees every connection as coming from `172.18.0.1`. This is confirmed: on the first
+  real run (2026-10-06) even Let's Encrypt's validation servers, which connect from the internet, were logged as
+  `172.18.0.1`. Every visitor therefore shares the gateway's per-IP rate limits, including Identity's sign-in limit
+  of 5 per minute for the whole site. For a demo with a handful of visitors that is tolerable. The fix is to run
+  the stack on Docker Engine inside a Linux VM or WSL distribution, or on a Linux server (see below), not on
+  Docker Desktop. Check it with `docker logs eshop-nginx --tail 5`: the first field is the address nginx saw.
 - **Email.** The Sandbox profile delivers every email to Mailpit, so real visitors get none. Checkout needs a
   confirmed email address. Either point Notification at a real SMTP server (`NOTIFICATION_SMTP_*` in `.env`, see the
   Gmail example there) or confirm users from the admin panel (**Users → Mark email confirmed**). The storefront has no
