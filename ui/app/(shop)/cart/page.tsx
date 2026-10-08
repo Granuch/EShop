@@ -57,7 +57,7 @@ async function Page() {
             ))}
           </div>
           <div className="bg-gray-200 h-screen w-full sm:w-1/3">
-            <OrderForm />
+            <OrderForm data={data}/>
           </div>
         </div>
       );
