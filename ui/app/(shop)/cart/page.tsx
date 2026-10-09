@@ -49,18 +49,18 @@ async function Page() {
       );
     } else {
       return (
-        <div className="flex flex-col 2k:mx-40 mx-4 mt-12 sm:flex-row">
-          <div className="flex flex-col w-full sm:w-2/3 sm:h-screen">
-            <h1 className="text-3xl font-semibold mb-4 mx-6">Cart</h1>
-            {basketCount.map((item) => (
-              <CartItem key={item.productId} prop={item} />
-            ))}
-          </div>
-          <div className="bg-gray-200 h-screen w-full sm:w-1/3">
-            <OrderForm data={data}/>
-          </div>
+      <div className="mx-4 mt-12 flex flex-col gap-8 2k:mx-40 lg:flex-row lg:items-start">
+        <div className="flex w-full min-w-0 flex-col lg:w-2/3">
+          <h1 className="mb-4 text-3xl font-semibold">Cart</h1>
+          {basketCount.map((item) => (
+            <CartItem key={item.productId} prop={item} />
+          ))}
         </div>
-      );
+        <aside className="w-full lg:sticky lg:top-6 lg:w-1/3">
+          <OrderForm data={data} />
+        </aside>
+      </div>
+    );
     }
   }
 }

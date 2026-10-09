@@ -4,26 +4,33 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Field, FieldGroup } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import React from 'react'
 
 async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
   e.preventDefault()
 }
 
+const formatPrice = (value: number | string) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
+
 function OrderForm({data}:{data:any}) {
 
 
   return (
-    <div className='flex flex-col gap-8 sm:py-24 sm:px-12 p-4'>
-      <div className='flex justify-between'>
-          <h1 className='text-lg font-semibold'>Total: </h1>
-          <p>{data.totalPrice}</p>
-      </div>
-      
+    <div className='p-4 sm:px-12 sm:py-6'>
+      <div className='flex flex-col gap-6 rounded-2xl border bg-card p-6 shadow-sm ml-16'>
+        <h2 className='text-xl font-semibold tracking-tight'>Order summary</h2>
+
+        <div className='flex items-baseline justify-between border-t pt-6'>
+          <span className='text-base text-muted-foreground'>Total</span>
+          <span className='text-2xl font-bold tabular-nums'>{formatPrice(data.totalPrice)}</span>
+        </div>
+
         <Dialog>
-          <DialogTrigger className='bg-black text-white text-lg px-6 py-3 hover:opacity-75 hover:cursor-pointer text-center w-full'>
+          <DialogTrigger className='group flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-black px-6 py-3.5 text-base font-medium text-white transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 active:scale-[0.99]'>
             Go to checkout
+            <ArrowRight className='size-4 transition-transform group-hover:translate-x-0.5' />
           </DialogTrigger>
           <DialogContent>
             <form onSubmit={handleSubmit}>
@@ -55,11 +62,12 @@ function OrderForm({data}:{data:any}) {
             </FieldGroup>
             <DialogFooter>
               <DialogClose render={<Button variant="outline" className="cursor-pointer">Cancel</Button>}></DialogClose>
-              <Button type="submit" className="cursor-pointer">Save changes</Button>
+              <Button type="submit" className="cursor-pointer">Place order</Button>
             </DialogFooter>
           </form>
           </DialogContent>       
       </Dialog>
+      </div>
     </div>
   )
 }

@@ -1,7 +1,6 @@
 import React from 'react'
-import { basketItem, basketRes } from './types'
+import { basketItem } from './types'
 import Image from 'next/image'
-import { Trash } from 'lucide-react'
 import DeleteButton from './deleteButton'
 import Link from 'next/link'
 
@@ -12,8 +11,11 @@ type itemProp = {
 
 async function CartItem({prop}:itemProp) {
   return (
-    <div className='flex gap-4 w-full border-b border-border py-6 last:border-none sm:mx-6'>
-        <Link href={`/product/${prop.productId}`} className='relative aspect-3/4 overflow-hidden bg-muted w-26'>
+    <div className='flex w-full gap-4 border-b border-border py-6 last:border-none sm:gap-6'>
+        <Link
+          href={`/product/${prop.productId}`}
+          className='group relative aspect-3/4 w-24 shrink-0 overflow-hidden rounded-xl bg-muted ring-1 ring-border sm:w-28'
+        >
             <Image
             src={prop.mainImage || "/image-not-found-failure-network-260nw-2330163829.webp"}
             alt={prop.productName}
@@ -22,14 +24,24 @@ async function CartItem({prop}:itemProp) {
             className="object-cover motion-safe:transition-transform motion-safe:duration-300 motion-safe:group-hover:scale-105"
             />
         </Link>
-        <div className='flex flex-col justify-between w-2/3'>
-            <Link href={`/product/${prop.productId}`} className='text-gray-500'>{prop.productName}</Link>
-            <p>{prop.quantity}</p>
+
+        <div className='flex min-w-0 flex-1 flex-col justify-between py-1'>
+            <Link
+              href={`/product/${prop.productId}`}
+              className='line-clamp-2 text-base font-medium text-foreground transition-colors hover:text-muted-foreground hover:underline underline-offset-4'
+            >
+              {prop.productName}
+            </Link>
+            <p className='inline-flex w-fit items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground'>
+              Qty
+              <span className='font-semibold tabular-nums text-foreground'>{prop.quantity}</span>
+            </p>
         </div>
-        <div className='flex flex-col justify-between items-center'>
+
+        <div className='flex shrink-0 flex-col items-end justify-between py-1'>
             <DeleteButton productId={prop.productId}/>
             <div>
-                <p>{prop.subTotal}$</p>
+                <p className='text-lg font-semibold tabular-nums'>{prop.subTotal}$</p>
             </div>
         </div>
     </div>

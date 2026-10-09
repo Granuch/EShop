@@ -50,6 +50,10 @@ function NameForm({name,token}:props) {
                 return
             }
 
+            toast.add({
+                title: "Account data changed"
+            })
+
         }
 
         if(currentpass && newpass) {
@@ -73,10 +77,15 @@ function NameForm({name,token}:props) {
                 })
                 return
             }
+
+             
+            toast.add({
+                title: "Password changed"
+            })
         }
 
         router.push("/")
-        router.refresh()
+        router.refresh()      
 
     }
 
