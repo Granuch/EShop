@@ -54,7 +54,7 @@ Restores, builds and tests `EShop.slnx` in Release, with the NuGet package cache
 ### lint
 
 - **actionlint** checks every workflow, including the shell in each `run:` block (shellcheck).
-- **hadolint** checks the seven Dockerfiles with `.hadolint.yaml`. A finding at any level, info included, fails.
+- **hadolint** checks the seven service Dockerfiles and `ui/Dockerfile` with `.hadolint.yaml`. A finding at any level, info included, fails.
 - **`.github/scripts/check-env-example.sh`** fails if `.env.example` holds anything that looks like a real secret.
   Every key named `*PASSWORD`, `*SECRET`, `*API_KEY` or `*_KEY` must be empty or a `CHANGE_ME`/`REPLACE_ME`
   placeholder, apart from two documented local defaults. Stripe-shaped credentials are refused under any key.
@@ -136,8 +136,9 @@ Weekly, for four ecosystems:
   packages that must move together, such as ASP.NET Core, EF Core, `Microsoft.Extensions.*` and Npgsql EF, arrive in
   one pull request.
 - **GitHub Actions**: one `actions` group; updates SHA pins together with their comments.
-- **Docker**: the seven Dockerfiles' base images.
-- **Docker Compose**: the image tags in `docker-compose.yml`; major versions are ignored.
+- **Docker**: the base images of the seven service Dockerfiles and `ui/Dockerfile`.
+- **Docker Compose**: the image tags in `docker-compose.yml` and its override files (nginx, certbot and the DuckDNS
+  updater in `docker-compose.override.selfhost.yml` included); major versions are ignored.
 
 Dependabot reads its configuration from `master` only, so a change to `dependabot.yml` takes effect once merged.
 Validate it first:
@@ -153,7 +154,7 @@ python -m check_jsonschema --schemafile https://www.schemastore.org/dependabot-2
 ```bash
 # lint: workflows and Dockerfiles, the same images CI uses
 docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
-for f in src/ApiGateways/*/Dockerfile src/Services/*/*.API/Dockerfile; do
+for f in src/ApiGateways/*/Dockerfile src/Services/*/*.API/Dockerfile ui/Dockerfile; do
   docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" hadolint/hadolint:v2.15.1 \
     hadolint --config /.config/hadolint.yaml - < "$f"
 done

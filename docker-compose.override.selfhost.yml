@@ -1,0 +1,100 @@
+# Self-hosting on a home machine behind a free DuckDNS name: nginx (TLS from Let's Encrypt) -> ui (Next.js) ->
+# api-gateway. Only nginx publishes a port to the outside; the router forwards 80 and 443 to this machine.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.override.selfhost.yml \
+#     --profile sandbox --profile selfhost up -d --build
+#
+# The first certificate has to be issued once by hand; docs/02-getting-started/self-hosting.md has every step.
+# Do not combine this file with docker-compose.override.public.yml, which publishes the observability UIs.
+
+services:
+  # Reachable from this machine only (local tooling, `npm run dev`). The public path is nginx -> ui -> gateway.
+  api-gateway:
+    ports: !override
+      - "127.0.0.1:${GATEWAY_API_PORT:-7000}:8080"
+
+  # Email links must point at the public name, not localhost.
+  notification-api:
+    environment:
+      PasswordReset__ResetUrlBase: https://${SELFHOST_DOMAIN:?SELFHOST_DOMAIN is required for self-hosting}/reset-password
+      EmailConfirmation__ConfirmUrlBase: https://${SELFHOST_DOMAIN:?SELFHOST_DOMAIN is required for self-hosting}/confirm-email
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    image: eshop-ui
+    container_name: eshop-ui
+    restart: unless-stopped
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://api-gateway:8080
+      # nginx overwrites X-Forwarded-For with the peer address, so the UI may forward it to the gateway.
+      TRUST_PROXY_HEADERS: "true"
+    networks:
+      - eshop-network
+    profiles:
+      - selfhost
+
+  nginx:
+    image: nginx:1.30.5-alpine
+    container_name: eshop-nginx
+    restart: unless-stopped
+    depends_on:
+      ui:
+        condition: service_healthy
+    environment:
+      SELFHOST_DOMAIN: ${SELFHOST_DOMAIN:?SELFHOST_DOMAIN is required for self-hosting}
+    # start.sh renders HTTP-only or HTTPS config depending on whether the certificate exists yet, and reloads hourly
+    # so a renewal is picked up. Run through sh, so the bind-mounted file needs no execute bit.
+    entrypoint: ["/bin/sh", "/opt/eshop/nginx/start.sh"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx:/opt/eshop/nginx:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t", "-q"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - selfhost
+
+  # Renews through nginx's webroot twice a day; certbot only acts within 30 days of expiry.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    container_name: eshop-certbot
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    profiles:
+      - selfhost
+
+  # Keeps <subdomain>.duckdns.org pointed at this connection's public IPv4 (checks every 5 minutes).
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:d860cc34-ls92
+    container_name: eshop-duckdns
+    restart: unless-stopped
+    environment:
+      SUBDOMAINS: ${DUCKDNS_SUBDOMAIN:?DUCKDNS_SUBDOMAIN is required for self-hosting}
+      TOKEN: ${DUCKDNS_TOKEN:?DUCKDNS_TOKEN is required for self-hosting}
+      UPDATE_IP: ipv4
+      LOG_FILE: "false"
+      TZ: ${TZ:-Etc/UTC}
+    profiles:
+      - selfhost
+
+volumes:
+  certbot-etc:
+    name: eshop-certbot-etc
+  certbot-www:
+    name: eshop-certbot-www
