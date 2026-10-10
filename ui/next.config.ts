@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'picsum.photos',
       },
+      // The demo catalog's product photos (infrastructure/demo-data/seed_catalog.py).
+      {
+        protocol: 'https',
+        hostname: 'cdn.dummyjson.com',
+        pathname: '/product-images/**',
+      },
     ],
   }
 };
