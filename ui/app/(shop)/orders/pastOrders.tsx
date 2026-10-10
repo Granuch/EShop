@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ChevronDown, CreditCard, PackageOpen } from 'lucide-react'
 import { cn } from 'cn'
 import { buttonVariants } from '@/components/ui/button'
+import { CancelOrderButton } from '@/components/Payment/cancelOrderButton'
 import { fetchUserOrders } from './fetchOrders'
 
 type OrderItem = {
@@ -70,7 +71,7 @@ function latestEvent(o: Order): string | null {
   return null
 }
 
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }) {
   const [open, setOpen] = useState(false)
   const badge = statusStyles[order.status.toLowerCase()] ?? 'bg-gray-100 text-gray-800'
   const event = latestEvent(order)
@@ -105,9 +106,12 @@ function OrderCard({ order }: { order: Order }) {
       {order.status === 'Pending' && (
         <div className='flex items-center justify-between gap-3 border-t border-gray-100 bg-amber-50 px-5 py-3 text-sm'>
           <span className='text-amber-900'>Waiting for payment</span>
-          <Link href={`/orders/${order.id}/pay`} className={cn(buttonVariants({ size: 'sm' }))}>
-            <CreditCard /> Pay now
-          </Link>
+          <div className='flex flex-wrap items-center justify-end gap-2'>
+            <CancelOrderButton orderId={order.id} onCancelled={onChanged} />
+            <Link href={`/orders/${order.id}/pay`} className={cn(buttonVariants({ size: 'sm' }))}>
+              <CreditCard /> Pay now
+            </Link>
+          </div>
         </div>
       )}
 
@@ -214,7 +218,7 @@ export default function PastOrders() {
     <div className='flex flex-col gap-6'>
       <ul className='flex flex-col gap-3'>
         {data.items.map(order => (
-          <OrderCard key={order.id} order={order} />
+          <OrderCard key={order.id} order={order} onChanged={() => load(page)} />
         ))}
       </ul>
 

@@ -87,6 +87,48 @@ export async function startPayment(orderId: string): Promise<StartPaymentResult>
     }
 }
 
+export type CancelOrderResult = { ok: true } | { ok: false; message: string }
+
+/**
+ * Cancels an unpaid order (Ordering allows the owner to cancel a Pending one; Payment then cancels its open Stripe
+ * payment). An order stays Pending for a few seconds after the card was charged, until Stripe's webhook and the
+ * Paid message arrive, so the money is checked first: a cancel must never land on an order that is already paid.
+ */
+export async function cancelOrder(orderId: string, reason: string): Promise<CancelOrderResult> {
+    const trimmed = reason.trim().slice(0, 500)
+    if (!trimmed) return { ok: false, message: "Choose a reason for cancelling" }
+
+    const alreadyPaid = { ok: false as const, message: "This order is already paid; the payment is being confirmed. It can no longer be cancelled here." }
+    const progress = await getPaymentProgress(orderId)
+    if (progress.paymentStatus === "Success") return alreadyPaid
+    if (progress.paymentStatus === "Processing") {
+        // The intent exists, so this only reads it back from Stripe: nothing is created or charged.
+        const intent = await startPayment(orderId)
+        if (intent.kind === "ready" && (intent.intentStatus === "succeeded" || intent.intentStatus === "processing")) {
+            return alreadyPaid
+        }
+    }
+
+    let res: Response
+    try {
+        res = await apiFetch(`/api/v1/orders/${orderId}/cancel`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason: trimmed })
+        })
+    }
+    catch {
+        return { ok: false, message: "The shop could not be reached. Please try again" }
+    }
+    if (res.ok) return { ok: true }
+
+    const problem = await readProblem(res)
+    if (problem?.errorCode === "Order.NotCancellable") {
+        return { ok: false, message: problem.detail ?? "Only unpaid orders can be cancelled" }
+    }
+    return { ok: false, message: problemMessages(res.status, problem, res.headers.get("retry-after"), "The order could not be cancelled")[0] }
+}
+
 export type PaymentProgress = { paymentStatus: string | null; orderStatus: string | null; errorMessage: string | null }
 
 /**

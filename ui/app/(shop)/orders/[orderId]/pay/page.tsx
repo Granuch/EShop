@@ -2,6 +2,7 @@ import { CheckCircle2, ShieldCheck, XCircle } from 'lucide-react'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { cn } from 'cn'
+import { CancelOrderButton } from '@/components/Payment/cancelOrderButton'
 import { CardPayment } from '@/components/Payment/cardPayment'
 import { buttonVariants } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
@@ -73,6 +74,10 @@ export default async function PayOrderPage({ params }: { params: Promise<{ order
               )}
               <div className='rounded-2xl border bg-card p-6 shadow-sm'>
                 <CardPayment orderId={order.id} publishableKey={publishableKey} amountLabel={amount} />
+              </div>
+              <div className='flex items-center justify-between gap-3 text-sm text-muted-foreground'>
+                <span>Changed your mind? Cancel before paying and nothing is charged.</span>
+                <CancelOrderButton orderId={order.id} redirectTo='/orders' />
               </div>
             </>
           ) : (
