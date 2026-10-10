@@ -5,31 +5,12 @@ import { Field, FieldGroup } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ArrowRight } from 'lucide-react'
-import React from 'react'
+import React, { useState } from 'react'
 import { checkoutData, checkoutObj, fetchCheckout } from './checkoutFetch'
 import { toast } from '@/components/ui/toast'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
-  e.preventDefault()
-  const formData = new FormData(e.currentTarget)
-  const reqData: checkoutData = Object.fromEntries(formData.entries()) as unknown as checkoutData
-  const body: checkoutObj = {
-    shippingAddress: reqData
-  }
-  const result = await fetchCheckout(body)
 
-  if(!result.ok) {
-    toast.add({
-      type: 'error',
-      title: result.error
-    })
-  } else {
-    toast.add({
-      title: "Order successfuly placed"
-    })
-  }
-}
 
 const countries = [
   { label: "Select a country", value: null },
@@ -58,8 +39,30 @@ const countries = [
 const formatPrice = (value: number | string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
 
-function OrderForm({data}:{data:any}) {
+  function OrderForm({data}:{data:any}) {
+    const [open, setOpen] = useState(false)
 
+    async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    const reqData: checkoutData = Object.fromEntries(formData.entries()) as unknown as checkoutData
+    const body: checkoutObj = {
+      shippingAddress: reqData
+    }
+    const result = await fetchCheckout(body)
+
+    if(!result.ok) {
+      toast.add({
+        type: 'error',
+        title: result.error
+      })
+    } else {
+      toast.add({
+        title: "Order successfuly placed"
+      })
+    }
+    setOpen(false)
+  }
 
   return (
     <div className='p-4 sm:px-12 sm:py-6'>
@@ -71,7 +74,7 @@ function OrderForm({data}:{data:any}) {
           <span className='text-2xl font-bold tabular-nums'>{formatPrice(data.totalPrice)}</span>
         </div>
 
-        <Dialog>
+        <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger className='group flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-black px-6 py-3.5 text-base font-medium text-white transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 active:scale-[0.99]'>
             Go to checkout
             <ArrowRight className='size-4 transition-transform group-hover:translate-x-0.5' />
@@ -107,7 +110,7 @@ function OrderForm({data}:{data:any}) {
                   </SelectTrigger>
                   <SelectContent>
                   <SelectGroup>
-                    <SelectLabel>Fruits</SelectLabel>
+                    <SelectLabel>Countries</SelectLabel>
                     {countries.map((country) => (
                       <SelectItem key={country.value} value={country.value}>
                         {country.label}
