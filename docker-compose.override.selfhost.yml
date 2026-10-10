@@ -8,10 +8,41 @@
 # Do not combine this file with docker-compose.override.public.yml, which publishes the observability UIs.
 
 services:
+  # Docker Desktop delivers every visitor to nginx from one address (its gateway, 172.18.0.1), so each per-IP limit
+  # below is shared by the whole site, not by one visitor. With the defaults, ten mistyped passwords from anyone
+  # blocked sign-in for everyone for 30 minutes (2026-10-10). The per-account lockout (5 failures) is untouched; only
+  # the per-IP limits are raised. Docker Engine on Linux keeps the real address and needs none of this.
   # Reachable from this machine only (local tooling, `npm run dev`). The public path is nginx -> ui -> gateway.
   api-gateway:
     ports: !override
       - "127.0.0.1:${GATEWAY_API_PORT:-7000}:8080"
+    environment:
+      RateLimiting__GlobalPermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-2000}
+
+  identity-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-2000}
+      RateLimiting__Auth__PermitLimit: ${SELFHOST_AUTH_PERMIT_LIMIT:-120}
+      RateLimiting__Login__PermitLimit: ${SELFHOST_LOGIN_PERMIT_LIMIT:-60}
+      BruteForceProtection__MaxFailedAttemptsPerIp: ${SELFHOST_MAX_FAILED_LOGINS_PER_IP:-200}
+      BruteForceProtection__IpBlockDurationMinutes: ${SELFHOST_IP_BLOCK_MINUTES:-5}
+
+  catalog-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-2000}
+      RateLimiting__Search__PermitLimit: ${SELFHOST_SEARCH_PERMIT_LIMIT:-600}
+
+  basket-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-2000}
+
+  ordering-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-2000}
+
+  payment-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-2000}
 
   # Email links must point at the public name, not localhost.
   notification-api:
