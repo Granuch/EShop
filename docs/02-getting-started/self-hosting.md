@@ -58,6 +58,15 @@ DUCKDNS_TOKEN=<the token from duckdns.org>
 
 The override also points the password-reset and email-confirmation links at `https://$SELFHOST_DOMAIN/…`.
 
+**Card payments** need a Stripe account in test mode (free; <https://dashboard.stripe.com/test/apikeys>). Set
+`STRIPE_SECRET_KEY` (`sk_test_…`) and `STRIPE_PUBLISHABLE_KEY` (`pk_test_…`) from the same account. The secret key
+stays with the Payment service; the publishable key goes to the `ui` container, where the card form (Stripe's Payment
+Element) uses it in the visitor's browser. Stripe tells the shop that a payment went through by webhook, and at home
+the `stripe` profile receives it: its `stripe-listener` container prints a `whsec_…` secret on its first start
+(`docker logs eshop-stripe-listener`), which goes in `STRIPE_WEBHOOK_SECRET`. Without the listener a paid order stays
+"Confirming your payment…". In test mode the payment page shows the test cards: `4242 4242 4242 4242` succeeds and
+`4000 0000 0000 0002` is declined, with any future date and any CVC.
+
 ## 3. Router and firewall
 
 1. Give the machine a fixed LAN address (a DHCP reservation in the router). Read the address from the adapter that has a
@@ -77,7 +86,7 @@ The override also points the password-reset and email-confirmation links at `htt
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.override.selfhost.yml \
-  --profile sandbox --profile selfhost up -d --build
+  --profile sandbox --profile selfhost --profile stripe up -d --build
 ```
 
 Without a certificate nginx starts in HTTP-only mode: it answers the ACME challenge and returns
@@ -137,7 +146,7 @@ Use a phone on **mobile data**, not your Wi-Fi: many routers cannot reach their 
 ```bash
 git pull
 docker compose -f docker-compose.yml -f docker-compose.override.selfhost.yml \
-  --profile sandbox --profile selfhost up -d --build
+  --profile sandbox --profile selfhost --profile stripe up -d --build
 ```
 
 ## Stopping public access
@@ -176,7 +185,7 @@ good. The rest of the stack keeps running locally.
   Gmail example there) or confirm users from the admin panel (**Users → Mark email confirmed**). The emailed links
   open the storefront's `/confirm-email` and `/reset-password` pages; `/forgot-password` sends a reset link, and the
   account page can send a new confirmation link.
-- **Payments are Stripe test mode** (the Sandbox profile): no real money moves.
+- **Payments are Stripe test mode** (the Sandbox profile): no real money moves, and only cards are offered.
 
 ---
 
