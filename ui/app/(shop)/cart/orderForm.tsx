@@ -6,10 +6,54 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ArrowRight } from 'lucide-react'
 import React from 'react'
+import { checkoutData, checkoutObj, fetchCheckout } from './checkoutFetch'
+import { toast } from '@/components/ui/toast'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
   e.preventDefault()
+  const formData = new FormData(e.currentTarget)
+  const reqData: checkoutData = Object.fromEntries(formData.entries()) as unknown as checkoutData
+  const body: checkoutObj = {
+    shippingAddress: reqData
+  }
+  const result = await fetchCheckout(body)
+
+  if(!result.ok) {
+    toast.add({
+      type: 'error',
+      title: result.error
+    })
+  } else {
+    toast.add({
+      title: "Order successfuly placed"
+    })
+  }
 }
+
+const countries = [
+  { label: "Select a country", value: null },
+  { label: "United States", value: "US" },
+  { label: "United Kingdom", value: "GB" },
+  { label: "Canada", value: "CA" },
+  { label: "Germany", value: "DE" },
+  { label: "France", value: "FR" },
+  { label: "Italy", value: "IT" },
+  { label: "Spain", value: "ES" },
+  { label: "Poland", value: "PL" },
+  { label: "Ukraine", value: "UA" },
+  { label: "Netherlands", value: "NL" },
+  { label: "Sweden", value: "SE" },
+  { label: "Switzerland", value: "CH" },
+  { label: "Australia", value: "AU" },
+  { label: "Japan", value: "JP" },
+  { label: "China", value: "CN" },
+  { label: "India", value: "IN" },
+  { label: "Brazil", value: "BR" },
+  { label: "Mexico", value: "MX" },
+  { label: "Turkey", value: "TR" },
+  { label: "United Arab Emirates", value: "AE" },
+]
 
 const formatPrice = (value: number | string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
@@ -57,7 +101,21 @@ function OrderForm({data}:{data:any}) {
               </Field>
               <Field>
                 <Label htmlFor='country'>Country</Label>
-                <Input id='country' name='country'  />
+                <Select items={countries} name='country' required>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>Fruits</SelectLabel>
+                    {countries.map((country) => (
+                      <SelectItem key={country.value} value={country.value}>
+                        {country.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+                </Select>
               </Field>
             </FieldGroup>
             <DialogFooter>

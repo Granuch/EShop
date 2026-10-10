@@ -57,7 +57,7 @@ async function Page() {
           ))}
         </div>
         <aside className="w-full lg:sticky lg:top-6 lg:w-1/3">
-          <OrderForm data={data} />
+          <OrderForm data={data}/>
         </aside>
       </div>
     );
