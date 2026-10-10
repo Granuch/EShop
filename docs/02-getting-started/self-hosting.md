@@ -28,6 +28,9 @@ Do **not** add `docker-compose.override.public.yml`: it publishes RabbitMQ, Prom
 ## Requirements
 
 - The machine runs the stack already (see [Docker Setup](docker-setup.md)) and stays on: turn off sleep.
+- **Prefer a Linux machine with Docker Engine** (an Ubuntu server, an old laptop, a cloud VM; see
+  [On a Linux server](#on-a-linux-server-recommended)). There every visitor reaches the shop with their own address.
+  Docker Desktop on Windows works too, but hides the visitors' addresses (see [Known limitations](#known-limitations)).
 - Your connection has a public IPv4 address and the router can forward ports 80 and 443. If it cannot (CGNAT, or
   the ISP blocks the ports), see [Without port forwarding](#without-port-forwarding).
 - A DuckDNS account: sign in at <https://www.duckdns.org>, add a subdomain, copy the token at the top of the page.
@@ -61,8 +64,8 @@ The override also points the password-reset and email-confirmation links at `htt
    default gateway, `Get-NetIPConfiguration | Where-Object IPv4DefaultGateway`, not from a virtual adapter
    (VirtualBox's `192.168.56.1`, WSL's `vEthernet`). A forward to any other device's address fails silently.
 2. Forward TCP **80** and **443** to that address. Nothing else.
-3. Windows: Docker Desktop normally adds its own firewall rule when it is installed. If the test in step 6 times out,
-   allow the ports explicitly (elevated PowerShell):
+3. Linux with `ufw` enabled: `sudo ufw allow 80,443/tcp`. Windows: Docker Desktop normally adds its own firewall rule
+   when it is installed. If the test in step 6 times out, allow the ports explicitly (elevated PowerShell):
 
    ```powershell
    New-NetFirewallRule -DisplayName "EShop HTTP/HTTPS" -Direction Inbound -Protocol TCP -LocalPort 80,443 -Action Allow
@@ -149,25 +152,25 @@ good. The rest of the stack keeps running locally.
 - **On Docker Desktop, all visitors share one client IP.** Docker Desktop on Windows forwards published ports
   through its own proxy, so nginx sees every connection as coming from `172.18.0.1`. This is confirmed: on the first
   real run (2026-10-06) even Let's Encrypt's validation servers, which connect from the internet, were logged as
-  `172.18.0.1`. Every visitor therefore shares every per-IP limit. With the services' defaults that meant 100 API
-  calls a minute and 5 sign-ins a minute for the whole site, and ten mistyped passwords from anyone blocked sign-in
-  for everyone for 30 minutes (Identity's brute-force protection, hit on 2026-10-10). So the self-host override
-  raises the per-IP limits; the per-account lockout (5 failures) is unchanged. Each can be changed in `.env`:
+  `172.18.0.1`, and Docker Desktop has no setting that changes it. Every visitor therefore shares every per-IP limit:
+  with the services' defaults, 100 API calls and 5 sign-ins a minute for the whole site, and ten mistyped passwords
+  from anyone blocked sign-in for everyone for 30 minutes (Identity's brute-force protection, hit on 2026-10-10).
+  For a demo from Docker Desktop, raise the per-IP limits in `.env` (the block is in `.env.example`); on a Linux
+  host leave them unset. The per-account lockout (5 failed sign-ins) applies either way.
 
-  | Variable | Default | What it sets |
-  |---|---|---|
-  | `SELFHOST_GLOBAL_PERMIT_LIMIT` | 2000 | API calls per minute, at the gateway and in every service |
-  | `SELFHOST_LOGIN_PERMIT_LIMIT` | 60 | Sign-in, resend-confirmation, forgot- and reset-password calls per minute |
-  | `SELFHOST_AUTH_PERMIT_LIMIT` | 120 | Register, refresh, revoke and confirm-email calls per minute |
-  | `SELFHOST_MAX_FAILED_LOGINS_PER_IP` | 200 | Failed sign-ins before the address is blocked |
-  | `SELFHOST_IP_BLOCK_MINUTES` | 5 | How long that block lasts |
-  | `SELFHOST_SEARCH_PERMIT_LIMIT` | 600 | Catalog searches per minute |
+  | Variable | Default (Linux) | Docker Desktop | What it sets |
+  |---|---|---|---|
+  | `SELFHOST_GLOBAL_PERMIT_LIMIT` | 100 | 2000 | API calls per minute, at the gateway and in every service |
+  | `SELFHOST_LOGIN_PERMIT_LIMIT` | 5 | 60 | Sign-in, resend-confirmation, forgot- and reset-password calls per minute |
+  | `SELFHOST_AUTH_PERMIT_LIMIT` | 10 | 120 | Register, refresh, revoke and confirm-email calls per minute |
+  | `SELFHOST_MAX_FAILED_LOGINS_PER_IP` | 10 | 200 | Failed sign-ins before the address is blocked |
+  | `SELFHOST_IP_BLOCK_MINUTES` | 30 | 5 | How long that block lasts |
+  | `SELFHOST_SEARCH_PERMIT_LIMIT` | 30 | 600 | Catalog searches per minute |
 
   A block that is already in place stays until it expires. To lift it at once, delete it from Redis:
   `docker exec eshop-redis redis-cli -a "<REDIS_PASSWORD>" --no-auth-warning del bf_protection:ip_block:172.18.0.1 bf_protection:ip_attempts:172.18.0.1`.
-  The real fix is to run the stack on Docker Engine inside a Linux VM or WSL distribution, or on a Linux server (see
-  below), not on Docker Desktop. Check it with `docker logs eshop-nginx --tail 5`: the first field is the address
-  nginx saw.
+  The fix is a Linux host ([below](#on-a-linux-server-recommended)). Check it with `docker logs eshop-nginx --tail 5`:
+  the first field is the address nginx saw.
 - **Email.** The Sandbox profile delivers every email to Mailpit, so real visitors get none. Checkout needs a
   confirmed email address. Either point Notification at a real SMTP server (`NOTIFICATION_SMTP_*` in `.env`, see the
   Gmail example there) or confirm users from the admin panel (**Users → Mark email confirmed**). The emailed links
@@ -191,11 +194,30 @@ free and need no domain:
 The tunnel then terminates TLS and forwards to `ui:3000`. Set `TRUST_PROXY_HEADERS` on `ui` only if the tunnel sets
 `X-Forwarded-For` itself.
 
-## On a free cloud server instead
+## On a Linux server (recommended)
 
-If the machine cannot stay on, Oracle Cloud's Always Free tier offers an ARM VM (up to 4 cores and 24 GB), the only
-free tier large enough for the stack (about 2.2 GB idle with observability). The images build on ARM as they are.
-The steps above stay the same, minus the router, and a Linux host also removes the client-IP limitation.
+Any Linux machine with Docker Engine runs the same compose files, and nginx sees each visitor's real address with no
+extra setup: Docker Engine publishes ports through the kernel, not through a proxy. An Ubuntu Server laptop or mini
+PC at home is enough; the stack uses about 2.2 GB of RAM idle with observability, so 8 GB is comfortable.
+
+1. Install Docker Engine (not Docker Desktop) from Docker's apt repository, as in
+   <https://docs.docker.com/engine/install/ubuntu/>, then `sudo usermod -aG docker $USER` and sign in again.
+2. A laptop must not sleep with its lid closed: set `HandleLidSwitch=ignore` (and `HandleLidSwitchExternalPower=ignore`)
+   in `/etc/systemd/logind.conf`, then `sudo systemctl restart systemd-logind`.
+3. `git clone` the repository, copy your `.env` (without the Docker Desktop `SELFHOST_*` limits), and follow steps
+   1 to 6 above. In step 3 the router forwards 80 and 443 to this machine's LAN address
+   (`ip -4 addr show scope global`), and only one machine can receive them, so stop the stack on the other one.
+4. Moving an existing shop: stop it on the old machine, archive every `eshop-*` volume
+   (`docker run --rm -v <volume>:/v:ro -v "$PWD":/b busybox:1.36 tar czf /b/<volume>.tgz -C /v .`), copy the
+   archives over, create each volume on the new machine and unpack into it
+   (`docker run --rm -v <volume>:/v -v "$PWD":/b busybox:1.36 tar xzf /b/<volume>.tgz -C /v`). With
+   `eshop-certbot-etc` restored, no new certificate has to be issued.
+
+Every container has `restart: unless-stopped`, so after a reboot the shop comes back once Docker starts
+(`sudo systemctl enable docker`, the default on Ubuntu).
+
+If no machine can stay on, Oracle Cloud's Always Free tier offers an ARM VM (up to 4 cores and 24 GB), the only free
+tier large enough for the stack. The images build on ARM as they are. The steps are the same, minus the router.
 
 ---
 
