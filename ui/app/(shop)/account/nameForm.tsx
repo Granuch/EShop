@@ -1,5 +1,6 @@
 'use client'
 import { toast } from '@/components/ui/toast'
+import { getSession } from '@/lib/session'
 import { useRouter } from 'next/navigation'
 import React from 'react'
 import { changePassword, updateProfile } from './actions'
@@ -41,6 +42,10 @@ function NameForm({name}:props) {
                 return
             }
 
+            toast.add({
+                title: "Account data changed"
+            })
+
         }
 
         if(currentpass && newpass) {
@@ -53,10 +58,15 @@ function NameForm({name}:props) {
                 })
                 return
             }
+
+             
+            toast.add({
+                title: "Password changed"
+            })
         }
 
         router.push("/")
-        router.refresh()
+        router.refresh()      
 
     }
 

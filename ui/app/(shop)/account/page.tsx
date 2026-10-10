@@ -12,7 +12,8 @@ async function page() {
   return (
     <div className='flex flex-col justify-center items-center m-6 gap-6'>
         <h2 className='text-xl text-black font-bold'>My account</h2>
-        <NameForm name={session}/>
+        <NameForm name={session} token={token}/>
+        {!session.emailConfirmed && <div className='text-red-400 text-lg'>Your email is not confirmed, Please confirm your email to make purchases</div>}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session";
 import { buildHref, getCategories } from "@/lib/temp";
 import { Button } from "../ui/button";
 import LogoutButton from "./logoutButton";
+import SearchBar from "./search";
 
 
 async function Navbar() {
@@ -21,25 +22,7 @@ async function Navbar() {
         <Link href="/" className="text-2xl font-semibold tracking-tight">
           EShop
         </Link>
- 
-        {/* On mobile the search drops to its own full-width row */}
-        <form
-          action="/search"
-          role="search"
-          className="relative order-3 w-full md:order-0 md:mx-auto md:max-w-xl md:flex-1"
-        >
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            type="search"
-            name="q"
-            placeholder="Search products"
-            aria-label="Search products"
-            className="h-11 w-full rounded-full bg-muted pl-12 pr-4 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </form>
+        <SearchBar />
  
         <nav aria-label="Account" className="ml-auto flex items-center gap-1 md:ml-0">
           {!session ? (
