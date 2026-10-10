@@ -139,6 +139,20 @@ Use a phone on **mobile data**, not your Wi-Fi: many routers cannot reach their 
 - Register, sign in, add to and remove from the cart, change your name on **My account**.
 - The bare IP (`https://<your public IP>`) gets no answer: only the configured name is served.
 
+## 7. Fill the shop for a demo (optional)
+
+A fresh database holds four placeholder products. `infrastructure/demo-data/seed_catalog.py` adds about 155 real-looking
+products with photos (DummyJSON's free demo catalog: phones, laptops, clothing, beauty, home, sports) in five
+categories with subcategories, publishes them, gives about a third a discount, and with `--remove-placeholders` deletes
+the placeholders. It works through the admin API, needs only Python 3, and is safe to run again:
+
+```bash
+python infrastructure/demo-data/seed_catalog.py --email admin@eshop.com --password '<admin password>' --remove-placeholders
+```
+
+It takes about 15 minutes (the per-minute limits pace it). The photos stay on `cdn.dummyjson.com`, which
+`ui/next.config.ts` allows; the shop's server caches them.
+
 ---
 
 ## Updating
