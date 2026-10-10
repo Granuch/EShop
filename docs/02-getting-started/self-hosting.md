@@ -149,14 +149,30 @@ good. The rest of the stack keeps running locally.
 - **On Docker Desktop, all visitors share one client IP.** Docker Desktop on Windows forwards published ports
   through its own proxy, so nginx sees every connection as coming from `172.18.0.1`. This is confirmed: on the first
   real run (2026-10-06) even Let's Encrypt's validation servers, which connect from the internet, were logged as
-  `172.18.0.1`. Every visitor therefore shares the gateway's per-IP rate limits, including Identity's sign-in limit
-  of 5 per minute for the whole site. For a demo with a handful of visitors that is tolerable. The fix is to run
-  the stack on Docker Engine inside a Linux VM or WSL distribution, or on a Linux server (see below), not on
-  Docker Desktop. Check it with `docker logs eshop-nginx --tail 5`: the first field is the address nginx saw.
+  `172.18.0.1`. Every visitor therefore shares every per-IP limit. With the services' defaults that meant 100 API
+  calls a minute and 5 sign-ins a minute for the whole site, and ten mistyped passwords from anyone blocked sign-in
+  for everyone for 30 minutes (Identity's brute-force protection, hit on 2026-10-10). So the self-host override
+  raises the per-IP limits; the per-account lockout (5 failures) is unchanged. Each can be changed in `.env`:
+
+  | Variable | Default | What it sets |
+  |---|---|---|
+  | `SELFHOST_GLOBAL_PERMIT_LIMIT` | 2000 | API calls per minute, at the gateway and in every service |
+  | `SELFHOST_LOGIN_PERMIT_LIMIT` | 60 | Sign-in, resend-confirmation, forgot- and reset-password calls per minute |
+  | `SELFHOST_AUTH_PERMIT_LIMIT` | 120 | Register, refresh, revoke and confirm-email calls per minute |
+  | `SELFHOST_MAX_FAILED_LOGINS_PER_IP` | 200 | Failed sign-ins before the address is blocked |
+  | `SELFHOST_IP_BLOCK_MINUTES` | 5 | How long that block lasts |
+  | `SELFHOST_SEARCH_PERMIT_LIMIT` | 600 | Catalog searches per minute |
+
+  A block that is already in place stays until it expires. To lift it at once, delete it from Redis:
+  `docker exec eshop-redis redis-cli -a "<REDIS_PASSWORD>" --no-auth-warning del bf_protection:ip_block:172.18.0.1 bf_protection:ip_attempts:172.18.0.1`.
+  The real fix is to run the stack on Docker Engine inside a Linux VM or WSL distribution, or on a Linux server (see
+  below), not on Docker Desktop. Check it with `docker logs eshop-nginx --tail 5`: the first field is the address
+  nginx saw.
 - **Email.** The Sandbox profile delivers every email to Mailpit, so real visitors get none. Checkout needs a
   confirmed email address. Either point Notification at a real SMTP server (`NOTIFICATION_SMTP_*` in `.env`, see the
-  Gmail example there) or confirm users from the admin panel (**Users → Mark email confirmed**). The storefront has no
-  `/confirm-email` or `/reset-password` page yet, so emailed links lead to a 404 until it does.
+  Gmail example there) or confirm users from the admin panel (**Users → Mark email confirmed**). The emailed links
+  open the storefront's `/confirm-email` and `/reset-password` pages; `/forgot-password` sends a reset link, and the
+  account page can send a new confirmation link.
 - **Payments are Stripe test mode** (the Sandbox profile): no real money moves.
 
 ---
