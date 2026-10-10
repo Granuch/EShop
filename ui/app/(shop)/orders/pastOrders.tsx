@@ -105,7 +105,7 @@ function OrderCard({ order }: { order: Order }) {
           <ul className='divide-y divide-gray-100'>
             {order.items.map(item => (
               <li key={item.id} className='flex items-center gap-4 py-3'>
-                <Link href={`/products/${item.productId}`} className='flex-1 hover:underline'>
+                <Link href={`/product/${item.productId}`} className='flex-1 hover:underline'>
                   {item.productName}
                 </Link>
                 <span className='text-sm text-gray-500 tabular-nums'>
@@ -163,7 +163,7 @@ export default function PastOrders() {
     try {
       let res = await fetchUserOrders(pageNumber, PAGE_SIZE)
 
-      if (!res.ok) throw new Error('Could not load your orders.')
+      if (!res.ok) throw new Error(res.error)
       setData(res.data)
     } catch (err: any) {
       setError(err.message ?? 'Something went wrong.')

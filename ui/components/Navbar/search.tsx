@@ -3,8 +3,6 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ImageOff, Search } from 'lucide-react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:7000'
-
 type Product = {
   id: string
   name: string
@@ -41,9 +39,10 @@ export default function SearchBar() {
     const controller = new AbortController()
     setLoading(true)
 
-    const params = new URLSearchParams({ SearchTerm: term, PageSize: '5' })
+    // Through the Next server (app/api/search): a visitor's browser cannot reach the gateway itself.
+    const params = new URLSearchParams({ q: term })
 
-    fetch(`${API_URL}/api/v1/products?${params}`, { signal: controller.signal })
+    fetch(`/api/search?${params}`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`Request failed: ${res.status}`)
         return res.json() as Promise<PagedResult<Product>>

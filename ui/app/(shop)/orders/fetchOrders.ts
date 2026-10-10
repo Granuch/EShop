@@ -1,23 +1,29 @@
 'use server'
 
-import { clientFetch } from "@/lib/clientFetch"
+import { apiFetch } from "@/lib/api"
+import { problemMessages, readProblem } from "@/lib/problem"
 import { getSession } from "@/lib/session"
-import { cookies } from "next/headers"
 
-export async function fetchUserOrders(pageNumber:any, PAGE_SIZE:any) {
+export async function fetchUserOrders(pageNumber: number, pageSize: number) {
     const session = await getSession()
-    const token = (await cookies()).get("access_token")?.value
+    if (!session) {
+        return {ok: false as const, status: 401, error: "Your session has expired. Please sign in again"}
+    }
 
-    const res = await clientFetch(`http://localhost:7000/api/v1/users/${session.id}/orders?PageNumber=${pageNumber}&PageSize=${PAGE_SIZE}`, {
-        method: 'GET',
-        headers: {"Authorization": `Bearer ${token}`}
-    })
-
-    const data = await res.json()
+    const params = new URLSearchParams({ PageNumber: String(pageNumber), PageSize: String(pageSize) })
+    let res: Response
+    try {
+        res = await apiFetch(`/api/v1/users/${session.id}/orders?${params}`)
+    }
+    catch {
+        return {ok: false as const, status: 503, error: "The shop could not be reached. Please try again"}
+    }
 
     if(!res.ok) {
-        return {ok: false as const, status: res.status, error: data.detail}
-    } 
+        const data = await readProblem(res)
+        return {ok: false as const, status: res.status,
+            error: problemMessages(res.status, data, res.headers.get("retry-after"), "Could not load your orders.")[0]}
+    }
 
-    return {ok: true as const, data: data}
+    return {ok: true as const, data: await res.json()}
 }
