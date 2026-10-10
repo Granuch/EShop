@@ -1,8 +1,8 @@
-import { Menu, User, ShoppingCart, Search, Users, Wallet, LogOut, LockKeyhole } from "lucide-react";
+import { Menu, User, ShoppingCart, Search, Users, Wallet, LogOut, LockKeyhole, ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { getSession } from "@/lib/session";
-import { buildHref, getCategories } from "@/lib/temp";
+import { buildHref, getCategoryTree } from "@/lib/temp";
 import { Button } from "../ui/button";
 import LogoutButton from "./logoutButton";
 import SearchBar from "./search";
@@ -10,7 +10,7 @@ import SearchBar from "./search";
 
 async function Navbar() {
   const session = await getSession();
-  const categories = await getCategories()
+  const categories = await getCategoryTree()
  
   const actionLink =
     "flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium transition-colors hover:bg-muted hover:cursor-pointer";
@@ -77,14 +77,40 @@ async function Navbar() {
               All
             </Link>
           </li>
-          {categories.map((c:any) => (
+          {categories.map((c) => (
             <li key={c.slug}>
-              <Link
-                href={buildHref({ category: c.slug })}
-                className="block whitespace-nowrap px-2 py-2.5 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {c.label}
-              </Link>
+              {c.childCategories.length === 0 ? (
+                <Link
+                  href={buildHref({ category: c.slug })}
+                  className="block whitespace-nowrap px-2 py-2.5 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {c.name}
+                </Link>
+              ) : (
+                // A section opens its subcategories on hover (a tap on touch screens); the menu renders in a portal,
+                // so the row's sideways scrolling does not clip it.
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    openOnHover
+                    delay={80}
+                    className="flex items-center gap-1 whitespace-nowrap px-2 py-2.5 text-muted-foreground transition-colors hover:text-foreground hover:cursor-pointer data-[popup-open]:text-foreground"
+                  >
+                    {c.name}
+                    <ChevronDown className="size-3.5 opacity-60" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="min-w-48">
+                    <DropdownMenuItem render={<Link href={buildHref({ category: c.slug })} className="font-medium hover:cursor-pointer" />}>
+                      All {c.name}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {c.childCategories.map((child) => (
+                      <DropdownMenuItem key={child.slug} render={<Link href={buildHref({ category: child.slug })} className="hover:cursor-pointer" />}>
+                        {child.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </li>
           ))}
         </ul>

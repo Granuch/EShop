@@ -44,6 +44,18 @@ export function findCategoryBySlug(tree: CategoryNode[], slug: string): Category
   return undefined;
 }
 
+/**
+ * How many published products a category holds, its subcategories included (Catalog's CategoryId filter covers the
+ * subtree). One cached request per category, shared by every visitor for a minute, so it carries no one's address.
+ */
+export const getProductCount = cache(async (categoryId: string): Promise<number | null> => {
+    const query = new URLSearchParams({ CategoryId: categoryId, PageSize: "1" })
+    const res = await gatewayFetch(`/api/v1/products?${query}`, { next: { revalidate: 60 } })
+    if (!res.ok) return null
+    const data = await res.json() as { totalCount?: number }
+    return data.totalCount ?? null
+})
+
 /** The chain from a root category down to the one with this id, or [] when it is not in the tree. */
 export function findCategoryPath(tree: CategoryNode[], id: string): CategoryNode[] {
   for (const node of tree) {

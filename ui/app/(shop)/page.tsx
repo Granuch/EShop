@@ -2,7 +2,7 @@ import Image from "next/image";
 import Item from "@/components/Item/item";
 import { itemData } from "@/components/Item/types/itemType";
 import Link from "next/link";
-import { buildHref, findCategoryBySlug, getCategoryTree, sortOptions, toApiSort } from "@/lib/temp";
+import { buildHref, findCategoryBySlug, findCategoryPath, getCategoryTree, getProductCount, sortOptions, toApiSort } from "@/lib/temp";
 import FilterSidebar from "@/components/Navbar/filterSidebar";
 import { gatewayFetch } from "@/lib/api";
 
@@ -67,6 +67,13 @@ export default async function Home({
     category: selectedCategory?.id
   })
 
+  // A category page shows where it sits (All products › Electronics › Phones) and its root's subcategories as chips,
+  // which is also how a phone, without the filter sidebar, reaches a subcategory.
+  const categoryPath = selectedCategory ? findCategoryPath(tree, selectedCategory.id) : []
+  const sectionRoot = categoryPath[0]
+  const chipCategories = sectionRoot?.childCategories ?? []
+  const chipCounts = await Promise.all(chipCategories.map((c) => getProductCount(c.id)))
+
   const activeSort = params.sort ?? "newest";
   const title = selectedCategory?.name ?? "All products";
   const isFiltered = Boolean(params.category || params.minPrice || params.maxPrice);
@@ -95,6 +102,19 @@ export default async function Home({
         <FilterSidebar params={params} />
  
         <section id="products" className="min-w-0 flex-1 scroll-mt-32">
+          {categoryPath.length > 0 && (
+            <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+              <Link href={buildHref({ sort: params.sort })} className="hover:text-foreground">All products</Link>
+              {categoryPath.map((c, i) => (
+                <span key={c.id} className="flex items-center gap-1.5">
+                  <span aria-hidden>›</span>
+                  {i === categoryPath.length - 1
+                    ? <span aria-current="page" className="text-foreground">{c.name}</span>
+                    : <Link href={buildHref({ category: c.slug, sort: params.sort })} className="hover:text-foreground">{c.name}</Link>}
+                </span>
+              ))}
+            </nav>
+          )}
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
@@ -124,6 +144,26 @@ export default async function Home({
             </nav>
           </div>
  
+          {sectionRoot && chipCategories.length > 0 && (
+            <nav aria-label={`${sectionRoot.name} subcategories`} className="mt-5 flex flex-wrap gap-2">
+              {[{ c: sectionRoot, label: `All ${sectionRoot.name}`, n: null as number | null }, ...chipCategories.map((c, i) => ({ c, label: c.name, n: chipCounts[i] }))]
+                .map(({ c, label, n }) => {
+                  const active = selectedCategory?.id === c.id
+                  return (
+                    <Link key={c.id}
+                      href={`${buildHref({ ...params, category: c.slug, page: undefined })}#products`}
+                      aria-current={active ? "page" : undefined}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+                        active ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"
+                      }`}>
+                      {label}
+                      {n !== null && <span className={`text-xs tabular-nums ${active ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{n}</span>}
+                    </Link>
+                  )
+                })}
+            </nav>
+          )}
+
           {(products?.length ?? 0) > 0 ? (
             <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 md:gap-x-6 xl:grid-cols-4">
               {products.map((product) => (
