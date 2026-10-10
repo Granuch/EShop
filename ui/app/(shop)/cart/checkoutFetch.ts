@@ -28,6 +28,9 @@ export async function fetchCheckout(req: checkoutObj) {
         return {ok: false as const, status: 401, error: "Your session has expired. Please sign in again"}
     }
 
+    // Ordering creates the order from a message after this answers; the payment page finds it as the newest order
+    // since this instant, taken from this server's clock rather than the visitor's.
+    const checkedOutAt = new Date().toISOString()
     let res: Response
     try {
         res = await apiFetch(`/api/v1/basket/${session.id}/checkout`, {
@@ -46,5 +49,5 @@ export async function fetchCheckout(req: checkoutObj) {
         return {ok: false as const, status: res.status, error: messages.join(" ") }
     }
 
-    return {ok: true as const, data: await res.json().catch(() => null)}
+    return {ok: true as const, data: await res.json().catch(() => null), checkedOutAt}
 }

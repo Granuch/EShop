@@ -1,7 +1,9 @@
 'use client'
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, PackageOpen } from 'lucide-react'
+import { ChevronDown, CreditCard, PackageOpen } from 'lucide-react'
+import { cn } from 'cn'
+import { buttonVariants } from '@/components/ui/button'
 import { fetchUserOrders } from './fetchOrders'
 
 type OrderItem = {
@@ -99,6 +101,15 @@ function OrderCard({ order }: { order: Order }) {
           />
         </div>
       </button>
+
+      {order.status === 'Pending' && (
+        <div className='flex items-center justify-between gap-3 border-t border-gray-100 bg-amber-50 px-5 py-3 text-sm'>
+          <span className='text-amber-900'>Waiting for payment</span>
+          <Link href={`/orders/${order.id}/pay`} className={cn(buttonVariants({ size: 'sm' }))}>
+            <CreditCard /> Pay now
+          </Link>
+        </div>
+      )}
 
       {open && (
         <div className='border-t border-gray-200 px-5 py-4'>

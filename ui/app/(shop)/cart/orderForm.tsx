@@ -8,7 +8,6 @@ import { ArrowRight } from 'lucide-react'
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { checkoutData, checkoutObj, fetchCheckout } from './checkoutFetch'
-import { toast } from '@/components/ui/toast'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 
@@ -66,14 +65,10 @@ const formatPrice = (value: number | string) =>
         return
       }
 
-      // Ordering creates the order from a message, so it reaches My orders a few seconds after this.
-      toast.add({
-        title: "Order successfully placed",
-        description: "It will appear in My orders in a moment."
-      })
+      // Straight on to paying. Ordering creates the order from a message a moment after this, so the next page
+      // waits for it and then shows the card form.
       setOpen(false)
-      // Checkout empties the basket; show it.
-      router.refresh()
+      router.push(`/orders/new?since=${encodeURIComponent(result.checkedOutAt)}`)
     }
     catch {
       setError('The order could not be placed. Please try again')

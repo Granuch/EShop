@@ -99,6 +99,14 @@ export const config = {
             ],
         },
         {
+            // The payment pages call the API from server actions, which cannot store a refreshed token themselves.
+            source: "/orders/:path*",
+            missing: [
+                { type: "header", key: "next-router-prefetch" },
+                { type: "header", key: "purpose", value: "prefetch" },
+            ],
+        },
+        {
             source: "/adminPanel/:path*",
             missing: [
                 { type: "header", key: "next-router-prefetch" },

@@ -63,6 +63,9 @@ services:
         condition: service_healthy
     environment:
       API_BASE_URL: http://api-gateway:8080
+      # The card form (Stripe Payment Element) runs in the browser with this key; it is public by design and must
+      # belong to the same Stripe account as Payment's STRIPE_SECRET_KEY. Read at request time, not baked into the build.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       # nginx overwrites X-Forwarded-For with the peer address, so the UI may forward it to the gateway.
       TRUST_PROXY_HEADERS: "true"
     networks:
