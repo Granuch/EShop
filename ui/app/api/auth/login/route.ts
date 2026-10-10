@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { gatewayFetch } from "@/lib/api";
+import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/authCookies";
 
 export async function POST(req: Request): Promise<NextResponse> {
     const body = await req.json()
@@ -26,29 +27,20 @@ export async function POST(req: Request): Promise<NextResponse> {
         return failure
     }
 
-    // TODO 2FA
+    // The password was right but the account has 2FA on: the tokens are empty until the same request comes back
+    // with twoFactorCode, so no cookie is set yet.
+    if(data.requires2FA) {
+        return NextResponse.json({requires2FA: true})
+    }
 
     const response = NextResponse.json({user: data.user})
 
     setAuthCookies(response, data.accessToken, data.refreshToken, data.expiresIn)
-    
+
     return response
 }
 
 export function setAuthCookies(res: NextResponse, accesToken:string, refreshToken:string, expiresIn:number) {
-    res.cookies.set("access_token", accesToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: expiresIn
-    })
-
-    res.cookies.set("refresh_token", refreshToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite:"lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30
-    })
+    res.cookies.set(ACCESS_COOKIE, accesToken, accessCookieOptions(expiresIn))
+    res.cookies.set(REFRESH_COOKIE, refreshToken, refreshCookieOptions)
 }
