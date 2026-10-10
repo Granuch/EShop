@@ -6,6 +6,7 @@ export type ShopParams = {
   sort?: string;
   minPrice?: string;
   maxPrice?: string;
+  page?: string;
 };
 
 export type CategoryNode = {

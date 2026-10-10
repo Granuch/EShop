@@ -17,7 +17,7 @@ export default async function FilterSidebar({ params }: { params: ShopParams }) 
           <ul className="mt-3 space-y-0.5 text-sm">
             <li>
               <Link
-                href={buildHref({ ...params, category: undefined })}
+                href={buildHref({ ...params, category: undefined, page: undefined })}
                 aria-current={!params.category ? "page" : undefined}
                 className={`${linkBase} ${!params.category ? linkActive : linkIdle}`}
               >
@@ -29,7 +29,7 @@ export default async function FilterSidebar({ params }: { params: ShopParams }) 
               return (
                 <li key={c.slug}>
                   <Link
-                    href={buildHref({ ...params, category: c.slug })}
+                    href={buildHref({ ...params, category: c.slug, page: undefined })}
                     aria-current={active ? "page" : undefined}
                     className={`${linkBase} ${active ? linkActive : linkIdle}`}
                   >
