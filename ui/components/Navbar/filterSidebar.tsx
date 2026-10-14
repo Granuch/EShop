@@ -1,11 +1,21 @@
-import { buildHref, getCategories, ShopParams } from "@/lib/temp";
+import { buildHref, findCategoryBySlug, findCategoryPath, getCategoryTree, getProductCount, ShopParams } from "@/lib/temp";
 import Link from "next/link";
 
 export default async function FilterSidebar({ params }: { params: ShopParams }) {
   const linkBase = "block rounded-md px-2 py-1.5 transition-colors";
   const linkActive = "bg-muted font-medium text-foreground";
   const linkIdle = "text-muted-foreground hover:text-foreground";
-  const categories = await getCategories()
+  const tree = await getCategoryTree()
+  // The selected category's root expands into its subcategories; the others stay collapsed.
+  const selected = params.category ? findCategoryBySlug(tree, params.category) : undefined
+  const openRootId = selected ? findCategoryPath(tree, selected.id)[0]?.id : undefined
+  const openRoot = tree.find((c) => c.id === openRootId)
+  const counted = [...tree, ...(openRoot?.childCategories ?? [])]
+  const counts = new Map(await Promise.all(counted.map(async (c) => [c.id, await getProductCount(c.id)] as const)))
+  const count = (id: string) => {
+    const n = counts.get(id)
+    return n === null || n === undefined ? null : <span className="ml-auto pl-2 text-xs tabular-nums text-muted-foreground">{n}</span>
+  }
 
   return (
     <aside className="hidden w-56 shrink-0 lg:block">
@@ -17,24 +27,46 @@ export default async function FilterSidebar({ params }: { params: ShopParams }) 
           <ul className="mt-3 space-y-0.5 text-sm">
             <li>
               <Link
-                href={buildHref({ ...params, category: undefined })}
+                href={buildHref({ ...params, category: undefined, page: undefined })}
                 aria-current={!params.category ? "page" : undefined}
                 className={`${linkBase} ${!params.category ? linkActive : linkIdle}`}
               >
                 All products
               </Link>
             </li>
-            {categories.map((c:any) => {
+            {tree.map((c) => {
               const active = params.category === c.slug;
+              const open = c.id === openRootId && c.childCategories.length > 0;
               return (
                 <li key={c.slug}>
                   <Link
-                    href={buildHref({ ...params, category: c.slug })}
+                    href={buildHref({ ...params, category: c.slug, page: undefined })}
                     aria-current={active ? "page" : undefined}
-                    className={`${linkBase} ${active ? linkActive : linkIdle}`}
+                    aria-expanded={c.childCategories.length > 0 ? open : undefined}
+                    className={`${linkBase} flex items-center ${active ? linkActive : linkIdle}`}
                   >
-                    {c.label}
+                    {c.name}
+                    {count(c.id)}
                   </Link>
+                  {open && (
+                    <ul className="my-1 ml-3 space-y-0.5 border-l pl-2">
+                      {c.childCategories.map((child) => {
+                        const childActive = params.category === child.slug;
+                        return (
+                          <li key={child.slug}>
+                            <Link
+                              href={buildHref({ ...params, category: child.slug, page: undefined })}
+                              aria-current={childActive ? "page" : undefined}
+                              className={`${linkBase} flex items-center ${childActive ? linkActive : linkIdle}`}
+                            >
+                              {child.name}
+                              {count(child.id)}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </li>
               );
             })}

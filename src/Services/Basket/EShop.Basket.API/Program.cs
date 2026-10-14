@@ -134,6 +134,10 @@ try
         });
     });
 
+    // Same key as the other services, so a deployment where every visitor shares one address (the self-host override)
+    // can raise it.
+    var globalPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:Global:PermitLimit") ?? 100;
+
     builder.Services.AddRateLimiter(options =>
     {
         options.UseEShopRejectionResponse();
@@ -147,7 +151,7 @@ try
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     AutoReplenishment = true,
-                    PermitLimit = 100,
+                    PermitLimit = globalPermitLimit,
                     Window = TimeSpan.FromMinutes(1)
                 }));
     });

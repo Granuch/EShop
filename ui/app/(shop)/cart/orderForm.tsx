@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ArrowRight } from 'lucide-react'
 import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { checkoutData, checkoutObj, fetchCheckout } from './checkoutFetch'
-import { toast } from '@/components/ui/toast'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 
@@ -41,6 +41,10 @@ const formatPrice = (value: number | string) =>
 
   function OrderForm({data}:{data:any}) {
     const [open, setOpen] = useState(false)
+    const [pending, setPending] = useState(false)
+    // Shown inside the dialog: a toast would sit under the dialog's backdrop and could not be read.
+    const [error, setError] = useState<string | null>(null)
+    const router = useRouter()
 
     async function handleSubmit(e:React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -49,19 +53,29 @@ const formatPrice = (value: number | string) =>
     const body: checkoutObj = {
       shippingAddress: reqData
     }
-    const result = await fetchCheckout(body)
 
-    if(!result.ok) {
-      toast.add({
-        type: 'error',
-        title: result.error
-      })
-    } else {
-      toast.add({
-        title: "Order successfuly placed"
-      })
+    setPending(true)
+    setError(null)
+    try {
+      const result = await fetchCheckout(body)
+
+      // On a failure the dialog stays open, so the address can be corrected without typing it again.
+      if(!result.ok) {
+        setError(result.error)
+        return
+      }
+
+      // Straight on to paying. Ordering creates the order from a message a moment after this, so the next page
+      // waits for it and then shows the card form.
+      setOpen(false)
+      router.push(`/orders/new?since=${encodeURIComponent(result.checkedOutAt)}`)
     }
-    setOpen(false)
+    catch {
+      setError('The order could not be placed. Please try again')
+    }
+    finally {
+      setPending(false)
+    }
   }
 
   return (
@@ -74,7 +88,7 @@ const formatPrice = (value: number | string) =>
           <span className='text-2xl font-bold tabular-nums'>{formatPrice(data.totalPrice)}</span>
         </div>
 
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setError(null) }}>
           <DialogTrigger className='group flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-black px-6 py-3.5 text-base font-medium text-white transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 active:scale-[0.99]'>
             Go to checkout
             <ArrowRight className='size-4 transition-transform group-hover:translate-x-0.5' />
@@ -121,9 +135,10 @@ const formatPrice = (value: number | string) =>
                 </Select>
               </Field>
             </FieldGroup>
+            {error && <p role='alert' className='pb-4 text-sm text-red-600'>{error}</p>}
             <DialogFooter>
               <DialogClose render={<Button variant="outline" className="cursor-pointer">Cancel</Button>}></DialogClose>
-              <Button type="submit" className="cursor-pointer">Place order</Button>
+              <Button type="submit" className="cursor-pointer" disabled={pending}>{pending ? 'Placing order…' : 'Place order'}</Button>
             </DialogFooter>
           </form>
           </DialogContent>       

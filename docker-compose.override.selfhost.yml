@@ -8,10 +8,42 @@
 # Do not combine this file with docker-compose.override.public.yml, which publishes the observability UIs.
 
 services:
+  # Per-IP limits. The defaults are the services' own, which is right on a Linux host (Docker Engine), where each
+  # visitor arrives with their own address. Docker Desktop delivers every visitor to nginx from one address (its
+  # gateway, 172.18.0.1), so there each limit is shared by the whole site: ten mistyped passwords from anyone blocked
+  # sign-in for everyone for 30 minutes (2026-10-10). On Docker Desktop, raise them in .env (the SELFHOST_* block in
+  # .env.example). The per-account lockout (5 failures) is not affected either way.
   # Reachable from this machine only (local tooling, `npm run dev`). The public path is nginx -> ui -> gateway.
   api-gateway:
     ports: !override
       - "127.0.0.1:${GATEWAY_API_PORT:-7000}:8080"
+    environment:
+      RateLimiting__GlobalPermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  identity-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+      RateLimiting__Auth__PermitLimit: ${SELFHOST_AUTH_PERMIT_LIMIT:-10}
+      RateLimiting__Login__PermitLimit: ${SELFHOST_LOGIN_PERMIT_LIMIT:-5}
+      BruteForceProtection__MaxFailedAttemptsPerIp: ${SELFHOST_MAX_FAILED_LOGINS_PER_IP:-10}
+      BruteForceProtection__IpBlockDurationMinutes: ${SELFHOST_IP_BLOCK_MINUTES:-30}
+
+  catalog-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+      RateLimiting__Search__PermitLimit: ${SELFHOST_SEARCH_PERMIT_LIMIT:-30}
+
+  basket-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  ordering-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  payment-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
 
   # Email links must point at the public name, not localhost.
   notification-api:
@@ -31,6 +63,9 @@ services:
         condition: service_healthy
     environment:
       API_BASE_URL: http://api-gateway:8080
+      # The card form (Stripe Payment Element) runs in the browser with this key; it is public by design and must
+      # belong to the same Stripe account as Payment's STRIPE_SECRET_KEY. Read at request time, not baked into the build.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       # nginx overwrites X-Forwarded-For with the peer address, so the UI may forward it to the gateway.
       TRUST_PROXY_HEADERS: "true"
     networks:

@@ -47,8 +47,15 @@ server {
     # Server actions cap their own bodies at 1 MB (Next's default); this only has to be above that.
     client_max_body_size 10m;
 
+    # Docker's DNS, IPv4 only. The standalone Next server listens on 0.0.0.0, and a static `proxy_pass http://ui:3000`
+    # also resolved ui's IPv6 address, so nginx logged "connect() failed (111: Connection refused)" and retried. A
+    # variable makes nginx resolve per request (cached 10 s), which also follows a recreated ui container to its new
+    # address instead of waiting for the hourly reload in start.sh.
+    resolver 127.0.0.11 ipv6=off valid=10s;
+    set $ui_upstream http://ui:3000;
+
     location / {
-        proxy_pass http://ui:3000;
+        proxy_pass $ui_upstream;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
 

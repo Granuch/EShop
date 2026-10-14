@@ -1,8 +1,7 @@
 'use server'
-import { clientFetch } from "@/lib/clientFetch";
+import { apiFetch } from "@/lib/api";
+import { problemMessages, readProblem } from "@/lib/problem";
 import { getSession } from "@/lib/session";
-import { error } from "console";
-import { cookies } from "next/headers";
 
 export type checkoutData = {
   /** 3-150 chars: letters, digits, spaces, . , - / # */
@@ -21,20 +20,34 @@ export type checkoutObj = {
     shippingAddress: checkoutData
 }
 
+// A server action: it reaches the gateway through API_BASE_URL with the visitor's token, never through localhost
+// (inside the container nothing listens there).
 export async function fetchCheckout(req: checkoutObj) {
     const session = await getSession()
-    const token = (await cookies()).get("access_token")?.value
-    const body = JSON.stringify(req)
-    const res = await clientFetch(`http://localhost:7000/api/v1/basket/${session.id}/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: body
-    })
-
-    const data = await res.json()
-    if(!res.ok) {
-        return {ok: false as const, status: res.status, error: data.detail }
+    if (!session) {
+        return {ok: false as const, status: 401, error: "Your session has expired. Please sign in again"}
     }
 
-    return {ok: true as const, data: data}
+    // Ordering creates the order from a message after this answers; the payment page finds it as the newest order
+    // since this instant, taken from this server's clock rather than the visitor's.
+    const checkedOutAt = new Date().toISOString()
+    let res: Response
+    try {
+        res = await apiFetch(`/api/v1/basket/${session.id}/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(req)
+        })
+    }
+    catch {
+        return {ok: false as const, status: 503, error: "The shop could not be reached. Please try again"}
+    }
+
+    if(!res.ok) {
+        const data = await readProblem(res)
+        const messages = problemMessages(res.status, data, res.headers.get("retry-after"), "The order could not be placed")
+        return {ok: false as const, status: res.status, error: messages.join(" ") }
+    }
+
+    return {ok: true as const, data: await res.json().catch(() => null), checkedOutAt}
 }

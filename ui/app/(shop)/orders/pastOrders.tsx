@@ -1,7 +1,10 @@
 'use client'
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, PackageOpen } from 'lucide-react'
+import { ChevronDown, CreditCard, PackageOpen } from 'lucide-react'
+import { cn } from 'cn'
+import { buttonVariants } from '@/components/ui/button'
+import { CancelOrderButton } from '@/components/Payment/cancelOrderButton'
 import { fetchUserOrders } from './fetchOrders'
 
 type OrderItem = {
@@ -68,7 +71,7 @@ function latestEvent(o: Order): string | null {
   return null
 }
 
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({ order, onChanged }: { order: Order; onChanged: () => void }) {
   const [open, setOpen] = useState(false)
   const badge = statusStyles[order.status.toLowerCase()] ?? 'bg-gray-100 text-gray-800'
   const event = latestEvent(order)
@@ -100,12 +103,24 @@ function OrderCard({ order }: { order: Order }) {
         </div>
       </button>
 
+      {order.status === 'Pending' && (
+        <div className='flex items-center justify-between gap-3 border-t border-gray-100 bg-amber-50 px-5 py-3 text-sm'>
+          <span className='text-amber-900'>Waiting for payment</span>
+          <div className='flex flex-wrap items-center justify-end gap-2'>
+            <CancelOrderButton orderId={order.id} onCancelled={onChanged} />
+            <Link href={`/orders/${order.id}/pay`} className={cn(buttonVariants({ size: 'sm' }))}>
+              <CreditCard /> Pay now
+            </Link>
+          </div>
+        </div>
+      )}
+
       {open && (
         <div className='border-t border-gray-200 px-5 py-4'>
           <ul className='divide-y divide-gray-100'>
             {order.items.map(item => (
               <li key={item.id} className='flex items-center gap-4 py-3'>
-                <Link href={`/products/${item.productId}`} className='flex-1 hover:underline'>
+                <Link href={`/product/${item.productId}`} className='flex-1 hover:underline'>
                   {item.productName}
                 </Link>
                 <span className='text-sm text-gray-500 tabular-nums'>
@@ -163,7 +178,7 @@ export default function PastOrders() {
     try {
       let res = await fetchUserOrders(pageNumber, PAGE_SIZE)
 
-      if (!res.ok) throw new Error('Could not load your orders.')
+      if (!res.ok) throw new Error(res.error)
       setData(res.data)
     } catch (err: any) {
       setError(err.message ?? 'Something went wrong.')
@@ -203,7 +218,7 @@ export default function PastOrders() {
     <div className='flex flex-col gap-6'>
       <ul className='flex flex-col gap-3'>
         {data.items.map(order => (
-          <OrderCard key={order.id} order={order} />
+          <OrderCard key={order.id} order={order} onChanged={() => load(page)} />
         ))}
       </ul>
 
