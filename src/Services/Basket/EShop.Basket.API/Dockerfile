@@ -8,7 +8,7 @@
 # Build: restore, then publish
 # --------------------------------------------
 # Exact SDK version, so a rebuild is reproducible; Dependabot (docker ecosystem) proposes each new patch.
-FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.402 AS build
 WORKDIR /src
 
 # Project files first, so the restore layer is reused until a .csproj changes. The list must hold every project
@@ -36,7 +36,7 @@ RUN dotnet publish "EShop.Basket.API.csproj" \
 # --------------------------------------------
 # Runtime
 # --------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.12 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.13 AS final
 
 # curl serves the HEALTHCHECK below and the compose healthchecks.
 RUN apt-get update \
