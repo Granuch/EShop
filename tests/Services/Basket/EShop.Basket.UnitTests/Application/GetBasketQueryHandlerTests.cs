@@ -35,7 +35,8 @@ public class GetBasketQueryHandlerTests
     public async Task Handle_WhenBasketExists_ShouldMapBasketToDto()
     {
         var basket = ShoppingBasket.Create("user-1");
-        basket.AddItem(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), "Phone", 100m, 2);
+        basket.AddItem(
+            Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), "Phone", 100m, 2, "https://cdn.test/phone.jpg");
 
         var repository = new Mock<IBasketRepository>();
         repository
@@ -50,6 +51,7 @@ public class GetBasketQueryHandlerTests
         Assert.That(result.Value.TotalPrice, Is.EqualTo(200m));
         Assert.That(result.Value.TotalItems, Is.EqualTo(2));
         Assert.That(result.Value.CreatedAt, Is.EqualTo(basket.CreatedAt));
+        Assert.That(result.Value.Items[0].MainImage, Is.EqualTo("https://cdn.test/phone.jpg"));
     }
 
     /// <summary>Basket audit S8 (M3): an unreadable store is an operation failure (503), not an unhandled 500.</summary>

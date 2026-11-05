@@ -59,7 +59,7 @@ public sealed class CatalogProductCatalogReader : IProductCatalogReader
         }
 
         var effectivePrice = payload.DiscountPrice ?? payload.Price;
-        return new ProductCatalogSnapshot(payload.Id, payload.Name, effectivePrice, payload.StockQuantity);
+        return new ProductCatalogSnapshot(payload.Id, payload.Name, effectivePrice, payload.StockQuantity, payload.MainImageUrl);
     }
 
     /// <summary>
@@ -74,5 +74,6 @@ public sealed class CatalogProductCatalogReader : IProductCatalogReader
         public decimal Price { get; init; }
         public decimal? DiscountPrice { get; init; }
         public int StockQuantity { get; init; }
+        public string? MainImageUrl { get; init; }
     }
 }

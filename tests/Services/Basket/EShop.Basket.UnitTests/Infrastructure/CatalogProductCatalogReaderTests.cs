@@ -46,7 +46,7 @@ public class CatalogProductCatalogReaderTests
             NullLogger<CatalogProductCatalogReader>.Instance);
     }
 
-    private static string ProductJson(Guid id, decimal price, string? discountPrice)
+    private static string ProductJson(Guid id, decimal price, string? discountPrice, string? mainImageUrl = "https://cdn.test/product.jpg")
         => $$"""
         {
           "id": "{{id}}",
@@ -56,7 +56,8 @@ public class CatalogProductCatalogReaderTests
           "discountPrice": {{discountPrice ?? "null"}},
           "stockQuantity": 10,
           "status": 1,
-          "categoryId": "{{Guid.NewGuid()}}"
+          "categoryId": "{{Guid.NewGuid()}}",
+          "mainImageUrl": {{(mainImageUrl is null ? "null" : $"\"{mainImageUrl}\"")}}
         }
         """;
 
@@ -95,6 +96,29 @@ public class CatalogProductCatalogReaderTests
 
         Assert.That(snapshot!.StockQuantity, Is.EqualTo(10),
             "a renamed or missing stockQuantity would bind to 0 and read every product as out of stock");
+    }
+
+    /// <summary>This reader's wire name for the cart thumbnail; a rename on Catalog's side would bind to null here.</summary>
+    [Test]
+    public async Task GetByIdAsync_ReadsTheMainImageUrl()
+    {
+        var id = Guid.NewGuid();
+        var reader = CreateReader(HttpStatusCode.OK, ProductJson(id, 100m, discountPrice: null));
+
+        var snapshot = await reader.GetByIdAsync(id);
+
+        Assert.That(snapshot!.MainImageUrl, Is.EqualTo("https://cdn.test/product.jpg"));
+    }
+
+    [Test]
+    public async Task GetByIdAsync_WithNoMainImage_ShouldReturnNull()
+    {
+        var id = Guid.NewGuid();
+        var reader = CreateReader(HttpStatusCode.OK, ProductJson(id, 100m, discountPrice: null, mainImageUrl: null));
+
+        var snapshot = await reader.GetByIdAsync(id);
+
+        Assert.That(snapshot!.MainImageUrl, Is.Null);
     }
 
     [Test]
