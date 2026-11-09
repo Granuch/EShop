@@ -18,10 +18,10 @@ public sealed class FakeProductCatalog : IProductCatalogReader
     /// <summary>When set, every lookup fails the way an HttpClient timeout does: a TaskCanceledException.</summary>
     public bool TimesOut { get; set; }
 
-    public Guid Add(string name, decimal price, int stock = 100)
+    public Guid Add(string name, decimal price, int stock = 100, string? mainImageUrl = null)
     {
         var id = Guid.NewGuid();
-        _products[id] = new ProductCatalogSnapshot(id, name, price, stock);
+        _products[id] = new ProductCatalogSnapshot(id, name, price, stock, mainImageUrl);
         return id;
     }
 

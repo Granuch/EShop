@@ -1,0 +1,19 @@
+# Build context for ui/Dockerfile. The image runs npm ci and next build itself, so local output must not leak in.
+node_modules
+.next
+out
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+
+# Local secrets and editor state
+.env*
+*.pem
+.vercel
+.vscode
+.idea
+
+# Docs, agent files and the build files themselves
+*.md
+Dockerfile
+.dockerignore

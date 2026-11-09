@@ -61,3 +61,9 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+###############################################################################
+# Files bind-mounted into Linux containers run as written: a CRLF shell script
+# fails under sh, so keep LF in the working copy whatever core.autocrlf says.
+###############################################################################
+infrastructure/nginx/** text eol=lf

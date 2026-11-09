@@ -37,7 +37,8 @@ public sealed class GetBasketQueryHandler : IRequestHandler<GetBasketQuery, Resu
                     ProductName = item.ProductName,
                     Price = item.Price,
                     Quantity = item.Quantity,
-                    SubTotal = item.SubTotal
+                    SubTotal = item.SubTotal,
+                    MainImage = item.MainImageUrl
                 }).ToList(),
                 TotalPrice = basket.TotalPrice,
                 TotalItems = basket.TotalItems,

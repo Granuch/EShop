@@ -19,6 +19,8 @@ checked in CI.
 - `docker-compose.override.production.yml`: production overrides. Every database password, the Seq admin password and
   the gateway's real SMTP server are required (`${VAR:?}`), Mailpit is not started, and Seq authentication is on.
 - `docker-compose.override.public.yml`: publishes the monitoring UIs on public ports
+- `docker-compose.override.selfhost.yml`: puts the shop on the internet from a home machine: the `ui` image,
+  nginx with a Let's Encrypt certificate, and a DuckDNS updater. See [Self-Hosting](self-hosting.md).
 - `.env.example`: the environment template. It lists every variable the compose files use.
 
 ---
@@ -232,6 +234,7 @@ EF looks for its history table before creating it.
 
 - [Prerequisites](prerequisites.md)
 - [Local Setup](local-setup.md)
+- [Self-Hosting](self-hosting.md)
 - [Infrastructure](../06-infrastructure/)
 - [CI/CD Workflow](../07-development-workflow/ci-cd-workflow.md)
 

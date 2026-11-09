@@ -1,0 +1,135 @@
+# Self-hosting on a home machine behind a free DuckDNS name: nginx (TLS from Let's Encrypt) -> ui (Next.js) ->
+# api-gateway. Only nginx publishes a port to the outside; the router forwards 80 and 443 to this machine.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.override.selfhost.yml \
+#     --profile sandbox --profile selfhost up -d --build
+#
+# The first certificate has to be issued once by hand; docs/02-getting-started/self-hosting.md has every step.
+# Do not combine this file with docker-compose.override.public.yml, which publishes the observability UIs.
+
+services:
+  # Per-IP limits. The defaults are the services' own, which is right on a Linux host (Docker Engine), where each
+  # visitor arrives with their own address. Docker Desktop delivers every visitor to nginx from one address (its
+  # gateway, 172.18.0.1), so there each limit is shared by the whole site: ten mistyped passwords from anyone blocked
+  # sign-in for everyone for 30 minutes (2026-10-10). On Docker Desktop, raise them in .env (the SELFHOST_* block in
+  # .env.example). The per-account lockout (5 failures) is not affected either way.
+  # Reachable from this machine only (local tooling, `npm run dev`). The public path is nginx -> ui -> gateway.
+  api-gateway:
+    ports: !override
+      - "127.0.0.1:${GATEWAY_API_PORT:-7000}:8080"
+    environment:
+      RateLimiting__GlobalPermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  identity-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+      RateLimiting__Auth__PermitLimit: ${SELFHOST_AUTH_PERMIT_LIMIT:-10}
+      RateLimiting__Login__PermitLimit: ${SELFHOST_LOGIN_PERMIT_LIMIT:-5}
+      BruteForceProtection__MaxFailedAttemptsPerIp: ${SELFHOST_MAX_FAILED_LOGINS_PER_IP:-10}
+      BruteForceProtection__IpBlockDurationMinutes: ${SELFHOST_IP_BLOCK_MINUTES:-30}
+
+  catalog-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+      RateLimiting__Search__PermitLimit: ${SELFHOST_SEARCH_PERMIT_LIMIT:-30}
+
+  basket-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  ordering-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  payment-api:
+    environment:
+      RateLimiting__Global__PermitLimit: ${SELFHOST_GLOBAL_PERMIT_LIMIT:-100}
+
+  # Email links must point at the public name, not localhost.
+  notification-api:
+    environment:
+      PasswordReset__ResetUrlBase: https://${SELFHOST_DOMAIN:?SELFHOST_DOMAIN is required for self-hosting}/reset-password
+      EmailConfirmation__ConfirmUrlBase: https://${SELFHOST_DOMAIN:?SELFHOST_DOMAIN is required for self-hosting}/confirm-email
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    image: eshop-ui
+    container_name: eshop-ui
+    restart: unless-stopped
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://api-gateway:8080
+      # The card form (Stripe Payment Element) runs in the browser with this key; it is public by design and must
+      # belong to the same Stripe account as Payment's STRIPE_SECRET_KEY. Read at request time, not baked into the build.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      # nginx overwrites X-Forwarded-For with the peer address, so the UI may forward it to the gateway.
+      TRUST_PROXY_HEADERS: "true"
+    networks:
+      - eshop-network
+    profiles:
+      - selfhost
+
+  nginx:
+    image: nginx:1.30.5-alpine
+    container_name: eshop-nginx
+    restart: unless-stopped
+    depends_on:
+      ui:
+        condition: service_healthy
+    environment:
+      SELFHOST_DOMAIN: ${SELFHOST_DOMAIN:?SELFHOST_DOMAIN is required for self-hosting}
+    # start.sh renders HTTP-only or HTTPS config depending on whether the certificate exists yet, and reloads hourly
+    # so a renewal is picked up. Run through sh, so the bind-mounted file needs no execute bit.
+    entrypoint: ["/bin/sh", "/opt/eshop/nginx/start.sh"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx:/opt/eshop/nginx:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    networks:
+      - eshop-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t", "-q"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - selfhost
+
+  # Renews through nginx's webroot twice a day; certbot only acts within 30 days of expiry.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    container_name: eshop-certbot
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    profiles:
+      - selfhost
+
+  # Keeps <subdomain>.duckdns.org pointed at this connection's public IPv4 (checks every 5 minutes).
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:d860cc34-ls92
+    container_name: eshop-duckdns
+    restart: unless-stopped
+    environment:
+      SUBDOMAINS: ${DUCKDNS_SUBDOMAIN:?DUCKDNS_SUBDOMAIN is required for self-hosting}
+      TOKEN: ${DUCKDNS_TOKEN:?DUCKDNS_TOKEN is required for self-hosting}
+      UPDATE_IP: ipv4
+      LOG_FILE: "false"
+      TZ: ${TZ:-Etc/UTC}
+    profiles:
+      - selfhost
+
+volumes:
+  certbot-etc:
+    name: eshop-certbot-etc
+  certbot-www:
+    name: eshop-certbot-www
