@@ -7,6 +7,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.2.0" />
     <PackageReference Include="MailKit" Version="4.15.1" />
     <!--
       Design-time only (docker-ci DC-34). Without PrivateAssets it flowed into the API and published Roslyn
