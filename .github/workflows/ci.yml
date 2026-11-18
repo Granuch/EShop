@@ -5,6 +5,9 @@ on:
     branches: [ master ]
   push:
     branches: [ master, feature/**, bug/** ]
+  # Started by ci-catch-up.yml for a master commit no push event ran for: GitHub starts no workflow for a push made
+  # with the workflow token, which is how auto-merge lands a Dependabot pull request. Runs like a push.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -56,7 +59,7 @@ jobs:
         # there the tests are skipped.
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SANDBOX_SECRET_KEY }}
-          STRIPE_SANDBOX_REQUIRED: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+          STRIPE_SANDBOX_REQUIRED: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: dotnet test EShop.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
       - name: Upload test results
@@ -226,7 +229,7 @@ jobs:
     env:
       # Images are published as ghcr.io/granuch/eshop-<service>, the names deploy/ uses.
       IMAGE: ghcr.io/granuch/eshop-${{ matrix.service }}
-      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
 
     steps:
       - name: Checkout
@@ -288,7 +291,7 @@ jobs:
   # Pushes to master only, once every check above has passed: renders deploy/overlays/server with the images pinned
   # to this commit and publishes it as an OCI artifact. Nothing on the server changes yet.
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     needs: [build-test, lint, compose-validate, manifests, ui, docker-build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
