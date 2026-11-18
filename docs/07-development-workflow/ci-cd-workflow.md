@@ -104,8 +104,8 @@ kustomize and kubeconform are downloaded as release binaries pinned by version a
 ### ui
 
 Checks the Next.js storefront in `ui/` with the Node version its Dockerfile uses: `npm ci` (fails when
-`package-lock.json` no longer matches `package.json`), `npm run lint` (errors fail, warnings are reported), `tsc
---noEmit`, and `npm run build`. `ui/` has no tests, so this is the only gate for frontend changes.
+`package-lock.json` no longer matches `package.json`), `npm run lint` (errors fail, warnings are reported), `next
+typegen` then `tsc --noEmit` (the generated route types are needed on a clean checkout), and `npm run build`. `ui/` has no tests, so this is the only gate for frontend changes.
 
 ### docker-build
 
@@ -254,7 +254,7 @@ bash .github/scripts/ci-env.sh /tmp/ci.env && bash .github/scripts/compose-valid
 bash deploy/validate.sh
 
 # ui (from ui/, with Node 24)
-npm ci && npm run lint && npx tsc --noEmit && npm run build
+npm ci && npm run lint && npx next typegen && npx tsc --noEmit && npm run build
 
 # build-test (unset any ambient JWT variables, or you are testing your shell rather than the repo)
 env -u JwtSettings__SecretKey -u JWT_SIGNING_KEY dotnet test EShop.slnx -c Release

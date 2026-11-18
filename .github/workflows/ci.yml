@@ -169,7 +169,11 @@ jobs:
         run: npm run lint
 
       - name: Type-check
-        run: npx tsc --noEmit
+        # PageProps and LayoutProps are global types Next generates into .next/types; on a clean checkout tsc
+        # knows them only after `next typegen` (or a build) has written them.
+        run: |
+          npx next typegen
+          npx tsc --noEmit
 
       - name: Build
         # Every route is dynamic, so the build needs no reachable gateway.
