@@ -1,7 +1,11 @@
-# CI Workflow
+# CI/CD Workflow
 
-What runs on GitHub for this repository, what each check proves, and how to reproduce it locally. There is no CD:
-nothing is deployed from CI, and no image is pushed to a registry.
+What runs on GitHub for this repository, what each check proves, how a merge reaches the home server, and how to
+reproduce the checks locally.
+
+In short: every push and pull request runs the checks. A push to `master` that passes them also publishes the images
+and the rendered Kubernetes manifests to GHCR, then waits for an approval in the `production` environment. Approving
+moves the `production` tag, and Flux on the server applies it. GitHub never connects to the server; the server pulls.
 
 ---
 
@@ -9,14 +13,16 @@ nothing is deployed from CI, and no image is pushed to a registry.
 
 | Workflow | File | Runs on | Time |
 |---|---|---|---|
-| CI | `.github/workflows/ci.yml` | every push to `master`, `feature/**` and `bug/**`, and pull requests into `master` | ~5 min |
+| CI | `.github/workflows/ci.yml` | every push to `master`, `feature/**` and `bug/**`, and pull requests into `master` | ~5 min (+ publish on `master`) |
+| Rollback | `.github/workflows/rollback.yml` | manual dispatch | ~1 min |
 | Docker Smoke | `.github/workflows/docker-smoke.yml` | push to `master`, nightly at 03:00 UTC, manual dispatch | ~5 min |
 | Dependabot | `.github/dependabot.yml` | weekly | n/a |
 | Dependabot auto-merge | `.github/workflows/dependabot-auto-merge.yml` | Dependabot pull requests | seconds |
 | SonarCloud | `.github/workflows/sonarcloud.yml` | manual dispatch only | informational only, not a merge criterion |
 
-Both workflows run on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. They use a read-only
-`GITHUB_TOKEN` (`permissions: contents: read`) and cancel an older run of the same branch.
+Every workflow runs on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. The `GITHUB_TOKEN` is
+read-only (`permissions: contents: read`) except in the jobs that publish to GHCR, which add `packages: write`
+themselves. CI cancels an older run of the same branch, so on `master` only the newest commit waits for approval.
 
 Every action is pinned to a full commit SHA with its release in a comment (`actions/checkout@<sha> # v7.0.1`), because
 a tag can be moved and a SHA cannot. Dependabot bumps both. The lint and scan tools run as pinned `docker run` images
@@ -25,9 +31,9 @@ a tag can be moved and a SHA cannot. Dependabot bumps both. The lint and scan to
 ### Branch rules on `master`
 
 `master` is guarded by the repository ruleset named `master` (there is no classic branch protection any more). A pull
-request can merge only when the eleven CI checks pass:
-- `build-test`, `lint`, `compose-validate` and `manifests`;
-- the seven `docker-build (<service>)` matrix jobs.
+request can merge only when the thirteen CI checks pass:
+- `build-test`, `lint`, `compose-validate`, `manifests` and `ui`;
+- the eight `docker-build (<service>)` matrix jobs (the seven services and `ui`).
 
 The ruleset also allows squash merges only, keeps history linear, blocks force pushes and deletion, requires every
 review conversation to be resolved, and requires a code owner's approval for files listed in `.github/CODEOWNERS`.
@@ -46,7 +52,8 @@ commands to check it, in [repository-settings.md](repository-settings.md).
 
 ## CI (`ci.yml`)
 
-Four jobs run in parallel. Each one fails for its own reason.
+Six check jobs run in parallel, each failing for its own reason. On a push to `master`, two delivery jobs follow
+once all of them pass (see [Delivery](#delivery-publish-and-deploy)).
 
 ### build-test
 
@@ -94,13 +101,53 @@ Runs `deploy/validate.sh` on the Kubernetes manifests in `deploy/` (see [deploy/
 
 kustomize and kubeconform are downloaded as release binaries pinned by version and SHA-256.
 
+### ui
+
+Checks the Next.js storefront in `ui/` with the Node version its Dockerfile uses: `npm ci` (fails when
+`package-lock.json` no longer matches `package.json`), `npm run lint` (errors fail, warnings are reported), `tsc
+--noEmit`, and `npm run build`. `ui/` has no tests, so this is the only gate for frontend changes.
+
 ### docker-build
 
-Builds each of the seven service images in its own matrix job. Each job uses a GitHub Actions build cache per image,
-and nothing is pushed. It then runs Trivy on the image for HIGH and CRITICAL vulnerabilities, **report-only**:
+Builds each of the seven service images and the `ui` image in its own matrix job. On a push to `master` each job also
+pushes its image to GHCR as `ghcr.io/granuch/eshop-<service>`, tagged `sha-<commit>` (what deployments use, never
+moved) and `master` (the latest build). The push reuses the build's layers, so it adds seconds.
+
+Each job builds with a GitHub Actions build cache per image, then runs Trivy on the image for HIGH and CRITICAL
+vulnerabilities, **report-only**:
 - The base image (Ubuntu 24.04) had no findings on the first run.
 - The one HIGH it reports is `Microsoft.OpenApi` 2.0.0. The build reports the same package as `NU1903`, and it is left
   for a dependency update.
+
+### Delivery: publish and deploy
+
+Only on a push to `master`, after every check job above has passed:
+
+1. **`publish`** renders `deploy/overlays/server` with every image pinned to `sha-<commit>` (`deploy/render.sh`),
+   checks that each of those images exists in GHCR, and pushes the result with `flux push artifact` as the OCI
+   artifact `ghcr.io/granuch/eshop-deploy:sha-<commit>`. It holds `infra/` (the rendered infrastructure plus the
+   SOPS-encrypted Secret, copied as it is) and `apps/`. Nothing on the server changes yet.
+2. **`deploy`** runs in the `production` environment, so it **waits for an approval** (the run page shows "Review
+   deployments"; only `master` may use the environment). Approving runs `flux tag artifact … --tag production`.
+   Flux on the server polls that tag every minute, decrypts the Secret with its own age key, applies `infra/`,
+   then `apps/`, and waits for the workloads to become ready.
+
+A newer push to `master` cancels an older run that is still waiting, so only the newest commit is ever offered. Two
+deployments never run at once (`concurrency: deploy-production`). To make deployment automatic, remove the required
+reviewer from the environment ([repository-settings.md](repository-settings.md#environments)).
+
+GHCR holds the images (`eshop-<service>`) and the artifact (`eshop-deploy`) as packages of the owner's account. The
+server pulls them without credentials, so the packages must be **public** (Package settings → Change visibility);
+this is a one-time step per package, done in the web UI.
+
+---
+
+## Rollback (`rollback.yml`)
+
+`gh workflow run Rollback -f commit=<full SHA>` points `production` back at an earlier commit that CI published. It
+needs the same approval as a deployment, and Flux applies it within a minute. Database migrations are not reverted, so
+roll back only to a commit whose code works with the current schema. To find candidates:
+`gh run list --workflow CI --branch master --status success --json headSha,displayTitle`.
 
 ---
 
@@ -205,6 +252,9 @@ bash .github/scripts/ci-env.sh /tmp/ci.env && bash .github/scripts/compose-valid
 
 # manifests (kubeconform and a kustomize on PATH, Python 3 with PyYAML)
 bash deploy/validate.sh
+
+# ui (from ui/, with Node 24)
+npm ci && npm run lint && npx tsc --noEmit && npm run build
 
 # build-test (unset any ambient JWT variables, or you are testing your shell rather than the repo)
 env -u JwtSettings__SecretKey -u JWT_SIGNING_KEY dotnet test EShop.slnx -c Release
