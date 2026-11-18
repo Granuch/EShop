@@ -17,7 +17,7 @@ R=repos/Granuch/EShop
 | Setting | Value | Why |
 |---|---|---|
 | Fork pull request workflows | approval required for **all external contributors** | A pull request from a fork runs nothing until a maintainer clicks "Approve and run". The default only asked first-time contributors. Read the diff before approving: build and test steps execute the pull request's code. |
-| Allowed actions | GitHub-owned actions plus `docker/*` and `fluxcd/*` | A workflow cannot pull in an arbitrary third-party action. A new action from another owner must be added to this list first. |
+| Allowed actions | GitHub-owned actions plus `docker/*`, `fluxcd/*` and `dependabot/*` | A workflow cannot pull in an arbitrary third-party action. A new action from another owner must be added to this list first. |
 | Require actions pinned to a full SHA | on | A tag can be moved to different code; a commit SHA cannot. Every workflow already pins its actions, and Dependabot bumps SHA and comment together. |
 | Default `GITHUB_TOKEN` permissions | read-only; cannot approve pull requests | Each job asks for any extra permission itself (`permissions:` in the workflow), so only the jobs that need it get it. |
 | Artifact and log retention | 30 days | Test results and smoke logs are useful for a few weeks, not three months. |
@@ -32,7 +32,7 @@ gh api $R/actions/permissions/artifact-and-log-retention
 # Reapply
 gh api -X PUT $R/actions/permissions/fork-pr-contributor-approval -f approval_policy=all_external_contributors
 gh api -X PUT $R/actions/permissions -F enabled=true -f allowed_actions=selected -F sha_pinning_required=true
-echo '{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["docker/*","fluxcd/*"]}' \
+echo '{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["docker/*","fluxcd/*","dependabot/*"]}' \
   | gh api -X PUT $R/actions/permissions/selected-actions --input -
 gh api -X PUT $R/actions/permissions/artifact-and-log-retention -F days=30
 ```
@@ -67,7 +67,7 @@ gh api $R/code-scanning/default-setup
 |---|---|---|
 | Merge methods | squash only | One commit per pull request on `master`, titled with the pull request's title. The ruleset enforces the same. |
 | "Update branch" button | on | Brings a pull request up to date with `master` without a local merge. |
-| Auto-merge | on | A pull request (for example a Dependabot one) can be set to merge itself once every check passes. |
+| Auto-merge | on | A pull request can be set to merge itself once every required check passes. `dependabot-auto-merge.yml` does this for low-risk Dependabot updates; see [ci-cd-workflow.md](ci-cd-workflow.md#automatic-merging). |
 | Delete head branch on merge | **off** | Long-lived branches such as `feature/ui` are themselves merged into `master` through pull requests; deleting them automatically would remove them. Delete finished short-lived branches by hand. |
 | Wiki, Projects | off | Unused; documentation lives in `docs/`. |
 
