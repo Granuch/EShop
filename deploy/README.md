@@ -14,6 +14,9 @@ deploy/
 │   │   ├── infra/    namespace + infra, and secrets.enc.yaml (SOPS)
 │   │   └── apps/     apps + monitoring + public edge (Ingress, TLS, DuckDNS, Stripe listener, LAN-only NodePorts)
 │   └── local/        any test cluster: namespace eshop-local, Mailpit, throwaway credentials
+├── components/
+│   └── apparmor/     puts every pod under the node's eshop-container AppArmor profile (server only)
+├── flux/             sync.yaml (applied once on the server) and addons/ (cert-manager)
 ├── render.sh         renders an overlay to plain YAML (what CI publishes)
 └── validate.sh       renders both overlays and checks them (CI's `manifests` job)
 ```
@@ -83,6 +86,16 @@ private key exists only on the server and in the owner's offline backup; Flux de
 
 Values go into connection strings, so keep them free of `;`, `=` and quotes (hex is safest).
 
+## AppArmor on Ubuntu 26.04
+
+On Ubuntu 26.04 (AppArmor 5) containerd's default AppArmor profile cannot work: container processes run under a
+stacked label (`cri-containerd.apparmor.d//&unconfined`) that the profile does not accept as a signal peer, so one
+process in a container cannot signal another. PostgreSQL never finished starting (`could not signal for checkpoint:
+Permission denied`, after `gosu` spun at 100 % CPU), and the kernel log showed `apparmor="DENIED" operation="signal"`.
+The home server therefore loads its own profile, `/etc/apparmor.d/eshop-container` (containerd's default plus that
+label), and `components/apparmor` makes every pod in the server overlay use it. A new node needs that file first, or
+the pods do not start. PostgreSQL also runs as its own user (uid 70), so its entrypoint never needs `gosu`.
+
 ## Trying it on a test cluster
 
 ```bash
@@ -93,6 +106,12 @@ kubectl -n eshop-local port-forward svc/ui 3000:3000        # the shop
 kubectl -n eshop-local port-forward svc/mailpit 8025:8025   # captured email
 kubectl delete namespace eshop-local                        # removes everything, volumes included
 ```
+
+On the home server, render it with the AppArmor component (a throwaway overlay with `resources: [../local]` and
+`components: [../../components/apparmor]`), or Postgres will not start. With the port-forwards above plus
+`svc/jaeger 16686:16686`, `.github/scripts/smoke_e2e.py` runs against it: set `KUBE_NAMESPACE=eshop-local`
+(and `KUBE_CONTEXT`), `ADMIN_EMAIL=admin@eshop.local` and `ADMIN_PASSWORD` to `seed-admin-password` from
+`secrets.env`. That is how the stack was first verified on the server (2026-11-18, smoke passed).
 
 Plain `kubectl apply -k` fails on the configMapGenerators that read `infrastructure/`, because it cannot lift the
 load restrictor; `render.sh` passes it. Apply with `--server-side`: client-side apply copies each object into a

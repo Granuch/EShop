@@ -16,6 +16,10 @@ resources:
   - stripe-listener.yaml
   - nodeports.yaml
 
+# Every pod under the node's eshop-container AppArmor profile (see the component for why).
+components:
+  - ../../../components/apparmor
+
 # Only what differs from the base; the base holds the shared defaults.
 configMapGenerator:
   - name: eshop-config
@@ -37,11 +41,7 @@ configMapGenerator:
       - Smtp__Security=StartTls
       - PasswordReset__ResetUrlBase=https://granuch-shop.duckdns.org/reset-password
       - EmailConfirmation__ConfirmUrlBase=https://granuch-shop.duckdns.org/confirm-email
-  - name: payment-config
-    behavior: merge
-    literals:
-      # Test mode: the keys in the Secret are the Stripe sandbox account's.
-      - Stripe__Enabled=true
+  # Stripe is on in the base too; on the server the keys in the Secret are the Stripe sandbox account's (test mode).
   - name: gateway-config
     behavior: merge
     literals:

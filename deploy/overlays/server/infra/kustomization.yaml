@@ -12,3 +12,6 @@ namespace: eshop
 resources:
   - namespace.yaml
   - ../../../base/infra
+
+components:
+  - ../../../components/apparmor
