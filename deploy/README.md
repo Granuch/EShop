@@ -28,8 +28,8 @@ and `monitoring/prometheus-alerts.yml` are used as they are, through `configMapG
 ## How it reaches the server
 
 CI renders `overlays/server` (plus `flux/addons`, which installs cert-manager) with the images pinned to the commit
-(`sha-<commit>`) and publishes the result as the OCI artifact `ghcr.io/granuch/eshop-deploy:sha-<commit>`. Approving
-the deploy job moves its `production` tag. Flux on the server polls that tag (`flux/sync.yaml`) and applies
+(`sha-<commit>`) and publishes the result as the OCI artifact `ghcr.io/granuch/eshop-deploy:sha-<commit>`. The
+deploy job then moves its `production` tag. Flux on the server polls that tag (`flux/sync.yaml`) and applies
 `addons/` and `infra/`, then `apps/`. Nothing in GitHub can reach the server. See
 `docs/07-development-workflow/ci-cd-workflow.md`.
 

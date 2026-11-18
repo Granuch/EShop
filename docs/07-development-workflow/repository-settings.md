@@ -84,8 +84,7 @@ There is no classic branch protection; two rulesets replace it.
 - pull request required, squash merge only;
 - the CI checks listed in [ci-cd-workflow.md](ci-cd-workflow.md#branch-rules-on-master) must pass;
 - every review conversation resolved;
-- approval from a code owner for files listed in [`.github/CODEOWNERS`](../../.github/CODEOWNERS): workflows, deployment
-  manifests, Dockerfiles and compose files; an approval is dismissed when new commits are pushed;
+- no required review: a collaborator merges on green CI;
 - linear history, no force push, no deletion.
 
 **`release tags`** (tag ruleset): tags matching `v*` can only be created, moved or deleted by an admin.
@@ -103,21 +102,27 @@ current one first and change only what you mean to.
 
 ## Environments
 
-**`production`**: a job that names this environment waits until an approver confirms it in the run's page. Only runs
-from `master` may use it. The deployment workflow uses it, so nothing reaches the server without one click.
+**`production`**: only runs from `master` may use it, so only a merged commit can be deployed or rolled back to. It
+has no required reviewer: every green merge is deployed without a click (decided 2026-11-18).
 
 ```bash
 gh api $R/environments/production --jq '{protection_rules, deployment_branch_policy}'
 gh api $R/environments/production/deployment-branch-policies
+
+# Gate deployments by hand again (the deploy job then waits at "Review deployments" until a reviewer approves):
+echo '{"reviewers":[{"type":"User","id":'"$(gh api users/Granuch -q .id)"'}],
+  "deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' \
+  | gh api -X PUT $R/environments/production --input -
 ```
 
-To make deployment fully automatic, remove the required reviewer from the environment; to add a second approver, add
-them to its reviewers.
+## Collaborators and outside contributors
 
-## Collaborators
-
-Collaborators with Write access are trusted with the repository's secrets: a workflow on a branch they push can read
-them. Every collaborator should have two-factor authentication on their GitHub account.
+Who can do what:
+- **Collaborators with Write access** (the owner and Yarickprogramist) push branches, run CI with the repository's
+  secrets, and merge a pull request once its checks pass; no review is required. A workflow on a branch they push can
+  read the secrets, so every collaborator should have two-factor authentication on their GitHub account.
+- **Anyone else** works from a fork. Their pull request runs no workflow until a collaborator clicks "Approve and run"
+  (see [Actions](#actions)), gets no secrets even then, and can only be merged by a collaborator.
 
 ```bash
 gh api $R/collaborators --jq '.[] | .login + " " + .role_name'

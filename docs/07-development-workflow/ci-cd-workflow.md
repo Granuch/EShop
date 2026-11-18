@@ -4,8 +4,8 @@ What runs on GitHub for this repository, what each check proves, how a merge rea
 reproduce the checks locally.
 
 In short: every push and pull request runs the checks. A push to `master` that passes them also publishes the images
-and the rendered Kubernetes manifests to GHCR, then waits for an approval in the `production` environment. Approving
-moves the `production` tag, and Flux on the server applies it. GitHub never connects to the server; the server pulls.
+and the rendered Kubernetes manifests to GHCR, then moves the `production` tag, and Flux on the server applies it
+within about a minute. GitHub never connects to the server; the server pulls.
 
 ---
 
@@ -22,7 +22,7 @@ moves the `production` tag, and Flux on the server applies it. GitHub never conn
 
 Every workflow runs on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. The `GITHUB_TOKEN` is
 read-only (`permissions: contents: read`) except in the jobs that publish to GHCR, which add `packages: write`
-themselves. CI cancels an older run of the same branch, so on `master` only the newest commit waits for approval.
+themselves. CI cancels an older run of the same branch.
 
 Every action is pinned to a full commit SHA with its release in a comment (`actions/checkout@<sha> # v7.0.1`), because
 a tag can be moved and a SHA cannot. Dependabot bumps both. The lint and scan tools run as pinned `docker run` images
@@ -36,7 +36,7 @@ request can merge only when the thirteen CI checks pass:
 - the eight `docker-build (<service>)` matrix jobs (the seven services and `ui`).
 
 The ruleset also allows squash merges only, keeps history linear, blocks force pushes and deletion, requires every
-review conversation to be resolved, and requires a code owner's approval for files listed in `.github/CODEOWNERS`.
+review conversation to be resolved. It requires no review, so a collaborator merges on green CI.
 Admins can bypass it. Adding, removing or renaming a CI job or a `docker-build` matrix entry means updating the
 required checks in the ruleset too. A required check that no longer runs stays "Expected" and blocks every merge.
 
@@ -127,14 +127,15 @@ Only on a push to `master`, after every check job above has passed:
    checks that each of those images exists in GHCR, and pushes the result with `flux push artifact` as the OCI
    artifact `ghcr.io/granuch/eshop-deploy:sha-<commit>`. It holds `infra/` (the rendered infrastructure plus the
    SOPS-encrypted Secret, copied as it is) and `apps/`. Nothing on the server changes yet.
-2. **`deploy`** runs in the `production` environment, so it **waits for an approval** (the run page shows "Review
-   deployments"; only `master` may use the environment). Approving runs `flux tag artifact … --tag production`.
+2. **`deploy`** runs in the `production` environment (only `master` may use it) and runs
+   `flux tag artifact … --tag production`. The environment has no required reviewer, so every green merge is
+   deployed; to gate deployments by hand, add a reviewer to it (the run then waits at "Review deployments").
    Flux on the server polls that tag every minute, decrypts the Secret with its own age key, applies `infra/`,
    then `apps/`, and waits for the workloads to become ready.
 
-A newer push to `master` cancels an older run that is still waiting, so only the newest commit is ever offered. Two
-deployments never run at once (`concurrency: deploy-production`). To make deployment automatic, remove the required
-reviewer from the environment ([repository-settings.md](repository-settings.md#environments)).
+Two deployments never run at once (`concurrency: deploy-production`), and a newer push to `master` cancels an older
+run that has not finished. How to gate deployments by hand again is in
+[repository-settings.md](repository-settings.md#environments).
 
 GHCR holds the images (`eshop-<service>`) and the artifact (`eshop-deploy`) as packages of the owner's account. The
 server pulls them without credentials, so the packages must be **public** (Package settings → Change visibility);
@@ -145,7 +146,7 @@ this is a one-time step per package, done in the web UI.
 ## Rollback (`rollback.yml`)
 
 `gh workflow run Rollback -f commit=<full SHA>` points `production` back at an earlier commit that CI published. It
-needs the same approval as a deployment, and Flux applies it within a minute. Database migrations are not reverted, so
+runs in the same environment, and Flux applies it within a minute. Database migrations are not reverted, so
 roll back only to a commit whose code works with the current schema. To find candidates:
 `gh run list --workflow CI --branch master --status success --json headSha,displayTitle`.
 
@@ -217,8 +218,7 @@ not a bump to merge.
 - a **minor** update in any ecosystem except npm (`ui/` has no tests, so a green build proves little there).
 
 Auto-merge merges only after every required check of the `master` ruleset passes, so a bump that breaks the build, a
-test or an image stays open for a person to look at. A pull request that changes a path in `.github/CODEOWNERS`
-(workflows, Dockerfiles, compose files, `deploy/`) still waits for the owner's approval, and merges right after it.
+test or an image stays open for a person to look at.
 Major updates and npm minor updates are left for a person. The job runs only when Dependabot both opened the pull
 request and pushed its latest commit, so a commit someone else adds to a Dependabot branch is never merged
 automatically. Merging into `master` never deploys by itself: the deployment waits for an approval in the

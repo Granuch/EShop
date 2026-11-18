@@ -1,8 +1,8 @@
 # How Flux on the home server follows releases. Applied once by hand after `flux install` (deploy/README.md,
 # "Setting up the server"); everything else then arrives through the artifact.
 #
-# CI publishes oci://ghcr.io/granuch/eshop-deploy:sha-<commit> for every master commit; approving the deploy job
-# moves the "production" tag. Flux polls that tag and applies, in order:
+# CI publishes oci://ghcr.io/granuch/eshop-deploy:sha-<commit> for every master commit, and its deploy job moves the
+# "production" tag. Flux polls that tag and applies, in order:
 #   addons/  cert-manager                  (eshop-addons)
 #   infra/   namespace, databases, Redis, RabbitMQ, the SOPS-encrypted Secret   (eshop-infra)
 #   apps/    services, ui, monitoring, edge (eshop-apps, after both)

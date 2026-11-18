@@ -342,8 +342,9 @@ jobs:
             --source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             --revision="master@sha1:${GITHUB_SHA}"
 
-  # Waits for an approval in the production environment, then points the "production" tag at this commit's
-  # artifact. Flux on the server follows that tag and applies the change within about a minute.
+  # Points the "production" tag at this commit's artifact; Flux on the server follows that tag and applies the change
+  # within about a minute. The production environment allows only master; it has no required reviewer, so this runs
+  # straight after publish (add a reviewer to the environment to gate deployments by hand again).
   # To roll back, run the Rollback workflow with an older commit.
   deploy:
     needs: publish
