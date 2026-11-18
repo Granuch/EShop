@@ -67,3 +67,6 @@
 # fails under sh, so keep LF in the working copy whatever core.autocrlf says.
 ###############################################################################
 infrastructure/nginx/** text eol=lf
+# Shell scripts run under bash on Linux runners, in containers and from Git Bash; a carriage return at the end of a
+# line breaks them ("command not found"), so they stay LF on every checkout.
+*.sh text eol=lf

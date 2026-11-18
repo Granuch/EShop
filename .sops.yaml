@@ -1,0 +1,12 @@
+# SOPS rules for this repository. Only the values of a Secret's data/stringData are encrypted; names stay
+# readable so a diff shows which key changed. The private age key exists only on the home server (and in
+# the owner's offline backup): anyone can encrypt a whole new file with the public key below, but changing one
+# value of an existing file needs the private key, because SOPS must unwrap the file's data key first.
+#   Edit (with SOPS_AGE_KEY_FILE pointing at the private key):
+#           sops deploy/overlays/server/infra/secrets.enc.yaml
+#   Replace the whole file from a plaintext Secret (public key only):
+#           sops encrypt --filename-override deploy/overlays/server/infra/secrets.enc.yaml plain.yaml > deploy/overlays/server/infra/secrets.enc.yaml
+creation_rules:
+  - path_regex: \.enc\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1h67fqruk89v4cueeyl36akvy78rcldk7p4xqlhls785kppdday4q0xlpcv

@@ -1,0 +1,479 @@
+# One PostgreSQL 16 per service, as in docker-compose.yml. The five blocks differ only in name, database and
+# tuning file; change all five together (the root CLAUDE.md warns that near-identical manifests drift).
+# Data lives in a local-path volume on the node. PGDATA is a subdirectory so the volume root may hold
+# other files without initdb refusing a non-empty directory.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-postgres
+  labels:
+    app.kubernetes.io/name: identity-postgres
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: identity-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: identity-postgres
+  labels:
+    app.kubernetes.io/name: identity-postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: identity-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-postgres
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      # A clean shutdown writes a checkpoint; give it time before SIGKILL.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16.13-alpine
+          args: ["-c", "config_file=/etc/postgresql/postgresql.conf"]
+          env:
+            - name: POSTGRES_DB
+              value: eshop_identity
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: identity-db-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_identity"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_identity"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # shared_buffers is 256MB in the tuning file.
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-config-identity
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-postgres
+  labels:
+    app.kubernetes.io/name: catalog-postgres
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: catalog-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: catalog-postgres
+  labels:
+    app.kubernetes.io/name: catalog-postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: catalog-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: catalog-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: catalog-postgres
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      # A clean shutdown writes a checkpoint; give it time before SIGKILL.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16.13-alpine
+          args: ["-c", "config_file=/etc/postgresql/postgresql.conf"]
+          env:
+            - name: POSTGRES_DB
+              value: eshop_catalog
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: catalog-db-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_catalog"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_catalog"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # shared_buffers is 256MB in the tuning file.
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-config-catalog
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordering-postgres
+  labels:
+    app.kubernetes.io/name: ordering-postgres
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: ordering-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ordering-postgres
+  labels:
+    app.kubernetes.io/name: ordering-postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: ordering-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ordering-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ordering-postgres
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      # A clean shutdown writes a checkpoint; give it time before SIGKILL.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16.13-alpine
+          args: ["-c", "config_file=/etc/postgresql/postgresql.conf"]
+          env:
+            - name: POSTGRES_DB
+              value: eshop_ordering
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: ordering-db-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_ordering"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_ordering"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # shared_buffers is 256MB in the tuning file.
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-config-ordering
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-postgres
+  labels:
+    app.kubernetes.io/name: payment-postgres
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: payment-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: payment-postgres
+  labels:
+    app.kubernetes.io/name: payment-postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: payment-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-postgres
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      # A clean shutdown writes a checkpoint; give it time before SIGKILL.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16.13-alpine
+          args: ["-c", "config_file=/etc/postgresql/postgresql.conf"]
+          env:
+            - name: POSTGRES_DB
+              value: eshop_payment
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: payment-db-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_payment"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_payment"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # shared_buffers is 256MB in the tuning file.
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-config-ordering
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-postgres
+  labels:
+    app.kubernetes.io/name: notification-postgres
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    app.kubernetes.io/name: notification-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: notification-postgres
+  labels:
+    app.kubernetes.io/name: notification-postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: notification-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notification-postgres
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      # A clean shutdown writes a checkpoint; give it time before SIGKILL.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16.13-alpine
+          args: ["-c", "config_file=/etc/postgresql/postgresql.conf"]
+          env:
+            - name: POSTGRES_DB
+              value: eshop_notification
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: notification-db-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_notification"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "eshop_notification"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # shared_buffers is 256MB in the tuning file.
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-config-ordering
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

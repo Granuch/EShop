@@ -1,0 +1,70 @@
+# Home server, part 2: the applications, the monitoring stack and the public edge.
+# Only the Ingress is public (80/443 through Traefik); the monitoring UIs get NodePorts, which the router does
+# not forward, so they are reachable from the home LAN and Tailscale only.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eshop
+
+resources:
+  - ../../../base/apps
+  - ../../../base/monitoring
+  - ingress.yaml
+  - middlewares.yaml
+  - issuer.yaml
+  - duckdns.yaml
+  - stripe-listener.yaml
+  - nodeports.yaml
+
+# Only what differs from the base; the base holds the shared defaults.
+configMapGenerator:
+  - name: eshop-config
+    behavior: merge
+    literals:
+      - Cors__AllowedOrigins__0=https://granuch-shop.duckdns.org
+      - Cors__AllowedOrigins__1=https://granuch-shop.duckdns.org
+  - name: identity-config
+    behavior: merge
+    literals:
+      # Not a real mailbox on purpose: the seed admin exists only on an empty database, and a password reset
+      # for an address on someone else's domain would mail them a live admin token.
+      - Identity__SeedAdminEmail=admin@granuch-shop.duckdns.org
+  - name: notification-config
+    behavior: merge
+    literals:
+      - Smtp__Host=smtp.gmail.com
+      - Smtp__Port=587
+      - Smtp__Security=StartTls
+      - PasswordReset__ResetUrlBase=https://granuch-shop.duckdns.org/reset-password
+      - EmailConfirmation__ConfirmUrlBase=https://granuch-shop.duckdns.org/confirm-email
+  - name: payment-config
+    behavior: merge
+    literals:
+      # Test mode: the keys in the Secret are the Stripe sandbox account's.
+      - Stripe__Enabled=true
+  - name: gateway-config
+    behavior: merge
+    literals:
+      - Email__Host=smtp.gmail.com
+      - Email__Port=587
+      # STARTTLS (EmailOptions.UseSsl maps to SecureSocketOptions.StartTls).
+      - Email__UseSsl=true
+
+# CI replaces "master" with the commit's sha-<sha> tag before publishing (deploy/render.sh).
+images:
+  - name: ghcr.io/granuch/eshop-identity-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-catalog-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-basket-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-ordering-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-payment-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-notification-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-api-gateway
+    newTag: master
+  - name: ghcr.io/granuch/eshop-ui
+    newTag: master

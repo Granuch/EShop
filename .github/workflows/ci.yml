@@ -111,6 +111,35 @@ jobs:
           bash .github/scripts/ci-env.sh "$RUNNER_TEMP/ci.env"
           bash .github/scripts/compose-validate.sh "$RUNNER_TEMP/ci.env"
 
+  manifests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kustomize and kubeconform
+        # Release binaries pinned by version and SHA-256, like the docker run tools above.
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$bin"
+          curl -fsSLo kustomize.tgz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+          echo "cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61  kustomize.tgz" | sha256sum -c -
+          curl -fsSLo kubeconform.tgz https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  kubeconform.tgz" | sha256sum -c -
+          tar xzf kustomize.tgz kustomize
+          tar xzf kubeconform.tgz kubeconform
+          echo "$bin" >> "$GITHUB_PATH"
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --user pyyaml==6.0.3
+
+      - name: Validate deploy/
+        # Renders both overlays, checks every object against its schema, checks that the server Secret is still
+        # SOPS-encrypted, and that every workload has a pinned image, a memory limit and a readiness probe.
+        run: bash deploy/validate.sh
+
   docker-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
