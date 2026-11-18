@@ -24,9 +24,30 @@ and `monitoring/prometheus-alerts.yml` are used as they are, through `configMapG
 
 ## How it reaches the server
 
-CI renders `overlays/server` with the images pinned to the commit (`sha-<commit>`) and publishes the result as an OCI
-artifact; Flux on the server applies `infra/` first, then `apps/`. Nothing in GitHub can reach the server. See
+CI renders `overlays/server` (plus `flux/addons`, which installs cert-manager) with the images pinned to the commit
+(`sha-<commit>`) and publishes the result as the OCI artifact `ghcr.io/granuch/eshop-deploy:sha-<commit>`. Approving
+the deploy job moves its `production` tag. Flux on the server polls that tag (`flux/sync.yaml`) and applies
+`addons/` and `infra/`, then `apps/`. Nothing in GitHub can reach the server. See
 `docs/07-development-workflow/ci-cd-workflow.md`.
+
+### Setting up the server (once)
+
+On a fresh k3s node, from a machine whose kubeconfig reaches it (context `granuch-server` here):
+
+```bash
+flux check --pre
+flux install --version=v2.10.0                       # source, kustomize, helm and notification controllers
+# On the server itself, so the private key never leaves it:
+sudo k3s kubectl -n flux-system create secret generic sops-age \
+  --from-file=age.agekey=<path to the age key>
+kubectl apply -f deploy/flux/sync.yaml
+flux get kustomizations --watch                      # eshop-addons, eshop-infra, eshop-apps
+```
+
+Day to day: `flux get kustomizations`, `flux get sources oci`, `flux logs --level=error`, and
+`flux reconcile kustomization eshop-apps --with-source` to apply at once instead of waiting a minute.
+`flux suspend kustomization eshop-apps` stops Flux from changing the apps (for maintenance, a data restore);
+`flux resume …` hands control back. Upgrading Flux: `flux install --version=<new>` with the same flags.
 
 Only the storefront is public: `granuch-shop.duckdns.org` → Traefik (TLS from Let's Encrypt through cert-manager) →
 `ui` → `api-gateway`. The gateway and every other service are reachable only inside the cluster. The operator UIs have
