@@ -1,0 +1,12 @@
+# Files whose changes need the owner's review before they reach master. The master ruleset requires a code owner's
+# approval, so a pull request touching any of these waits for @Granuch. Everything else needs only green CI.
+# CI and repository automation: a workflow change can read secrets or publish images.
+/.github/                   @Granuch
+# What the server runs and how it is deployed.
+/deploy/                    @Granuch
+/k8s/                       @Granuch
+/infrastructure/            @Granuch
+/docker-compose*.yml        @Granuch
+Dockerfile                  @Granuch
+/.dockerignore              @Granuch
+/.hadolint.yaml             @Granuch

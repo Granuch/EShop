@@ -21,19 +21,25 @@ Every action is pinned to a full commit SHA with its release in a comment (`acti
 a tag can be moved and a SHA cannot. Dependabot bumps both. The lint and scan tools run as pinned `docker run` images
 (`rhysd/actionlint`, `hadolint/hadolint`, `aquasec/trivy`), which Dependabot does not see, so bump those by hand.
 
-### Branch protection on `master`
+### Branch rules on `master`
 
-`master` requires the ten CI checks to pass before a pull request can merge:
+`master` is guarded by the repository ruleset named `master` (there is no classic branch protection any more). A pull
+request can merge only when the ten CI checks pass:
 - `build-test`, `lint` and `compose-validate`;
 - the seven `docker-build (<service>)` matrix jobs.
 
-Force pushes and branch deletion are blocked, and no review is required. The owner, as an admin, can bypass the rule.
-Adding, removing or renaming a CI job or a `docker-build` matrix entry means updating the required checks too. A
-required check that no longer runs stays "Expected" and blocks every merge.
+The ruleset also allows squash merges only, keeps history linear, blocks force pushes and deletion, requires every
+review conversation to be resolved, and requires a code owner's approval for files listed in `.github/CODEOWNERS`.
+Admins can bypass it. Adding, removing or renaming a CI job or a `docker-build` matrix entry means updating the
+required checks in the ruleset too. A required check that no longer runs stays "Expected" and blocks every merge.
 
 ```bash
-gh api repos/Granuch/EShop/branches/master/protection --jq '[.required_status_checks.checks[].context]'
+gh api repos/Granuch/EShop/rules/branches/master \
+  --jq '.[] | select(.type=="required_status_checks") | [.parameters.required_status_checks[].context]'
 ```
+
+Every other repository setting (Actions permissions, security features, environments) is described, with the
+commands to check it, in [repository-settings.md](repository-settings.md).
 
 ---
 
