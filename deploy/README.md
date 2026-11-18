@@ -67,6 +67,12 @@ over Tailscale only:
 | RedisInsight | 30540 | none |
 | Redis Commander | 30081 | none |
 
+## Operating it
+
+Day-to-day operation (health checks, releases and rollbacks, the nightly database backup and restoring from it,
+rotating a secret, the certificate, known problems) is in
+[docs/02-getting-started/k3s-deployment.md](../docs/02-getting-started/k3s-deployment.md).
+
 ## Secrets
 
 Every credential is in one Secret, `eshop-secrets`. On the server it is `overlays/server/infra/secrets.enc.yaml`,
