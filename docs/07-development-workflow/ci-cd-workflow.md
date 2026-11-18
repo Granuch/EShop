@@ -12,6 +12,7 @@ nothing is deployed from CI, and no image is pushed to a registry.
 | CI | `.github/workflows/ci.yml` | every push to `master`, `feature/**` and `bug/**`, and pull requests into `master` | ~5 min |
 | Docker Smoke | `.github/workflows/docker-smoke.yml` | push to `master`, nightly at 03:00 UTC, manual dispatch | ~5 min |
 | Dependabot | `.github/dependabot.yml` | weekly | n/a |
+| Dependabot auto-merge | `.github/workflows/dependabot-auto-merge.yml` | Dependabot pull requests | seconds |
 | SonarCloud | `.github/workflows/sonarcloud.yml` | manual dispatch only | informational only, not a merge criterion |
 
 Both workflows run on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. They use a read-only
@@ -24,8 +25,8 @@ a tag can be moved and a SHA cannot. Dependabot bumps both. The lint and scan to
 ### Branch rules on `master`
 
 `master` is guarded by the repository ruleset named `master` (there is no classic branch protection any more). A pull
-request can merge only when the ten CI checks pass:
-- `build-test`, `lint` and `compose-validate`;
+request can merge only when the eleven CI checks pass:
+- `build-test`, `lint`, `compose-validate` and `manifests`;
 - the seven `docker-build (<service>)` matrix jobs.
 
 The ruleset also allows squash merges only, keeps history linear, blocks force pushes and deletion, requires every
@@ -83,6 +84,16 @@ Each step runs even when an earlier one failed, so one run reports every problem
 An unset variable renders as an empty string, so a warning is treated as a failure. This means **a new `${VAR:?…}` in a
 compose file needs a matching line in `.env.example`**; no workflow edit is needed.
 
+### manifests
+
+Runs `deploy/validate.sh` on the Kubernetes manifests in `deploy/` (see [deploy/README.md](../../deploy/README.md)):
+- both overlays (`server`, `local`) must render with kustomize;
+- every object must match its Kubernetes schema, or its CRD schema for cert-manager and Traefik objects (kubeconform);
+- the committed server Secret must still be SOPS-encrypted, so a decrypted copy cannot be merged by mistake;
+- every workload needs a pinned image, a memory limit and (except jobs and the Stripe listener) a readiness probe.
+
+kustomize and kubeconform are downloaded as release binaries pinned by version and SHA-256.
+
 ### docker-build
 
 Builds each of the seven service images in its own matrix job. Each job uses a GitHub Actions build cache per image,
@@ -137,7 +148,7 @@ It needs two settings on sonarcloud.io:
 
 ## Dependabot (`dependabot.yml`)
 
-Weekly, for four ecosystems:
+Weekly, for five ecosystems:
 - **NuGet**: grouped by version family (`dotnet-platform`, `messaging`, `cqrs`, `opentelemetry`, `testing`, …), so
   packages that must move together, such as ASP.NET Core, EF Core, `Microsoft.Extensions.*` and Npgsql EF, arrive in
   one pull request.
@@ -145,6 +156,29 @@ Weekly, for four ecosystems:
 - **Docker**: the base images of the seven service Dockerfiles and `ui/Dockerfile`.
 - **Docker Compose**: the image tags in `docker-compose.yml` and its override files (nginx, certbot and the DuckDNS
   updater in `docker-compose.override.selfhost.yml` included); major versions are ignored.
+- **Kubernetes manifests** (the `docker` ecosystem again, for the folders of `deploy/` that name third-party images).
+  The versions repeat those of `docker-compose.yml`, so a bump usually arrives as two pull requests; merge both.
+- **npm** for `ui/`: one weekly `ui` group. Security fixes still arrive at once, as their own pull requests.
+
+Major versions are ignored everywhere except GitHub Actions: a new .NET, Node or Postgres major is an upgrade to plan,
+not a bump to merge.
+
+### Automatic merging
+
+`dependabot-auto-merge.yml` turns on GitHub's auto-merge for a Dependabot pull request when the update is low-risk:
+- a **patch** update in any ecosystem;
+- a **minor** update in any ecosystem except npm (`ui/` has no tests, so a green build proves little there).
+
+Auto-merge merges only after every required check of the `master` ruleset passes, so a bump that breaks the build, a
+test or an image stays open for a person to look at. A pull request that changes a path in `.github/CODEOWNERS`
+(workflows, Dockerfiles, compose files, `deploy/`) still waits for the owner's approval, and merges right after it.
+Major updates and npm minor updates are left for a person. The job runs only when Dependabot both opened the pull
+request and pushed its latest commit, so a commit someone else adds to a Dependabot branch is never merged
+automatically. Merging into `master` never deploys by itself: the deployment waits for an approval in the
+`production` environment.
+
+Dependabot pull requests get no repository secrets, so CI skips the Stripe sandbox tests there; the next push to
+`master` runs them.
 
 Dependabot reads its configuration from `master` only, so a change to `dependabot.yml` takes effect once merged.
 Validate it first:
@@ -168,6 +202,9 @@ bash .github/scripts/check-env-example.sh
 
 # compose-validate
 bash .github/scripts/ci-env.sh /tmp/ci.env && bash .github/scripts/compose-validate.sh /tmp/ci.env
+
+# manifests (kubeconform and a kustomize on PATH, Python 3 with PyYAML)
+bash deploy/validate.sh
 
 # build-test (unset any ambient JWT variables, or you are testing your shell rather than the repo)
 env -u JwtSettings__SecretKey -u JWT_SIGNING_KEY dotnet test EShop.slnx -c Release
