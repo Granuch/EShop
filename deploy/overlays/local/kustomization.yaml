@@ -1,5 +1,5 @@
 # The whole stack on any test cluster (Docker Desktop, kind, k3d, or a scratch namespace on the server),
-# with Mailpit instead of real email, Stripe off, and throwaway credentials. Nothing is exposed; use
+# with Mailpit instead of real email, no Stripe keys, and throwaway credentials. Nothing is exposed; use
 # `kubectl -n eshop-local port-forward svc/ui 3000:3000` (and svc/api-gateway 7000:8080 for API checks).
 #
 # The Secret comes from secrets.env, which is gitignored: create it with ./make-secrets.sh first.

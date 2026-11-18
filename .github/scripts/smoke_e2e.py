@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end smoke test of a running EShop compose stack, through the API gateway.
+"""End-to-end smoke test of a running EShop stack (compose, or Kubernetes through port-forwards), via the API gateway.
 
 Walks one customer from sign-up to a delivered order:
 register -> login (unconfirmed: allowed, token says email_verified=false) -> browse -> basket
@@ -25,6 +25,8 @@ Environment (all optional):
                       a sampling ratio of 1.0, as the Docker Smoke workflow sets)
   JAEGER_URL      default http://localhost:16686
   NOTIFICATION_CONTAINER  default eshop-notification-api; the Mailpit guard reads its Smtp__Host
+  KUBE_NAMESPACE  when set, the Mailpit guard reads Smtp__Host from deployment/notification-api in that namespace
+                  with kubectl (current context, or KUBE_CONTEXT) instead of docker exec
 """
 
 import base64
@@ -48,6 +50,8 @@ TIMEOUT = float(os.environ.get("SMOKE_TIMEOUT", "90"))
 CHECK_TRACES = os.environ.get("SMOKE_CHECK_TRACES", "") not in ("", "0", "false")
 JAEGER = os.environ.get("JAEGER_URL", "http://localhost:16686").rstrip("/")
 NOTIFICATION_CONTAINER = os.environ.get("NOTIFICATION_CONTAINER", "eshop-notification-api")
+KUBE_NAMESPACE = os.environ.get("KUBE_NAMESPACE", "")
+KUBE_CONTEXT = os.environ.get("KUBE_CONTEXT", "")
 SERVICES = ["EShop.ApiGateway", "EShop.Identity.API", "EShop.Catalog.API", "EShop.Basket.API",
             "EShop.Ordering.API", "EShop.Payment.API", "EShop.Notification.API"]
 
@@ -119,17 +123,25 @@ def mailpit_messages(address):
 
 def require_mailpit():
     """Refuse to run unless Notification sends to Mailpit (docker-ci DC-49)."""
-    if shutil.which("docker") is None:
-        raise StepFailed("docker is not on PATH, so the Mailpit guard cannot check Notification's SMTP host")
+    if KUBE_NAMESPACE:
+        tool = "kubectl"
+        command = ["kubectl", *(["--context", KUBE_CONTEXT] if KUBE_CONTEXT else []), "-n", KUBE_NAMESPACE,
+                   "exec", "deployment/notification-api", "--", "printenv", "Smtp__Host"]
+        target = f"deployment/notification-api in {KUBE_NAMESPACE}"
+    else:
+        tool = "docker"
+        command = ["docker", "exec", NOTIFICATION_CONTAINER, "printenv", "Smtp__Host"]
+        target = NOTIFICATION_CONTAINER
+    if shutil.which(tool) is None:
+        raise StepFailed(f"{tool} is not on PATH, so the Mailpit guard cannot check Notification's SMTP host")
     try:
-        host = subprocess.run(["docker", "exec", NOTIFICATION_CONTAINER, "printenv", "Smtp__Host"],
-                              capture_output=True, text=True, timeout=30, check=False).stdout.strip()
+        host = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False).stdout.strip()
     except subprocess.TimeoutExpired as e:
-        raise StepFailed(f"docker exec {NOTIFICATION_CONTAINER} timed out") from e
+        raise StepFailed(f"{tool} exec {target} timed out") from e
     if host != "mailpit":
         # The fix is described, not spelled out: a literal "..._PASSWORD=" here reads as a hard-coded credential to
         # secret scanners (SonarCloud flagged it on PR #86).
-        raise StepFailed(f"{NOTIFICATION_CONTAINER} sends mail via '{host or '<unset>'}', not mailpit; this run would "
+        raise StepFailed(f"{target} sends mail via '{host or '<unset>'}', not mailpit; this run would "
                          "send real email. Recreate it with the NOTIFICATION_SMTP_* variables pointed at Mailpit, as "
                          "docs/02-getting-started/docker-setup.md and the Docker Smoke workflow do.")
     log("notification sends to mailpit")

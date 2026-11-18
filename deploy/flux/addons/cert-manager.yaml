@@ -1,0 +1,61 @@
+# cert-manager issues and renews the site's Let's Encrypt certificate (Issuer in deploy/overlays/server/apps).
+# Installed from the project's Helm chart; Dependabot does not see this version, so bump it by hand.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jetstack
+  namespace: cert-manager
+spec:
+  url: https://charts.jetstack.io
+  interval: 24h
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: cert-manager
+      version: "1.21.3"
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    crds:
+      enabled: true
+      # Uninstalling the release must not delete the CRDs, and with them every Certificate in the cluster.
+      keep: true
+    resources:
+      requests:
+        cpu: 10m
+        memory: 48Mi
+      limits:
+        memory: 192Mi
+    webhook:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 24Mi
+        limits:
+          memory: 96Mi
+    cainjector:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 48Mi
+        limits:
+          memory: 192Mi

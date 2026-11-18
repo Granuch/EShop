@@ -40,6 +40,15 @@ spec:
       automountServiceAccountToken: false
       # A clean shutdown writes a checkpoint; give it time before SIGKILL.
       terminationGracePeriodSeconds: 60
+      # The image's postgres user (uid 70) from the start: the entrypoint then skips its root-to-postgres switch
+      # (gosu), and the container needs no capabilities.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16.13-alpine
@@ -78,6 +87,10 @@ spec:
             limits:
               # shared_buffers is 256MB in the tuning file.
               memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -135,6 +148,15 @@ spec:
       automountServiceAccountToken: false
       # A clean shutdown writes a checkpoint; give it time before SIGKILL.
       terminationGracePeriodSeconds: 60
+      # The image's postgres user (uid 70) from the start: the entrypoint then skips its root-to-postgres switch
+      # (gosu), and the container needs no capabilities.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16.13-alpine
@@ -173,6 +195,10 @@ spec:
             limits:
               # shared_buffers is 256MB in the tuning file.
               memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -230,6 +256,15 @@ spec:
       automountServiceAccountToken: false
       # A clean shutdown writes a checkpoint; give it time before SIGKILL.
       terminationGracePeriodSeconds: 60
+      # The image's postgres user (uid 70) from the start: the entrypoint then skips its root-to-postgres switch
+      # (gosu), and the container needs no capabilities.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16.13-alpine
@@ -268,6 +303,10 @@ spec:
             limits:
               # shared_buffers is 256MB in the tuning file.
               memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -325,6 +364,15 @@ spec:
       automountServiceAccountToken: false
       # A clean shutdown writes a checkpoint; give it time before SIGKILL.
       terminationGracePeriodSeconds: 60
+      # The image's postgres user (uid 70) from the start: the entrypoint then skips its root-to-postgres switch
+      # (gosu), and the container needs no capabilities.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16.13-alpine
@@ -363,6 +411,10 @@ spec:
             limits:
               # shared_buffers is 256MB in the tuning file.
               memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -420,6 +472,15 @@ spec:
       automountServiceAccountToken: false
       # A clean shutdown writes a checkpoint; give it time before SIGKILL.
       terminationGracePeriodSeconds: 60
+      # The image's postgres user (uid 70) from the start: the entrypoint then skips its root-to-postgres switch
+      # (gosu), and the container needs no capabilities.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16.13-alpine
@@ -458,6 +519,10 @@ spec:
             limits:
               # shared_buffers is 256MB in the tuning file.
               memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

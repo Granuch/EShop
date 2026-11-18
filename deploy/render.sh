@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Renders a deployment overlay into plain manifests.
 #
-#   deploy/render.sh server <out-dir> [<image-tag>]   ->  <out-dir>/infra/{infra.yaml,secrets.enc.yaml}
+#   deploy/render.sh server <out-dir> [<image-tag>]   ->  <out-dir>/addons/addons.yaml       (cert-manager)
+#                                                         <out-dir>/infra/{infra.yaml,secrets.enc.yaml}
 #                                                         <out-dir>/apps/apps.yaml
 #   deploy/render.sh local  <out-dir> [<image-tag>]   ->  <out-dir>/local.yaml
 #
 # <image-tag> replaces the "master" tag of the eshop images (CI passes sha-<commit>). The server output is
-# what CI publishes as the Flux artifact: Flux applies infra/ first, then apps/. The SOPS-encrypted Secret is
-# copied byte for byte, never passed through kustomize, so its MAC still matches when Flux decrypts it.
+# what CI publishes as the Flux artifact: Flux applies addons/ and infra/, then apps/ (deploy/flux/sync.yaml).
+# The SOPS-encrypted Secret is copied byte for byte, never passed through kustomize, so its MAC still matches
+# when Flux decrypts it.
 #
 # Uses $KUSTOMIZE if set, else `kustomize`, else `kubectl kustomize`.
 set -euo pipefail
@@ -35,7 +37,8 @@ retag() {
 
 case "$overlay" in
   server)
-    mkdir -p "$out/infra" "$out/apps"
+    mkdir -p "$out/addons" "$out/infra" "$out/apps"
+    build "$root/deploy/flux/addons" > "$out/addons/addons.yaml"
     build "$root/deploy/overlays/server/infra" | retag > "$out/infra/infra.yaml"
     cp "$root/deploy/overlays/server/infra/secrets.enc.yaml" "$out/infra/secrets.enc.yaml"
     build "$root/deploy/overlays/server/apps" | retag > "$out/apps/apps.yaml"

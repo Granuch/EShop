@@ -73,7 +73,9 @@ configMapGenerator:
       - RabbitMQ__RetryIncrementSeconds=5
   - name: payment-config
     literals:
-      - Stripe__Enabled=false
+      # As compose (.env.example): a new order's payment waits for the customer's card (or an admin's offline
+      # settlement). With false, Payment's simulator settles every order by itself after a few seconds.
+      - Stripe__Enabled=true
       - Stripe__SkipWebhookSignatureVerification=false
       - Stripe__AllowMissingSignatureHeaderInBypassMode=false
       - CancelledOrders__AutoRefund=false

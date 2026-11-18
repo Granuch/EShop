@@ -30,9 +30,11 @@ seed-admin-password=Local-$(rand 8)-Admin1!
 smtp-username=
 smtp-password=
 smtp-from-email=noreply@eshop.local
-stripe-secret-key=
-stripe-publishable-key=
-stripe-webhook-secret=
+# The placeholders .env.example uses: Payment requires test-mode-shaped Stripe keys when Stripe is on, and
+# nothing here calls Stripe.
+stripe-secret-key=sk_test_REPLACE_ME
+stripe-publishable-key=pk_test_REPLACE_ME
+stripe-webhook-secret=whsec_REPLACE_ME
 seq-admin-password=$(rand 12)
 grafana-admin-password=$(rand 12)
 duckdns-token=
