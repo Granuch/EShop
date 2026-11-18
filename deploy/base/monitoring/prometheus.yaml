@@ -42,6 +42,9 @@ spec:
         runAsUser: 65534
         runAsGroup: 65534
         fsGroup: 65534
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:

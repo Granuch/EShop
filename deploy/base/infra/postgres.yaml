@@ -47,6 +47,9 @@ spec:
         runAsUser: 70
         runAsGroup: 70
         fsGroup: 70
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -155,6 +158,9 @@ spec:
         runAsUser: 70
         runAsGroup: 70
         fsGroup: 70
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -263,6 +269,9 @@ spec:
         runAsUser: 70
         runAsGroup: 70
         fsGroup: 70
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -371,6 +380,9 @@ spec:
         runAsUser: 70
         runAsGroup: 70
         fsGroup: 70
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -479,6 +491,9 @@ spec:
         runAsUser: 70
         runAsGroup: 70
         fsGroup: 70
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
