@@ -36,12 +36,29 @@ function imageLines(text: string) {
     .filter(Boolean);
 }
 
+/**
+ * The preview shows only http(s) URLs, normalized by the URL parser; anything else (javascript:, data:, a typo) gets no
+ * preview and is left for the server's validation to reject. The input is the admin's own, but it is still text
+ * turned into an attribute (CodeQL js/xss-through-dom).
+ */
+function previewUrl(line: string): string | null {
+  try {
+    const url = new URL(line);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function ProductForm({ mode, action, categories, initial }: ProductFormProps) {
   const [state, formAction, pending] = useActionState(action, IDLE);
   // After an action React resets the fields to their defaultValue, so the submitted values come back through state.
   const value = (name: string, fallback = "") => state.values?.[name] ?? fallback;
   const [imageText, setImageText] = useState("");
-  const previews = imageLines(state.values?.imageUrls ?? imageText).slice(0, 10);
+  const previews = imageLines(state.values?.imageUrls ?? imageText)
+    .map(previewUrl)
+    .filter((url): url is string => url !== null)
+    .slice(0, 10);
 
   const invalid = (name: string) =>
     state.fieldErrors?.[name]?.length ? { "aria-invalid": true, "aria-describedby": errorId(name) } : {};
