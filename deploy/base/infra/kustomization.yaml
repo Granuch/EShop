@@ -7,6 +7,7 @@ resources:
   - postgres.yaml
   - redis.yaml
   - rabbitmq.yaml
+  - backup.yaml
 
 # The same tuning files docker-compose mounts. They live outside this directory, so rendering needs
 # --load-restrictor LoadRestrictionsNone (deploy/render.sh passes it). Payment and Notification use the
