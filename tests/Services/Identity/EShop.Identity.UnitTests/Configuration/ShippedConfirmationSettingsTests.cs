@@ -20,9 +20,10 @@ public class ShippedConfirmationSettingsTests
     }
 
     [Test]
-    public void TheKubernetesConfigMap_DoesNotRequireConfirmationToSignIn()
+    public void TheKubernetesManifests_DoNotRequireConfirmationToSignIn()
     {
-        Assert.That(Lines("k8s/02-configmap.yaml"), Has.One.EqualTo("Identity__RequireConfirmedEmail: \"false\""));
+        // A configMapGenerator literal in the shared base, "- Key=value"; neither overlay overrides it.
+        Assert.That(Lines("deploy/base/apps/kustomization.yaml"), Has.One.EqualTo("- Identity__RequireConfirmedEmail=false"));
     }
 
     [Test]
