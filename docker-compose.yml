@@ -227,7 +227,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
@@ -338,7 +338,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
@@ -424,7 +424,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
@@ -513,7 +513,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
@@ -628,7 +628,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
@@ -742,7 +742,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"
@@ -903,7 +903,7 @@ services:
       # plus fc00::/7 (IPv6 unique-local): Docker may give eshop-network an IPv6 subnet, and
       # the gateway then reaches every service over IPv6 first. Without the fourth entry each
       # service ignores X-Forwarded-For from the gateway and all clients share one rate-limit
-      # bucket again. k8s/02-configmap.yaml sets the same four.
+      # bucket again. deploy/base/apps/kustomization.yaml sets the same four.
       ForwardedHeaders__KnownNetworks__0: "10.0.0.0/8"
       ForwardedHeaders__KnownNetworks__1: "172.16.0.0/12"
       ForwardedHeaders__KnownNetworks__2: "192.168.0.0/16"

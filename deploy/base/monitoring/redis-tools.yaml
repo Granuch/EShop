@@ -41,11 +41,14 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: redis-insight
-          image: redis/redisinsight:2.58
+          image: redis/redisinsight:2.70
           env:
             - name: RI_APP_HOST
               value: 0.0.0.0

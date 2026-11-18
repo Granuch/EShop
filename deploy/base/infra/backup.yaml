@@ -1,0 +1,114 @@
+# Nightly logical backup of the five databases: pg_dump in PostgreSQL's custom format, one folder per day, the seven
+# newest days kept, on a volume of its own (PVC db-backups). Restore one database with pg_restore (deploy/README.md).
+# 03:15 Kyiv time: after the night's quiet hours, before the home server's own backup (03:30) and planned reboot (04:00).
+# A dump is a copy on the same disk, so it protects against mistakes and broken migrations, not against losing the disk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-backups
+  labels:
+    app.kubernetes.io/name: db-backup
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  labels:
+    app.kubernetes.io/name: db-backup
+    app.kubernetes.io/component: backup
+spec:
+  schedule: "15 3 * * *"
+  timeZone: Europe/Kyiv
+  concurrencyPolicy: Forbid
+  # A night missed while the server was off (power, a Windows boot) still runs when it comes back, within 12 hours.
+  startingDeadlineSeconds: 43200
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: db-backup
+            app.kubernetes.io/component: backup
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            # The image's postgres user.
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+            # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-dump
+              # Keep in step with the servers in postgres.yaml: pg_dump must not be older than the server.
+              image: postgres:16.16-alpine
+              env:
+                - name: IDENTITY_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: eshop-secrets, key: identity-db-password}
+                - name: CATALOG_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: eshop-secrets, key: catalog-db-password}
+                - name: ORDERING_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: eshop-secrets, key: ordering-db-password}
+                - name: PAYMENT_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: eshop-secrets, key: payment-db-password}
+                - name: NOTIFICATION_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: eshop-secrets, key: notification-db-password}
+              # Backticks instead of $(...): Kubernetes would try to expand $(...) in a command as a variable.
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  dir="/backups/`date +%Y-%m-%d`"
+                  mkdir -p "$dir"
+                  dump() {
+                    PGPASSWORD="$2" pg_dump -h "$1-postgres" -U postgres -d "eshop_$1" \
+                      -Fc --no-owner --no-privileges -f "$dir/$1.dump.partial"
+                    mv "$dir/$1.dump.partial" "$dir/$1.dump"
+                  }
+                  dump identity "$IDENTITY_DB_PASSWORD"
+                  dump catalog "$CATALOG_DB_PASSWORD"
+                  dump ordering "$ORDERING_DB_PASSWORD"
+                  dump payment "$PAYMENT_DB_PASSWORD"
+                  dump notification "$NOTIFICATION_DB_PASSWORD"
+                  ls -1d /backups/20*/ | sort -r | tail -n +8 | xargs -r rm -rf
+                  ls -l "$dir"
+                  echo "kept: `ls -1d /backups/20*/ | wc -l` days"
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: db-backups

@@ -41,7 +41,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: seq
-          image: datalust/seq:2025.1.14117
+          image: datalust/seq:2025.2.16202
           env:
             - name: ACCEPT_EULA
               value: "Y"

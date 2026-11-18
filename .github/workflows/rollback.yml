@@ -1,7 +1,7 @@
 name: Rollback
 
 # Points production back at an earlier commit that CI already published (a commit merged to master after the
-# CI/CD setup). Flux on the server applies it within about a minute. It needs the same approval as a deployment.
+# CI/CD setup). Flux on the server applies it within about a minute. Only master may run it (production environment).
 #   gh workflow run Rollback -f commit=<full 40-character SHA>
 # Database migrations are not reverted: roll back only to a commit whose code works with the current schema.
 

@@ -34,12 +34,13 @@ bash "$root/deploy/render.sh" server "$work/server" sha-validate
 bash "$root/deploy/render.sh" local "$work/local"
 [ "$created_local" = 1 ] && rm -f "$local_secrets"
 
-# 3. Schemas: built-in kinds from the default catalog, CRDs (cert-manager, Traefik) from the CRDs catalog.
+# 3. Schemas: built-in kinds from the default catalog, CRDs (cert-manager, Traefik, Flux) from the CRDs catalog.
 #    The SOPS Secret is skipped: its "sops" field is not part of the Secret schema.
 "$kubeconform" -strict -summary -skip Secret \
   -schema-location default \
   -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-  "$work/server/infra/infra.yaml" "$work/server/apps/apps.yaml" "$work/local/local.yaml"
+  "$work/server/addons/addons.yaml" "$work/server/infra/infra.yaml" "$work/server/apps/apps.yaml" \
+  "$work/local/local.yaml" "$root/deploy/flux/sync.yaml"
 
 # 4. Workload basics, read from the rendered output.
 "$python" - "$work/server/infra/infra.yaml" "$work/server/apps/apps.yaml" "$work/local/local.yaml" <<'PY'
@@ -53,6 +54,11 @@ for path in sys.argv[1:]:
                 continue
             spec = doc["spec"]["jobTemplate"]["spec"] if doc["kind"] == "CronJob" else doc["spec"]
             name = f'{doc["kind"]}/{doc["metadata"]["name"]} ({path.rsplit("/", 1)[-1]})'
+            pod_sc = spec["template"]["spec"].get("securityContext") or {}
+            # With the default policy the kubelet re-applies fsGroup on every start and gives every file group
+            # write, which RabbitMQ (.erlang.cookie) and PostgreSQL (data directory) refuse after a restart.
+            if "fsGroup" in pod_sc and pod_sc.get("fsGroupChangePolicy") != "OnRootMismatch":
+                problems.append(f"{name}: fsGroup without fsGroupChangePolicy: OnRootMismatch")
             for c in spec["template"]["spec"]["containers"]:
                 image = c["image"]
                 if image.endswith(":latest") or (":" not in image.rsplit("/", 1)[-1] and "@" not in image):

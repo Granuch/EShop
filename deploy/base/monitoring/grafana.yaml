@@ -43,11 +43,14 @@ spec:
         runAsUser: 472
         runAsGroup: 0
         fsGroup: 472
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: grafana
-          image: grafana/grafana:11.2.0
+          image: grafana/grafana:11.6.16
           env:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
