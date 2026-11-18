@@ -8,6 +8,7 @@ import { ArrowRight } from 'lucide-react'
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { checkoutData, checkoutObj, fetchCheckout } from './checkoutFetch'
+import { basketRes } from './types'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 
@@ -39,7 +40,7 @@ const countries = [
 const formatPrice = (value: number | string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
 
-  function OrderForm({data}:{data:any}) {
+  function OrderForm({data}:{data:basketRes}) {
     const [open, setOpen] = useState(false)
     const [pending, setPending] = useState(false)
     // Shown inside the dialog: a toast would sit under the dialog's backdrop and could not be read.
