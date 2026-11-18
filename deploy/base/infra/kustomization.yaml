@@ -1,0 +1,29 @@
+# Stateful infrastructure: one PostgreSQL per service (database-per-service), Redis and RabbitMQ.
+# Every credential comes from the Secret "eshop-secrets", which each overlay provides.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - postgres.yaml
+  - redis.yaml
+  - rabbitmq.yaml
+  - backup.yaml
+
+# The same tuning files docker-compose mounts. They live outside this directory, so rendering needs
+# --load-restrictor LoadRestrictionsNone (deploy/render.sh passes it). Payment and Notification use the
+# ordering file, as in compose.
+configMapGenerator:
+  - name: postgres-config-identity
+    files:
+      - postgresql.conf=../../../infrastructure/postgres/identity-postgresql.conf
+  - name: postgres-config-catalog
+    files:
+      - postgresql.conf=../../../infrastructure/postgres/catalog-postgresql.conf
+  - name: postgres-config-ordering
+    files:
+      - postgresql.conf=../../../infrastructure/postgres/ordering-postgresql.conf
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: eshop
+    includeSelectors: false

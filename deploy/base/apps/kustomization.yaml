@@ -1,0 +1,96 @@
+# The seven .NET components and the Next.js storefront. Images are named without a tag here; each overlay
+# pins the tag with an `images:` entry (CI pins it to the commit's sha-<sha> tag).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - identity.yaml
+  - catalog.yaml
+  - basket.yaml
+  - ordering.yaml
+  - payment.yaml
+  - notification.yaml
+  - gateway.yaml
+  - ui.yaml
+
+# Settings shared by every .NET component (envFrom), mirroring the environment blocks of docker-compose.yml.
+# Per-component settings that an overlay changes live in their own ConfigMaps below, so an overlay merges
+# only what differs (behavior: merge).
+configMapGenerator:
+  - name: eshop-config
+    literals:
+      - ASPNETCORE_ENVIRONMENT=Sandbox
+      - ASPNETCORE_HTTP_PORTS=8080
+      # Workstation GC: one heap instead of one per core. The server has 2 cores and runs 8 .NET processes;
+      # Server GC would reserve far more memory for no gain at this load.
+      - DOTNET_gcServer=0
+      # Every IP-derived control (rate limits, brute-force tracking) needs the real client address, which
+      # arrives in X-Forwarded-For from the gateway or the ui. Pod addresses are in 10.42.0.0/16.
+      - ForwardedHeaders__KnownNetworks__0=10.0.0.0/8
+      - ForwardedHeaders__KnownNetworks__1=172.16.0.0/12
+      - ForwardedHeaders__KnownNetworks__2=192.168.0.0/16
+      - ForwardedHeaders__KnownNetworks__3=fc00::/7
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Port=5672
+      - JwtSettings__Issuer=EShop.Identity
+      - JwtSettings__Audience=EShop.Services
+      - JwtSettings__AccessTokenExpirationMinutes=60
+      - JwtSettings__RefreshTokenExpirationDays=7
+      - Cors__AllowedOrigins__0=http://localhost:3000
+      - Cors__AllowedOrigins__1=https://localhost:3000
+      - OpenTelemetry__Enabled=true
+      - OpenTelemetry__OtlpEndpoint=http://otel-collector:4317
+      - OpenTelemetry__SamplingRatio=0.1
+      - OpenTelemetry__MetricsEnabled=true
+      # Index 2 is the Seq sink in every appsettings.json (index 1 is the file sink).
+      - Serilog__WriteTo__2__Name=Seq
+      - Serilog__WriteTo__2__Args__serverUrl=http://seq:5341
+      - Serilog__MinimumLevel__Default=Information
+      - Serilog__MinimumLevel__Override__Microsoft.AspNetCore.DataProtection=Error
+  - name: identity-config
+    literals:
+      # Soft email verification: an unconfirmed account can sign in; placing an order needs the confirmation.
+      - Identity__RequireConfirmedEmail=false
+      # Used only when the database has no admin yet.
+      - Identity__SeedAdminEmail=admin@eshop.local
+      - InternalServiceAuth__HeaderName=X-Internal-Api-Key
+  - name: notification-config
+    literals:
+      - Smtp__Host=mailpit
+      - Smtp__Port=1025
+      - Smtp__Security=None
+      - Smtp__FromName=EShop
+      - PasswordReset__ResetUrlBase=http://localhost:3000/reset-password
+      - EmailConfirmation__ConfirmUrlBase=http://localhost:3000/confirm-email
+      - IdentityService__BaseUrl=http://identity-api:8080
+      - IdentityService__TimeoutSeconds=5
+      - IdentityService__ApiKeyHeaderName=X-Internal-Api-Key
+      # The stock broker has no delayed-exchange plugin; turning this on loops a failing message forever
+      # (see ShippedBrokerSettingsTests).
+      - RabbitMQ__UseDelayedExchangePlugin=false
+      - RabbitMQ__RetryCount=3
+      - RabbitMQ__RetryIntervalSeconds=5
+      - RabbitMQ__RetryIncrementSeconds=5
+  - name: payment-config
+    literals:
+      # As compose (.env.example): a new order's payment waits for the customer's card (or an admin's offline
+      # settlement). With false, Payment's simulator settles every order by itself after a few seconds.
+      - Stripe__Enabled=true
+      - Stripe__SkipWebhookSignatureVerification=false
+      - Stripe__AllowMissingSignatureHeaderInBypassMode=false
+      - CancelledOrders__AutoRefund=false
+      - PaymentSimulation__ProcessingDelayMinSeconds=1
+      - PaymentSimulation__ProcessingDelayMaxSeconds=3
+      - PaymentSimulation__SuccessRatePercent=80
+      - PaymentSimulation__RefundDelaySeconds=2
+  - name: gateway-config
+    literals:
+      - Email__Host=mailpit
+      - Email__Port=1025
+      - Email__UseSsl=false
+      - Email__FromName=EShop API Gateway
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: eshop
+    includeSelectors: false

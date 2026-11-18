@@ -1,0 +1,67 @@
+name: Dependabot auto-merge
+
+# Turns on GitHub's auto-merge for low-risk Dependabot pull requests. Auto-merge only merges once every
+# required check of the master ruleset is green, so a bump that breaks the build, a test or an image stays
+# open. A merged update is deployed like any other master commit, and the Rollback workflow undoes it.
+#
+# Policy:
+#   - patch updates: every ecosystem;
+#   - minor updates: NuGet and GitHub Actions only. Not npm, because ui/ has no tests and a green build proves little.
+#     Not container images (docker, docker-compose): CI never runs them, so a broken Grafana, OTel collector or
+#     Stripe CLI would only show in production. A person merges those, and the next deploy can be watched.
+#   - major updates: never (most ecosystems ignore them in dependabot.yml anyway).
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  enable-auto-merge:
+    # Both: the pull request is Dependabot's AND Dependabot pushed this revision. A person who pushes a commit
+    # onto a Dependabot branch does not get it merged automatically.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.actor == 'dependabot[bot]' &&
+      github.repository == 'Granuch/EShop'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Read the update
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Apply the policy
+        id: policy
+        env:
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          DEPENDENCIES: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          merge=false
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch) merge=true ;;
+            version-update:semver-minor)
+              case "$ECOSYSTEM" in
+                nuget|github_actions) merge=true ;;
+              esac
+              ;;
+          esac
+          echo "ecosystem=$ECOSYSTEM update=$UPDATE_TYPE merge=$merge dependencies=$DEPENDENCIES"
+          echo "merge=$merge" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge
+        if: steps.policy.outputs.merge == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"

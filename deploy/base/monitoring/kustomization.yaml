@@ -1,0 +1,49 @@
+# The observability stack of compose's "monitoring" profile, plus Seq and the Redis UIs. Every service name
+# matches compose, so the existing Prometheus, OTel collector and Grafana files are reused unchanged.
+# None of these is exposed publicly; the server overlay gives the UIs NodePorts reachable from the LAN only.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - otel-collector.yaml
+  - jaeger.yaml
+  - prometheus.yaml
+  - grafana.yaml
+  - seq.yaml
+  - exporters.yaml
+  - redis-tools.yaml
+
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - config.yml=../../../infrastructure/otel-collector/otel-collector-config.yml
+  - name: prometheus-config
+    files:
+      - prometheus.yml=../../../infrastructure/prometheus/prometheus.yml
+      - recording-rules.yml=../../../infrastructure/prometheus/recording-rules.yml
+      - alerts.yml=../../../monitoring/prometheus-alerts.yml
+  - name: grafana-datasources
+    files:
+      - datasources.yml=../../../infrastructure/grafana/provisioning/datasources/datasources.yml
+  - name: grafana-dashboard-provider
+    files:
+      - dashboards.yml=../../../infrastructure/grafana/provisioning/dashboards/dashboards.yml
+  - name: grafana-dashboards
+    files:
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/api-gateway-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/basket-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/catalog-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/dependency-red-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/identity-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/infrastructure-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/notification-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/ordering-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/payment-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/postgresql-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/redis-dashboard.json
+      - ../../../infrastructure/grafana/provisioning/dashboards/json/spm-overview-dashboard.json
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: eshop
+    includeSelectors: false

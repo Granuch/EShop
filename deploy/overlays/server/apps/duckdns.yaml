@@ -1,0 +1,59 @@
+# Keeps granuch-shop.duckdns.org pointed at the home connection's current public IPv4 (DuckDNS takes the
+# caller's address when ip= is empty). DuckDNS answers OK or KO; KO fails the job so it shows up as failed.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: duckdns
+  labels:
+    app.kubernetes.io/name: duckdns
+    app.kubernetes.io/component: edge
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: duckdns
+            app.kubernetes.io/component: edge
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: update
+              image: curlimages/curl:8.23.0
+              env:
+                - name: DUCKDNS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: eshop-secrets
+                      key: duckdns-token
+              # The token stays in the environment; the shell expands it, Kubernetes does not see it in the spec.
+              command:
+                - sh
+                - -c
+                - >-
+                  answer=`curl -fsS --max-time 30 "https://www.duckdns.org/update?domains=granuch-shop&token=$DUCKDNS_TOKEN&ip="`;
+                  echo "DuckDNS: $answer"; test "$answer" = OK
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 16Mi
+                limits:
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
