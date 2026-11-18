@@ -54,6 +54,11 @@ for path in sys.argv[1:]:
                 continue
             spec = doc["spec"]["jobTemplate"]["spec"] if doc["kind"] == "CronJob" else doc["spec"]
             name = f'{doc["kind"]}/{doc["metadata"]["name"]} ({path.rsplit("/", 1)[-1]})'
+            pod_sc = spec["template"]["spec"].get("securityContext") or {}
+            # With the default policy the kubelet re-applies fsGroup on every start and gives every file group
+            # write, which RabbitMQ (.erlang.cookie) and PostgreSQL (data directory) refuse after a restart.
+            if "fsGroup" in pod_sc and pod_sc.get("fsGroupChangePolicy") != "OnRootMismatch":
+                problems.append(f"{name}: fsGroup without fsGroupChangePolicy: OnRootMismatch")
             for c in spec["template"]["spec"]["containers"]:
                 image = c["image"]
                 if image.endswith(":latest") or (":" not in image.rsplit("/", 1)[-1] and "@" not in image):
