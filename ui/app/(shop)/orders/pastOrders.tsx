@@ -1,5 +1,5 @@
 'use client'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ChevronDown, CreditCard, PackageOpen } from 'lucide-react'
 import { cn } from 'cn'
@@ -170,30 +170,47 @@ export default function PastOrders() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState<PagedOrders | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Bumped to fetch the same page again (retry, or after an order changed).
+  const [reloads, setReloads] = useState(0)
 
-  const load = useCallback(async (pageNumber: number) => {
+  // The effect sets state only when the response arrives, never synchronously
+  // (react-hooks/set-state-in-effect); the handlers below clear the old data so the skeleton shows meanwhile.
+  // A response for a page the user has already left is dropped.
+  useEffect(() => {
+    let current = true
+
+    fetchUserOrders(page, PAGE_SIZE)
+      .then(res => {
+        if (!current) return
+        if (!res.ok) throw new Error(res.error)
+        setError(null)
+        setData(res.data)
+      })
+      .catch((err: unknown) => {
+        if (current) setError(err instanceof Error ? err.message : 'Something went wrong.')
+      })
+
+    return () => {
+      current = false
+    }
+  }, [page, reloads])
+
+  const reload = () => {
     setError(null)
     setData(null)
+    setReloads(n => n + 1)
+  }
 
-    try {
-      let res = await fetchUserOrders(pageNumber, PAGE_SIZE)
-
-      if (!res.ok) throw new Error(res.error)
-      setData(res.data)
-    } catch (err: any) {
-      setError(err.message ?? 'Something went wrong.')
-    }
-  }, [])
-
-  useEffect(() => {
-    load(page)
-  }, [page, load])
+  const goToPage = (pageNumber: number) => {
+    setData(null)
+    setPage(pageNumber)
+  }
 
   if (error) {
     return (
       <div className='flex flex-col items-start gap-3'>
         <p className='text-red-600'>{error}</p>
-        <button onClick={() => load(page)} className='border px-4 py-2 hover:bg-gray-50'>
+        <button onClick={reload} className='border px-4 py-2 hover:bg-gray-50'>
           Try again
         </button>
       </div>
@@ -206,7 +223,7 @@ export default function PastOrders() {
     return (
       <div className='flex flex-col items-center gap-4 py-16 text-center'>
         <PackageOpen size={40} className='text-gray-400' />
-        <p className='text-lg'>You haven't placed any orders yet.</p>
+        <p className='text-lg'>You haven&apos;t placed any orders yet.</p>
         <Link href='/' className='bg-black px-6 py-3 text-white hover:opacity-75'>
           Start shopping
         </Link>
@@ -218,7 +235,7 @@ export default function PastOrders() {
     <div className='flex flex-col gap-6'>
       <ul className='flex flex-col gap-3'>
         {data.items.map(order => (
-          <OrderCard key={order.id} order={order} onChanged={() => load(page)} />
+          <OrderCard key={order.id} order={order} onChanged={reload} />
         ))}
       </ul>
 
@@ -226,7 +243,7 @@ export default function PastOrders() {
         <div className='flex items-center justify-between'>
           <button
             disabled={!data.hasPreviousPage}
-            onClick={() => setPage(p => p - 1)}
+            onClick={() => goToPage(page - 1)}
             className='border px-4 py-2 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent'
           >
             Previous
@@ -236,7 +253,7 @@ export default function PastOrders() {
           </span>
           <button
             disabled={!data.hasNextPage}
-            onClick={() => setPage(p => p + 1)}
+            onClick={() => goToPage(page + 1)}
             className='border px-4 py-2 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent'
           >
             Next

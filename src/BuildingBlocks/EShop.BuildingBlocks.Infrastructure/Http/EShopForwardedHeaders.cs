@@ -21,7 +21,7 @@ namespace EShop.BuildingBlocks.Infrastructure.Http;
 /// bridge or pod CIDR and is not stable. <c>KnownNetworks</c> is the option that works there.
 /// Reading only <c>KnownProxies</c> — as every service except Identity used to — means
 /// <c>ForwardedHeaders:KnownNetworks</c> settings are silently ignored, including the CIDRs that
-/// <c>k8s/02-configmap.yaml</c> sets namespace-wide.
+/// <c>deploy/base/apps/kustomization.yaml</c> sets namespace-wide.
 /// </para>
 /// </summary>
 public static class EShopForwardedHeaders

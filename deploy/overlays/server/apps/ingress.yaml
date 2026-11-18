@@ -1,0 +1,27 @@
+# The public site. Traefik (built into k3s) terminates TLS with a Let's Encrypt certificate that cert-manager
+# keeps in the Secret "eshop-tls". Requests for any other host name get Traefik's 404.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eshop
+  annotations:
+    cert-manager.io/issuer: letsencrypt
+    # Middleware references are <namespace>-<name>@kubernetescrd.
+    traefik.ingress.kubernetes.io/router.middlewares: eshop-redirect-https@kubernetescrd,eshop-security-headers@kubernetescrd,eshop-body-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - granuch-shop.duckdns.org
+      secretName: eshop-tls
+  rules:
+    - host: granuch-shop.duckdns.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ui
+                port:
+                  name: http

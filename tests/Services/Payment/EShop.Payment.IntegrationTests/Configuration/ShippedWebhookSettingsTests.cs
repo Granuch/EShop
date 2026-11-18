@@ -23,7 +23,8 @@ public class ShippedWebhookSettingsTests
     [TestCase("Stripe__AllowMissingSignatureHeaderInBypassMode")]
     public void Kubernetes_TurnsTheWebhookBypassOff(string key)
     {
-        Assert.That(TheOneLine("k8s/02-configmap.yaml", key + ":"), Is.EqualTo(key + @": ""false"""));
+        // A configMapGenerator literal in deploy/'s shared base, "- Key=value".
+        Assert.That(TheOneLine("deploy/base/apps/kustomization.yaml", "- " + key + "="), Is.EqualTo("- " + key + "=false"));
     }
 
     [TestCase("STRIPE_SKIP_WEBHOOK_SIGNATURE_VERIFICATION")]

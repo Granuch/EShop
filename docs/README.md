@@ -270,6 +270,9 @@ Details: [03-architecture/security-architecture.md](03-architecture/security-arc
 - [Prerequisites](02-getting-started/prerequisites.md)
 - [Local Setup](02-getting-started/local-setup.md)
 - [Docker Setup](02-getting-started/docker-setup.md)
+- [Running on k3s (operations runbook)](02-getting-started/k3s-deployment.md): how the public shop runs, releases,
+  rollbacks, backups and restores
+- [Self-Hosting with Docker Compose](02-getting-started/self-hosting.md): superseded by k3s, kept for reference
 - [Team Agreement](02-getting-started/team-agreement.md)
 
 ### 03. Architecture

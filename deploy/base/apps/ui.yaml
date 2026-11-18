@@ -1,0 +1,96 @@
+# Storefront and admin panel (Next.js, standalone server). The only public entry point: the server overlay's
+# Ingress routes the site here, and the ui calls api-gateway from its own server, never from the browser.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/component: frontend
+spec:
+  selector:
+    app.kubernetes.io/name: ui
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ui
+        app.kubernetes.io/component: frontend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # USER 1000:1000 in ui/Dockerfile.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ui
+          image: ghcr.io/granuch/eshop-ui
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: API_BASE_URL
+              value: http://api-gateway:8080
+            # Public by design (the card form runs in the browser with it); read at request time.
+            - name: STRIPE_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: stripe-publishable-key
+            # Traefik replaces any client-sent X-Forwarded-For with the visitor's address, so the ui may pass it on.
+            - name: TRUST_PROXY_HEADERS
+              value: "true"
+          # /api/health answers without calling the gateway.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 448Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

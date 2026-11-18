@@ -1,0 +1,56 @@
+# Runs every pod under the AppArmor profile "eshop-container", which must be loaded on the node
+# (/etc/apparmor.d/eshop-container on the home server). Ubuntu 26.04's AppArmor 5 runs container processes under a
+# stacked label ("<profile>//&unconfined") that containerd's default profile does not recognise as a peer, so a
+# container process could not signal another one: PostgreSQL never finished starting. The profile is containerd's
+# default plus that label; its text and the reason are in ~/server-info on the server.
+#
+# Only for nodes that have the profile: a pod that names a missing Localhost profile does not start. The local
+# overlay therefore leaves this component out.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: any
+      spec:
+        template:
+          spec:
+            securityContext:
+              appArmorProfile:
+                type: Localhost
+                localhostProfile: eshop-container
+  - target:
+      kind: StatefulSet
+    patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: any
+      spec:
+        template:
+          spec:
+            securityContext:
+              appArmorProfile:
+                type: Localhost
+                localhostProfile: eshop-container
+  - target:
+      kind: CronJob
+    patch: |-
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: any
+      spec:
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                securityContext:
+                  appArmorProfile:
+                    type: Localhost
+                    localhostProfile: eshop-container

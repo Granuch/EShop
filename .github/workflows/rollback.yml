@@ -1,0 +1,66 @@
+name: Rollback
+
+# Points production back at an earlier commit that CI already published (a commit merged to master after the
+# CI/CD setup). Flux on the server applies it within about a minute. Only master may run it (production environment).
+#   gh workflow run Rollback -f commit=<full 40-character SHA>
+# Database migrations are not reverted: roll back only to a commit whose code works with the current schema.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Full 40-character SHA of a master commit to release again'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    environment:
+      name: production
+      url: https://granuch-shop.duckdns.org
+
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check the input
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit must be a full 40-character lowercase SHA, got '$COMMIT'"
+            exit 1
+          fi
+
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@3fa784edd773d56630bb9f62645e08f70c2cff0a # v2.10.0
+        with:
+          version: '2.10.0'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release that commit again
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          artifact="oci://ghcr.io/granuch/eshop-deploy:sha-${COMMIT}"
+          # Fails with a clear message if CI never published that commit.
+          flux tag artifact "$artifact" --tag production
+          echo "### Rolled production back to \`${COMMIT::7}\`" >> "$GITHUB_STEP_SUMMARY"

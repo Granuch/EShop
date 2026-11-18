@@ -22,7 +22,7 @@ public class ShippedBrokerSettingsTests
         "docker-compose.yml",
         "docker-compose.override.production.yml",
         "docker-compose.override.public.yml",
-        "k8s/02-configmap.yaml"
+        "deploy/base/apps/kustomization.yaml"
     ];
 
     [Test]
@@ -30,7 +30,8 @@ public class ShippedBrokerSettingsTests
     {
         var enabled = ShippedFiles
             .SelectMany(file => SettingLines(file).Select(line => $"{file}: {line}"))
-            .Where(line => !Regex.IsMatch(line, $@"{Flag}\s*:\s*""?false""?\s*$", RegexOptions.IgnoreCase))
+            // "Flag: false" in compose and ConfigMap YAML, "- Flag=false" in a kustomize configMapGenerator literal.
+            .Where(line => !Regex.IsMatch(line, $@"{Flag}\s*[:=]\s*""?false""?\s*$", RegexOptions.IgnoreCase))
             .ToList();
 
         Assert.That(enabled, Is.Empty,
@@ -45,7 +46,7 @@ public class ShippedBrokerSettingsTests
         Assert.Multiple(() =>
         {
             Assert.That(SettingLines("docker-compose.yml"), Is.EqualTo(new[] { $"RabbitMQ__{Flag}: \"false\"" }));
-            Assert.That(SettingLines("k8s/02-configmap.yaml"), Is.EqualTo(new[] { $"RabbitMQ__{Flag}: \"false\"" }));
+            Assert.That(SettingLines("deploy/base/apps/kustomization.yaml"), Is.EqualTo(new[] { $"- RabbitMQ__{Flag}=false" }));
         });
     }
 
@@ -55,9 +56,9 @@ public class ShippedBrokerSettingsTests
         // Paired with the tests above, so the rule cannot outlive its reason: install the plugin (a custom image, an
         // enabled_plugins file) and this tells you the flag may be turned back on, deliberately, with it.
         var mentions = new[] { "docker-compose.yml", "docker-compose.override.production.yml", "docker-compose.override.public.yml" }
-            .Concat(Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "k8s"), "*.yaml", SearchOption.AllDirectories)
-                .Select(path => Path.GetRelativePath(RepositoryRoot(), path)))
             .Concat(Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "infrastructure"), "*", SearchOption.AllDirectories)
+                .Select(path => Path.GetRelativePath(RepositoryRoot(), path)))
+            .Concat(Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "deploy"), "*.yaml", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(RepositoryRoot(), path)))
             .Where(file => File.ReadAllText(Path.Combine(RepositoryRoot(), file)).Contains(Plugin, StringComparison.Ordinal))
             .ToList();

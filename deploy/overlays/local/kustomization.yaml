@@ -1,0 +1,52 @@
+# The whole stack on any test cluster (Docker Desktop, kind, k3d, or a scratch namespace on the server),
+# with Mailpit instead of real email, no Stripe keys, and throwaway credentials. Nothing is exposed; use
+# `kubectl -n eshop-local port-forward svc/ui 3000:3000` (and svc/api-gateway 7000:8080 for API checks).
+#
+# The Secret comes from secrets.env, which is gitignored: create it with ./make-secrets.sh first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eshop-local
+
+resources:
+  - namespace.yaml
+  - ../../base/infra
+  - ../../base/apps
+  - ../../base/monitoring
+  - mailpit.yaml
+
+secretGenerator:
+  - name: eshop-secrets
+    envs:
+      - secrets.env
+    options:
+      # A fixed name: every manifest refers to "eshop-secrets".
+      disableNameSuffixHash: true
+
+# "master" moves with every merge, so always pull it.
+patches:
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/component in (api,gateway,frontend)
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+
+images:
+  - name: ghcr.io/granuch/eshop-identity-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-catalog-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-basket-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-ordering-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-payment-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-notification-api
+    newTag: master
+  - name: ghcr.io/granuch/eshop-api-gateway
+    newTag: master
+  - name: ghcr.io/granuch/eshop-ui
+    newTag: master

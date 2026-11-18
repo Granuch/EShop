@@ -66,7 +66,7 @@ public class EShopForwardedHeadersTests
     }
 
     /// <summary>
-    /// The private ranges <c>docker-compose.yml</c> and <c>k8s/02-configmap.yaml</c> trust: the three RFC 1918
+    /// The private ranges <c>docker-compose.yml</c> and <c>deploy/base/apps/kustomization.yaml</c> trust: the three RFC 1918
     /// ranges plus IPv6 unique-local. The fourth is not optional. Docker can give <c>eshop-network</c> an IPv6
     /// subnet, and the gateway then reaches every service over IPv6 first. Trusting only the IPv4 ranges made each
     /// service ignore <c>X-Forwarded-For</c> and put every client in one rate-limit bucket.
@@ -124,7 +124,7 @@ public class EShopForwardedHeadersTests
 
     /// <summary>
     /// What the repository ships. No test host reads these files, so only reading them can notice one service
-    /// losing the IPv6 entry. Every app service in compose, and the shared k8s ConfigMap, must trust exactly
+    /// losing the IPv6 entry. Every app service in compose, and the shared ConfigMap in deploy/, must trust exactly
     /// <see cref="DeployedNetworks"/>.
     /// </summary>
     [TestCase("identity-api")]
@@ -144,11 +144,17 @@ public class EShopForwardedHeadersTests
     [Test]
     public void Kubernetes_TrustsThePrivateRanges()
     {
-        var lines = File.ReadAllLines(Path.Combine(RepositoryRoot(), "k8s", "02-configmap.yaml"))
+        // deploy/base/apps/kustomization.yaml writes them as configMapGenerator literals, "- Key=value".
+        var lines = File.ReadAllLines(Path.Combine(RepositoryRoot(), "deploy", "base", "apps", "kustomization.yaml"))
             .Select(line => line.Trim())
-            .Where(line => !line.StartsWith('#'));
+            .Where(line => line.StartsWith("- ", StringComparison.Ordinal))
+            .Select(line => line[2..]);
 
-        Assert.That(KnownNetworkLines(lines), Is.EqualTo(DeployedNetworks.Select(ExpectedLine).ToArray()));
+        Assert.That(
+            KnownNetworkLines(lines),
+            Is.EqualTo(DeployedNetworks
+                .Select(setting => $"{setting.Key.Replace(":", "__", StringComparison.Ordinal)}={setting.Value}")
+                .ToArray()));
     }
 
     private static string ExpectedLine((string Key, string Value) setting)
