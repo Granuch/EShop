@@ -1,0 +1,91 @@
+# Seq: structured logs from every component. Unlike compose's local default, authentication is on from
+# the first start, with the admin password from the Secret (an existing volume keeps its own users).
+apiVersion: v1
+kind: Service
+metadata:
+  name: seq
+  labels:
+    app.kubernetes.io/name: seq
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    app.kubernetes.io/name: seq
+  ports:
+    - name: ui
+      port: 80
+      targetPort: ui
+    # The ingestion address the components use (Serilog's serverUrl http://seq:5341).
+    - name: ingest
+      port: 5341
+      targetPort: ingest
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seq
+  labels:
+    app.kubernetes.io/name: seq
+    app.kubernetes.io/component: monitoring
+spec:
+  serviceName: seq
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seq
+        app.kubernetes.io/component: monitoring
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: seq
+          image: datalust/seq:2025.1.14117
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: SEQ_FIRSTRUN_NOAUTHENTICATION
+              value: "false"
+            - name: SEQ_FIRSTRUN_ADMINUSERNAME
+              value: admin
+            - name: SEQ_FIRSTRUN_ADMINPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: seq-admin-password
+          ports:
+            - name: ui
+              containerPort: 80
+            - name: ingest
+              containerPort: 5341
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ui
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ui
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

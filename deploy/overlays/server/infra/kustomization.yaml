@@ -1,0 +1,14 @@
+# Home server, part 1: the namespace and the stateful infrastructure. Flux applies this before the apps
+# (Kustomization eshop-infra; eshop-apps depends on it).
+#
+# The Secret "eshop-secrets" is NOT listed here: secrets.enc.yaml is SOPS-encrypted with the server's age key
+# and is copied into the deploy artifact beside the rendered manifests, so Flux decrypts it as written
+# (deploy/render.sh). Edit it with: sops deploy/overlays/server/infra/secrets.enc.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eshop
+
+resources:
+  - namespace.yaml
+  - ../../../base/infra
