@@ -22,7 +22,6 @@ public class ShippedBrokerSettingsTests
         "docker-compose.yml",
         "docker-compose.override.production.yml",
         "docker-compose.override.public.yml",
-        "k8s/02-configmap.yaml",
         "deploy/base/apps/kustomization.yaml"
     ];
 
@@ -47,7 +46,6 @@ public class ShippedBrokerSettingsTests
         Assert.Multiple(() =>
         {
             Assert.That(SettingLines("docker-compose.yml"), Is.EqualTo(new[] { $"RabbitMQ__{Flag}: \"false\"" }));
-            Assert.That(SettingLines("k8s/02-configmap.yaml"), Is.EqualTo(new[] { $"RabbitMQ__{Flag}: \"false\"" }));
             Assert.That(SettingLines("deploy/base/apps/kustomization.yaml"), Is.EqualTo(new[] { $"- RabbitMQ__{Flag}=false" }));
         });
     }
@@ -58,8 +56,6 @@ public class ShippedBrokerSettingsTests
         // Paired with the tests above, so the rule cannot outlive its reason: install the plugin (a custom image, an
         // enabled_plugins file) and this tells you the flag may be turned back on, deliberately, with it.
         var mentions = new[] { "docker-compose.yml", "docker-compose.override.production.yml", "docker-compose.override.public.yml" }
-            .Concat(Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "k8s"), "*.yaml", SearchOption.AllDirectories)
-                .Select(path => Path.GetRelativePath(RepositoryRoot(), path)))
             .Concat(Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "infrastructure"), "*", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(RepositoryRoot(), path)))
             .Concat(Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "deploy"), "*.yaml", SearchOption.AllDirectories)

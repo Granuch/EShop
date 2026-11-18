@@ -51,10 +51,10 @@ public class ShippedCatalogSettingsTests
             .ToList();
     }
 
-    /// <summary>The uncommented, trimmed lines of the Deployment named <paramref name="name"/> in the k8s manifest.</summary>
+    /// <summary>The uncommented, trimmed lines of the Deployment named <paramref name="name"/> in deploy/'s base.</summary>
     private static List<string> KubernetesDeployment(string name)
     {
-        var documents = File.ReadAllText(Path.Combine(RepositoryRoot, "k8s", "services", "microservices.yaml"))
+        var documents = File.ReadAllText(Path.Combine(RepositoryRoot, "deploy", "base", "apps", "basket.yaml"))
             .ReplaceLineEndings("\n")
             .Split("\n---\n")
             .Select(document => document.Split('\n').Select(line => line.Trim())

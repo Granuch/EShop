@@ -18,6 +18,7 @@ within about a minute. GitHub never connects to the server; the server pulls.
 | Docker Smoke | `.github/workflows/docker-smoke.yml` | push to `master`, nightly at 03:00 UTC, manual dispatch | ~5 min |
 | Dependabot | `.github/dependabot.yml` | weekly | n/a |
 | Dependabot auto-merge | `.github/workflows/dependabot-auto-merge.yml` | Dependabot pull requests | seconds |
+| CI catch-up | `.github/workflows/ci-catch-up.yml` | twice an hour, manual dispatch | seconds |
 | SonarCloud | `.github/workflows/sonarcloud.yml` | manual dispatch only | informational only, not a merge criterion |
 
 Every workflow runs on `ubuntu-24.04`, pinned so a runner-image change is a deliberate edit. The `GITHUB_TOKEN` is
@@ -215,14 +216,23 @@ not a bump to merge.
 
 `dependabot-auto-merge.yml` turns on GitHub's auto-merge for a Dependabot pull request when the update is low-risk:
 - a **patch** update in any ecosystem;
-- a **minor** update in any ecosystem except npm (`ui/` has no tests, so a green build proves little there).
+- a **minor** update of a NuGet package or a GitHub Action.
+
+Minor updates of npm packages (`ui/` has no tests, so a green build proves little) and of container images (compose and
+`deploy/`: CI never runs them, so a broken Grafana or OTel collector would only show in production) wait for a person.
+On 2026-11-18 one auto-merged pull request moved Grafana 11.2 → 11.6, the OTel collector 0.146 → 0.165 and the Stripe CLI
+1.19 → 1.55 at once, which is why images were taken out.
 
 Auto-merge merges only after every required check of the `master` ruleset passes, so a bump that breaks the build, a
 test or an image stays open for a person to look at.
-Major updates and npm minor updates are left for a person. The job runs only when Dependabot both opened the pull
-request and pushed its latest commit, so a commit someone else adds to a Dependabot branch is never merged
-automatically. Merging into `master` never deploys by itself: the deployment waits for an approval in the
-`production` environment.
+Major updates are left for a person too. The job runs only when Dependabot both opened the pull request and pushed
+its latest commit, so a commit someone else adds to a Dependabot branch is never merged automatically.
+
+**An auto-merged update is deployed like any other master commit, but not at once.** Auto-merge lands it with the
+workflow token, and GitHub starts no workflow for a push made with that token, so no CI run, no publish and no
+deploy follow the merge. `ci-catch-up.yml` runs twice an hour, finds a newest `master` commit with no (uncancelled)
+CI run, and starts CI for it through `workflow_dispatch`, which that rule does not block; `ci.yml` treats a dispatch on
+`master` like a push. To deploy such a commit at once: `gh workflow run ci.yml --ref master`.
 
 Dependabot pull requests get no repository secrets, so CI skips the Stripe sandbox tests there; the next push to
 `master` runs them.

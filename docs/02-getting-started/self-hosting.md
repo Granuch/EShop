@@ -1,5 +1,9 @@
 # Self-Hosting on a Home Machine
 
+> **Superseded (2026-11-19).** The public shop now runs on k3s, deployed by Flux on every green merge: see
+> [k3s-deployment.md](k3s-deployment.md) and [deploy/README.md](../../deploy/README.md). This page describes the earlier
+> Docker Compose setup (nginx, certbot, DuckDNS containers) and is kept for reference; nothing serves the site this way.
+
 How to put the shop on the internet for free from a machine at home, under a free DuckDNS name
 (`https://<name>.duckdns.org`), with a real Let's Encrypt certificate. No domain has to be bought.
 
