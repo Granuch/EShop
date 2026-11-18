@@ -10,8 +10,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Read-only token: nothing here writes to the repository. upload-artifact and the GHA build cache use the runner's
-# own runtime token, not GITHUB_TOKEN, so they need no extra permission.
+# Read-only token by default. upload-artifact and the GHA build cache use the runner's own runtime token, not
+# GITHUB_TOKEN. The three jobs that publish to GHCR (docker-build, publish, deploy) add packages: write themselves.
 permissions:
   contents: read
 
@@ -140,30 +140,89 @@ jobs:
         # SOPS-encrypted, and that every workload has a pinned image, a memory limit and a readiness probe.
         run: bash deploy/validate.sh
 
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # The version ui/Dockerfile builds with.
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        # npm ci fails when package-lock.json no longer matches package.json, which npm install would hide.
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        # Errors fail the job; warnings are reported only.
+        run: npm run lint
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Build
+        # Every route is dynamic, so the build needs no reachable gateway.
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+
   docker-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+
+    # packages: write is used only by the push steps, which run for pushes to master. A pull request from a fork
+    # gets a read-only token whatever this says.
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
       matrix:
         include:
           - service: api-gateway
+            context: .
             dockerfile: src/ApiGateways/EShop.ApiGateway/Dockerfile
           - service: identity-api
+            context: .
             dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
           - service: catalog-api
+            context: .
             dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
           - service: basket-api
+            context: .
             dockerfile: src/Services/Basket/EShop.Basket.API/Dockerfile
           - service: ordering-api
+            context: .
             dockerfile: src/Services/Ordering/EShop.Ordering.API/Dockerfile
           - service: payment-api
+            context: .
             dockerfile: src/Services/Payment/EShop.Payment.API/Dockerfile
           - service: notification-api
+            context: .
             dockerfile: src/Services/Notification/EShop.Notification.API/Dockerfile
+          # The storefront builds from ui/ alone (the root .dockerignore admits only src/).
+          - service: ui
+            context: ui
+            dockerfile: ui/Dockerfile
 
     name: docker-build (${{ matrix.service }})
+
+    env:
+      # Images are published as ghcr.io/granuch/eshop-<service>, the names deploy/ uses.
+      IMAGE: ghcr.io/granuch/eshop-${{ matrix.service }}
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
 
     steps:
       - name: Checkout
@@ -173,10 +232,10 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build image
-        # Built, loaded into the runner's Docker for the scan below, never pushed: there is no registry to push to.
+        # Loaded into the runner's Docker for the scan below.
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: false
           load: true
@@ -193,3 +252,127 @@ jobs:
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 \
             image --scanners vuln --severity HIGH,CRITICAL --exit-code 0 --no-progress eshop/${{ matrix.service }}:ci
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        # Same inputs as the build above, so every layer comes from the builder's cache. Tagged with the commit
+        # (what deployments use, never moved) and "master" (the latest build, for the local overlay).
+        # provenance/sbom off: one plain image per tag keeps the registry listing and clean-up simple.
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:master
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+
+  # Pushes to master only, once every check above has passed: renders deploy/overlays/server with the images pinned
+  # to this commit and publishes it as an OCI artifact. Nothing on the server changes yet.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [build-test, lint, compose-validate, manifests, ui, docker-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      ARTIFACT: oci://ghcr.io/granuch/eshop-deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kustomize
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$bin"
+          curl -fsSLo kustomize.tgz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+          echo "cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61  kustomize.tgz" | sha256sum -c -
+          tar xzf kustomize.tgz kustomize
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@3fa784edd773d56630bb9f62645e08f70c2cff0a # v2.10.0
+        with:
+          version: '2.10.0'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Render the server manifests for this commit
+        run: |
+          set -euo pipefail
+          bash deploy/render.sh server "$RUNNER_TEMP/release" "sha-${GITHUB_SHA}"
+          # Every image the manifests name must exist, or the cluster would wait for it forever.
+          grep -ohE 'image: ghcr\.io/granuch/eshop-[a-z-]+:sha-[0-9a-f]+' "$RUNNER_TEMP"/release/*/*.yaml | sort -u \
+            | while read -r _ image; do docker manifest inspect "$image" > /dev/null && echo "found $image"; done
+
+      - name: Publish the artifact
+        run: |
+          flux push artifact "${ARTIFACT}:sha-${GITHUB_SHA}" \
+            --path="$RUNNER_TEMP/release" \
+            --source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --revision="master@sha1:${GITHUB_SHA}"
+
+  # Waits for an approval in the production environment, then points the "production" tag at this commit's
+  # artifact. Flux on the server follows that tag and applies the change within about a minute.
+  # To roll back, run the Rollback workflow with an older commit.
+  deploy:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    environment:
+      name: production
+      url: https://granuch-shop.duckdns.org
+
+    # One deployment at a time, and never cancel one half-way.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@3fa784edd773d56630bb9f62645e08f70c2cff0a # v2.10.0
+        with:
+          version: '2.10.0'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release this commit
+        run: |
+          flux tag artifact "oci://ghcr.io/granuch/eshop-deploy:sha-${GITHUB_SHA}" --tag production
+          echo "### Released \`${GITHUB_SHA::7}\` to production" >> "$GITHUB_STEP_SUMMARY"
