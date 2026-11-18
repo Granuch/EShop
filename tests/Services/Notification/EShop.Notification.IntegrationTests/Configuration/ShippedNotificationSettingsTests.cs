@@ -72,13 +72,12 @@ public class ShippedNotificationSettingsTests
     [TestCaseSource(nameof(StorefrontUrls))]
     public void Kubernetes_GivesNotificationApiTheUrl(string section, string property, string envVar, string localUrl)
     {
-        var deployment = KubernetesDeployment("notification-api");
-        var name = $"- name: {section}__{property}";
-        var index = deployment.FindIndex(line => line == name);
+        // notification-config in deploy/'s base (a configMapGenerator literal); the server overlay merges its own URL.
+        var key = $"- {section}__{property}=";
 
-        Assert.That(index, Is.GreaterThanOrEqualTo(0), $"notification-api's Deployment sets no {section}__{property}");
-        Assert.That(deployment.Count(line => line == name), Is.EqualTo(1));
-        Assert.That(deployment[index + 1], Is.EqualTo($"value: \"{localUrl}\""));
+        Assert.That(
+            KustomizationLines().Where(line => line.StartsWith(key, StringComparison.Ordinal)),
+            Is.EqualTo(new[] { key + localUrl }));
     }
 
     /// <summary>S5 (D7): every shipped configuration names the SMTP security mode, and none still sets UseSsl.</summary>
@@ -87,7 +86,8 @@ public class ShippedNotificationSettingsTests
     {
         var compose = ComposeServiceBlock("docker-compose.yml", "notification-api");
         var production = ComposeServiceBlock("docker-compose.override.production.yml", "notification-api");
-        var configMap = File.ReadAllLines(Path.Combine(RepositoryRoot, "k8s", "02-configmap.yaml")).Select(l => l.Trim()).ToList();
+        // configMapGenerator literals in deploy/'s base, "- Key=value"; compared without the "- ".
+        var configMap = KustomizationLines().Where(l => l.StartsWith("- ", StringComparison.Ordinal)).Select(l => l[2..]).ToList();
         var tracked = ReadJson("appsettings.json").GetProperty("Smtp");
         var development = ReadJson("appsettings.Development.json").GetProperty("Smtp");
 
@@ -96,7 +96,7 @@ public class ShippedNotificationSettingsTests
             Assert.That(compose, Does.Contain("Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:-None}"));
             Assert.That(production,
                 Does.Contain("Smtp__Security: ${NOTIFICATION_SMTP_SECURITY:?NOTIFICATION_SMTP_SECURITY is required in production}"));
-            Assert.That(configMap, Does.Contain("Smtp__Security: \"None\""));
+            Assert.That(configMap, Does.Contain("Smtp__Security=None"));
             Assert.That(tracked.GetProperty("Security").GetString(), Is.EqualTo("StartTls"));
             Assert.That(development.GetProperty("Security").GetString(), Is.EqualTo("StartTls"));
 
@@ -143,20 +143,12 @@ public class ShippedNotificationSettingsTests
             .ToList();
     }
 
-    /// <summary>The uncommented, trimmed lines of the Deployment named <paramref name="name"/> in the k8s manifest.</summary>
-    private static List<string> KubernetesDeployment(string name)
-    {
-        var documents = File.ReadAllText(Path.Combine(RepositoryRoot, "k8s", "services", "microservices.yaml"))
-            .ReplaceLineEndings("\n")
-            .Split("\n---\n")
-            .Select(document => document.Split('\n').Select(line => line.Trim())
-                .Where(line => line.Length > 0 && !line.StartsWith('#')).ToList())
-            .Where(document => document.Contains("kind: Deployment") && document.Contains($"name: {name}"))
+    /// <summary>The uncommented, trimmed lines of deploy/base/apps/kustomization.yaml.</summary>
+    private static List<string> KustomizationLines()
+        => File.ReadAllLines(Path.Combine(RepositoryRoot, "deploy", "base", "apps", "kustomization.yaml"))
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith('#'))
             .ToList();
-
-        Assert.That(documents, Has.Count.EqualTo(1), $"expected one Deployment named {name}");
-        return documents[0];
-    }
 
     private static string FindRepositoryRoot()
     {
