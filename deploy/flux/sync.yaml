@@ -1,0 +1,77 @@
+# How Flux on the home server follows releases. Applied once by hand after `flux install` (deploy/README.md,
+# "Setting up the server"); everything else then arrives through the artifact.
+#
+# CI publishes oci://ghcr.io/granuch/eshop-deploy:sha-<commit> for every master commit, and its deploy job moves the
+# "production" tag. Flux polls that tag and applies, in order:
+#   addons/  cert-manager                  (eshop-addons)
+#   infra/   namespace, databases, Redis, RabbitMQ, the SOPS-encrypted Secret   (eshop-infra)
+#   apps/    services, ui, monitoring, edge (eshop-apps, after both)
+# prune: true deletes what a release no longer contains. The PersistentVolumeClaims that hold data come from
+# StatefulSet volumeClaimTemplates, which Kubernetes never deletes with the StatefulSet, so the databases survive.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: eshop
+  namespace: flux-system
+spec:
+  url: oci://ghcr.io/granuch/eshop-deploy
+  ref:
+    tag: production
+  interval: 1m
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: eshop-addons
+  namespace: flux-system
+spec:
+  sourceRef:
+    kind: OCIRepository
+    name: eshop
+  path: ./addons
+  interval: 30m
+  retryInterval: 2m
+  prune: true
+  wait: true
+  timeout: 10m
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: eshop-infra
+  namespace: flux-system
+spec:
+  sourceRef:
+    kind: OCIRepository
+    name: eshop
+  path: ./infra
+  interval: 30m
+  retryInterval: 2m
+  prune: true
+  wait: true
+  timeout: 10m
+  # Decrypts secrets.enc.yaml with the age key stored in the cluster (Secret flux-system/sops-age).
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: eshop-apps
+  namespace: flux-system
+spec:
+  sourceRef:
+    kind: OCIRepository
+    name: eshop
+  path: ./apps
+  interval: 30m
+  retryInterval: 2m
+  dependsOn:
+    - name: eshop-addons
+    - name: eshop-infra
+  prune: true
+  wait: true
+  # First start applies EF migrations and pulls every image; later releases are much faster.
+  timeout: 15m

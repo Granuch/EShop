@@ -143,9 +143,66 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    # A new .NET or Node major version is a deliberate upgrade (target frameworks, breaking changes), not a bump.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     rebase-strategy: auto
     groups:
       base-images:
+        patterns:
+          - "*"
+
+  # Images in the Kubernetes manifests (the docker ecosystem also reads Kubernetes YAML). They repeat the
+  # versions of docker-compose.yml, so a bump usually arrives twice, once per ecosystem; merge both. Majors are
+  # ignored: a Postgres major needs a dump and restore, not a new tag.
+  - package-ecosystem: "docker"
+    # Only the folders that name third-party images: deploy/base/apps holds our own untagged images, and a folder
+    # without any image makes the job fail.
+    directories:
+      - "/deploy/base/infra"
+      - "/deploy/base/monitoring"
+      - "/deploy/overlays/server/apps"
+      - "/deploy/overlays/local"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deploy)"
+    labels:
+      - "dependencies"
+      - "kubernetes"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    rebase-strategy: auto
+    groups:
+      deploy-images:
+        patterns:
+          - "*"
+
+  # The storefront's npm packages, in one weekly PR. Security fixes still arrive at once, as their own PRs.
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(ui)"
+    labels:
+      - "dependencies"
+      - "ui"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    rebase-strategy: auto
+    groups:
+      ui:
         patterns:
           - "*"
 

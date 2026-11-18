@@ -1,0 +1,107 @@
+# RabbitMQ with the management UI (exposed only inside the cluster; an overlay may add a LAN-only NodePort).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: broker
+spec:
+  selector:
+    app.kubernetes.io/name: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: management
+      port: 15672
+      targetPort: management
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: broker
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/component: broker
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      # Run as the image's rabbitmq user from the start. Then nothing in the pod, the probes included, can
+      # create /var/lib/rabbitmq/.erlang.cookie as root, which stops the broker with eacces (see the root
+      # CLAUDE.md). The probes are TCP checks for the same reason: no CLI runs during start-up.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13.7-management-alpine
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: rabbitmq-username
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: rabbitmq-password
+            # A fixed node name: the data directory is keyed by it, so it must survive pod rescheduling.
+            - name: RABBITMQ_NODENAME
+              value: rabbit@localhost
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          readinessProbe:
+            tcpSocket:
+              port: amqp
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: amqp
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

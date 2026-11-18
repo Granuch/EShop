@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eshop
+  labels:
+    app.kubernetes.io/part-of: eshop
+    # Pods here must meet the "baseline" Pod Security Standard (no privileged containers, no host namespaces);
+    # warn about anything that would fail "restricted".
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
