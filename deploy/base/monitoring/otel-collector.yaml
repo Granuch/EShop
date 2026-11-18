@@ -48,7 +48,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector-contrib:0.146.1
+          image: otel/opentelemetry-collector-contrib:0.165.0
           args: ["--config=/etc/otelcol/config.yml"]
           ports:
             - name: otlp-grpc
