@@ -5,13 +5,16 @@ on:
     branches: [ master ]
   push:
     branches: [ master, feature/**, bug/** ]
+  # Started by ci-catch-up.yml for a master commit no push event ran for: GitHub starts no workflow for a push made
+  # with the workflow token, which is how auto-merge lands a Dependabot pull request. Runs like a push.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Read-only token: nothing here writes to the repository. upload-artifact and the GHA build cache use the runner's
-# own runtime token, not GITHUB_TOKEN, so they need no extra permission.
+# Read-only token by default. upload-artifact and the GHA build cache use the runner's own runtime token, not
+# GITHUB_TOKEN. The three jobs that publish to GHCR (docker-build, publish, deploy) add packages: write themselves.
 permissions:
   contents: read
 
@@ -29,7 +32,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'
 
@@ -56,12 +59,12 @@ jobs:
         # there the tests are skipped.
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SANDBOX_SECRET_KEY }}
-          STRIPE_SANDBOX_REQUIRED: ${{ github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
+          STRIPE_SANDBOX_REQUIRED: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: dotnet test EShop.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-test-results
           path: TestResults/**/*.trx
@@ -111,30 +114,122 @@ jobs:
           bash .github/scripts/ci-env.sh "$RUNNER_TEMP/ci.env"
           bash .github/scripts/compose-validate.sh "$RUNNER_TEMP/ci.env"
 
+  manifests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kustomize and kubeconform
+        # Release binaries pinned by version and SHA-256, like the docker run tools above.
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$bin"
+          curl -fsSLo kustomize.tgz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+          echo "cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61  kustomize.tgz" | sha256sum -c -
+          curl -fsSLo kubeconform.tgz https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  kubeconform.tgz" | sha256sum -c -
+          tar xzf kustomize.tgz kustomize
+          tar xzf kubeconform.tgz kubeconform
+          echo "$bin" >> "$GITHUB_PATH"
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --user pyyaml==6.0.3
+
+      - name: Validate deploy/
+        # Renders both overlays, checks every object against its schema, checks that the server Secret is still
+        # SOPS-encrypted, and that every workload has a pinned image, a memory limit and a readiness probe.
+        run: bash deploy/validate.sh
+
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # The version ui/Dockerfile builds with.
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        # npm ci fails when package-lock.json no longer matches package.json, which npm install would hide.
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        # Errors fail the job; warnings are reported only.
+        run: npm run lint
+
+      - name: Type-check
+        # PageProps and LayoutProps are global types Next generates into .next/types; on a clean checkout tsc
+        # knows them only after `next typegen` (or a build) has written them.
+        run: |
+          npx next typegen
+          npx tsc --noEmit
+
+      - name: Build
+        # Every route is dynamic, so the build needs no reachable gateway.
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+
   docker-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+
+    # packages: write is used only by the push steps, which run for pushes to master. A pull request from a fork
+    # gets a read-only token whatever this says.
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
       matrix:
         include:
           - service: api-gateway
+            context: .
             dockerfile: src/ApiGateways/EShop.ApiGateway/Dockerfile
           - service: identity-api
+            context: .
             dockerfile: src/Services/Identity/EShop.Identity.API/Dockerfile
           - service: catalog-api
+            context: .
             dockerfile: src/Services/Catalog/EShop.Catalog.API/Dockerfile
           - service: basket-api
+            context: .
             dockerfile: src/Services/Basket/EShop.Basket.API/Dockerfile
           - service: ordering-api
+            context: .
             dockerfile: src/Services/Ordering/EShop.Ordering.API/Dockerfile
           - service: payment-api
+            context: .
             dockerfile: src/Services/Payment/EShop.Payment.API/Dockerfile
           - service: notification-api
+            context: .
             dockerfile: src/Services/Notification/EShop.Notification.API/Dockerfile
+          # The storefront builds from ui/ alone (the root .dockerignore admits only src/).
+          - service: ui
+            context: ui
+            dockerfile: ui/Dockerfile
 
     name: docker-build (${{ matrix.service }})
+
+    env:
+      # Images are published as ghcr.io/granuch/eshop-<service>, the names deploy/ uses.
+      IMAGE: ghcr.io/granuch/eshop-${{ matrix.service }}
+      PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
 
     steps:
       - name: Checkout
@@ -144,10 +239,10 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build image
-        # Built, loaded into the runner's Docker for the scan below, never pushed: there is no registry to push to.
+        # Loaded into the runner's Docker for the scan below.
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: false
           load: true
@@ -164,3 +259,128 @@ jobs:
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.74.0 \
             image --scanners vuln --severity HIGH,CRITICAL --exit-code 0 --no-progress eshop/${{ matrix.service }}:ci
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        # Same inputs as the build above, so every layer comes from the builder's cache. Tagged with the commit
+        # (what deployments use, never moved) and "master" (the latest build, for the local overlay).
+        # provenance/sbom off: one plain image per tag keeps the registry listing and clean-up simple.
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:master
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+
+  # Pushes to master only, once every check above has passed: renders deploy/overlays/server with the images pinned
+  # to this commit and publishes it as an OCI artifact. Nothing on the server changes yet.
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: [build-test, lint, compose-validate, manifests, ui, docker-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      ARTIFACT: oci://ghcr.io/granuch/eshop-deploy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kustomize
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$bin"
+          curl -fsSLo kustomize.tgz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+          echo "cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61  kustomize.tgz" | sha256sum -c -
+          tar xzf kustomize.tgz kustomize
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@3fa784edd773d56630bb9f62645e08f70c2cff0a # v2.10.0
+        with:
+          version: '2.10.0'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Render the server manifests for this commit
+        run: |
+          set -euo pipefail
+          bash deploy/render.sh server "$RUNNER_TEMP/release" "sha-${GITHUB_SHA}"
+          # Every image the manifests name must exist, or the cluster would wait for it forever.
+          grep -ohE 'image: ghcr\.io/granuch/eshop-[a-z-]+:sha-[0-9a-f]+' "$RUNNER_TEMP"/release/*/*.yaml | sort -u \
+            | while read -r _ image; do docker manifest inspect "$image" > /dev/null && echo "found $image"; done
+
+      - name: Publish the artifact
+        run: |
+          flux push artifact "${ARTIFACT}:sha-${GITHUB_SHA}" \
+            --path="$RUNNER_TEMP/release" \
+            --source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --revision="master@sha1:${GITHUB_SHA}"
+
+  # Points the "production" tag at this commit's artifact; Flux on the server follows that tag and applies the change
+  # within about a minute. The production environment allows only master; it has no required reviewer, so this runs
+  # straight after publish (add a reviewer to the environment to gate deployments by hand again).
+  # To roll back, run the Rollback workflow with an older commit.
+  deploy:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    environment:
+      name: production
+      url: https://granuch-shop.duckdns.org
+
+    # One deployment at a time, and never cancel one half-way.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@3fa784edd773d56630bb9f62645e08f70c2cff0a # v2.10.0
+        with:
+          version: '2.10.0'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release this commit
+        run: |
+          flux tag artifact "oci://ghcr.io/granuch/eshop-deploy:sha-${GITHUB_SHA}" --tag production
+          echo "### Released \`${GITHUB_SHA::7}\` to production" >> "$GITHUB_STEP_SUMMARY"

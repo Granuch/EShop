@@ -1,0 +1,7 @@
+# Cluster add-ons the EShop manifests depend on. Flux applies this first (Kustomization eshop-addons); the apps
+# wait for it because the server overlay's Issuer is a cert-manager resource.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - cert-manager.yaml

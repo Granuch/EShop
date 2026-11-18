@@ -1,0 +1,146 @@
+# Identity: accounts, tokens, roles. Owns identity-postgres.
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-api
+  labels:
+    app.kubernetes.io/name: identity-api
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    app.kubernetes.io/name: identity-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-api
+  labels:
+    app.kubernetes.io/name: identity-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # Start the new pod before stopping the old one, so a rollout never leaves the component without a pod.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-api
+        app.kubernetes.io/component: api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # appuser in every service image (USER 999:999).
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        # Fix ownership only on a new volume: re-applied on every start, it gives files group write
+        # (RabbitMQ then refuses its .erlang.cookie, PostgreSQL its data directory).
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: identity-api
+          image: ghcr.io/granuch/eshop-identity-api
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: eshop-config
+            - configMapRef:
+                name: identity-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: identity-db-password
+            - name: ConnectionStrings__IdentityDb
+              value: "Host=identity-postgres;Port=5432;Database=eshop_identity;Username=postgres;Password=$(DB_PASSWORD);MaxPoolSize=40;Timeout=30;Command Timeout=30"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: redis-password
+            - name: ConnectionStrings__Redis
+              value: "redis:6379,password=$(REDIS_PASSWORD),ssl=false,abortConnect=false,connectTimeout=5000,syncTimeout=5000,connectRetry=3"
+            - name: RabbitMQ__Username
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: rabbitmq-username
+            - name: RabbitMQ__Password
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: rabbitmq-password
+            - name: JwtSettings__SecretKey
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: jwt-secret-key
+            - name: InternalServiceAuth__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: internal-service-api-key
+            - name: Identity__SeedAdminPassword
+              valueFrom:
+                secretKeyRef:
+                  name: eshop-secrets
+                  key: seed-admin-password
+          # Start-up applies EF migrations before the host listens, so allow up to five minutes.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          # /health/ready checks Redis, whose client waits up to 5 s per attempt (connectTimeout=5000), so a
+          # 1 s timeout would report a Redis outage as a probe timeout rather than a 503 (docker-ci DC-46).
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        # The rolling file sink; Seq holds the searchable copy.
+        - name: logs
+          emptyDir:
+            sizeLimit: 256Mi

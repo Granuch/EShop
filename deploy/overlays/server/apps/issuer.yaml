@@ -1,0 +1,16 @@
+# Let's Encrypt (production) through the HTTP-01 challenge on port 80. Namespaced, so it can only issue
+# certificates for this namespace. Needs cert-manager in the cluster (installed by Flux, deploy/flux/).
+# Let's Encrypt allows 5 identical certificates a week: keep the Secret eshop-tls when recreating things.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

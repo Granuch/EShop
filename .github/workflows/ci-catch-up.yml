@@ -1,0 +1,44 @@
+name: CI catch-up
+
+# Starts CI for the newest master commit when nothing ran for it. GitHub starts no workflow for a push made with the
+# workflow token (GITHUB_TOKEN), and that is how GitHub's auto-merge lands a Dependabot pull request enabled by
+# dependabot-auto-merge.yml. Such a commit would never be built, published or deployed until the next human merge.
+# A run started through workflow_dispatch is not subject to that rule, and ci.yml treats it like a push to master.
+
+on:
+  schedule:
+    - cron: '20,50 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-catch-up
+  cancel-in-progress: false
+
+jobs:
+  catch-up:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Start CI for master if its newest commit has no run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha=$(gh api "repos/$REPO/commits/master" --jq .sha)
+          # A run counts unless it was cancelled: a newer push cancels an older one (CI's concurrency group).
+          runs=$(gh run list --repo "$REPO" --workflow ci.yml --commit "$sha" --json event,conclusion \
+            --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch") | select(.conclusion != "cancelled")] | length')
+          if [ "$runs" -gt 0 ]; then
+            echo "master ${sha::7} already has $runs CI run(s)"
+            exit 0
+          fi
+          echo "master ${sha::7} has no CI run; starting one"
+          gh workflow run ci.yml --repo "$REPO" --ref master
+          echo "### Started CI for master \`${sha::7}\`" >> "$GITHUB_STEP_SUMMARY"

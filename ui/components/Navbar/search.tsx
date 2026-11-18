@@ -24,20 +24,19 @@ function useDebounce<T>(value: T, delay = 300) {
 
 export default function SearchBar() {
   const [input, setInput] = useState('')
-  const [results, setResults] = useState<Product[]>([])
-  const [loading, setLoading] = useState(false)
+  // The answer and the term it answers. "Loading" is derived from them rather than kept in state, so the
+  // effect sets state only when a response arrives (react-hooks/set-state-in-effect).
+  const [found, setFound] = useState<{ term: string; items: Product[] }>({ term: '', items: [] })
   const [open, setOpen] = useState(false)
 
   const term = useDebounce(input.trim())
+  const loading = term.length >= 2 && found.term !== term
+  const results = found.term === term ? found.items : []
 
   useEffect(() => {
-    if (term.length < 2) {
-      setResults([])
-      return
-    }
+    if (term.length < 2) return
 
     const controller = new AbortController()
-    setLoading(true)
 
     // Through the Next server (app/api/search): a visitor's browser cannot reach the gateway itself.
     const params = new URLSearchParams({ q: term })
@@ -47,12 +46,11 @@ export default function SearchBar() {
         if (!res.ok) throw new Error(`Request failed: ${res.status}`)
         return res.json() as Promise<PagedResult<Product>>
       })
-      .then((data) => setResults(data.items))
+      .then((data) => setFound({ term, items: data.items }))
       .catch((err) => {
-        if (err.name !== 'AbortError') console.error(err)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
+        if (err.name === 'AbortError') return
+        console.error(err)
+        setFound({ term, items: [] })
       })
 
     return () => controller.abort() // cancels the previous request
