@@ -35,10 +35,18 @@ RUN dotnet publish "EShop.ApiGateway.csproj" \
 # --------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.15 AS final
 
-# curl serves the HEALTHCHECK below and the compose healthchecks.
-RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+# curl serves the HEALTHCHECK below and the compose healthchecks. The loop retries update + install together:
+# when the Ubuntu mirrors are unreachable, "apt-get update" only warns and exits 0, and the failure surfaces as
+# "Unable to locate package curl" (Docker Smoke, 2026-11-19). command -v fails the step if every attempt failed.
+RUN for attempt in 1 2 3 4; do \
+        apt-get update \
+        && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl \
+        && break; \
+        echo "apt attempt ${attempt} failed, retrying in $((attempt * 15)) s" >&2; \
+        sleep $((attempt * 15)); \
+    done \
+    && rm -rf /var/lib/apt/lists/* \
+    && command -v curl > /dev/null
 
 # Non-root user. UID/GID 999 are pinned because the existing *-logs volumes hold files owned by 999.
 RUN groupadd --system --gid 999 appuser \
