@@ -32,6 +32,11 @@ public static class GatewayTelemetry
         unit: "emails",
         description: "Total sent gateway emails by event type and status");
 
+    private static readonly Counter<long> EmailSuppressedTotal = Meter.CreateCounter<long>(
+        "gateway_email_suppressed_total",
+        unit: "notifications",
+        description: "Gateway notices held back by the per-kind window or the daily cap, by event type and reason");
+
     private static readonly Counter<long> RateLimitedTotal = Meter.CreateCounter<long>(
         "gateway_rate_limited_total",
         unit: "requests",
@@ -64,6 +69,15 @@ public static class GatewayTelemetry
         EmailQueuedTotal.Add(1, new TagList
         {
             { "event_type", eventType }
+        });
+    }
+
+    public static void RecordEmailSuppressed(string eventType, string reason)
+    {
+        EmailSuppressedTotal.Add(1, new TagList
+        {
+            { "event_type", eventType },
+            { "reason", reason }
         });
     }
 

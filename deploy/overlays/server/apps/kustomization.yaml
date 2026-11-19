@@ -49,6 +49,11 @@ configMapGenerator:
       - Email__Port=587
       # STARTTLS (EmailOptions.UseSsl maps to SecureSocketOptions.StartTls).
       - Email__UseSsl=true
+      # The gateway sends its notices through the same Gmail account as the Notification service, so a flood of them
+      # starves customer email: on 2026-11-18 one email per 429 (~550 in ten minutes) used up the account's daily
+      # quota and every confirmation failed for a day. A 429 is already on the gateway dashboard, so no email for it;
+      # the other notices are throttled in the gateway (Gateway:EmailNotificationWindowSeconds, MaxEmailNotificationsPerDay).
+      - Gateway__EnableRateLimitEmailNotifications=false
 
 # CI replaces "master" with the commit's sha-<sha> tag before publishing (deploy/render.sh).
 images:

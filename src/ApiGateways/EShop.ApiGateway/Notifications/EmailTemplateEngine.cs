@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace EShop.ApiGateway.Notifications;
 
 public sealed class EmailTemplateEngine : IEmailTemplateEngine
@@ -54,7 +56,8 @@ public sealed class EmailTemplateEngine : IEmailTemplateEngine
             .Replace("{{UserId}}", context.UserId ?? "anonymous", StringComparison.Ordinal)
             .Replace("{{UserEmail}}", context.UserEmail ?? "n/a", StringComparison.Ordinal)
             .Replace("{{CorrelationId}}", context.CorrelationId, StringComparison.Ordinal)
-            .Replace("{{OccurredAtUtc}}", context.OccurredAtUtc.ToString("O"), StringComparison.Ordinal);
+            .Replace("{{OccurredAtUtc}}", context.OccurredAtUtc.ToString("O"), StringComparison.Ordinal)
+            .Replace("{{SuppressedCount}}", context.SuppressedCount.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
     }
 
     private string? ResolveTemplatePath(string eventType)
@@ -79,6 +82,7 @@ public sealed class EmailTemplateEngine : IEmailTemplateEngine
                 <li>UserId: {context.UserId ?? "anonymous"}</li>
                 <li>CorrelationId: {context.CorrelationId}</li>
                 <li>OccurredAtUtc: {context.OccurredAtUtc:O}</li>
+                <li>Similar notices held back since the previous one: {context.SuppressedCount}</li>
             </ul>
             """;
     }
