@@ -68,7 +68,7 @@ gh api $R/code-scanning/default-setup
 | Merge methods | squash only | One commit per pull request on `master`, titled with the pull request's title. The ruleset enforces the same. |
 | "Update branch" button | on | Brings a pull request up to date with `master` without a local merge. |
 | Auto-merge | on | A pull request can be set to merge itself once every required check passes. `dependabot-auto-merge.yml` does this for low-risk Dependabot updates; see [ci-cd-workflow.md](ci-cd-workflow.md#automatic-merging). |
-| Delete head branch on merge | **off** | Long-lived branches such as `feature/ui` are themselves merged into `master` through pull requests; deleting them automatically would remove them. Delete finished short-lived branches by hand. |
+| Delete head branch on merge | on | A squash merge puts all of a pull request's changes on `master`, so its branch holds nothing more. A deleted branch can be brought back with "Restore branch" on its pull request. The branch of a pull request closed without merging stays: delete it by hand (`git push origin --delete <branch>`). If a long-lived branch is ever used as the head of a pull request into `master`, turn this off first, or the merge deletes that branch. |
 | Wiki, Projects | off | Unused; documentation lives in `docs/`. |
 
 ```bash
