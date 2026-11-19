@@ -73,6 +73,24 @@ public sealed class GatewayNoticeThrottleTests
     }
 
     [Test]
+    public void EachSentNotice_CountsOnlyWhatWasHeldBackSinceThePreviousOne()
+    {
+        var (throttle, clock) = Build();
+        throttle.Evaluate(Notice());
+        throttle.Evaluate(Notice());
+        throttle.Evaluate(Notice());
+
+        clock.Advance(TimeSpan.FromMinutes(15));
+        var second = throttle.Evaluate(Notice());
+        throttle.Evaluate(Notice());
+
+        clock.Advance(TimeSpan.FromMinutes(15));
+        var third = throttle.Evaluate(Notice());
+
+        Assert.That(new[] { second, third }, Is.EqualTo(new[] { NoticeDecision.Send(2), NoticeDecision.Send(1) }));
+    }
+
+    [Test]
     public void EachEventTypeAndRoute_HasItsOwnWindow()
     {
         var (throttle, _) = Build();
