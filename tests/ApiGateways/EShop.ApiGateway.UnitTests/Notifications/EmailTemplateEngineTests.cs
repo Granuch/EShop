@@ -67,6 +67,64 @@ public sealed class EmailTemplateEngineTests
         Assert.That(result.HtmlBody, Does.Contain("proxy-route"));
     }
 
+    [Test]
+    public void Render_ReportsTheNoticesHeldBack_InTheShippedTemplate()
+    {
+        var engine = new EmailTemplateEngine(BuildEnvironment(ShippedContentRoot()), NullLogger<EmailTemplateEngine>.Instance);
+        var context = new EmailNotificationContext(
+            EventType: "RateLimitExceeded",
+            Route: "catalog-products-read-route",
+            StatusCode: 429,
+            Path: "/api/v1/products",
+            UserId: null,
+            UserEmail: null,
+            CorrelationId: "corr-3",
+            OccurredAtUtc: DateTime.UtcNow,
+            SuppressedCount: 641);
+
+        var result = engine.Render(context);
+
+        Assert.That(result.HtmlBody, Does.Contain("held back since the previous one: 641"));
+        Assert.That(result.HtmlBody, Does.Not.Contain("{{"));
+    }
+
+    /// <summary>A template without the placeholder would hide the size of a burst from the operator.</summary>
+    [Test]
+    public void EveryShippedTemplate_ShowsTheHeldBackCount()
+    {
+        var templates = Directory.GetFiles(Path.Combine(ShippedContentRoot(), "Templates"), "*.html");
+
+        Assert.That(templates, Has.Length.EqualTo(5));
+        Assert.That(
+            templates.Where(t => !File.ReadAllText(t).Contains("{{SuppressedCount}}", StringComparison.Ordinal)).Select(Path.GetFileName),
+            Is.Empty);
+    }
+
+    [Test]
+    public void Render_Fallback_ReportsTheNoticesHeldBack()
+    {
+        var root = CreateTempRoot();
+        Directory.CreateDirectory(Path.Combine(root, "Templates"));
+        var engine = new EmailTemplateEngine(BuildEnvironment(root), NullLogger<EmailTemplateEngine>.Instance);
+        var context = new EmailNotificationContext(
+            "DownstreamFailure", "proxy-route", 502, "/x", null, null, "corr-4", DateTime.UtcNow, SuppressedCount: 12);
+
+        Assert.That(engine.Render(context).HtmlBody, Does.Contain("held back since the previous one: 12"));
+    }
+
+    /// <summary>The gateway project's own folder, found by walking up from the test binaries to the solution file.</summary>
+    private static string ShippedContentRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EShop.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        Assert.That(dir, Is.Not.Null, "EShop.slnx not found above the test binaries");
+        return Path.Combine(dir!.FullName, "src", "ApiGateways", "EShop.ApiGateway");
+    }
+
     private static IWebHostEnvironment BuildEnvironment(string root)
     {
         var mock = new Mock<IWebHostEnvironment>();

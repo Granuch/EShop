@@ -68,8 +68,7 @@ public sealed class EmailTriggerMiddleware
             return;
         }
 
-        GatewayTelemetry.RecordEmailQueued(notification.EventType);
-
+        // Queued or held back, the service records which (GatewayNoticeThrottle).
         await _emailNotificationService.QueueAsync(notification, context.RequestAborted);
     }
 

@@ -119,6 +119,11 @@ Notices go only to the operators in `Gateway:OperationsEmailRecipients`, never t
 With the list empty (the tracked default) nothing is queued. This allows asynchronous operational notifications
 without blocking request flow.
 
+Before a notice is queued, `GatewayNoticeThrottle` lets through at most one per event type and route every
+`Gateway:EmailNotificationWindowSeconds` (default 900) and at most `Gateway:MaxEmailNotificationsPerDay` (default 50)
+per UTC day; the next notice sent reports how many were held back. See "Operational Notices" in
+[api-gateway.md](api-gateway.md) for why.
+
 ---
 
 ## 7. Security Requirements

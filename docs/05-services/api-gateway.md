@@ -133,6 +133,21 @@ one else. The list is empty in the tracked configuration, so nothing is sent unt
 sets it from `GATEWAY_OPERATIONS_EMAIL` (default `ops@eshop.local`, captured by Mailpit). The gateway no longer
 resolves user email addresses through Identity and holds no internal API key.
 
+Notices are throttled before they are queued (`GatewayNoticeThrottle`):
+
+- at most one per event type and route every `Gateway:EmailNotificationWindowSeconds` (default 900); the next one
+  that goes out says how many of its kind were held back in between;
+- at most `Gateway:MaxEmailNotificationsPerDay` (default 50) per UTC day across all kinds, with one warning in the log
+  when the cap is reached;
+- `0` turns either limit off. The state is in memory, so a restart starts a fresh window and a fresh daily count.
+
+Held-back notices are counted in `gateway_email_suppressed_total` (scraped as
+`gateway_email_suppressed_notifications_total`, by `event_type` and `reason`: `window` or `daily-cap`), and
+`gateway_email_queued_total` counts only the notices actually queued. Before the throttle, every 429 was one email:
+on 2026-11-18 a ten-minute burst of 642 catalog 429s sent about 550 emails through the shop's Gmail account, used up
+its daily quota, and every customer email failed for a day. The k3s server overlay therefore also sets
+`Gateway__EnableRateLimitEmailNotifications=false`, since 429s are already on the gateway dashboard.
+
 ---
 
 ## Rate Limiting

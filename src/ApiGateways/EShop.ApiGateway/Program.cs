@@ -17,6 +17,7 @@ using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Prometheus;
 using Serilog;
@@ -182,6 +183,8 @@ try
     builder.Services.AddSingleton<ISimulationResponseFactory, SimulationResponseFactory>();
 
     builder.Services.AddSingleton<GatewayEmailQueue>();
+    builder.Services.TryAddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton<GatewayNoticeThrottle>();
     builder.Services.AddSingleton<IEmailNotificationService, EmailNotificationService>();
     builder.Services.AddSingleton<IEmailTemplateEngine, EmailTemplateEngine>();
     builder.Services.AddScoped<IEmailSender, MailKitEmailSender>();
