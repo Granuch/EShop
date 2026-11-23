@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: stripe-listener
-          image: stripe/stripe-cli:v1.55.11
+          image: stripe/stripe-cli:v1.55.14
           args:
             - listen
             - --forward-to
