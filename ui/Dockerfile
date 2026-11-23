@@ -8,7 +8,7 @@
 # Dependencies: the npm ci layer is reused until package*.json changes
 # --------------------------------------------
 # Exact tag, so a rebuild is reproducible; the same Node major as local development.
-FROM node:24.21.0-alpine3.23 AS deps
+FROM node:24.22.3-alpine3.23 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -16,7 +16,7 @@ RUN npm ci --no-audit --no-fund
 # --------------------------------------------
 # Build
 # --------------------------------------------
-FROM node:24.21.0-alpine3.23 AS build
+FROM node:24.22.3-alpine3.23 AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
@@ -27,7 +27,7 @@ RUN npm run build
 # --------------------------------------------
 # Runtime
 # --------------------------------------------
-FROM node:24.21.0-alpine3.23 AS final
+FROM node:24.22.3-alpine3.23 AS final
 WORKDIR /app
 
 # HOSTNAME: the standalone server binds to it, and Docker sets it to the container id, which would make the server
