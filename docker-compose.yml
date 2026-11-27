@@ -137,7 +137,7 @@ services:
   # Monitor tab reads span-derived metrics from Prometheus.
   # ============================================
   jaeger:
-    image: jaegertracing/all-in-one:1.57
+    image: jaegertracing/all-in-one:1.60
     container_name: eshop-jaeger
     restart: unless-stopped
     depends_on:
